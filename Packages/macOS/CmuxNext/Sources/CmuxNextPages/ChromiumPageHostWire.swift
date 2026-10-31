@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 
 /// The JSON shapes ``ChromiumPageHostBridge`` reads and writes. Pure, so tests check each shape.
@@ -63,7 +64,8 @@ nonisolated struct ChromiumPageHostWire {
     /// The document event a raw DevTools event means: a main-frame `Page.frameNavigated` is a
     /// committed document, `Page.loadEventFired` a finished one; nil for any other message.
     static func documentEvent(_ json: String) -> PageChromiumEvent? {
-        guard json.contains("\"Page.frameNavigated\"") || json.contains("\"Page.loadEventFired\""),
+        let method = DevToolsMessageHead(json: json).method
+        guard method == "Page.frameNavigated" || method == "Page.loadEventFired",
               let object = object(json), object["id"] == nil, let method = object["method"] as? String else { return nil }
         switch method {
         case "Page.loadEventFired":
@@ -83,6 +85,14 @@ nonisolated struct ChromiumPageHostWire {
         guard let object = object(json), object["exceptionDetails"] == nil,
               let result = object["result"] as? [String: Any] else { return false }
         return result["value"] as? Bool == true
+    }
+
+    /// The string a `Runtime.evaluate` with `returnByValue` returned, nil for an exception or
+    /// another type.
+    static func evaluationString(_ json: String) -> String? {
+        guard let object = object(json), object["exceptionDetails"] == nil,
+              let result = object["result"] as? [String: Any] else { return nil }
+        return result["value"] as? String
     }
 
     static func object(_ json: String) -> [String: Any]? {

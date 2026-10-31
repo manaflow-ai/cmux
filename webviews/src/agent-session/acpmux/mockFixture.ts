@@ -83,7 +83,7 @@ const claudeModes = {
     { id: "default", name: "Ask before edits" },
     { id: "acceptEdits", name: "Accept edits" },
     { id: "plan", name: "Plan" },
-    { id: "bypassPermissions", name: "Full access" },
+    { id: "bypassPermissions", name: "Bypass permissions" },
   ],
   currentModeId: "bypassPermissions",
 };
@@ -95,8 +95,8 @@ const codexModes = {
   ],
   currentModeId: "auto",
 };
-/// Codex's config options past the effort level (codex-acp): plan or default collaboration, the
-/// Options chip's choices (AgentOptionsMenu).
+/// Codex's collaboration option stays available to its command/mode paths; the composer leaves it
+/// out of the generic Options chip.
 const codexCollaboration = {
   id: "collaboration_mode",
   name: "Collaboration mode",
@@ -107,7 +107,7 @@ const codexCollaboration = {
     { value: "plan", name: "Plan", description: "Write a plan before editing." },
   ],
 };
-/// A session's config options: its effort level, and Codex's collaboration mode.
+/// A session's config options: its effort level, and Codex's collaboration mode for /plan.
 const sessionOptions = (codex: boolean) => [
   ...effort(codex ? "high" : "medium"),
   ...(codex ? [codexCollaboration] : []),
@@ -430,6 +430,8 @@ export function sessionSummary(session: MockSession, now: number, turnCount: num
     ...fields,
     preview,
     name: session.harness,
+    // acpmux runs the fixture's `claude` as Claude Code: Ctrl-B and subagent Stop.
+    backgroundsWork: session.harness === "claude",
     updatedAt: now - ago * 60_000,
     turnCount,
     indicator: fixtureIndicator(session),
@@ -460,6 +462,7 @@ export function newSessionSummary(
     harness,
     // acpmux names the harness family, which decides what the chat forks (Edit, versions).
     family: harness,
+    backgroundsWork: !codex,
     model: (codex ? codexModels : claudeModels)[0]!.id,
     status: "idle",
     cwd,

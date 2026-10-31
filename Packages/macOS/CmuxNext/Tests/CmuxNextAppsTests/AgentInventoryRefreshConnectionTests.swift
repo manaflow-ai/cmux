@@ -32,7 +32,7 @@ struct AgentInventoryRefreshConnectionTests {
                 result = calls
             print(json.dumps({'id':frame.get('id'),'ok':True,'data':result}), flush=True)
         """#
-        let bridge = DaemonBridge(executable: "/usr/bin/python3", arguments: ["-u", "-c", script, mode])
+        let bridge = DaemonBridge.fakePython(["-c", script, mode])
         let endpoint = DaemonEndpoint(socketPath: "/tmp/cmux-refresh-\(UUID().uuidString).sock", bridge: bridge)
         let connection = DaemonConnection(endpoint: endpoint, configuration: .init(requiredCapabilities: [], terminalEnvironment: nil))
         let machine: ResourceID = "machine_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"

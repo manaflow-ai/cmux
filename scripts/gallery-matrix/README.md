@@ -1,6 +1,6 @@
 # Gallery matrix runner
 
-This runner takes a JSON array of cases and captures each case in Chromium and WebKit at device scale 2. A case is one gallery stage: `frame.html` with the gallery's URL contract as its params (`webviews/src/gallery/env.ts`: entry, variant, locale, theme, colorScheme, fontFamily, fontSize, density, scale, width, height, reducedMotion, highContrast). Write a manifest from the gallery registry with `bun webviews/scripts/gallery/manifest.ts` (`--entries`, `--variants`, `--locales en|shipped|all`, `--themes default|pair|sample|all`, `--widths`, `--limit`). The runner waits for the stage's `data-gallery-ready` and renders in UTC. It serves a static gallery directory, writes PNGs and a framework-free `index.html`, and can compare matching PNGs in a baseline directory.
+This runner takes a JSON array of cases and captures each case in Chromium and WebKit at device scale 2. By default each image is cropped to the gallery surface (`[data-gallery-capture]`, falling back to `#root`) with 32 CSS px of context; set `CMUX_GALLERY_CAPTURE_SELECTOR` for a named element. A case is one gallery stage: `frame.html` with the gallery's URL contract as its params (`webviews/src/gallery/env.ts`: entry, variant, locale, theme, colorScheme, fontFamily, fontSize, density, scale, width, height, reducedMotion, highContrast). Write a manifest from the gallery registry with `bun webviews/scripts/gallery/manifest.ts` (`--entries`, `--variants`, `--locales en|shipped|all`, `--themes default|pair|sample|all`, `--widths`, `--limit`). The runner waits for the stage's `data-gallery-ready` and renders in UTC. It serves a static gallery directory, writes PNGs and a framework-free `index.html`, and can compare matching PNGs in a baseline directory.
 
 Install once from this directory:
 
@@ -75,3 +75,117 @@ Publish an already captured matrix with `scripts/gallery-deploy.sh --matrix g5-p
 For the native cmux-next lane, use `scripts/cmux-next/motion-evidence.py` with the socket of the exact
 tagged DEBUG app. It wraps `scripts/ci/frame-pacing/golden.py`, writes a `motion-evidence.json`
 manifest, and preserves the per-display-link traces and optional `debug.window_record` frames.
+
+## Gallery health
+
+`health.ts` checks that every gallery state renders. It runs the matrix (`runLocal`) and calls a
+state (`entry#variant`) broken when its stage errors (a fixture that can't find its control fails
+the mount), never reports ready, the renderer dies, or its play can't find or reach the state ("no
+element for", "waitFor did not hold"). A stage that draws nothing isn't broken by itself, since some
+states are empty on purpose. Layout shift, long frames and motion stay the matrix's findings.
+A state broken on the first run is rendered twice more, and only a state broken every time counts.
+
+`broken-allowlist.json` names known broken states, each with why it waits. A broken state that is
+not listed fails the check; a listed state that now renders is printed so its line can go. The
+`gallery health` workflow renders, in four shards, the entries a pull request touches and the
+entries each push to feat-cmux-next touches (everything when a global stylesheet, this folder or
+the workflow changes):
+
+```sh
+CMUX_GALLERY_IN_VM=1 bun health.ts --manifest manifest.json --gallery-dir ../../webviews/dist/gallery
+```
+
+Each state also has a ready-time budget: navigation start to the stage's first ready report
+(mount, play and settle, less the time the play waited for its step stills; the runner records it
+as `readyMs`). A state whose budget limit is past the runner's 20 s ready wait can only fail as
+never ready. `ready-budgets.json` holds a default
+and a row for each state slower than it. A state past its budget by half again plus 500 ms is
+rendered again, and fails only when its fastest run is still past it. A state that beats its row by
+a fifth is printed with the lower value. Rows only go down: download a run's `gallery-health-*`
+artifacts and run `bun ready-budgets.ts --from <dir>` to lower every row the run beat. It never
+raises a row; `--add` writes rows for slow states that have none, a raise the diff shows.
+
+On a pull request, a red shard renders its red entries again on the base it merged with, using this
+folder's checker, budgets and allowlist, and `scripts/ci/test_reds.py gallery` compares the two
+`health.json` files state by state. A state red the same way on the base (any budget miss counts as
+one kind; a broken state's reason is its kind) is a warning and the shard passes. Any other red
+state, a crashed render, a missing or cut-short `health.json`, a base render with no whole result,
+and any red on a push still fail.
+
+## Geometry audit
+
+`geometry-audit.ts` captures the declared fixtures from `geometry-baseline.json`, freezes active
+animations after play settles, and records DOM rectangles/computed styles next to each screenshot.
+`geometry-lint.ts` requires the screenshot hash, source-under-test SHA, dimensions/device scale,
+coordinate space, capture tuple and semantic groups. It compares only declared peers. Missing
+or unsupported evidence fails; it never treats a rectangle bottom as a text baseline or native
+view frames as accessibility frames.
+
+The first measured baseline covers Session Info's top-block label column, in both appearances.
+Its existing 2px drift was observed at the baseline revision; the baseline records that debt with
+its reason and maximum. Other surfaces and true text-baseline/native AX checks are explicit
+coverage gaps, not passing checks. Add measured selectors/rules as each audit surface is captured.
+Baseline debt changes require review; lint never regenerates or raises it automatically.
+
+Geometry is a lane-run audit, rather than a CI gate. Run it on a fleet worker after building the
+gallery; the output directory is disposable so a failed rerun cannot reuse old evidence. This
+one-liner captures the gallery and runs the lint at the checked-out source SHA:
+
+```sh
+cmux-ci test --setup webviews --timeout 1800 -- bash -lc '
+  set -euo pipefail
+  cd webviews
+  bun install --frozen-lockfile
+  CMUX_GALLERY_OUT_DIR="$RUNNER_TEMP/gallery" bun run gallery:build
+  cd ../scripts/gallery-matrix
+  bun install --frozen-lockfile
+  ./node_modules/.bin/playwright install --with-deps --only-shell chromium
+  CMUX_GALLERY_IN_VM=1 bun geometry-audit.ts --gallery-dir "$RUNNER_TEMP/gallery" \
+    --output-dir "$RUNNER_TEMP/geometry" --expected-sha "$(git rev-parse HEAD)"
+'
+```
+
+## How geometry is measured
+
+- Rules compare CSS px (native points), including tokens, tolerances and reported deltas.
+  Before evaluating any rule, screenshot-pixel measurements are divided by the artifact's
+  `deviceScaleFactor`; evidence already in `css-px` stays unchanged. Raw coordinates and
+  screenshot crops remain available as evidence.
+- “Highlight covers only its control” means four-edge containment, with tolerance `t`:
+  `highlight.minX >= control.minX - t`, `highlight.maxX <= control.maxX + t`, and the
+  same checks for Y. A smaller contained highlight is valid. Comparing x/y/width/height
+  components independently can miss overflowing edges.
+- Optional `control`, `secondary` and `menuOpen` flags must be real booleans when present.
+  Parsing rejects strings such as `"false"`, numbers, null and other non-boolean values.
+- Each of these rules has a regression in [geometry.test.ts](geometry.test.ts) that fails
+  with the old bug: boolean parsing, CSS/scaled-screenshot equivalence, and hover containment
+  (contained highlights, all four overflowing edges, and the tolerance boundary).
+
+Run these regressions through the fleet from the repository root:
+
+```sh
+cmux-ci test --setup webviews --timeout 600 -- bash -c \
+  'cd scripts/gallery-matrix && bun install --frozen-lockfile && bun test geometry.test.ts'
+```
+
+Geometry rules support repeated row/header containers. Collect each container with a stable ID and
+associate every matching visible child with its nearest measured parent (`containerId`). A global
+`peer-alignment` rule with `axis: x, measure: end` checks one trailing column across every nesting
+depth. `container-center` checks each marker against its own row; `exclusive-parts` rejects a spinner
+and a hover control visible in the same row. `container-peer-alignment` compares actions within each
+header, so repeated headers cannot accidentally compare different vertical positions or hide a
+missing action. Native rules must declare their required evidence source; native view frames do not
+satisfy an `ax-frame` rule.
+
+For mixed text/icon controls, collect both the control rectangles and the visible marker/text
+ranges. `measurement: text-range` records `DOMRange` bounds as `rectSource: text-range`; those bounds
+are **not** a text baseline. Unmeasured glyph baselines stay in `coverageGaps`, which is preserved in
+the JSON report. Invisible elements, including opacity-zero ancestors, are excluded by the browser's
+visibility check; missing required peers fail the rule.
+
+Session status also captures `header-action-alignment` in both appearances,
+matching capture `9831817724357efacf50b5ff` at product head
+`7821c60b2bcc18efa9e1f29c08fa95ff80fe4ae0`. Its before Play fails on a 5 px
+DOM Range center difference; the same assertion completes after within 0.5 px.
+The raw sidecar records button boxes, not range coordinates, so range positions
+are collected afresh by the durable collector rather than inferred from boxes.

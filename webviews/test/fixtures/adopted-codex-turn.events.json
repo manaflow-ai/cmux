@@ -193,10 +193,20 @@
           "kind": "edit",
           "locations": [
             {
+              "_meta": {
+                "acpmux": {
+                  "canonicalPath": "/home/dev/demo/CHANGELOG.md"
+                }
+              },
               "line": 1,
               "path": "/home/dev/demo/CHANGELOG.md"
             },
             {
+              "_meta": {
+                "acpmux": {
+                  "canonicalPath": "/home/dev/demo/Cargo.toml"
+                }
+              },
               "line": 1,
               "path": "/home/dev/demo/Cargo.toml"
             }
@@ -240,6 +250,7 @@
             {
               "_meta": {
                 "acpmux": {
+                  "canonicalPath": "/home/dev/demo/CHANGELOG.md",
                   "fragment": true
                 }
               },
@@ -251,6 +262,7 @@
             {
               "_meta": {
                 "acpmux": {
+                  "canonicalPath": "/home/dev/demo/Cargo.toml",
                   "fragment": true
                 }
               },

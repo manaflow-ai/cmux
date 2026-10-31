@@ -7,7 +7,7 @@ import Foundation
 public struct MoveColumnRequest: DaemonRequest {
     public typealias Response = EmptyResponse
     public static let command = "move-column"
-    public static let requiredCapability: String? = DaemonCapabilities.shared.columnMove
+    public static let requiredCapability: String? = DaemonCapability.columnMove.rawValue
     /// Any pane of the column that moves.
     public var pane: PaneID
     public var direction: ColumnMoveDirection

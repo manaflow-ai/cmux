@@ -12,6 +12,7 @@ import {
   css,
   deriveTokens,
   GHOSTTY_DEFAULT,
+  litGlyph,
   MINIMUM_TEXT_CONTRAST,
   parseHex,
   readable,
@@ -33,6 +34,8 @@ export function themeInput(theme: GhosttyTheme, accent: AppAccent = "neutral"): 
     selectionForeground: color(theme.selectionForeground) ?? undefined,
     backgroundOpacity: 1,
     accent,
+    // The theme's own `# cmux-accent`, which wins over `accent` as ThemeBridge's does in the app.
+    accentColor: color(theme.accent),
   };
 }
 
@@ -62,11 +65,13 @@ export function webThemePayload(
       "--cmux-separator": css(tokens.separator),
       "--cmux-hover": css(tokens.hoverFill),
       "--cmux-selection": css(tokens.selectionFill),
-      // The gallery has no Ghostty cursor or selection color: the text color and the accent tint.
-      "--cmux-text-selection": "color-mix(in srgb, var(--cmux-accent, CanvasText) 28%, transparent)",
+      // The gallery has no Ghostty cursor color: the text color. Selected text is the app's one
+      // highlight (WebTheme.swift), the same token native text fields use.
+      "--cmux-text-selection": css(tokens.textSelection),
       "--cmux-caret": css(tokens.textPrimary),
       "--cmux-accent": css(tokens.accent),
       "--cmux-on-accent": css(tokens.onAccent),
+      "--cmux-lit-glyph": css(litGlyph(tokens)),
       ...(app ? appThemeVariables(app) : {}),
     },
     colorScheme: tokens.isDark ? "dark" : "light",
@@ -105,6 +110,7 @@ export function agentPaneTheme(tokens: ThemeTokens, reducedMotion: boolean): Rec
     accent: css(tokens.accent),
     onAccent: css(tokens.onAccent),
     accentSoft: css(tokens.selectionFill),
+    litGlyph: css(litGlyph(tokens)),
     accentText: css(opaquePage),
     danger: css(tokens.danger),
     warning: css(tokens.attention),

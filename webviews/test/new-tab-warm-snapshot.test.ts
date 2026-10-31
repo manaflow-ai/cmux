@@ -1,7 +1,7 @@
 // The recent chats a New Tab page's context carries (`warm`, newtab/warmSnapshot.ts): what a page
 // of this Mac listed last, so the next page's first frame lists them (Leo 2026-10-19: the recent
 // chats flickered as a new workspace opened). The page lists them until its own list arrives.
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, jest, test } from "bun:test";
 import { newTabHost } from "../src/agent-session/acpmux/NewTabPage";
 import { deviceChats, setDeviceChats } from "../src/agent-session/acpmux/newtab/deviceChats";
 import {
@@ -13,6 +13,7 @@ import {
 import { session } from "../src/gallery/fixtures/acpmux";
 
 afterEach(() => {
+  jest.useRealTimers();
   resetWarmNewTabForTests();
   setDeviceChats([]);
 });
@@ -48,7 +49,9 @@ test("the carried chats show only until the page's own list arrives", () => {
   expect(shownNewTabSessions({ sessions: [], connection: "connected" }, [])).toBeUndefined();
 });
 
-test("a local listed snapshot posts its newest chats once, coalesced", async () => {
+test("a local listed snapshot posts its newest chats once, coalesced", () => {
+  // The post waits on a fake clock: the coalescing delay is the behavior.
+  jest.useFakeTimers();
   const posts: unknown[] = [];
   const send = (warm: unknown) => posts.push(warm);
   // Not listed yet, or another machine's list: nothing to warm this Mac's pages with.
@@ -56,13 +59,13 @@ test("a local listed snapshot posts its newest chats once, coalesced", async () 
   publishWarmNewTab({ origin: "remote", listedSessions: true, sessions }, send);
   publishWarmNewTab({ origin: "local", listedSessions: true, sessions }, send);
   publishWarmNewTab({ origin: "local", listedSessions: true, sessions: [...sessions] }, send);
-  await Bun.sleep(500);
+  jest.advanceTimersByTime(500);
   expect(posts).toHaveLength(1);
   const posted = posts[0] as { sessions: { sessionId: string }[]; device: unknown[] };
   expect(posted.sessions.map((entry) => entry.sessionId)).toEqual(["newer", "older"]);
   // A device chats push posts again with them.
   setDeviceChats(device);
-  await Bun.sleep(500);
+  jest.advanceTimersByTime(500);
   expect(posts).toHaveLength(2);
   expect((posts[1] as { device: unknown[] }).device).toHaveLength(1);
 });

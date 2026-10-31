@@ -69,4 +69,36 @@ struct PageFileDropDragTests {
         _ = web.draggingUpdated(second)
         #expect(reads == 3)
     }
+
+    /// Files dropped on the page itself reach `onFilesDropped` with every file URL of the drag, so
+    /// the agent page can send a local chat's files as their paths (AgentPaneDroppedPaths).
+    @Test func aPageDropPassesTheDraggedFileURLs() {
+        let web = PageWKWebView(frame: NSRect(x: 0, y: 0, width: 200, height: 200), configuration: .init())
+        let urls = [URL(fileURLWithPath: "/tmp/cmux-drop/docs", isDirectory: true), URL(fileURLWithPath: "/tmp/cmux-drop/build.zip")]
+        web.readDroppedFileURLs = { _ in urls }
+        var dropped: [[URL]] = []
+        web.onFilesDropped = { dropped.append($0) }
+        _ = web.performDragOperation(Drag(sequence: 3))
+        #expect(dropped == [urls])
+    }
+
+    /// A drop the host opens itself (``PageFileDrop``) is not the page's: `onFilesDropped` never runs.
+    @Test func aDropTheHostOpensPassesNoURLs() {
+        let web = page(reads: {})
+        web.readDroppedFileURLs = { _ in [URL(fileURLWithPath: "/tmp/cmux-drop/build.zip")] }
+        var dropped: [[URL]] = []
+        web.onFilesDropped = { dropped.append($0) }
+        _ = web.draggingEntered(Drag(sequence: 4))
+        #expect(web.performDragOperation(Drag(sequence: 4)))
+        #expect(dropped.isEmpty)
+    }
+
+    /// A paste (Cmd-V, Edit > Paste, the composer's menu) tells the host first, then WebKit pastes.
+    @Test func aPasteTellsTheHostFirst() {
+        let web = PageWKWebView(frame: NSRect(x: 0, y: 0, width: 200, height: 200), configuration: .init())
+        var pastes = 0
+        web.onPaste = { pastes += 1 }
+        _ = web.perform(#selector(NSText.paste(_:)), with: nil)
+        #expect(pastes == 1)
+    }
 }

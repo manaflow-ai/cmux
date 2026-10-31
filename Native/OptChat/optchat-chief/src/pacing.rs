@@ -24,7 +24,7 @@ pub fn coalesce(entries: &mut Vec<OutboxEntry>) {
         let mergeable = !entries[i].attempted
             && !entries[i + 1].attempted
             && entries[i].conversation == entries[i + 1].conversation
-            // A front desk receipt and a turn's reply stay two messages (voice.rs).
+            // A message in a voice and a turn's reply stay two messages (voice.rs).
             && crate::voice::of(&entries[i].idempotency_key)
                 == crate::voice::of(&entries[i + 1].idempotency_key)
             && plain_text(&entries[i].op).is_some()

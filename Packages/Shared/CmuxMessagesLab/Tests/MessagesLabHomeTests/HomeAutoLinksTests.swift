@@ -83,9 +83,31 @@ import Testing
     }
 
     @Test func textThatIsNoPathStaysText() {
-        #expect(links("and/or 10/19 /status https://x.com/a/b").isEmpty)
+        #expect(links("and/or 10/19 /status").isEmpty)
         #expect(links("foo_ws_\(String(repeating: "a", count: 32))").isEmpty)
         #expect(links("`a/b` /etcetera/x").isEmpty)
+    }
+
+    /// Lawrence 2026-10-23: the Cloud Chief's `**https://github.com/login/device**` showed as
+    /// bold text you could not click. A bare web URL links, in bold, in a sentence, in a list.
+    @Test func aBareWebURLInBoldIsALink() {
+        let found = links("Open **https://github.com/login/device** and enter the code.")
+        #expect(found.map(\.0) == ["https://github.com/login/device"])
+        #expect(found.map(\.1) == ["https://github.com/login/device"])
+    }
+
+    @Test func aBareWebURLInASentenceIsALinkWithoutItsPunctuation() {
+        #expect(links("PR is https://github.com/manaflow-ai/cmux/pull/1.").map(\.1) == ["https://github.com/manaflow-ai/cmux/pull/1"])
+        #expect(links("- see https://x.com/a/b, then http://example.com/q?a=1&b=2!").map(\.1) == ["https://x.com/a/b", "http://example.com/q?a=1&b=2"])
+        #expect(links("(https://example.com/x)").map(\.1) == ["https://example.com/x"])
+        // The path inside a URL is part of the URL, never a path link of its own.
+        #expect(links("https://example.com/Users/me/a.md").map(\.1) == ["https://example.com/Users/me/a.md"])
+    }
+
+    @Test func aMarkdownWebLinkKeepsItsName() {
+        let found = links("Sign in at **[github.com/login/device](https://github.com/login/device)**.")
+        #expect(found.map(\.0) == ["github.com/login/device"])
+        #expect(found.map(\.1) == ["https://github.com/login/device"])
     }
 
     @Test func refusedSchemesNeverLink() {

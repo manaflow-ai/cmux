@@ -2,6 +2,8 @@ import AppKit
 import CmuxNextBridge
 import CmuxNextLayout
 import CmuxNextPages
+import CmuxNextCompat
+import CmuxNextTabs
 
 /// A link dragged out of a chat bubble into the layout (Lawrence 2026-10-20: "drag a link, like a
 /// PR URL, to the right side or anywhere and make a split").
@@ -26,7 +28,7 @@ final class LinkDragSession {
         let item: LinkDragItem
         let ghost: LinkDragGhost
         var monitor: Any?
-        var resign: (any NSObjectProtocol)?
+        var resign: MainActorObservation?
         /// The window whose layout shows the preview now, and the plan a release there runs.
         weak var window: WindowController?
         var plan: LinkDropPlan?
@@ -51,9 +53,8 @@ final class LinkDragSession {
         drag.monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDragged, .leftMouseUp, .leftMouseDown, .keyDown]) { [weak self] event in
             self?.handle(event) ?? event
         }
-        drag.resign = NotificationCenter.default.addObserver(forName: NSApplication.didResignActiveNotification, object: nil,
-                                                             queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.finish(commit: false) } // main-proof: observer on queue: .main
+        drag.resign = MainActorObservation(NSApplication.didResignActiveNotification) { [weak self] in
+            self?.finish(commit: false)
         }
         self.drag = drag
         drag.ghost.show(at: screenPoint)
@@ -116,7 +117,7 @@ final class LinkDragSession {
         guard let drag else { return }
         self.drag = nil
         if let monitor = drag.monitor { NSEvent.removeMonitor(monitor) }
-        if let resign = drag.resign { NotificationCenter.default.removeObserver(resign) }
+        drag.resign = nil
         drag.ghost.close()
         let content = drag.window?.content
         content?.layoutView.cancelTabDrag()

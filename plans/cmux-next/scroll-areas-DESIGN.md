@@ -156,6 +156,9 @@ Decision for the user: build C as a view after A ships, or drop it.
   midway (no fight, column-scroll.md T1).
 - I3. Pane content that scrolls sideways itself (a wide web page, `paneContentClaimsHorizontalScroll`)
   keeps the gesture, as today.
+- I1-I3 under `layout.scrollModifier` `command` (default since 2026-10-24): the gesture must begin
+  with Command held (plain scrolls over a pane are the pane's, so I3 needs no claim); I2's
+  innermost-first rule is unchanged. `none` keeps I1 to I3 as written.
 - I4. Release snaps to pane edges (the strip's snap points with the area's cells as columns),
   a mouse-wheel notch moves one snap point (T2, T4).
 - I5. Focus after an area scroll: unchanged if the focused pane is still visible, else the pane

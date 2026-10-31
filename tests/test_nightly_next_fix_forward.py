@@ -45,6 +45,7 @@ jobs: {}
 class FakeApi:
     def __init__(self, train: str | None = TRAIN, train_commit: bool = False, open_issue: int | None = None):
         self.train, self.train_commit, self.open_issue = train, train_commit, open_issue
+        self.run_repo, self.run_extra = REPO, {}
         self.writes: list[tuple[str, str, dict]] = []
 
     def __call__(self, path, method="GET", fields=None, raw=False):
@@ -55,7 +56,8 @@ class FakeApi:
             run = {"39473493290": GOOD_SHA, "39474305613": BAD_SHA}.get(m.group(1))
             if run is None:
                 raise RuntimeError("HTTP 404")
-            return {"head_branch": "nightly-next", "head_sha": run}
+            return {"head_branch": "nightly-next", "head_sha": run, "event": "push",
+                    "head_repository": {"full_name": self.run_repo}, **self.run_extra}
         if path.endswith(f"commits/{BAD_SHA}"):
             parents = [{"sha": NIGHTLY_HEAD}, {"sha": CAR_SHA}] if self.train_commit else [{"sha": GOOD_SHA}]
             return {"parents": parents, "author": {"login": "pusher"}, "commit": {"message": "direct push\n\nbody"}}
@@ -89,6 +91,16 @@ class Tests(unittest.TestCase):
         self.assertEqual(ff.build_run(BAD), "39474305613")
         with self.assertRaises(ValueError):
             ff.build_run("12x")
+
+    def test_a_fork_or_pull_request_run_is_no_nightly_next_build(self):
+        # A fork's pull_request run on a branch named nightly-next reports the
+        # same head_branch; its commit must never become the train's base.
+        api = FakeApi()
+        self.assertEqual(ff.build_commit(api, REPO, BAD), BAD_SHA)
+        api.run_repo = "someone/cmux"
+        self.assertIsNone(ff.build_commit(api, REPO, BAD))
+        api.run_repo, api.run_extra = REPO, {"event": "pull_request"}
+        self.assertIsNone(ff.build_commit(api, REPO, BAD))
 
     def test_dispatches_the_train_with_the_newest_car_quarantined(self):
         api = FakeApi(train_commit=True)

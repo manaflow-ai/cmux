@@ -98,7 +98,7 @@ export function SavedEnvironmentPanel({
   const title = environment ? t("environment.edit") : t("environment.new");
   return (
     <KeyboardScope handleKeyDown={command}>
-      <section className="acpmux-env-panel" aria-label={title}>
+      <section className="ui-glass acpmux-env-panel" aria-label={title}>
         <div className="acpmux-env-heading">{title}</div>
         <label className="acpmux-env-field" htmlFor={`${id}-name`}>
           <span className="acpmux-env-label">{t("environment.name")}</span>
@@ -177,6 +177,7 @@ export function SavedEnvironmentPanel({
               label={t("composer.folder")}
               menu="EnvironmentFolder"
               face={
+                // tooltip-allow: the face shows only the folder's name; the tooltip is its whole path
                 <span className="acpmux-env-select" title={draft.folder}>
                   <span className="acpmux-env-select-text" data-placeholder={draft.folder ? undefined : ""}>
                     {draft.folder ? projectLabel(draft.folder) : t("composer.chooseFolder")}

@@ -1,18 +1,21 @@
 //! The background-process methods (`hub/processes.rs`,
 //! docs/background-processes.md): `_acpmux/process/list {sessionId?}`,
 //! `_acpmux/process/tail {processId, fromByte?, maxBytes?}` and
-//! `_acpmux/process/kill {processId, signal?}`, and the
+//! `_acpmux/process/kill {processId, sessionId?, signal?}` (a named chat must
+//! be the process's),
+//! `_acpmux/process/background {sessionId, toolCallId?}` (Ctrl-B), and the
 //! `_acpmux/process_update {process}` notification.
 //!
 //! Routed before every other method (`chats.rs`), like the secret methods:
 //! they never reach a peer, and they check their own callers. Only this
 //! machine's clients (the unix socket and the local app) get them: a
 //! process's command line and output are local state, and a kill acts on
-//! a local process, so a remote WebSocket device and a peer daemon are
-//! refused before anything is read.
+//! a local process (and Ctrl-B moves one), so a remote WebSocket device and
+//! a peer daemon are refused before anything is read.
 
 use super::{Conn, HubEvent, str_param};
 use crate::hub::Hub;
+use crate::protocol::process::ProcessBackgroundParams;
 use crate::rpc::{Message, RpcError, method};
 use serde_json::{Value, json};
 use std::sync::Arc;
@@ -25,8 +28,13 @@ pub(super) async fn dispatch(
     m: &str,
     params: &Value,
 ) -> Option<Result<Value, RpcError>> {
-    if !matches!(m, method::MUX_PROCESS_LIST | method::MUX_PROCESS_TAIL | method::MUX_PROCESS_KILL)
-    {
+    if !matches!(
+        m,
+        method::MUX_PROCESS_LIST
+            | method::MUX_PROCESS_TAIL
+            | method::MUX_PROCESS_KILL
+            | method::MUX_PROCESS_BACKGROUND
+    ) {
         return None;
     }
     if conn.origin.web_class() {
@@ -50,6 +58,11 @@ async fn handle(hub: &Arc<Hub>, m: &str, params: &Value) -> Result<Value, RpcErr
             }
         };
     }
+    if m == method::MUX_PROCESS_BACKGROUND {
+        let p: ProcessBackgroundParams = serde_json::from_value(params.clone())
+            .map_err(|e| RpcError::invalid_params(format!("bad params: {e}")))?;
+        return hub.background_work(&p.session_id, p.tool_call_id.as_deref()).await;
+    }
     let id = str_param(params, "processId")
         .ok_or_else(|| RpcError::invalid_params("processId is required"))?;
     if m == method::MUX_PROCESS_TAIL {
@@ -62,6 +75,17 @@ async fn handle(hub: &Arc<Hub>, m: &str, params: &Value) -> Result<Value, RpcErr
         None => {}
         Some(signal) if matches!(signal.as_str(), Some("term" | "kill")) => {}
         Some(_) => return Err(RpcError::invalid_params("signal must be term or kill")),
+    }
+    // A kill that names its chat (the agent pane's, whose host lets it name only a chat in the
+    // pane's scope) stops only a process of that chat.
+    if let Some(key) = params.get("sessionId").filter(|v| !v.is_null()) {
+        let key =
+            key.as_str().ok_or_else(|| RpcError::invalid_params("sessionId must be a string"))?;
+        let session = hub.resolve(key)?;
+        if id.split_once('/').map(|(sid, _)| sid) != Some(session.id.as_str()) {
+            return Err(RpcError::invalid_params("processId is not a process of sessionId")
+                .with_data(json!({"reason": "process.other_session"})));
+        }
     }
     hub.kill_process(id).await
 }

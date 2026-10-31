@@ -1,6 +1,6 @@
-// A thought shows in full on its row, wrapped after a muted "Thought", with nothing to open and no
-// tooltip (Leo 2026-10-13). The transcript gallery's plays check it in Chromium; this checks they
-// passed.
+// A finished thought is one quiet row, "Thought for 12s" with none of its text inline and no tooltip,
+// that opens to its text; thoughts side by side are one row; a quiet one draws none (Leo 2026-10-20).
+// The transcript gallery's plays check it in Chromium; this checks they passed.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
@@ -76,8 +76,23 @@ await requireBrowserLane("transcript-thought.test.ts", async () => {
     return result;
   };
 
-  test("a thought shows its full text on its row, with no tooltip", async () => {
+  test("a finished thought is one quiet row with none of its text inline, and no tooltip", async () => {
     const result = await play("thought-row");
+    expect(playFailures(result.report)).toEqual([]);
+  });
+
+  test("a folded thought opens to its full text", async () => {
+    const result = await play("thought-expanded");
+    expect(playFailures(result.report)).toEqual([]);
+  });
+
+  test("thoughts side by side in one step are one row for their summed time", async () => {
+    const result = await play("thoughts-merged");
+    expect(playFailures(result.report)).toEqual([]);
+  });
+
+  test("an empty or short quick thought draws no row", async () => {
+    const result = await play("thought-quiet");
     expect(playFailures(result.report)).toEqual([]);
   });
 

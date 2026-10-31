@@ -7,8 +7,11 @@ import { CC_NET_DEFAULT, netScript, patchNet, readNet } from "../src/chief-brain
  * The script itself is proven on a real VM by backend/chief-cc/net-check.sh.
  */
 describe("Cloud Chief turn machine network settings", () => {
-  it("defaults to the public Internet over IPv4 and IPv6 with DNS, the tailnet and loopback closed", () => {
-    expect(CC_NET_DEFAULT).toEqual({ internet: true, dns: true, tailnet: false, local: false, allow: [], deny: [] })
+  it("defaults to the public Internet over IPv4 and IPv6 with DNS and the tailnet open, loopback closed", () => {
+    expect(CC_NET_DEFAULT).toEqual({ internet: true, dns: true, tailnet: true, local: false, allow: [], deny: [] })
+    // The tailnet includes its DNS (100.100.100.100) and the IPv6 range.
+    expect(netScript(CC_NET_DEFAULT)).toContain("ip daddr 100.64.0.0/10 accept")
+    expect(netScript(CC_NET_DEFAULT)).toContain("ip6 daddr fd7a:115c:a1e0::/48 accept")
     expect(readNet(undefined)).toEqual(CC_NET_DEFAULT)
     expect(readNet("not json")).toEqual(CC_NET_DEFAULT)
   })
@@ -17,7 +20,7 @@ describe("Cloud Chief turn machine network settings", () => {
     const off = patchNet(CC_NET_DEFAULT, { internet: false, allow: ["GitHub.com", "140.82.112.0/20", "github.com", "2606:50c0:8000::153"] })
     expect(off).toEqual({ ok: true, net: { ...CC_NET_DEFAULT, internet: false, allow: ["github.com", "140.82.112.0/20", "2606:50c0:8000::153"] } })
     if (!off.ok) return
-    expect(patchNet(off.net, { tailnet: true, deny: ["10.0.0.0/8"] })).toEqual({ ok: true, net: { ...off.net, tailnet: true, deny: ["10.0.0.0/8"] } })
+    expect(patchNet(off.net, { tailnet: false, deny: ["10.0.0.0/8"] })).toEqual({ ok: true, net: { ...off.net, tailnet: false, deny: ["10.0.0.0/8"] } })
     expect(patchNet(off.net, { reset: true })).toEqual({ ok: true, net: CC_NET_DEFAULT })
     expect(readNet(JSON.stringify(off.net))).toEqual(off.net)
   })
@@ -50,6 +53,6 @@ describe("Cloud Chief turn machine network settings", () => {
     expect(closed).toContain("'github.com'")
     expect(closed).toContain("'140.82.112.0/20'")
     expect(netScript({ ...CC_NET_DEFAULT, tailnet: true })).toContain("100.64.0.0/10")
-    expect(netScript(CC_NET_DEFAULT)).not.toMatch(/ip daddr 100\.64\.0\.0\/10 accept/)
+    expect(netScript({ ...CC_NET_DEFAULT, tailnet: false })).not.toMatch(/ip daddr 100\.64\.0\.0\/10 accept/)
   })
 })

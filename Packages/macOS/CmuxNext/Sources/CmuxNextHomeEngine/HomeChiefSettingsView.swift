@@ -18,6 +18,7 @@ import UniformTypeIdentifiers
 /// - Agent: Harness, Model, Effort and (where the harness has a fast tier) Speed rows; "Default"
 ///   names what it runs. The Model menu groups by family (``HomeChiefModelMenu``) and Effort offers
 ///   only the levels the shown model takes.
+/// - Reactions: whether a tapback wakes the Chief, and the classifier that decides (``HomeChiefReactionRows``).
 /// - Appearance: rows other features add (`addAppearanceRow`), hidden while empty.
 /// - Diagnostics: the last turns, where the brain runs, traces and memory,
 ///   behind a closed disclosure.
@@ -59,6 +60,8 @@ public final class HomeChiefSettingsView: NSView {
     let harnessHint = ThemedLabel(wrappingLabelWithString: "")
     /// Why the engine could not be read or set, or a picture could not be used.
     let failure = ThemedLabel(wrappingLabelWithString: "")
+    /// Whether a tapback can wake this Chief, and the classifier that decides (``HomeChiefReactionRows``).
+    let reactionRows = HomeChiefReactionRows(width: HomeChiefSettingsView.width - 2 * HomeChiefSettingsView.inset)
     let appearanceHeader = ThemedLabel(labelWithString: HomeEngineStrings.appearanceSection)
     let appearanceRows = NSStackView()
     let diagnosticsToggle = NSButton()
@@ -83,8 +86,15 @@ public final class HomeChiefSettingsView: NSView {
     /// Runs harness `id`'s backend check on this Mac's acpmux (`_acpmux/harness/doctor`, one real
     /// hello turn); true when it passed. The app sets it; unset, every harness passes.
     public var checkHarness: @MainActor (String) async -> Bool = { _ in true }
-    /// Renames the Chief conversation (the daemon's set-title op); false when it did not take.
-    public var onRename: @MainActor (String) async -> Bool = { _ in true }
+    /// The ids of this Mac's acpmux harnesses (`_acpmux/harnesses`), which the Harness picker
+    /// offers after the official engines for a Chief whose brain runs on this Mac. The app sets
+    /// it; unset, the picker offers only the official engines.
+    public var listHarnesses: @MainActor () async -> [String] = { [] }
+    /// What ``listHarnesses`` last returned.
+    var listedHarnesses: [String] = []
+    /// Renames the Chief: the daemon's set-title op for a Chief of this Mac, the account's
+    /// `chief.update` for a cloud Chief. Nil when the name was saved, else why it was not.
+    public var onRename: @MainActor (String) async -> HomeChiefRenameFailure? = { _ in nil }
     /// Where Choose Picture… and Use Default Picture write, and for which Chief: the daemon's
     /// registry for a Chief of this Mac (set by the header view); nil writes this panel's
     /// mux home's files (a cloud Chief).
@@ -93,6 +103,8 @@ public final class HomeChiefSettingsView: NSView {
     public var onAvatar: () -> Void = {}
     /// Show Memory: runs "Chief: Open Memory Inspector".
     public var onShowMemory: () -> Void = {}
+    /// All Chief Settings…: the app opens Settings > Chief (this card is the quick version).
+    public var onAllSettings: () -> Void = {}
     /// "Switch to …" under where the Chief runs: the app moves the Chief tab to the other host.
     public var onSwitchHost: () -> Void = {}
     /// The brain took a pick (harness, model or effort): the Home list reads the Chiefs' engines again.
@@ -103,21 +115,31 @@ public final class HomeChiefSettingsView: NSView {
     /// Choose Picture… runs its open panel over this window (the popover's
     /// parent), since the popover closes when the panel takes the keys.
     public var pictureWindow: () -> NSWindow? = { nil }
+    /// Move and Scale for a chosen or dropped picture.
+    let cropPanel = HomeChiefPictureCropPanel()
+    /// The last picture write and whether it saved (Debug: `debug.home.api edit_picture`).
+    private var pictureWrite: Task<Void, Never>?
+    private var pictureSaved = false
 
     /// The harness items the picker offers: the official engines (``ChiefBackend/official``:
-    /// the user's own Claude login, Codex, and UniiChat, acpmux's built-in `unii`); the
+    /// the user's own Claude login, Codex, Muse Code, and UniiChat, acpmux's built-in `unii`); the
     /// CodeRouter route (`claude-cr`) after Claude only when this Chief's acpmux has one
-    /// configured. The subrouter pool (`claude-sr`) is never a default item; a current choice
-    /// of it still shows (`fill`).
-    nonisolated static func harnesses(routeConfigured: Bool) -> [String] {
+    /// configured; then every other harness `listed` by this Mac's acpmux
+    /// (`_acpmux/harnesses`), in its order (Lawrence 2026-10-23: "chief can choose between
+    /// literally all the acpmux stuff"). A current choice outside the list still shows (`fill`).
+    nonisolated static func harnesses(routeConfigured: Bool, listed: [String] = []) -> [String] {
         let official = ChiefBackend.official.map(\.id)
-        guard routeConfigured else { return official }
-        return [ChiefBackend.claude.id, "claude-cr"] + official.filter { $0 != ChiefBackend.claude.id }
+        var offered = routeConfigured
+            ? [ChiefBackend.claude.id, "claude-cr"] + official.filter { $0 != ChiefBackend.claude.id }
+            : official
+        var seen = Set(offered)
+        for id in listed where !id.isEmpty && seen.insert(id).inserted { offered.append(id) }
+        return offered
     }
 
     /// The harness picker's items: each harness with the name the app shows for it.
-    nonisolated static func harnessItems(routeConfigured: Bool) -> [(value: String, title: String)] {
-        harnesses(routeConfigured: routeConfigured).map { ($0, ChiefBackend.title(for: $0)) }
+    nonisolated static func harnessItems(routeConfigured: Bool, listed: [String] = []) -> [(value: String, title: String)] {
+        harnesses(routeConfigured: routeConfigured, listed: listed).map { ($0, ChiefBackend.title(for: $0)) }
     }
 
     public init(muxHome: URL, source: any HomeChiefEngineSource) {
@@ -167,6 +189,12 @@ public final class HomeChiefSettingsView: NSView {
         note.preferredMaxLayoutWidth = Self.width - 2 * Self.inset
         addFullWidth(note)
         stack.setCustomSpacing(Metrics.space4, after: note)
+        // Reactions: whether a tapback wakes this Chief, and the classifier that decides (a416).
+        addFullWidth(Self.sectionHeader(HomeEngineStrings.reactionsSection))
+        reactionRows.onPick = { [weak self] fields in self?.pick(fields) }
+        reactionRows.onResize = { [weak self] in self?.onResize() }
+        addFullWidth(reactionRows)
+        stack.setCustomSpacing(Metrics.space4, after: reactionRows)
         // Appearance: rows other features add; the section shows once it has one.
         appearanceHeader.font = Typography.header
         appearanceHeader.ink = .secondary
@@ -178,6 +206,11 @@ public final class HomeChiefSettingsView: NSView {
         stack.setCustomSpacing(Metrics.space4, after: appearanceRows)
         appearanceHeader.isHidden = true
         appearanceRows.isHidden = true
+        // The rest of the Chief's settings (the pet, the chat's look, every Chief) live in Settings.
+        let allSettings = HomeChiefLinkButton(title: HomeEngineStrings.allChiefSettings, target: self, action: #selector(openAllSettings))
+        allSettings.setAccessibilityIdentifier("cmux.home.chief.allSettings")
+        stack.addArrangedSubview(allSettings)
+        stack.setCustomSpacing(Metrics.space4, after: allSettings)
         addFullWidth(diagnosticsRow())
         buildDiagnostics()
         addFullWidth(diagnostics)
@@ -277,13 +310,20 @@ public final class HomeChiefSettingsView: NSView {
         guard !name.isEmpty, name != shownName else { return nil }
         let kept = shownName
         shownName = name
-        // task-owner: one rename; ends with the daemon's answer
+        // task-owner: one rename; ends with the owner's answer
         return Task { [weak self] in
-            guard let self, !(await onRename(name)), shownName == name || shownName == kept else { return }
+            guard let self else { return }
+            let failure = await onRename(name)
+            guard shownName == name || shownName == kept else { return }
+            guard let failure else {
+                // A saved name: an earlier rename's note no longer applies.
+                if changeFailed, !self.failure.isHidden { hideNote() }
+                return
+            }
             shownName = kept
             // Still in the field after Return: it shows the kept name too, unless the person typed on.
             if nameField.currentEditor() == nil || nameField.stringValue == name { nameField.stringValue = kept }
-            note(HomeEngineStrings.renameRefused, kept: true)
+            note(HomeEngineStrings.renameFailed(failure), kept: true)
         }
     }
 
@@ -308,13 +348,54 @@ public final class HomeChiefSettingsView: NSView {
         panel.canChooseDirectories = false
         let use = { [weak self] (response: NSApplication.ModalResponse) in
             guard response == .OK, let url = panel.url else { return }
-            self?.usePicture(url)
+            self?.editPicture(url)
         }
         if let window = pictureWindow() ?? window { panel.beginSheetModal(for: window, completionHandler: use) } else { use(panel.runModal()) }
     }
 
     @objc func useDefaultPicture() {
         usePicture(nil)
+    }
+
+    /// A chosen or dropped picture opens in Move and Scale (``HomeChiefPictureCropPanel``), as
+    /// Messages edits a contact photo; Save makes the circle's square the Chief's picture. A GIF
+    /// is kept whole (its frames move); a file that is no picture says so.
+    @discardableResult
+    func editPicture(_ source: URL) -> Task<Void, Never> {
+        changeFailed = false
+        // task-owner: one picture read for the editor (off the main actor); ends when the editor shows
+        return Task { [weak self] in
+            // The person waits for the editor: the read runs at their priority, off the main actor.
+            // nil: a GIF, kept whole; .some(nil): no picture ImageIO reads.
+            let image = await Task.detached(priority: .high) { () -> CGImage?? in
+                HomeChiefPictureCrop.isAnimated(source) ? nil : .some(HomeChiefPictureCrop.editorImage(at: source))
+            }.value
+            guard let image else {
+                self?.usePicture(source)  // a GIF: kept whole
+                return
+            }
+            guard let self else { return }
+            guard let image else {
+                NSSound.beep()
+                note(HomeEngineStrings.pictureUnreadable, kept: true)
+                return
+            }
+            cropPanel.show(image, over: pictureWindow() ?? window) { [weak self] picture in
+                self?.usePicture(picture)
+            }
+        }
+    }
+
+    /// Makes `picture` (a crop saved in Move and Scale) the shown Chief's picture.
+    @discardableResult
+    func usePicture(_ picture: ChiefAvatarPicture) -> Task<Void, Never> {
+        writePicture { try await $0.avatars.setPicture(picture, chief: $0.chief) }
+    }
+
+    /// Says `text` on the card's note line (another part's refused change, such as an upload),
+    /// kept until the person's next change, as a refused picture's note is.
+    public func showNote(_ text: String) {
+        note(text, kept: true)
     }
 
     /// Makes `source` the shown Chief's picture (nil: the default again) through
@@ -324,33 +405,61 @@ public final class HomeChiefSettingsView: NSView {
     /// next open).
     @discardableResult
     func usePicture(_ source: URL?) -> Task<Void, Never> {
+        writePicture { store in
+            if let source { try await store.avatars.setPicture(from: source, chief: store.chief) } else {
+                try await store.avatars.clearPicture(chief: store.chief)
+            }
+        }
+    }
+
+    private func writePicture(_ write: @escaping @MainActor ((avatars: HomeChiefAvatars, chief: String)) async throws -> Void) -> Task<Void, Never> {
         let store = pictureStore ?? (avatars: HomeChiefAvatars(muxHome: muxHome), chief: HomeChiefAvatars.defaultChief)
         changeFailed = false
         // task-owner: one picture write (registry or files), then the header reads it
-        return Task { [weak self] in
+        let task = Task { [weak self] in
             let written: Bool
             do {
-                if let source { try await store.avatars.setPicture(from: source, chief: store.chief) } else {
-                    try await store.avatars.clearPicture(chief: store.chief)
-                }
+                try await write(store)
                 written = true
             } catch {
                 written = false
             }
             guard let self else { return }
+            pictureSaved = written
             if written {
-                failure.isHidden = true
-                onResize()
+                hideNote()
                 onAvatar()
             } else {
                 NSSound.beep()
                 note(HomeEngineStrings.pictureUnreadable, kept: true)
             }
         }
+        pictureWrite = task
+        return task
     }
+
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// Opens `source` in Move and Scale as a pick or a drop does, at `zoom`, and with `save`
+    /// presses Save and waits for the write. Nil when the editor did not open, else whether the
+    /// picture was saved (false when not asked to save).
+    public func debugEditPicture(_ source: URL, zoom: CGFloat?, save: Bool) async -> Bool? {
+        await editPicture(source).value
+        guard let editor = cropPanel.view else { return nil }
+        if let zoom { editor.canvas.setZoom(zoom) }
+        guard save else { return false }
+        pictureSaved = false
+        editor.saved()
+        await pictureWrite?.value
+        return pictureSaved
+    }
+    #endif
 
     @objc func showMemory() {
         onShowMemory()
+    }
+
+    @objc func openAllSettings() {
+        onAllSettings()
     }
 
     @objc func openTraces() {

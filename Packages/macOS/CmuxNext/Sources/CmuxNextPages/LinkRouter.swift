@@ -19,11 +19,8 @@ public final class LinkRouter {
     public var appLink: (URL) -> Bool = { _ in false }
     /// Opens a web link in a cmux browser tab of the current window, in the background (not
     /// selected) when asked. `source` is the tab the link was clicked in (a tab id), nil for the
-    /// focused pane: the App opens it as a tab of that pane, or for a terminal's Cmd-click
-    /// (`cmdClick`) where `layout.linkPlacement` says.
-    public var openInCmux: (_ url: URL, _ background: Bool, _ source: String?, _ cmdClick: Bool) -> Void = { url, _, _, _ in
-        NSWorkspace.shared.openInBackground(url)
-    }
+    /// focused pane: the App places the tab beside it (`layout.linkPlacement`).
+    public var openInCmux: (_ url: URL, _ background: Bool, _ source: String?) -> Void = { url, _, _ in NSWorkspace.shared.openInBackground(url) }
     /// The tab (a tab id) of the pane showing a clicked view, nil when no pane shows it: the App
     /// finds the pane holding the view (``open(_:otherTarget:from:)``).
     public var sourceTab: (_ view: NSView) -> String? = { _ in nil }
@@ -44,38 +41,53 @@ public final class LinkRouter {
         flags.intersection(.deviceIndependentFlagsMask).isSuperset(of: [.command, .shift])
     }
 
+    /// Command without Shift on a click: the link's tab opens in the background, as Chrome's
+    /// Cmd-click does; a plain click's tab takes the focus (Leo 2026-10-21).
+    public static func opensInBackground(_ flags: NSEvent.ModifierFlags) -> Bool {
+        let flags = flags.intersection(.deviceIndependentFlagsMask)
+        return flags.contains(.command) && !flags.contains(.shift)
+    }
+
     /// Where `url` goes now (``LinkRouting/target(for:otherTarget:explicit:)``).
     public func target(for url: URL, otherTarget: Bool = false, explicit: Bool = false) -> LinkRouting.Target {
         routing().target(for: url, otherTarget: otherTarget, explicit: explicit)
     }
 
     /// Opens a clicked link where the rule sends it; `otherTarget` is Shift-Command on the click,
-    /// `source` the tab it was clicked in (nil: the focused pane), `cmdClick` a terminal's Cmd-click.
+    /// `background` a page's Cmd-click, `source` the tab it was clicked in (nil: the focused pane).
     /// Returns where it went, nil for an app link.
     @discardableResult
-    public func open(_ url: URL, otherTarget: Bool = false, explicit: Bool = false, source: String? = nil,
-                     cmdClick: Bool = false) -> LinkRouting.Target? {
+    public func open(_ url: URL, otherTarget: Bool = false, explicit: Bool = false, background: Bool = false,
+                     source: String? = nil) -> LinkRouting.Target? {
         if appLink(url) { return nil }
         let target = target(for: url, otherTarget: otherTarget, explicit: explicit)
-        open(url, in: target, source: source, cmdClick: cmdClick)
+        open(url, in: target, background: background, source: source)
         return target
     }
 
-    /// Opens a link clicked in `view` (a chat transcript, a cmux page) where the rule sends it, as a
-    /// tab of the pane that shows `view` (``sourceTab``), not of the focused pane (Leo 2026-10-20).
+    /// Opens a link clicked in `view` (a chat transcript, a cmux page) where the rule sends it,
+    /// beside the pane that shows `view` (``sourceTab``), not the focused pane: Cmd-click always
+    /// lands right of what was clicked.
     @discardableResult
     public func open(_ url: URL, otherTarget: Bool = false, from view: NSView) -> LinkRouting.Target? {
         open(url, otherTarget: otherTarget, source: sourceTab(view))
     }
 
+    /// Opens a link clicked in `view` with `modifiers` held (``open(_:otherTarget:from:)``):
+    /// Shift-Command picks the other browser, Command alone opens the tab in the background.
+    @discardableResult
+    public func open(_ url: URL, modifiers: NSEvent.ModifierFlags, from view: NSView) -> LinkRouting.Target? {
+        open(url, otherTarget: Self.isOtherTarget(modifiers), background: Self.opensInBackground(modifiers), source: sourceTab(view))
+    }
+
     /// Opens `url` in `target` whatever the link setting (a menu's Open in cmux Browser, Open in
     /// Default Browser). A non-web URL never opens in cmux, nor any URL while the cmux browser is
     /// off (`browser.enabled`). `source` is the tab it was clicked in (nil: the focused pane).
-    public func open(_ url: URL, in target: LinkRouting.Target, background: Bool = false, source: String? = nil, cmdClick: Bool = false) {
+    public func open(_ url: URL, in target: LinkRouting.Target, background: Bool = false, source: String? = nil) {
         let web = url.scheme?.lowercased() == "http" || url.scheme?.lowercased() == "https"
         if target == .cmuxBrowser, web, routing().browserEnabled {
             record((background ? "browser-background:" : "browser:") + url.absoluteString)
-            openInCmux(url, background, source, cmdClick)
+            openInCmux(url, background, source)
             return
         }
         if recordsInstead("system:" + url.absoluteString) { return }

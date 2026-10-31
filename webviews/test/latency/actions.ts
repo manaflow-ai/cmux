@@ -2,11 +2,36 @@
 // VISIBLE response to the input (what the user sees change), not a later result: a source switch
 // responds when the source control shows the new source, not when the new diff has loaded.
 import type { Page } from "playwright";
-import type { LatencyAction, LatencyPageSpec } from "./measure";
+import type { Instrumentation, LatencyAction, LatencyPageSpec } from "./measure";
+import { measureRailFlow, RAIL_DRAG_CASE } from "./rail-flow";
 
-const settle = (ms: number) => async (page: Page) => {
-  await page.waitForTimeout(ms);
-};
+/** After a run (not measured): resolves once the page holds still, 10 painted frames with no DOM
+ *  change and nothing animating (a new session streaming its patch, a slide, a menu closing), so
+ *  the next run starts on an idle page. The runner installs the painted-frame helpers. */
+async function quiet(page: Page): Promise<void> {
+  await page.evaluate(async () => {
+    let changed = true;
+    const observer = new MutationObserver(() => (changed = true));
+    observer.observe(document, { subtree: true, childList: true, characterData: true, attributes: true });
+    let held = 0;
+    try {
+      for (let frames = 0; held < 10 && frames < 600; frames += 1) {
+        await window.cmuxPaintFrame();
+        const moving = document
+          .getAnimations()
+          .some(
+            (animation) =>
+              animation.playState === "running" && Number.isFinite(animation.effect?.getComputedTiming().endTime),
+          );
+        held = changed || moving ? 0 : held + 1;
+        changed = false;
+      }
+      if (held < 10) throw new Error("page did not settle within 600 painted frames");
+    } finally {
+      observer.disconnect();
+    }
+  });
+}
 
 /** In-page helpers the predicates use (installed by `prepare`). */
 const HELPERS = `(() => {
@@ -71,7 +96,7 @@ const diffActions: LatencyAction[] = [
       await page.click(`[data-source-id="${target}"]`);
     },
     // A new session streams a new patch; let it finish before the next run.
-    settle: settle(900),
+    settle: quiet,
   },
   {
     name: "branch change",
@@ -82,7 +107,7 @@ const diffActions: LatencyAction[] = [
         await page.click("#source-menu-button");
         await page.click('[data-source-id="branch"]');
         await page.waitForSelector("#base-picker-button");
-        await page.waitForTimeout(900);
+        await quiet(page);
       }
       const current = await page.evaluate(() => document.querySelector(".base-picker-ref")?.textContent ?? "");
       const target = current === "origin/main" ? "feat-cmux-next" : "origin/main";
@@ -95,7 +120,7 @@ const diffActions: LatencyAction[] = [
       const target = targetOf(page);
       await page.click(`.base-picker-row:has(.base-picker-row-primary:text-is("${target}"))`);
     },
-    settle: settle(900),
+    settle: quiet,
   },
   {
     name: "toggle file",
@@ -113,7 +138,7 @@ const diffActions: LatencyAction[] = [
       const name = targetOf(page);
       await page.click(`.file-header:has(.file-header-name:text-is("${name}")) .file-header-stats`);
     },
-    settle: settle(150),
+    settle: quiet,
   },
   {
     name: "toggle viewed",
@@ -135,12 +160,12 @@ const diffActions: LatencyAction[] = [
       const name = targetOf(page);
       await page.click(`.file-header:has(.file-header-name:text-is("${name}")) .file-review-viewed`);
     },
-    settle: settle(150),
+    settle: quiet,
   },
   {
     name: "sidebar toggle",
     async prepare(page) {
-      // The panel slides at once; the diff column changes width when the slide ends.
+      // The panel slides at once; the diff column changes width two frames after the toggle.
       await page.waitForFunction(() => !document.querySelector<HTMLElement>("#files-sidebar")?.dataset.filesMotion);
       const hidden = await page.evaluate(() => document.body.dataset.filesHidden);
       const target = hidden === "true" ? "open" : "closed";
@@ -149,23 +174,27 @@ const diffActions: LatencyAction[] = [
     async input(page) {
       await page.click("#files-toggle");
     },
-    settle: settle(350),
+    settle: quiet,
   },
   {
     name: "sidebar reverse",
     async prepare(page) {
       await page.waitForFunction(() => !document.querySelector<HTMLElement>("#files-sidebar")?.dataset.filesMotion);
       const hidden = await page.evaluate(() => document.body.dataset.filesHidden);
-      // Start a slide, then reverse it half-way (the measured input).
+      // Start a slide, then reverse it once it has run 50 ms (the measured input). A loaded runner's
+      // frame can outlast the slide; then the input toggles it back from rest, to the same target.
       await page.click("#files-toggle");
-      await page.waitForTimeout(50);
+      await page.waitForFunction(() => {
+        const panel = document.querySelector<HTMLElement>("#files-sidebar");
+        return !panel?.dataset.filesMotion || Number(panel.getAnimations()[0]?.currentTime ?? 0) >= 50;
+      });
       const target = hidden === "true" ? "closed" : "open";
       return `document.querySelector("#files-sidebar")?.dataset.filesMotionTarget === ${js(target)}`;
     },
     async input(page) {
       await page.click("#files-toggle");
     },
-    settle: settle(400),
+    settle: quiet,
   },
   {
     name: "layout toggle",
@@ -178,7 +207,7 @@ const diffActions: LatencyAction[] = [
     async input(page) {
       await page.click("#layout-toggle");
     },
-    settle: settle(250),
+    settle: quiet,
   },
   {
     name: "word-wrap toggle",
@@ -191,7 +220,7 @@ const diffActions: LatencyAction[] = [
     async input(page) {
       await page.click("#wrap-toggle");
     },
-    settle: settle(250),
+    settle: quiet,
   },
   {
     name: "jump to file",
@@ -209,7 +238,7 @@ const diffActions: LatencyAction[] = [
     async input(page) {
       await page.keyboard.press("Enter");
     },
-    settle: settle(300),
+    settle: quiet,
   },
   {
     name: "filter typing",
@@ -217,7 +246,7 @@ const diffActions: LatencyAction[] = [
       await helpers(page);
       if ((await attr(page, "body", "data-files-hidden")) === "true") {
         await page.click("#files-toggle");
-        await page.waitForTimeout(350);
+        await page.waitForFunction(() => !document.querySelector<HTMLElement>("#files-sidebar")?.dataset.filesMotion);
       }
       await page.fill("#file-filter-input", "");
       await page.waitForFunction(() =>
@@ -235,9 +264,9 @@ const diffActions: LatencyAction[] = [
       await page.keyboard.press("7");
     },
     async settle(page) {
-      await page.waitForTimeout(150);
+      await quiet(page);
       await page.fill("#file-filter-input", "");
-      await page.waitForTimeout(250);
+      await quiet(page);
     },
   },
 ];
@@ -264,14 +293,15 @@ const markdownActions: LatencyAction[] = [
     async input(page) {
       await page.click(`.md-mode button:text-is("${targetOf(page) === "source" ? "Source" : "Rich text"}")`);
     },
-    settle: settle(200),
+    settle: quiet,
   },
   {
     name: "open link target",
     async prepare(page) {
       if ((await attr(page, ".md-page", "data-mode")) !== "rich") {
         await page.click('.md-mode button:text-is("Rich text")');
-        await page.waitForTimeout(200);
+        await page.waitForFunction(() => document.querySelector<HTMLElement>(".md-doc")?.hidden === false);
+        await quiet(page);
       }
       const current = await page.evaluate(() => document.querySelector(".md-file")?.textContent ?? "");
       const target = current === "a.md" ? "b.md" : "a.md";
@@ -282,7 +312,7 @@ const markdownActions: LatencyAction[] = [
     async input(page) {
       await page.click(`.ProseMirror a[href="${targetOf(page)}"]`, { modifiers: ["Meta"] });
     },
-    settle: settle(500),
+    settle: quiet,
   },
   {
     name: "edit state",
@@ -385,7 +415,7 @@ const pickerActions: LatencyAction[] = [
     async input(page) {
       await page.keyboard.press("Tab");
     },
-    settle: settle(150),
+    settle: quiet,
   },
   {
     name: "up",
@@ -396,7 +426,7 @@ const pickerActions: LatencyAction[] = [
     async input(page) {
       await page.keyboard.press("Backspace");
     },
-    settle: settle(150),
+    settle: quiet,
   },
   {
     name: "choose",
@@ -460,7 +490,7 @@ const emptyActions: LatencyAction[] = [
     async input(page) {
       await page.keyboard.press("Enter");
     },
-    settle: settle(150),
+    settle: quiet,
   },
 ];
 
@@ -481,14 +511,15 @@ const agentPaneActions: LatencyAction[] = [
     async prepare(page) {
       await page.waitForSelector(".acpmux-model .acpmux-picker-button");
       await page.keyboard.press("Escape");
-      return `document.querySelector(".acpmux-model .acpmux-mp") !== null`;
+      return `document.querySelector(".acpmux-quick-menu") !== null`;
     },
     async input(page) {
       await page.click(".acpmux-model .acpmux-picker-button");
     },
     async settle(page) {
       await page.keyboard.press("Escape");
-      await page.waitForTimeout(100);
+      await page.waitForFunction(() => document.querySelector(".acpmux-quick-menu") === null);
+      await quiet(page);
     },
   },
   {
@@ -507,7 +538,83 @@ const agentPaneActions: LatencyAction[] = [
     },
     async settle(page) {
       await page.keyboard.press("Escape");
-      await page.waitForTimeout(100);
+      await page.waitForFunction(() => document.querySelector(".acpmux-slash-menu") === null);
+      await quiet(page);
+    },
+  },
+  {
+    // Leo 2026-10-21: a pasted screenshot showed up in the composer late. The response is its chip
+    // in the strip, not the finished thumbnail: a full-screen Retina capture (3456×2234 PNG, a few
+    // MB of window chrome, text and photo-like noise), pasted on the prompt as WebKit delivers it.
+    name: "paste screenshot",
+    async prepare(page) {
+      const editor = ".acpmux-composer [contenteditable='true']";
+      await page.waitForSelector(editor);
+      await page.evaluate(async () => {
+        const w = window as unknown as { __pasteShot?: File };
+        if (w.__pasteShot) return;
+        const canvas = document.createElement("canvas");
+        canvas.width = 3456;
+        canvas.height = 2234;
+        const context = canvas.getContext("2d")!;
+        const gradient = context.createLinearGradient(0, 0, canvas.width, canvas.height);
+        gradient.addColorStop(0, "#1d2733");
+        gradient.addColorStop(1, "#6b4f7a");
+        context.fillStyle = gradient;
+        context.fillRect(0, 0, canvas.width, canvas.height);
+        let seed = 7;
+        const random = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+        for (let block = 0; block < 900; block += 1) {
+          context.fillStyle = `hsl(${Math.floor(random() * 360)} 40% ${20 + Math.floor(random() * 60)}%)`;
+          context.fillRect(random() * canvas.width, random() * canvas.height, 20 + random() * 300, 8 + random() * 120);
+        }
+        context.font = "26px monospace";
+        for (let line = 0; line < 70; line += 1) {
+          context.fillStyle = line % 3 ? "#e6e6e6" : "#9fd3a5";
+          context.fillText(
+            `${line} const value = compute(${random().toString(36).slice(2)}) // ${"·".repeat(line % 40)}`,
+            60,
+            60 + line * 31,
+          );
+        }
+        const photo = context.getImageData(1800, 1100, 900, 700);
+        for (let at = 0; at < photo.data.length; at += 4) {
+          const grain = random() * 255;
+          photo.data[at] = grain;
+          photo.data[at + 1] = (grain * 0.8) % 255;
+          photo.data[at + 2] = 255 - grain;
+        }
+        context.putImageData(photo, 1800, 1100);
+        const blob = await new Promise<Blob>((resolve) => canvas.toBlob((made) => resolve(made!), "image/png"));
+        w.__pasteShot = new File([blob], "image.png", { type: "image/png" });
+      });
+      await page.focus(editor);
+      return `document.querySelector(".acpmux-attachments .acpmux-attachment") !== null`;
+    },
+    async input(page) {
+      await page.evaluate(() => {
+        const file = (window as unknown as { __pasteShot: File }).__pasteShot;
+        const transfer = new DataTransfer();
+        transfer.items.add(file);
+        const event = new Event("paste", { bubbles: true, cancelable: true });
+        Object.defineProperty(event, "clipboardData", { value: transfer });
+        document.querySelector(".acpmux-composer [contenteditable='true']")!.dispatchEvent(event);
+      });
+    },
+    async settle(page) {
+      // The read chip, then none: the next run starts from an empty strip.
+      await page.waitForFunction(
+        () =>
+          !document.querySelector(".acpmux-attachment[aria-busy='true']") &&
+          !!document.querySelector(".acpmux-attachment-remove"),
+        undefined,
+        { timeout: 15_000 },
+      );
+      await page.evaluate(() => {
+        for (const remove of document.querySelectorAll<HTMLButtonElement>(".acpmux-attachment-remove")) remove.click();
+      });
+      await page.waitForFunction(() => document.querySelector(".acpmux-attachment") === null);
+      await quiet(page);
     },
   },
 ];
@@ -521,4 +628,513 @@ export const AGENT_PANE_PAGE: LatencyPageSpec = {
   actions: agentPaneActions,
 };
 
-export const PAGES: LatencyPageSpec[] = [DIFF_PAGE, MARKDOWN_PAGE, PICKER_PAGE, EMPTY_PAGE, AGENT_PANE_PAGE];
+const composerEditor = ".acpmux-composer [contenteditable='true']";
+const profiled = ["longTasks", "reactCommits"] as const;
+// WebKit does not expose the Long Tasks API. Keep React commit evidence required there,
+// while Chromium requires both sources.
+const requiredProfiled = (engine: string): Instrumentation[] =>
+  engine === "chromium" ? [...profiled] : ["reactCommits"];
+const shown = (selector: string) => `(() => {
+  const node = document.querySelector(${js(selector)});
+  if (!node) return false;
+  const box = node.getBoundingClientRect();
+  return box.width > 0 && box.height > 0 && box.bottom > 0 && box.top < innerHeight &&
+    box.right > 0 && box.left < innerWidth && getComputedStyle(node).visibility !== "hidden" &&
+    Number(getComputedStyle(node).opacity) > 0;
+})()`;
+
+async function clearComposer(page: Page): Promise<void> {
+  await page.focus(composerEditor);
+  await page.keyboard.press("ControlOrMeta+A");
+  await page.keyboard.press("Backspace");
+  await page.keyboard.press("Escape");
+}
+
+async function flowChat(page: Page): Promise<void> {
+  await page.evaluate("window.__latencyFlows.restoreChat()");
+  await page.waitForSelector(composerEditor);
+  await page.waitForFunction(() => !document.querySelector(".nt-screen"));
+  await page.keyboard.press("Escape");
+  if (await page.$("aside.acpmux-chat-inspector")) {
+    await page.evaluate(() => window.cmuxAcpmuxBridge!.command!("toggleSessionInfo"));
+    await page.waitForSelector("aside.acpmux-chat-inspector", { state: "detached" });
+  }
+  await clearComposer(page);
+  await quiet(page);
+}
+
+function pickerOpen(id: string, name: string, trigger: string, popup: string, keyboard = false): LatencyAction {
+  return {
+    id,
+    name,
+    metricType: "target_painted",
+    requiredInstrumentation: requiredProfiled,
+    async prepare(page) {
+      await flowChat(page);
+      await page.waitForSelector(trigger);
+      if (keyboard) await page.focus(trigger);
+      return shown(popup);
+    },
+    async input(page) {
+      if (keyboard) await page.keyboard.press("ArrowDown");
+      else await page.click(trigger);
+    },
+    async settle(page) {
+      await page.keyboard.press("Escape");
+      await page.waitForSelector(popup, { state: "detached" });
+      await quiet(page);
+    },
+  };
+}
+
+function composerMenu(id: string, name: string, key: string, popup: string): LatencyAction {
+  return {
+    id,
+    name,
+    metricType: "target_painted",
+    requiredInstrumentation: requiredProfiled,
+    async prepare(page) {
+      await flowChat(page);
+      await page.focus(composerEditor);
+      return shown(popup);
+    },
+    async input(page) {
+      await page.keyboard.press(key);
+    },
+    async settle(page) {
+      await clearComposer(page);
+      await page.waitForSelector(popup, { state: "detached" });
+      await quiet(page);
+    },
+  };
+}
+
+const flowActions: LatencyAction[] = [
+  pickerOpen(
+    "chat.picker.model.pointer",
+    "model picker open (pointer)",
+    ".acpmux-model .acpmux-picker-button",
+    ".acpmux-model .acpmux-mp",
+  ),
+  pickerOpen(
+    "chat.picker.model.keyboard",
+    "model picker open (keyboard)",
+    ".acpmux-model .acpmux-picker-button",
+    ".acpmux-model .acpmux-mp",
+    true,
+  ),
+  pickerOpen(
+    "chat.picker.access.open",
+    "access picker open",
+    ".acpmux-access .acpmux-picker-button",
+    ".acpmux-access-menu",
+  ),
+  pickerOpen(
+    "chat.menu.add.open",
+    "add menu open",
+    ".acpmux-composer-plus .acpmux-picker-button",
+    ".acpmux-composer-plus [role='listbox']",
+  ),
+  composerMenu("chat.menu.slash.open", "slash menu open", "/", ".acpmux-slash-menu:not(.acpmux-mention-menu)"),
+  composerMenu("chat.menu.mention.open", "mention menu open", "@", ".acpmux-mention-menu"),
+  {
+    id: "chat.type.character",
+    name: "type a character",
+    metricType: "target_painted",
+    requiredInstrumentation: requiredProfiled,
+    async prepare(page) {
+      await flowChat(page);
+      return `document.querySelector(${js(composerEditor)})?.textContent === "x"`;
+    },
+    async input(page) {
+      await page.keyboard.press("x");
+    },
+    async settle(page) {
+      await clearComposer(page);
+      await quiet(page);
+    },
+  },
+  {
+    id: "chat.send",
+    name: "send prompt",
+    metricType: "target_painted",
+    requiredInstrumentation: requiredProfiled,
+    async prepare(page) {
+      await flowChat(page);
+      const text = `Latency prompt ${Date.now()}`;
+      await page.keyboard.insertText(text);
+      await quiet(page);
+      return `Array.from(document.querySelectorAll(".cv-user__bubble")).some((node) => {
+        if (node.textContent?.trim() !== ${js(text)}) return false;
+        const row = node.closest(".acpmux-row");
+        if (row && Number(getComputedStyle(row).opacity) === 0) return false;
+        const box = node.getBoundingClientRect();
+        const scroll = node.closest(".acpmux-scroll")?.getBoundingClientRect();
+        return scroll && box.width > 0 && box.height > 0 && box.bottom > Math.max(0, scroll.top) &&
+          box.top < Math.min(innerHeight, scroll.bottom);
+      })`;
+    },
+    async input(page) {
+      await page.keyboard.press("Enter");
+    },
+    settle: quiet,
+  },
+  ...([true, false] as const).map((open): LatencyAction => ({
+    id: `chat.session-info.${open ? "open" : "close"}`,
+    name: `Session Info (${open ? "open" : "close"}, pointer)`,
+    metricType: "target_painted",
+    requiredInstrumentation: requiredProfiled,
+    async prepare(page) {
+      await flowChat(page);
+      if (!open) {
+        await page.evaluate(() => window.cmuxAcpmuxBridge!.command!("toggleSessionInfo"));
+        await page.waitForSelector("aside.acpmux-chat-inspector[data-presence='shown']");
+        await quiet(page);
+      }
+      return open
+        ? shown("aside.acpmux-chat-inspector[data-presence='shown']")
+        : `document.querySelector("aside.acpmux-chat-inspector") === null`;
+    },
+    async input(page) {
+      await page.click("button.acpmux-chat-inspector-toggle");
+    },
+    settle: quiet,
+  })),
+  {
+    id: "chat.session-info.command",
+    name: "toggleSessionInfo (web command)",
+    metricType: "target_painted",
+    requiredInstrumentation: requiredProfiled,
+    async prepare(page) {
+      await flowChat(page);
+      return shown("aside.acpmux-chat-inspector[data-presence='shown']");
+    },
+    async input(page) {
+      // The same bridge used by the native palette, with native command lookup/IPC excluded.
+      await page.evaluate(
+        "window.__latency.markInput('session-info-command'); window.cmuxAcpmuxBridge.command('toggleSessionInfo')",
+      );
+    },
+    settle: quiet,
+  },
+  {
+    id: "chat.new-tab.open",
+    name: "openNewTab (web adoption)",
+    metricType: "target_painted",
+    requiredInstrumentation: requiredProfiled,
+    async prepare(page) {
+      await flowChat(page);
+      return shown(".nt-screen .nt-field");
+    },
+    async input(page) {
+      await page.evaluate("window.__latency.markInput('new-tab-adoption'); window.__latencyFlows.openNewTab()");
+    },
+    async settle(page) {
+      await flowChat(page);
+    },
+  },
+];
+
+export const CHAT_FLOWS_PAGE: LatencyPageSpec = {
+  name: "chat flows",
+  path: "/test/latency/flows.html?mock&recents=demo",
+  ready: `document.documentElement.dataset.latencyFlowsReady === "true"`,
+  actions: flowActions,
+};
+
+function longScroll(resident: boolean): LatencyAction {
+  return {
+    id: `chat.scroll.3000.${resident ? "resident" : "paged"}`,
+    name: `3000-turn scroll (${resident ? "resident mixed rows" : "paged heavy history tail"})`,
+    metricType: "target_painted",
+    requiredInstrumentation: requiredProfiled,
+    async prepare(page) {
+      await page.waitForSelector(".acpmux-scroll");
+      await page.evaluate(() => {
+        const scroll = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+        scroll.scrollTop = scroll.scrollHeight;
+      });
+      await quiet(page);
+      const from = await page.locator(".acpmux-scroll").evaluate((node) => node.scrollTop);
+      if (from < 600) throw new Error("long transcript does not have a scrollable history");
+      await page.locator(".acpmux-scroll").hover();
+      return `(() => {
+        const scroll = document.querySelector(".acpmux-scroll");
+        if (!scroll || scroll.scrollTop > ${from - 400}) return false;
+        const viewport = scroll.getBoundingClientRect();
+        return Array.from(scroll.querySelectorAll(".acpmux-row")).some((row) => {
+          const box = row.getBoundingClientRect();
+          return row.textContent?.trim() && Number(getComputedStyle(row).opacity) > 0 && box.width > 0 && box.height > 0 &&
+            box.bottom > Math.max(0, viewport.top) && box.top < Math.min(innerHeight, viewport.bottom);
+        });
+      })()`;
+    },
+    async input(page) {
+      await page.mouse.wheel(0, -600);
+    },
+    settle: quiet,
+  };
+}
+
+export const LONG_CHAT_PAGES: LatencyPageSpec[] = [false, true].map((resident) => ({
+  name: `chat 3000 ${resident ? "resident" : "paged"}`,
+  path: `/test/latency/flows.html?mock&turns=3000${resident ? "&resident" : ""}`,
+  ready: `document.documentElement.dataset.latencyFlowsReady === "true"`,
+  actions: [longScroll(resident)],
+}));
+
+export const RAIL_DRAG_PAGE: LatencyPageSpec = {
+  name: "chat rail",
+  path: "/test/latency/flows.html?mock&turns=3000&resident",
+  ready: `document.documentElement.dataset.latencyFlowsReady === "true"`,
+  actions: [RAIL_DRAG_CASE.metric, RAIL_DRAG_CASE.frameMetric].map((metricType) => ({
+    id: metricType === RAIL_DRAG_CASE.metric ? RAIL_DRAG_CASE.id : `${RAIL_DRAG_CASE.id}.cadence`,
+    name: metricType === RAIL_DRAG_CASE.metric ? "rail drag target paint" : "rail drag frame cadence",
+    metricType,
+    requiredInstrumentation: requiredProfiled,
+    measureRun: measureRailFlow,
+    settle: quiet,
+  })),
+};
+
+// The session rail at 3,000 prompts (Leo: "on the left, faster scroll and hover, scrollable"; "ultra
+// fast ultra responsive"), on the same resident chat as the rail drag. Each case starts with the
+// transcript and the rail list at their ends, the pointer off the rail and the hover cards' group
+// cold. A hover arms the probe on its `pointerover` (the probe's default inputs are presses, keys
+// and wheels: without it a hover never starts the clock and every run timed out at 5 s).
+const RAIL_LIST = ".acpmux-minimap__list";
+const RAIL_CARD = ".acpmux-minimap__card";
+/** Past the rail card's leave grace and the hover group's warmth (ui/hoverIntent.ts). */
+const RAIL_COOL_MS = 800;
+const RAIL_WHEEL_STEPS = 10;
+const RAIL_WHEEL_DELTA = 100;
+/** How far above the hovered tick a click case's target is, in rows: 150 px of transcript and more. */
+const RAIL_CLICK_ROWS = 15;
+
+type RailTick = { index: number; x: number; y: number };
+const railTicks = new WeakMap<Page, RailTick>();
+
+/** What the rail shows now, for an error that says why a case could not start. */
+const railState = (page: Page) =>
+  page
+    .evaluate(() => {
+      const rail = document.querySelector(".acpmux-minimap__rail");
+      const list = document.querySelector<HTMLElement>(".acpmux-minimap__list");
+      return JSON.stringify({
+        rail: !!rail,
+        occluded: rail?.hasAttribute("data-occluded") ?? null,
+        ticks: document.querySelectorAll("[data-tick]").length,
+        list: list ? [list.scrollTop, list.scrollHeight, list.clientHeight] : null,
+        card: !!document.querySelector(".acpmux-minimap__card"),
+        inspector: !!document.querySelector("aside.acpmux-chat-inspector"),
+      });
+    })
+    .catch((error: unknown) => `unreadable: ${String(error)}`);
+
+async function railAway(page: Page): Promise<void> {
+  const size = page.viewportSize() ?? { width: 1280, height: 800 };
+  await page.mouse.move(size.width - 4, 4);
+  await page.waitForFunction((card) => !document.querySelector(card), RAIL_CARD, { timeout: 5_000 });
+  await quiet(page);
+}
+
+/** Puts the transcript and the rail list at their ends; the tick `above` rows over the one in the
+ *  middle of the rail's view, clear of its fades. */
+async function railRestTick(page: Page, above = 0): Promise<RailTick> {
+  try {
+    // The flows fixture opens Session Info. On older builds the rail stepped aside for it; closed,
+    // every build draws the rail beside the text, so every arm measures the same rail.
+    if (await page.$("aside.acpmux-chat-inspector")) {
+      await page.evaluate(() => window.cmuxAcpmuxBridge!.command!("toggleSessionInfo"));
+      await page.waitForSelector("aside.acpmux-chat-inspector", { state: "detached", timeout: 5_000 });
+    }
+    await page.waitForSelector(RAIL_LIST, { state: "attached", timeout: 10_000 });
+    await page.evaluate((selector) => {
+      const transcript = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+      transcript.scrollTop = transcript.scrollHeight;
+      const list = document.querySelector<HTMLElement>(selector)!;
+      list.scrollTop = list.scrollHeight;
+    }, RAIL_LIST);
+    await railAway(page);
+    // fixed-wait: the hover group stays warm this long after a card hides; a cold first hover is measured
+    await page.waitForTimeout(RAIL_COOL_MS);
+    return await page.evaluate(
+      ([selector, rows]) => {
+        const list = document.querySelector<HTMLElement>(selector)!;
+        const box = list.getBoundingClientRect();
+        const ticks = [...list.querySelectorAll<HTMLElement>("[data-tick]")].filter((tick) => {
+          const rect = tick.getBoundingClientRect();
+          return rect.height > 0 && rect.top >= box.top + 48 && rect.bottom <= box.bottom - 48;
+        });
+        if (ticks.length <= rows) throw new Error(`only ${ticks.length} rail ticks clear of the fades`);
+        const tick = ticks[Math.floor(ticks.length / 2) - rows]!;
+        const rect = tick.getBoundingClientRect();
+        const at = { index: Number(tick.dataset.tick), x: rect.left + 8, y: rect.top + rect.height / 2 };
+        const top = document.elementFromPoint(at.x, at.y);
+        if (!top?.closest("[data-tick]")) throw new Error(`the point over tick ${at.index} hits ${top?.className}`);
+        return at;
+      },
+      [RAIL_LIST, Math.floor(above)] as const,
+    );
+  } catch (error) {
+    throw new Error(
+      `rail not ready (${String((error as Error).message ?? error).split("\n")[0]}): ${await railState(page)}`,
+    );
+  }
+}
+
+function railHover(id: string, name: string, predicate: (index: number) => string): LatencyAction {
+  return {
+    id,
+    name,
+    metricType: "target_painted",
+    inputEvent: "pointerover",
+    requiredInstrumentation: requiredProfiled,
+    async prepare(page) {
+      const tick = await railRestTick(page);
+      railTicks.set(page, tick);
+      return predicate(tick.index);
+    },
+    async input(page) {
+      const tick = railTicks.get(page)!;
+      await page.mouse.move(tick.x, tick.y);
+    },
+    settle: railAway,
+  };
+}
+
+export const RAIL_POINTER_PAGE: LatencyPageSpec = {
+  name: "chat rail pointer",
+  path: "/test/latency/flows.html?mock&turns=3000&resident",
+  ready: `document.documentElement.dataset.latencyFlowsReady === "true"`,
+  actions: [
+    railHover(
+      "chat.rail.hover.tick",
+      "rail hover lights the tick",
+      (index) => `document.querySelector('[data-tick="${index}"]')?.getAttribute("data-tone") === "active"`,
+    ),
+    railHover("chat.rail.hover.card", "rail hover opens the preview card", () => shown(RAIL_CARD)),
+    {
+      id: "chat.rail.wheel",
+      name: "rail wheel scroll",
+      metricType: "scroll_frame_time",
+      requiredInstrumentation: requiredProfiled,
+      async prepare(page) {
+        const tick = await railRestTick(page);
+        // The pointer rests on the rail, and the card its hover opens has opened, before the wheel.
+        await page.mouse.move(tick.x, tick.y);
+        await quiet(page);
+        const from = await page.evaluate(
+          (selector) => document.querySelector<HTMLElement>(selector)!.scrollTop,
+          RAIL_LIST,
+        );
+        const travel = RAIL_WHEEL_STEPS * RAIL_WHEEL_DELTA;
+        if (from < travel + 100) throw new Error(`rail list at ${from} has too little history to wheel through`);
+        return `document.querySelector(${js(RAIL_LIST)}).scrollTop <= ${from - travel + RAIL_WHEEL_DELTA / 2}`;
+      },
+      async input(page) {
+        for (let step = 0; step < RAIL_WHEEL_STEPS; step += 1) {
+          await page.mouse.wheel(0, -RAIL_WHEEL_DELTA);
+          await page.evaluate(() => window.cmuxPaintFrame());
+        }
+      },
+      settle: railAway,
+    },
+    {
+      id: "chat.rail.click",
+      name: "rail click lands the prompt",
+      metricType: "target_painted",
+      requiredInstrumentation: requiredProfiled,
+      async prepare(page) {
+        const tick = await railRestTick(page, RAIL_CLICK_ROWS);
+        // The pointer rests on the tick first, as a person's does before a click (not measured).
+        await page.mouse.move(tick.x, tick.y);
+        await quiet(page);
+        railTicks.set(page, tick);
+        // Landed: the prompt's bubble drawn LANDING_OFFSET (35 px) below the transcript's top.
+        return `(() => {
+          const view = document.querySelector(".acpmux-scroll")?.getBoundingClientRect();
+          const bubble = document.querySelector('.acpmux-row[data-row-id="synthetic-user-${tick.index}"] .cv-user__bubble');
+          if (!view || !bubble) return false;
+          const at = bubble.getBoundingClientRect().top - view.top;
+          return at > 0 && at < 120;
+        })()`;
+      },
+      async input(page) {
+        await page.mouse.down();
+        await page.mouse.up();
+      },
+      settle: railAway,
+    },
+  ],
+};
+
+// Settings (test/latency/settings.html, host delay 40 ms): a sidebar section switch, from the input
+// to the first painted frame that shows the new section complete (its title and the host-read
+// buttons at its end). Two sections with host reads alternate. "click" is a pointer that lands and
+// clicks at once (no time to preload); "hover, then click" rests on the link first, as a person
+// does before a click, so the router's intent preload can read the section ahead.
+const SETTINGS_CYCLE = ["advanced", "general"] as const;
+const settingsTarget = new WeakMap<Page, number>();
+const nextSettingsSection = (page: Page) => {
+  const index = ((settingsTarget.get(page) ?? -1) + 1) % SETTINGS_CYCLE.length;
+  settingsTarget.set(page, index);
+  return SETTINGS_CYCLE[index]!;
+};
+const settingsComplete = (section: string) =>
+  `document.querySelector('[data-section=${js(section)}] h1') !== null && ` +
+  `document.querySelector('[data-section-actions=${js(section)}] button') !== null`;
+const settingsLink = (section: string) => `[data-section-link=${js(section)}]`;
+
+const settingsActions: LatencyAction[] = [
+  {
+    name: "section switch (click)",
+    async prepare(page) {
+      await page.mouse.move(1, 1);
+      const section = nextSettingsSection(page);
+      targets.set(page, section);
+      return settingsComplete(section);
+    },
+    async input(page) {
+      await page.click(settingsLink(targetOf(page)));
+    },
+    settle: quiet,
+  },
+  {
+    name: "section switch (hover, then click)",
+    async prepare(page) {
+      await page.mouse.move(1, 1);
+      const section = nextSettingsSection(page);
+      targets.set(page, section);
+      await page.hover(settingsLink(section));
+      // fixed-wait: a person's pointer rests on a link about this long before the click (not measured)
+      await page.waitForTimeout(150);
+      return settingsComplete(section);
+    },
+    async input(page) {
+      await page.mouse.down();
+      await page.mouse.up();
+    },
+    settle: quiet,
+  },
+];
+
+export const SETTINGS_PAGE: LatencyPageSpec = {
+  name: "settings",
+  path: "/test/latency/settings.html?hostDelay=40#/settings/general",
+  ready: `document.querySelector('[data-section="general"] [data-section-actions="general"] button') !== null`,
+  actions: settingsActions,
+};
+
+export const PAGES: LatencyPageSpec[] = [
+  DIFF_PAGE,
+  MARKDOWN_PAGE,
+  PICKER_PAGE,
+  EMPTY_PAGE,
+  AGENT_PANE_PAGE,
+  CHAT_FLOWS_PAGE,
+  ...LONG_CHAT_PAGES,
+  SETTINGS_PAGE,
+  RAIL_DRAG_PAGE,
+  RAIL_POINTER_PAGE,
+];

@@ -4,9 +4,9 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
+import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { playFailures } from "./support/galleryPlay";
 import { requireBrowserLane } from "./support/requireBrowserLane";
-import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("composer-search-files-key.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -30,8 +30,8 @@ await requireBrowserLane("composer-search-files-key.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
-    await warmViteServer(vite, "/gallery/frame.html");
     browser = await chromium.launch({ headless: true });
+    await warmGalleryFrame(vite, "agent-pane.composer", { browser });
   });
   afterAll(async () => {
     await browser?.close();
@@ -41,7 +41,7 @@ await requireBrowserLane("composer-search-files-key.test.ts", async () => {
   const play = async (variant: string) => {
     const page = await browser!.newPage({ viewport: { width: 760, height: 560 } });
     const port = (vite!.httpServer!.address() as { port: number }).port;
-    await page.goto(`http://127.0.0.1:${port}/gallery/frame.html?entry=agent-pane.composer&variant=${variant}`);
+    await page.goto(`http://127.0.0.1:${port}${galleryFrame("agent-pane.composer", { variant })}`);
     // The first page waits on a cold Vite compiling the gallery, past 30 s on a busy runner.
     await page.waitForFunction(
       () => {

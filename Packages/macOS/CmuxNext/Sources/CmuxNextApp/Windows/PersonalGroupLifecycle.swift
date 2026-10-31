@@ -111,6 +111,7 @@ struct PersonalGroupLife {
     /// `landed` gets the command's value as soon as it replied.
     func commit<Value: Sendable>(_ label: String, ending: [WorkspaceGroupID], recheck: @escaping @MainActor () -> [WorkspaceGroupID] = { [] },
                                  failed: @escaping @MainActor () -> Void, applied: (@MainActor () -> Void)? = nil,
+                                 completed: (@MainActor (Bool) -> Void)? = nil,
                                  landed: @escaping @MainActor (Value) -> Void = { _ in },
                                  _ body: @escaping @Sendable (isolated DaemonConnection) async throws -> Value) {
         let home = machines.local, personal = personal, v2 = home.store.servesStateResources
@@ -119,22 +120,29 @@ struct PersonalGroupLife {
         Task {
             // Shown again before a failure re-syncs, so a kept group never stays hidden.
             @MainActor func end() { personal.endingGroups.subtract(ending) }
-            guard let value = await home.request(label, transaction: transaction, { connection, _ in try await body(connection) }) else {
-                end()
-                return failed()
-            }
-            landed(value)
-            if let applied { home.whenApplied(transaction, applied) }
-            let still = Set(recheck())
-            let doomed = ending.filter(still.contains)
-            guard !doomed.isEmpty else { return end() }
-            let deleted = await home.request("delete-personal-group") { connection in
+            let result: (value: Value, completed: Bool)? = await home.request(label, transaction: transaction) { connection, _ in
+                let value = try await body(connection)
+                // Keep cleanup on the reply's connection and wait for the primary
+                // event before deciding whether the source group is now empty.
+                guard await home.appliedThroughReply(on: connection, after: label) else { throw DaemonError.notConnected }
+                await landed(value)
+                if let applied { await applied() }
+                let still = await MainActor.run { Set(recheck()) }
+                let doomed = ending.filter(still.contains)
                 for group in doomed {
-                    if v2 { try await connection.state.deleteWorkspaceGroup(group.rawValue) } else { try await connection.deletePersonalGroup(group) }
+                    if v2 { try await connection.state.deleteWorkspaceGroup(group.rawValue) }
+                    else { try await connection.deletePersonalGroup(group) }
                 }
+                return (value, true)
+            }
+            guard let result else {
+                end()
+                failed()
+                completed?(false)
+                return
             }
             end()
-            if deleted == nil { failed() }
+            completed?(result.completed)
         }
     }
 

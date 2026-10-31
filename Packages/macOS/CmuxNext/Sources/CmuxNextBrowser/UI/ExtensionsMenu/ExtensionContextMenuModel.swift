@@ -2,11 +2,12 @@ import AppKit
 
 /// One extension's context menu, in the order of Chrome's legacy `ExtensionContextMenuModel`
 /// (`chrome/browser/extensions/extension_context_menu_model.cc`, `InitMenu`): the extension's
-/// name (its home page), the site-access entry, Options, Remove, Pin (only from the toolbar
-/// icon), then Manage Extension and View Web Permissions. Both the bubble's "more options"
-/// button and a right click on a toolbar icon show it.
+/// name (its home page), the site-access entry, Options, Remove, Pin or Unpin, then Manage
+/// Extension and View Web Permissions. Both the bubble's "more options" button and a right click
+/// on a toolbar icon show it; unlike Chrome, the bubble's menu offers Pin too, beside the row's
+/// pin toggle.
 struct ExtensionContextMenuModel: Equatable {
-    /// Where the menu opened; Chrome offers Pin and Unpin only from a toolbar icon.
+    /// Where the menu opened.
     enum Source: Equatable {
         case menuItem
         case toolbarAction
@@ -61,7 +62,7 @@ struct ExtensionContextMenuModel: Equatable {
                 items.append(.installedByAdmin)
             }
         }
-        if source == .toolbarAction, supportsManagement, info.isEnabled, info.hasAction {
+        if supportsManagement, info.isEnabled, info.hasAction {
             items.append(.pin(!info.isPinned))
         }
         items += [.separator, .manageExtension, .viewWebPermissions]

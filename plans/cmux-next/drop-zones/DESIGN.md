@@ -79,7 +79,7 @@ Problems found:
 3. **Every target stays reachable.** Edges at least 48 pt (Fitts: hard to hit below ~40 pt) and at
    most a third of the extent, so the center keeps at least a third of each axis.
 4. **Corners split on the diagonal** (relative depth), the same shape at every size.
-5. **No flicker.** The shown zone holds 12 pt past its line.
+5. **No flicker.** Shown panes, docks and gaps hold 12 pt past their lines; docks and gaps shrink for entry from the split zone that faces them.
 6. **One preview per outcome.** Join is the body fill, for a tab dropped in a pane center and for a
    pane dragged onto a pane (swap). The caret is only for a tab bar slot.
 

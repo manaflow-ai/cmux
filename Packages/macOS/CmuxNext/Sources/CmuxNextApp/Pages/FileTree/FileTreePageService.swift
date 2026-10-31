@@ -38,14 +38,16 @@ final class FileTreePageService: InternalPageProvider {
 
     func title(for key: String) -> String { tabs[key]?.folder?.lastPathComponent ?? title }
 
-    /// Opens a Files tab on `folder` as an agent's diff opens (AgentBesidePlacement), keeping focus in
-    /// chat tab `chat`: selected in tab `target`'s column, or with no target in a new column right of
-    /// the chat. `link` reads the folder on the chat's own machine.
+    /// Opens a Files tab on `folder` where an agent's diff opens beside chat tab `chat`
+    /// (AgentBesidePlacement): in tab `target`'s column, or with no target in a new column right of
+    /// the chat. A person clicked it, so the tab takes the focus. `link` reads the folder on the
+    /// chat's own machine.
     func openBeside(folder: URL, chat: String, target: String?, link: AgentPaneGitLink?) {
         guard let services, let pane = pane(showing: target ?? chat) else { return }
         var invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: target ?? chat), origin: .user)
         invocation.besideCaller = true
         invocation.newColumnBeside = target == nil
+        invocation.besideTakesFocus = true
         let created = AgentBesidePlacement.placed(invocation, in: pane, then: nil)
         let key = LocalPageTab.makeKey(.files)
         tabs[key] = Tab(folder: folder, link: link)

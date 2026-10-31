@@ -9,6 +9,9 @@
 // default, and sentences given to an Error's constructor. Template literals count by their fixed
 // text. A line (or the comment line above it) marked `l10n-allow: <reason>` is exempt, and so is
 // a file whose header says `l10n-allow-file: <reason>`: product names, symbols, a caller's bug.
+// A file exempt as not shipped (a header whose reason says "not shipped" or "prototype", or a file
+// under prototype/) stays exempt only while no scanned file imports it: shipped code importing it
+// is a finding at the import.
 import fs from "node:fs";
 import path from "node:path";
 import * as ts from "typescript";
@@ -138,12 +141,68 @@ function messageArgument(node: ts.Node, value: string): boolean {
   return /[A-Za-z] [A-Za-z]/.test(value) && /[.!?…]$/.test(value.trim());
 }
 
-/** The other branch of `error instanceof Error ? error.message : "text"`: shown in its place. */
+const isMessage = (node: ts.Node) => ts.isPropertyAccessExpression(node) && node.name.text === "message";
+
+/** Shown in place of an error's message: the other branch of `error instanceof Error ?
+ * error.message : "text"`, or the right side of `error.message ?? "text"` (or `||`). */
 function fallsBackForMessage(node: ts.Node): boolean {
   const parent = node.parent;
+  if (ts.isBinaryExpression(parent))
+    return (
+      parent.right === node &&
+      [ts.SyntaxKind.QuestionQuestionToken, ts.SyntaxKind.BarBarToken].includes(parent.operatorToken.kind) &&
+      isMessage(parent.left)
+    );
   if (!ts.isConditionalExpression(parent) || parent.condition === node) return false;
-  const other = parent.whenTrue === node ? parent.whenFalse : parent.whenTrue;
-  return ts.isPropertyAccessExpression(other) && other.name.text === "message";
+  return isMessage(parent.whenTrue === node ? parent.whenFalse : parent.whenTrue);
+}
+
+/** Text handed to an Error's constructor, possibly as one branch of `??`, `||` or a condition. */
+function errorArgument(node: ts.Node): boolean {
+  const value = valueRoot(node);
+  const parent = value.parent;
+  return (
+    ts.isNewExpression(parent) &&
+    parent.expression.getText().endsWith("Error") &&
+    (parent.arguments?.includes(value as ts.Expression) ?? false)
+  );
+}
+
+/** An `l10n-allow-file` reason that says the file is not shipped UI (a prototype, a design study),
+ * as opposed to text that ships but is not for a person (an agent's prompt, a gallery note). */
+const NOT_SHIPPED = /l10n-allow-file:[^\n]*\b(not shipped|prototype)\b/i;
+
+/** A file that says it is not shipped: its exemption says so, or it sits under prototype/ (below
+ * the scanned root, so a checkout's own path never counts). */
+function exemptAsNotShipped(root: string, file: string): boolean {
+  if (path.relative(root, file).split(path.sep).includes("prototype")) return true;
+  return NOT_SHIPPED.test(fs.readFileSync(file, "utf8").slice(0, 2000));
+}
+
+/** The module an import that ships code names: `import`/`export ... from` that is not type-only,
+ * or a dynamic `import("...")` (a lazy-loaded panel ships too). */
+function shippedImport(node: ts.Node): string | undefined {
+  if (ts.isImportDeclaration(node))
+    return node.importClause?.isTypeOnly || !ts.isStringLiteral(node.moduleSpecifier)
+      ? undefined
+      : node.moduleSpecifier.text;
+  if (ts.isExportDeclaration(node))
+    return node.isTypeOnly || !node.moduleSpecifier || !ts.isStringLiteral(node.moduleSpecifier)
+      ? undefined
+      : node.moduleSpecifier.text;
+  if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword) {
+    const [argument] = node.arguments;
+    return argument && ts.isStringLiteralLike(argument) ? argument.text : undefined;
+  }
+  return undefined;
+}
+
+/** The source file a relative import names, if there is one. */
+function resolveImport(from: string, specifier: string): string | undefined {
+  if (!specifier.startsWith(".")) return undefined;
+  const base = path.resolve(path.dirname(from), specifier);
+  const candidates = [base, ...[".ts", ".tsx", "/index.ts", "/index.tsx"].map((ending) => base + ending)];
+  return candidates.find((candidate) => /\.tsx?$/.test(candidate) && fs.existsSync(candidate));
 }
 
 /** A template literal's fixed text, with each substitution as `{}`. */
@@ -151,9 +210,9 @@ function templateText(node: ts.TemplateExpression): string {
   return node.head.text + node.templateSpans.map((span) => `{}${span.literal.text}`).join("");
 }
 
-export function scan(): Finding[] {
+export function scan(root: string = PANE): Finding[] {
   const findings: Finding[] = [];
-  for (const file of files(PANE)) {
+  for (const file of files(root)) {
     const text = fs.readFileSync(file, "utf8");
     if (ALLOW_FILE.test(text.slice(0, 2000))) continue;
     const lines = text.split("\n");
@@ -171,24 +230,29 @@ export function scan(): Finding[] {
         (line > 0 && /^\s*(\/\/|\{\/\*|\*)/.test(lines[line - 1] ?? "") && ALLOW.test(lines[line - 1] ?? ""))
       )
         return;
-      findings.push({ file: path.relative(PANE, file), line: line + 1, text: value.trim().slice(0, 100) });
+      findings.push({ file: path.relative(root, file), line: line + 1, text: value.trim().slice(0, 100) });
     };
+    // A gallery entry is not shipped either, so it may import a prototype.
+    const ships = !/\.gallery\.tsx?$/.test(file);
     const visit = (node: ts.Node) => {
       if (ts.isJsxText(node) && looksEnglish(node.text)) report(node, node.text);
+      const specifier = ships ? shippedImport(node) : undefined;
+      if (specifier !== undefined) {
+        const target = resolveImport(file, specifier);
+        if (target && exemptAsNotShipped(root, target))
+          report(node, `imports ${path.relative(root, target)}, which is exempt as not shipped`);
+      }
       const value = ts.isStringLiteralLike(node)
         ? node.text
         : ts.isTemplateExpression(node)
           ? templateText(node)
           : undefined;
       if (value !== undefined && looksEnglish(value)) {
-        const parent = node.parent;
         if (
           inTextAttribute(node) ||
           inJsxChild(node) ||
           inTextField(node) ||
-          (ts.isNewExpression(parent) &&
-            parent.expression.getText().endsWith("Error") &&
-            parent.arguments?.includes(node as ts.Expression)) ||
+          errorArgument(node) ||
           fallsBackForMessage(node) ||
           messageArgument(node, value) ||
           inLabelTable(node, text) ||

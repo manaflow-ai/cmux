@@ -2,6 +2,7 @@
 //! as its child and owns sign-in and the acpmux endpoint.
 //!
 //! stdin carries JSON lines from the app:
+//! - `{"type":"network_changed"}`: the Mac woke; re-register signaling and refresh live endpoints.
 //! - `{"type":"token","token":"<Stack access token>"}`: the access token to use
 //!   from now on. The app sends one at start and answers every `need_token`
 //!   (hostd asks whenever it needs one and its token is under a minute from
@@ -18,6 +19,11 @@
 //!   that pinned it (`pairing.rs`). Sent at start; never logged.
 //! - `{"type":"drop_phone","phone_device_id":"<uuid>"}`: the owner removed this
 //!   phone (Settings > Mobile > Remove): hostd closes its live links now.
+//! - `{"type":"phone_credentials","credentials":{"<phone device id>":"<token>"}}`: each
+//!   paired phone's own acpmux credential (acpmux pairing role `phone`, which the person
+//!   issued through the app), the whole set each time. That phone's `acpmux` channel
+//!   presents it instead of the dashboard token, so acpmux knows which phone it is and
+//!   that phone's Full-access setting can cover it (`services.rs`). Never logged.
 //!
 //! End of stdin means the app is gone: the process exits.
 //!
@@ -36,6 +42,20 @@ pub type AcpmuxEndpoint = Option<(String, Option<String>)>;
 
 static ENABLED: OnceLock<bool> = OnceLock::new();
 static DROPS: OnceLock<broadcast::Sender<String>> = OnceLock::new();
+static PHONE_CREDENTIALS: std::sync::Mutex<Option<std::collections::HashMap<String, Secret>>> =
+    std::sync::Mutex::new(None);
+
+/// The acpmux credential the app gave phone `phone_device_id` (`phone_credentials`), if any.
+pub fn phone_credential(phone_device_id: &str) -> Option<String> {
+    let credentials = PHONE_CREDENTIALS.lock().unwrap_or_else(|e| e.into_inner());
+    credentials.as_ref()?.get(&phone_device_id.to_lowercase()).map(|s| s.0.clone())
+}
+
+/// Replaces every phone's acpmux credential (`phone_credentials`); keys are lowercased.
+pub fn set_phone_credentials(credentials: std::collections::HashMap<String, Secret>) {
+    let lowered = credentials.into_iter().map(|(id, token)| (id.to_lowercase(), token)).collect();
+    *PHONE_CREDENTIALS.lock().unwrap_or_else(|e| e.into_inner()) = Some(lowered);
+}
 
 /// Phone device ids the app removed, as they arrive (lowercased).
 pub fn drops() -> broadcast::Receiver<String> {
@@ -62,6 +82,8 @@ impl std::fmt::Debug for Secret {
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Inbound {
+    /// The Mac woke: refresh signaling and endpoints without dropping live links.
+    NetworkChanged,
     Token {
         token: String,
     },
@@ -91,9 +113,30 @@ pub enum Inbound {
     BrowserGone {
         tab: String,
     },
+    /// The simulator surface source the app started for `need_surface`
+    /// `request` (`surface.rs`): its loopback address and per-launch secret.
+    Surface {
+        request: u64,
+        addr: String,
+        secret: String,
+    },
+    /// The app could not stream the surface of `request` (no such phone tab,
+    /// no booted simulator, no live screen with this Xcode).
+    SurfaceFailed {
+        request: u64,
+        reason: String,
+    },
+    /// The surface source of `tab` ended (its tab closed, its simulator shut down).
+    SurfaceGone {
+        tab: String,
+    },
     Devices(crate::pairing::DeviceTrust),
     DropPhone {
         phone_device_id: String,
+    },
+    /// Each paired phone's own acpmux credential, by phone device id. Never logged.
+    PhoneCredentials {
+        credentials: std::collections::HashMap<String, Secret>,
     },
 }
 
@@ -141,6 +184,10 @@ pub enum Event {
         approval_key: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         registered_at_ms: Option<i64>,
+        /// The pre-approval from the Mac's pairing code the phone presented with its
+        /// signature (the app checks and burns it; hostd only forwards it). Absent without one.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pair_token: Option<String>,
     },
     /// A paired phone signed out and asks the Mac to forget it.
     Unpaired { phone_device_id: String },
@@ -149,6 +196,12 @@ pub enum Event {
     NeedBrowser { request: u64, tab: String, url: String },
     /// hostd no longer needs the browser host of `tab`: stop it.
     BrowserStop { tab: String },
+    /// A phone opened simulator surface tab `tab` (`s<surface>`, a phone tab
+    /// of this Mac): start its frame source and answer with `surface` (or
+    /// `surface_failed`) for `request`.
+    NeedSurface { request: u64, tab: String },
+    /// hostd no longer needs the surface source of `tab`: stop it.
+    SurfaceStop { tab: String },
 }
 
 /// Writes `event` as one stdout line when supervised; otherwise nothing.
@@ -172,6 +225,8 @@ pub struct Supplied {
     pub identity: watch::Receiver<Option<crate::pairing::MacIdentity>>,
     /// Browser hosts the app starts for the `browser` service.
     pub browser: std::sync::Arc<crate::browser::BrowserBroker>,
+    /// Simulator surface sources the app starts for the `surface` service.
+    pub surface: std::sync::Arc<crate::browser::BrowserBroker>,
 }
 
 /// Reads stdin until it ends, then exits the process (the app is gone).
@@ -182,10 +237,13 @@ pub fn spawn_stdin_reader() -> Supplied {
     let (identity_tx, identity) = watch::channel(None);
     let browser = std::sync::Arc::new(crate::browser::BrowserBroker::new(std::sync::Arc::new(emit)));
     let broker = std::sync::Arc::clone(&browser);
+    let surface = std::sync::Arc::new(crate::browser::BrowserBroker::for_surfaces(std::sync::Arc::new(emit)));
+    let surfaces = std::sync::Arc::clone(&surface);
     tokio::spawn(async move {
         let mut lines = BufReader::new(tokio::io::stdin()).lines();
         while let Ok(Some(line)) = lines.next_line().await {
             match Inbound::parse(&line) {
+                Some(Inbound::NetworkChanged) => crate::netwatch::changed(),
                 Some(Inbound::Token { token }) => {
                     token_tx.send_replace(Some(token));
                 }
@@ -203,6 +261,7 @@ pub fn spawn_stdin_reader() -> Supplied {
                 Some(Inbound::Devices(trust)) => {
                     devices_tx.send_replace(Some(trust));
                 }
+                Some(Inbound::PhoneCredentials { credentials }) => set_phone_credentials(credentials),
                 Some(Inbound::DropPhone { phone_device_id }) => {
                     let _ =
                         DROPS.get_or_init(|| broadcast::channel(16).0).send(phone_device_id.to_lowercase());
@@ -212,13 +271,19 @@ pub fn spawn_stdin_reader() -> Supplied {
                 }
                 Some(Inbound::BrowserFailed { request, reason }) => broker.answer(request, Err(reason)),
                 Some(Inbound::BrowserGone { tab }) => broker.gone(&tab),
+                Some(Inbound::Surface { request, addr, secret }) => {
+                    surfaces.answer(request, Ok((addr, secret)));
+                }
+                Some(Inbound::SurfaceFailed { request, reason }) => surfaces.answer(request, Err(reason)),
+                Some(Inbound::SurfaceGone { tab }) => surfaces.gone(&tab),
                 None => tracing::warn!("ignoring an unknown control line"),
             }
         }
         tracing::info!("control input ended; exiting");
+        crate::size_release::stop_and_release(crate::size_release::EXIT_WAIT).await;
         std::process::exit(0);
     });
-    Supplied { token, acpmux, devices, identity, browser }
+    Supplied { token, acpmux, devices, identity, browser, surface }
 }
 
 /// The wire name of a transport.
@@ -278,8 +343,24 @@ mod tests {
             Inbound::parse(r#"{"type":"browser_gone","tab":"s4"}"#),
             Some(Inbound::BrowserGone { tab: "s4".into() })
         );
+        assert_eq!(Inbound::parse(r#"{"type":"network_changed"}"#), Some(Inbound::NetworkChanged));
         assert_eq!(Inbound::parse(r#"{"type":"nope"}"#), None);
         assert_eq!(Inbound::parse("not json"), None);
+    }
+
+    #[test]
+    fn phone_credentials_replace_the_set_and_never_print() {
+        let Some(Inbound::PhoneCredentials { credentials }) =
+            Inbound::parse(r#"{"type":"phone_credentials","credentials":{"AB-1":"tok"}}"#)
+        else {
+            panic!("a phone_credentials line")
+        };
+        assert!(!format!("{credentials:?}").contains("tok"));
+        set_phone_credentials(credentials);
+        assert_eq!(phone_credential("ab-1").as_deref(), Some("tok"));
+        assert_eq!(phone_credential("AB-1").as_deref(), Some("tok"));
+        set_phone_credentials(Default::default());
+        assert_eq!(phone_credential("ab-1"), None, "a phone the app no longer lists has none");
     }
 
     #[test]
@@ -296,18 +377,26 @@ mod tests {
             r#"{"type":"phone_up","session_id":"s","phone_device_id":"p","transport":"wireguard","path":"turn-tls"}"#
         );
         assert_eq!(serde_json::to_string(&Event::NeedToken).unwrap(), r#"{"type":"need_token"}"#);
-        let request = |registered_at_ms| Event::PairRequest {
+        let request_with = |registered_at_ms, pair_token| Event::PairRequest {
             phone_device_id: "p".into(),
             name: "n".into(),
             identity_key: "04".into(),
             approval_key: "04".into(),
             registered_at_ms,
+            pair_token,
         };
+        let request = |registered_at_ms| request_with(registered_at_ms, None);
         assert_eq!(
             serde_json::to_string(&request(Some(1_791_961_929_681))).unwrap(),
             r#"{"type":"pair_request","phone_device_id":"p","name":"n","identity_key":"04","approval_key":"04","registered_at_ms":1791961929681}"#
         );
         assert!(!serde_json::to_string(&request(None)).unwrap().contains("registered_at_ms"));
+        assert!(!serde_json::to_string(&request(None)).unwrap().contains("pair_token"));
+        let scanned = request_with(None, Some("AbC-dEf_0123456789".into()));
+        assert_eq!(
+            serde_json::to_string(&scanned).unwrap(),
+            r#"{"type":"pair_request","phone_device_id":"p","name":"n","identity_key":"04","approval_key":"04","pair_token":"AbC-dEf_0123456789"}"#
+        );
         assert_eq!(serde_json::to_string(&Event::Removed).unwrap(), r#"{"type":"removed"}"#);
         assert_eq!(
             serde_json::to_string(&Event::NeedBrowser {

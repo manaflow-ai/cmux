@@ -1,4 +1,6 @@
+import CmuxNextAgentPane
 import CmuxNextBridge
+import CmuxNextCloud
 import CmuxNextDaemon
 import CmuxNextSidebar
 
@@ -24,7 +26,8 @@ enum CloudCreationRows {
                 id: WorkspaceID(creation.rowID), machineID: machineID,
                 title: CloudStrings.newCloudWorkspaceTitle,
                 status: CloudStrings.stage(stage), kind: .terminal,
-                progress: SidebarProgress(value: stage.failure == nil ? (stage == .ready ? 1 : nil) : 1, isError: stage.failure != nil),
+                // A paused machine waits for an attach: no spinner.
+                progress: stage.isPaused ? nil : SidebarProgress(value: stage.failure == nil ? (stage == .ready ? 1 : nil) : 1, isError: stage.failure != nil),
                 isClosable: false, stage: CloudStrings.stage(stage))
             if let index = sections.firstIndex(where: { $0.machine?.id == machineID }) {
                 sections[index].nodes.append(.workspace(row))
@@ -41,14 +44,48 @@ enum CloudCreationRows {
     /// (link or daemon gave up, the provider failed it) with its reason as
     /// the tooltip, so it keeps its header in the one list instead of
     /// "connecting" for ever.
-    static func machine(_ session: CloudMachineSession, compatibility: DaemonCompatibility?) -> SidebarMachine {
+    static func machine(_ session: CloudMachineSession, compatibility: DaemonCompatibility?, limits: CloudMachineLimits? = nil) -> SidebarMachine {
         var header = SidebarBridge.machine(for: session.daemon, name: session.machine.title, kind: .cloud, live: session.machine.status.isLive,
                              compatibility: compatibility)
-        if let failure = session.stage.failure, header.status == .connecting || header.status == .offline {
-            header.status = .failed
+        header.cost = cost(session.machine, limits: limits)
+        let stage = session.stage
+        if case .paused(let idle) = stage, header.status == .connecting || header.status == .offline {
+            // Paused never reads failed: "Paused (idle)" or "Paused"; an attach resumes it.
+            header.status = idle ? .pausedIdle : .paused
+        } else if let failure = stage.failure, header.status == .connecting || header.status == .offline {
+            header.status = session.stageInput.isDisconnect ? .disconnected : .failed
             header.detail = failure
         }
+        header.detail = withUpdate(header.detail, DaemonUpdateBoard.shared.targets[CloudMachineUpdateTarget.id(session.machineID)],
+                                   compatibility: compatibility)
         return header.redialing(session.link?.redial.isRedialing == true)
+    }
+
+    /// The automatic update's state (``CloudMachineUpdates``) in a machine header's detail: while it
+    /// runs or retries it replaces "Update it to turn on every feature"; a result follows the rest.
+    /// A failure goes once the machine runs the build the update was to (Update Machine fixed it),
+    /// not merely one that serves every capability: an older build can, and is still not the app's.
+    static func withUpdate(_ detail: String?, _ event: DaemonUpdateEvent?, compatibility: DaemonCompatibility?) -> String? {
+        guard let event else { return detail }
+        let line = DaemonUpdateBoard.line(event.state)
+        switch event.state {
+        // "Update it to turn on every feature" would ask for what cannot happen: what still works instead.
+        case .updating, .retrying, .offline, .cannotUpdate: return line
+        case .failed where event.build.map { build in DaemonBuildCommit(compatibility?.buildCommit)?.sameCommit(build) == true } == true:
+            return detail
+        case .updated, .failed: return [detail, line].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: "\n")
+        case .cleared: return detail
+        }
+    }
+
+    /// A Cloud machine's cost line from server facts: its rate, when it last
+    /// started (nil unless it is live, so a paused machine shows no running
+    /// cost) and the account's cap. Nil when the server sent none of them.
+    static func cost(_ machine: CloudMachine, limits: CloudMachineLimits?) -> SidebarMachine.Cost? {
+        let since = machine.status.isLive ? machine.runningSince : nil
+        let cap = limits.map { SidebarMachine.Cost.Cap(maxActiveVms: $0.maxActiveVms, running: $0.activeVmCount) }
+        guard machine.hourlyRateUsd != nil || since != nil || cap != nil else { return nil }
+        return SidebarMachine.Cost(hourlyRateUsd: machine.hourlyRateUsd, runningSince: since, cap: cap)
     }
 
     /// A Cloud creation's row (cx-lu8f): no workspace yet, so no daemon command and no context menu.

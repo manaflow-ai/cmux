@@ -4,7 +4,8 @@ name: cmux-next perf bench
 # Safari on the bench mini (cmux20-bench; scripts/perf-bench/README.md). The step builds a
 # Release app at the feat-cmux-next tip, runs alone on an idle worker
 # (class exclusive) and fails when a cmux row regressed past
-# scripts/perf-bench/baseline/<chip>-macos<major>.json. It goes through the
+# scripts/perf-bench/baseline/<chip>-macos<major>.json, or broke an enforced resource budget
+# (cmux-budget, scripts/perf-bench/budgets.json). It goes through the
 # build-fleet gateway runner (the one CI_SWIFT_PACKAGE_TESTS_STEP_GATEWAY names),
 # which only hands the step to the controller with `cmux-ci run`.
 
@@ -18,7 +19,7 @@ on:
         default: "3"
       browsers:
         description: "browsers"
-        default: "cmux-chromium,cmux-webkit,cmux-terminal,chrome,helium,ardia,dia,safari"
+        default: "cmux-chromium,cmux-webkit,cmux-terminal,cmux-budget,chrome,helium,ardia,dia,safari"
       worker:
         description: "fleet worker (empty: any idle bench worker, today cmux20-bench)"
         default: ""
@@ -44,19 +45,24 @@ jobs:
       - name: xbench on a fleet mini
         env:
           ROUNDS: ${{ inputs.rounds || '3' }}
-          BROWSERS: ${{ inputs.browsers || 'cmux-chromium,cmux-webkit,cmux-terminal,chrome,helium,ardia,dia,safari' }}
+          BROWSERS: ${{ inputs.browsers || 'cmux-chromium,cmux-webkit,cmux-terminal,cmux-budget,chrome,helium,ardia,dia,safari' }}
           WORKER: ${{ inputs.worker || '' }}
         run: |
           set -uo pipefail
+          client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
+          if ! [[ -x "$client" ]]; then
+            echo "::error title=Build fleet client missing::$client is not installed on runner $RUNNER_NAME; the bench did not run."
+            exit 127
+          fi
           sha="$(git rev-parse HEAD)"
           target=()
           [ -n "$WORKER" ] && target=(--target-worker "$WORKER")
           status=0
-          "${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}" run --class exclusive --measurement --label bench \
+          "$client" run --class exclusive --measurement --label bench \
             --script scripts/measure/perf-bench.sh --ref "$sha" --timeout 23400 \
             --artifact artifacts/perf-bench/results.json ${target[@]+"${target[@]}"} \
             --arg="rounds=$ROUNDS" --arg="browsers=$BROWSERS" --arg=gate=1 | tee "$RUNNER_TEMP/bench.log" || status=$?
           # The report prints BENCH.md into the step log; show it on the run page.
           sed -n '/^# xbench, /,$p' "$RUNNER_TEMP/bench.log" | grep -v '^PERF-BENCH-' >> "$GITHUB_STEP_SUMMARY" || true
-          grep '^PERF-BENCH-GATE' "$RUNNER_TEMP/bench.log" >> "$GITHUB_STEP_SUMMARY" || true
+          grep -E '^(PERF-BENCH-GATE|PERF-BUDGET)' "$RUNNER_TEMP/bench.log" >> "$GITHUB_STEP_SUMMARY" || true
           exit "$status"

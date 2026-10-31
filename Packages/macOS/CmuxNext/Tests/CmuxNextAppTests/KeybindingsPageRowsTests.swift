@@ -37,4 +37,29 @@ import Testing
         #expect(repeated.isEmpty, "rows listed more than once: \(repeated)")
         #expect(workspace3.count == 1, "Select Workspace 3 on cmd+3: \(workspace3.count) rows")
     }
+
+    /// Remove on an action's only key unbinds it in cmux.json (`KeybindingPageWrites.remove`).
+    /// The table then has no entry for it, and the page dropped the action: it could not get a
+    /// key again from the page. It is one `unset` row with no keys until Reset or a new key.
+    @Test func anActionWhoseKeysWereRemovedStaysAsOneUnsetRow() {
+        let registry = ActionRegistry.standard()
+        let id: ActionID = "bookmark.toggleBar"
+        let rowsOfAction = {
+            Self.rows(registry).compactMap { row -> [String: JSONValue]? in
+                guard case .object(let object) = row, object["command"]?.stringValue == id.rawValue else { return nil }
+                return object
+            }
+        }
+        #expect(!rowsOfAction().isEmpty && rowsOfAction().allSatisfy { $0["unset"] == nil })
+
+        registry.setShortcutOverride(nil, for: id)
+        let unset = rowsOfAction()
+        #expect(unset.count == 1, "rows of an unbound action: \(unset)")
+        #expect(unset.first?["unset"] == .bool(true))
+        #expect(unset.first?["key"]?.stringValue == "")
+        #expect(unset.first?["source"]?.stringValue == "user")
+
+        registry.removeShortcutOverride(for: id)
+        #expect(!rowsOfAction().isEmpty && rowsOfAction().allSatisfy { $0["unset"] == nil })
+    }
 }

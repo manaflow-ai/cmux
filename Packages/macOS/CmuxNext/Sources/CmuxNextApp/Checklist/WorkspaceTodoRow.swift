@@ -1,6 +1,7 @@
 import CmuxNextDaemon
 import CmuxNextDesign
 import SwiftUI
+import CmuxNextTasks
 
 /// One checklist item on the Todo page: its state mark (click toggles complete), its text
 /// (double-click edits), how many images it has, and a menu of its actions.
@@ -14,7 +15,7 @@ struct WorkspaceTodoRow: View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             Button { actions.toggle(item.id) } label: {
                 Image(systemName: Self.symbol(item.state))
-                    .foregroundStyle(item.state == .done ? Color(nsColor: Palette.accent) : Color.secondary)
+                    .foregroundStyle(item.state == .done ? Color(nsColor: Palette.litGlyph) : Color.secondary)
             }
             .buttonStyle(.plain)
             .accessibilityLabel(WorkspaceChecklistStrings.toggle)

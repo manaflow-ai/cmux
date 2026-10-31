@@ -15,6 +15,7 @@ pub mod parse;
 pub mod refs;
 mod repository;
 pub mod run;
+pub mod worktree_root;
 pub mod write_run;
 
 pub use repository::{OpenError, Repository, filter_overrides, main_root};

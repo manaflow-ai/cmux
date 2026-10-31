@@ -25,8 +25,8 @@ import Foundation
 ///
 /// Limit: Sentry suspends every other thread while it writes its report
 /// (`sentrycrashmc_suspendEnvironment`); a Sentry handler that blocks with
-/// the threads suspended also stops this thread. Only an out-of-process
-/// watcher could end that case.
+/// the threads suspended also stops this thread. ``CrashWatcher``, a child
+/// process armed on the same paths, ends that case 15 s after the arm.
 enum CrashDeadline {
     /// How long a crash may take before the deadline ends the process. A
     /// normal crash ends in well under a second; Sentry's own concurrent
@@ -42,7 +42,7 @@ enum CrashDeadline {
         deadlineSemaphore = semaphore
         let parked = semaphore
         let thread = Thread { CrashDeadline.watch(parked) }
-        thread.name = "cmux-next crash deadline"
+        thread.name = threadName
         thread.qualityOfService = .userInteractive
         thread.start()
     }
@@ -52,6 +52,35 @@ enum CrashDeadline {
     static func arm() {
         let semaphore = deadlineSemaphore
         if semaphore != 0 { _ = semaphore_signal(semaphore) }
+    }
+
+    /// Suspends the deadline thread, as Sentry's report writer does, for the
+    /// crash gate's `debug.crash.app {"signal": "suspended"}` (only the
+    /// ``CrashWatcher`` can then end a blocked crash path).
+    static func suspendThread() {
+        var threads: thread_act_array_t?
+        var count = mach_msg_type_number_t(0)
+        guard task_threads(mach_task_self_, &threads, &count) == KERN_SUCCESS, let threads else { return }
+        defer {
+            for index in 0 ..< Int(count) { mach_port_deallocate(mach_task_self_, threads[index]) }
+            vm_deallocate(mach_task_self_, vm_address_t(UInt(bitPattern: threads)),
+                          vm_size_t(Int(count) * MemoryLayout<thread_act_t>.stride))
+        }
+        for index in 0 ..< Int(count) where name(of: threads[index]) == threadName {
+            _ = thread_suspend(threads[index])
+        }
+    }
+
+    private static let threadName = "cmux-next crash deadline"
+
+    private static func name(of thread: thread_act_t) -> String? {
+        var info = thread_extended_info_data_t()
+        var size = mach_msg_type_number_t(MemoryLayout<thread_extended_info_data_t>.size / MemoryLayout<natural_t>.size)
+        let result = withUnsafeMutablePointer(to: &info) {
+            $0.withMemoryRebound(to: integer_t.self, capacity: Int(size)) { thread_info(thread, thread_flavor_t(THREAD_EXTENDED_INFO), $0, &size) }
+        }
+        guard result == KERN_SUCCESS else { return nil }
+        return withUnsafeBytes(of: info.pth_name) { String(decoding: $0.prefix { $0 != 0 }, as: UTF8.self) }
     }
 
     private static func watch(_ semaphore: semaphore_t) {

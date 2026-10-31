@@ -2,14 +2,11 @@
 // glob is LAZY, so each file is its own dynamic import: one broken file (a syntax error, a throw, a
 // missing export) fails its own load and no other (entryStore.ts). test/gallery-coverage.test.ts
 // reads the same files without Vite (scripts/gallery/entries.ts).
-import { createEntryStore, type EntrySource, type EntryStore } from "./entryStore";
+import { createEntryStore, entryPath, type EntrySource, type EntryStore } from "./entryStore";
 // Bun's types also declare import.meta.hot (with argument-less listeners); these listeners are Vite's.
 import type { ViteHotContext } from "vite/types/hot.d.ts";
 
 const loaders = import.meta.glob("../**/*.gallery.{ts,tsx}", { import: "default" });
-
-/** `../agent-session/x.gallery.ts` (relative to this file) as `src/agent-session/x.gallery.ts`. */
-export const entryPath = (key: string): string => `src/${key.replace(/^\.\.\//, "")}`;
 
 /** The entry files, by path. A reload (`bust`) imports a fresh copy under a new URL. */
 const allEntrySources: EntrySource[] = Object.entries(loaders)

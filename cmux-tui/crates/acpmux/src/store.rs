@@ -5,6 +5,7 @@
 //! Both expose the same API so the hub does not care which is active.
 
 use crate::config::{StoreConfig, StoreMode, write_atomic};
+use crate::no_panic::LockExt;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -13,6 +14,15 @@ use std::fs::{File, OpenOptions};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
+
+mod compact;
+pub use compact::{CompactMode, Compaction, Staged};
+mod deferred;
+pub use deferred::{Deferral, Keep};
+mod superseded;
+pub use superseded::{Superseded, starts_prompt};
+mod kind_index;
+pub use kind_index::INDEXED_KINDS;
 
 /// One line in the session event log.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -64,21 +74,60 @@ impl std::fmt::Display for SessionStatus {
     }
 }
 
+/// What a watched chat follows (`hub/watch.rs`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Watching {
+    /// `claude` or `codex`.
+    pub family: String,
+    /// The harness's transcript, found in its own store (`adopt.rs`).
+    pub file: PathBuf,
+    /// How far into `file` acpmux has read, in bytes.
+    #[serde(default)]
+    pub offset: u64,
+    /// The rollout is a current Codex one, whose message items are its turns (`adopt_replay.rs`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub codex_items: bool,
+    /// The turn shown as open: the last prompt, until the transcript ends it, the next prompt
+    /// comes, or Take Over settles it. Kept so a daemon restart goes on with it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub open: Option<WatchedTurn>,
+}
+
+/// A watched chat's open turn (`Watching::open`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WatchedTurn {
+    pub turn_id: String,
+    pub prompt_id: String,
+    pub turn_seq: u64,
+    /// An answer was shown, so the next piece is set apart from it.
+    #[serde(default)]
+    pub answered: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionMeta {
     pub schema: String,
     pub id: String,
     pub name: String,
+    /// Someone gave `name` (at the start, a fork's or a rename), not the daemon's `HARNESS-N`
+    /// default (`hub/new_request.rs` `unique_name_among`). False in a log from before it was kept.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub name_given: bool,
     #[serde(alias = "harness")]
     pub harness: String,
     #[serde(default, alias = "agent_argv")]
     pub harness_argv: Vec<String>,
+    /// The argv its agent last started with: a config or preset reload since creation can change
+    /// it (`harness_argv` is the creation's). None before any start (#23322, review 36).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub spawn_argv: Option<Vec<String>>,
     /// Model family of the profile at creation (`claude`, `codex`, ...).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub family: Option<String>,
-    /// Preset the session was created from (`-p NAME`); its env is
-    /// re-applied on every respawn.
+    /// Preset the session was created from (`-p NAME`); its env is re-applied on every respawn.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub preset: Option<String>,
     /// Model requested for a harness whose argv or env carries `${model}`:
@@ -88,6 +137,16 @@ pub struct SessionMeta {
     pub cwd: PathBuf,
     #[serde(default)]
     pub agent_session_id: Option<String>,
+    /// Claude Code can replace its native session id when a chat is forked. Keep ids this
+    /// daemon previously recorded for the same chat so transcript reads can follow that history
+    /// without scanning another session's store. This is daemon-owned state; it is never inferred
+    /// from transcript contents.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub previous_agent_session_ids: Vec<String>,
+    /// Proven family of the current native id. Older/imported metadata is unknown and cannot
+    /// authorize historical Claude reads when that id is retired.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_session_family: Option<String>,
     pub status: SessionStatus,
     pub created_at: u64,
     pub updated_at: u64,
@@ -97,6 +156,10 @@ pub struct SessionMeta {
     pub parent_id: Option<String>,
     #[serde(default)]
     pub fork_seq: Option<u64>,
+    /// Whether this daemon verified the local parent link when the fork was made. Imported
+    /// metadata is explicitly unverified, even when an old bundle happened to carry parent ids.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fork_parent_verified: Option<bool>,
     #[serde(default)]
     pub agent_info: Option<Value>,
     #[serde(default)]
@@ -106,19 +169,33 @@ pub struct SessionMeta {
     /// agent again, still steers instead of stopping the turn for every prompt sent now.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub steering: bool,
+    /// Its agent was launched to write question previews as HTML (`hub/questions.rs`
+    /// `PreviewFormat`), kept for the same reason: an adopted agent keeps its launch's format.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub html_previews: bool,
     #[serde(default)]
     pub modes: Option<Value>,
+    /// The mode cmux itself last asked the harness for (its start default, the person's pick, a
+    /// policy's mode), never one the harness reported on its own: a chat in full access lends its
+    /// folder's trust only by this (`hub/trust_wait.rs`), so a harness that claims a mode gets none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode_set_by_cmux: Option<String>,
     #[serde(default)]
     pub config_options: Option<Value>,
     #[serde(default)]
     pub models: Option<Value>,
     #[serde(default)]
     pub permission_policy: Option<String>,
+    /// Who set `permission_policy` (`hub/policy_source.rs`); None from an older daemon.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub policy_source: Option<String>,
     #[serde(default)]
     pub title: Option<String>,
     /// Who set `title` (`hub/titles.rs`): `prompt` (its first prompt's line),
     /// `harness` (its own `session_info_update`), `asked` (a generated title
-    /// is on its way or came back empty; a later turn asks again, `hub/titles.rs`), `generated` or `adopted`.
+    /// is on its way or came back empty; a later turn asks again, `hub/titles.rs`), `generated`,
+    /// `adopted`, `named` (renamed before a title settled: none is generated) or `launched`
+    /// (started under a name, not yet prompted).
     /// None: a chat titled before acpmux generated titles; kept as is.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title_source: Option<String>,
@@ -131,6 +208,10 @@ pub struct SessionMeta {
     /// Title requests that came back with no title in this daemon run (`hub/titles.rs`).
     #[serde(skip)]
     pub title_failures: u8,
+    /// The first prompt was too thin to title reliably; permit one refresh after its turn.
+    /// Ephemeral so this does not change the stored session format.
+    #[serde(skip)]
+    pub title_thin: bool,
     #[serde(default)]
     pub last_prompt: Option<String>,
     #[serde(default)]
@@ -141,6 +222,22 @@ pub struct SessionMeta {
     pub turn_count: u64,
     #[serde(default)]
     pub usage: Option<Value>,
+    /// Claude Code's newest /context breakdown (`claude_stdio::context_breakdown`),
+    /// sent after each turn; none from any other harness.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_breakdown: Option<Value>,
+    /// The account's plan usage limits (`claude_stdio::usage_limits`), newest per window, from
+    /// Claude Code's `rate_limit_event`; none from any other harness.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub usage_limits: Option<Value>,
+    /// The agent's newest `available_commands_update` (its slash commands), so
+    /// opening a chat names them without reading its log back to the start,
+    /// where an agent lists them once (perf100).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub available_commands: Option<Value>,
+    /// Last goal reported by the harness. Codex owns its persistence and continuation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub goal: Option<Value>,
     /// Per-session permission rules layered above the policy (see hub/rules.rs).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub permission_rules: Option<Value>,
@@ -158,20 +255,39 @@ pub struct SessionMeta {
     /// with "No conversation found with session ID".
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub claude_unstored: bool,
-    /// The profile whose Claude store (its CLAUDE_CONFIG_DIR) holds the
-    /// current Claude conversation: the one that started or forked it. A
-    /// respawn on another profile (a failover) resumes only when that
-    /// profile's store has the conversation, else starts fresh (E1).
+    /// When (Unix ms) the idle exit hibernated its agent, 0 when no start woke it since
+    /// (`hub/idle.rs`): after a restart, opening it wakes it and its wake draws no row, as
+    /// before the restart, and the wake's log says how long it slept.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub hibernated_ms: u64,
+    /// Where the chat went when it moved to another daemon (`hub/transfer_out.rs` commit:
+    /// `{host?, sessionId, cwd?, branch?, commit?, socket?}`). Set once, never cleared here: a
+    /// moved chat takes no prompt and never starts its agent on this daemon again (one writer),
+    /// and `resolve` follows it there (`hub/locate.rs`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub moved_to: Option<Value>,
+    /// The profile whose Claude store (its CLAUDE_CONFIG_DIR) holds the current Claude
+    /// conversation: the one that started or forked it. A respawn on another profile (a failover)
+    /// resumes only when that profile's store has the conversation, else starts fresh (E1).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub claude_profile: Option<String>,
     /// Outcome of the last turn: {turnId, promptId, status, stopReason?,
     /// errorText?, errorSource?, endedAt}.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_turn: Option<Value>,
+    /// Classified harness attempts, projected from turn results; old stores default empty.
+    #[serde(default)]
+    pub harness_failures: crate::session_liveness::HarnessFailures,
     /// Created over a remote-origin connection (the WebSocket listener):
     /// its harness never spawns with a preset's args or system prompt.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub remote_origin: bool,
+    /// A remote-origin session whose caller asked for the VM boundary
+    /// (`hub/vm_boundary.rs`): its Claude Code runs without the platform
+    /// sandbox while this machine takes the boundary. A fork or sub-session
+    /// keeps it, as it keeps `remote_origin`.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub vm_boundary: bool,
     /// Per-session env (`session_env.rs`): allowlisted keys set by the unix
     /// socket on session/new or session/fork, applied over the preset env at
     /// every spawn. Never copied to a fork or a handoff.
@@ -198,6 +314,10 @@ pub struct SessionMeta {
     /// (ALL-CHATS-ON-DEVICE C3): absolute, existing folders only.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub harness_roots: Vec<HarnessRoot>,
+    /// A Claude Code or Codex conversation this chat shows without running it (`hub/watch.rs`):
+    /// cleared when a client takes it over.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub watching: Option<Watching>,
     /// Unsent composer text owned by this acpmux session.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub composer_draft: Option<String>,
@@ -213,15 +333,15 @@ pub struct SessionMeta {
     /// The tools the chat has (`hub/tools.rs`).
     #[serde(default, skip_serializing_if = "ToolInventory::is_empty")]
     pub tools: ToolInventory,
-    /// The branch checked out in `cwd` when the session started (session/new,
-    /// or a fork at fork time; `git_state.rs`). `None` on a detached HEAD or
-    /// outside a repository. Never updated after: it joins the session to the
-    /// pull request it produced (hq#1920).
+    /// Initial branch (session/new or fork; git_state.rs), never updated: it joins the
+    /// session to its PR (hq#1920). None outside a repository or on detached HEAD.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub git_branch: Option<String>,
-    /// The full HEAD commit of `cwd` when the session started, as `git_branch`.
+    /// Initial git commit and linked-worktree recovery record.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub git_head: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub worktree: Option<crate::git_state::WorktreeOrigin>,
     /// The sum of what this session's turns reported (`hub/turn_usage.rs`).
     /// `None` until a harness reports any; a fork starts its own.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -243,6 +363,48 @@ pub struct SessionMeta {
     /// or by an ancestor within its budget; unset fields inherit.
     #[serde(default, skip_serializing_if = "SubsessionLimits::is_empty")]
     pub subsession_limits: SubsessionLimits,
+    /// The session whose agent started this one, recorded once at creation from
+    /// the proven caller (`hub/lineage.rs`): `acpmux new` run in an agent's
+    /// shell, or its `start_session` tool. `None` for a session a person or
+    /// the app started (a root), and for one saved before lineage existed.
+    /// Never copied to a fork or a moved-in session.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lineage: Option<Lineage>,
+    /// The log holds a subagent entry with a retry waiting or in flight that no later entry
+    /// cleared yet (`hub/subagent_retry.rs`): the next load clears it, as the restart dropped
+    /// that retry. Never copied to a fork.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub subagent_retry_open: bool,
+    /// The session's own turn cap in ms (`hub/turn_cap.rs`): past it, other agents' messages
+    /// wait for the next turn. 0 turns it off; `None` takes the default its settings give
+    /// (`turn_cap::default_turn_cap_ms`). Set by the person only; never copied to a fork.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turn_cap_ms: Option<u64>,
+    /// The turn the turn cap's notice went into (`hub/turn_cap.rs`), kept so a turn a restart
+    /// adopts gets no second one. Never copied to a fork.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turn_cap_noticed: Option<String>,
+    /// The session that first gave this chat work (`hub/inbox.rs`): the sender of the first
+    /// message to it before it ran a turn. Its actions wake the idle chat, as its lineage
+    /// parent's do. Never copied to a fork.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub delegator: Option<String>,
+}
+
+/// Where a session sits in the tree of sessions that started each other
+/// (`hub/lineage.rs`).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct Lineage {
+    /// The session whose agent started it.
+    pub parent: String,
+    /// The root of its tree: the first ancestor no agent started.
+    pub root: String,
+    /// 1 for a child of a root, 2 for a grandchild, and so on.
+    pub depth: u32,
+    /// The parent's tool call that started it, when acpmux could tell.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_call_id: Option<String>,
 }
 
 /// A sub-session's place in its family (`hub/subsessions.rs`).
@@ -273,11 +435,14 @@ pub struct SubsessionLimits {
     /// The deepest level a session under this one may be started at.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_depth: Option<u32>,
+    /// Most children running a turn at once (`hub/subsession_runs.rs`); more wait their turn.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_running: Option<u32>,
 }
 
 impl SubsessionLimits {
     pub fn is_empty(&self) -> bool {
-        self.max_children.is_none() && self.max_depth.is_none()
+        self.max_children.is_none() && self.max_depth.is_none() && self.max_running.is_none()
     }
 }
 
@@ -367,6 +532,34 @@ pub struct ToolRow {
 }
 
 impl SessionMeta {
+    /// Replace the native id, retaining only prior Claude ids as transcript authority.
+    /// Explicit provenance prevents a non-Claude id entering history after a profile switch.
+    pub fn set_agent_session_id(&mut self, next: Option<String>, family: &str) {
+        if let Some(next) = next.as_ref().filter(|_| family == "claude") {
+            self.previous_agent_session_ids.retain(|id| id != next);
+        }
+        let previous_family = self.agent_session_family.as_deref();
+        if let Some(previous) = self.agent_session_id.take()
+            && previous_family == Some("claude")
+            && !(family == "claude" && Some(&previous) == next.as_ref())
+            && !self.previous_agent_session_ids.contains(&previous)
+        {
+            self.previous_agent_session_ids.push(previous);
+        }
+        self.agent_session_id = next;
+        self.agent_session_family = self.agent_session_id.as_ref().map(|_| family.to_owned());
+    }
+
+    /// Claude ids recorded for this chat: current first, then history from newest to oldest.
+    /// The caller must separately authorize each ancestor before reading its ids.
+    pub fn claude_session_ids(&self) -> impl Iterator<Item = &str> {
+        self.agent_session_id
+            .iter()
+            .filter(|_| self.agent_session_family.as_deref().is_none_or(|f| f == "claude"))
+            .chain(self.previous_agent_session_ids.iter().rev())
+            .map(String::as_str)
+    }
+
     /// `chat_store` as the harness's store variable (`CLAUDE_CONFIG_DIR` or
     /// `CODEX_HOME`) over `env` (a spawn's, or the env a store is read
     /// with). The harness's default home (`~/.claude`, `~/.codex`) removes
@@ -433,8 +626,20 @@ pub fn now_ms() -> u64 {
 pub trait Store: Send + Sync {
     fn list(&self) -> Result<Vec<SessionMeta>>;
     fn load(&self, id: &str) -> Result<Option<SessionMeta>>;
+    /// One startup entry, with the same visibility rules as `list`. Raw `load` may still
+    /// return a purged chat's late metadata save for recovery/maintenance callers.
+    fn load_startup(&self, id: &str) -> Result<Option<SessionMeta>> {
+        self.load(id)
+    }
     fn save(&self, meta: &SessionMeta) -> Result<()>;
     fn append(&self, id: &str, record: &EventRecord) -> Result<()>;
+    /// Flush one session's event log and metadata to stable storage.
+    ///
+    /// The default is sufficient for memory stores and older implementations; local stores
+    /// override it to sync the segment and its containing directories.
+    fn flush_session(&self, _id: &str) -> Result<()> {
+        self.flush()
+    }
     /// Events with `seq > after`, at most `limit`.
     fn events(&self, id: &str, after: u64, limit: usize) -> Result<Vec<EventRecord>>;
     /// Visit records with `seq > after` in order until `visit` returns false.
@@ -446,13 +651,28 @@ pub trait Store: Send + Sync {
         }
         Ok(())
     }
+    /// `scan`, but a record that cannot be read (a torn or malformed line) is an error instead of
+    /// being skipped: a reader that must see every record (the full-access bound's readback of a
+    /// left host, #23322) learns that it did not. A memory store holds only whole records.
+    fn scan_strict(
+        &self,
+        id: &str,
+        after: u64,
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        self.scan(id, after, visit)
+    }
     /// Visit records with `after < seq < before` newest first until `visit`
     /// returns false: the reverse of `scan`, for pages taken from the end.
+    /// `skip(dir, kind)` true says a record is surely not wanted: a file store
+    /// passes such a line without parsing it (a store that holds parsed
+    /// records may ignore it; `visit` still decides on the rest).
     fn scan_back(
         &self,
         id: &str,
         after: u64,
         before: u64,
+        skip: &dyn Fn(&[u8], &[u8]) -> bool,
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
         let mut found = Vec::new();
@@ -460,7 +680,9 @@ pub trait Store: Send + Sync {
             if rec.seq >= before {
                 return false;
             }
-            found.push(rec);
+            if !skip(rec.dir.as_bytes(), rec.kind.as_bytes()) {
+                found.push(rec);
+            }
             true
         })?;
         for rec in found.into_iter().rev() {
@@ -496,9 +718,50 @@ pub trait Store: Send + Sync {
             if kinds.contains(&rec.kind.as_str()) { visit(rec) } else { true }
         })
     }
+    /// `scan_kinds`, but strict as `scan_strict` is: a record that cannot be read is an error. A
+    /// file store reads a segment's copy of its kinds (`store/kind_index.rs`) only when every line
+    /// the copy covers read whole.
+    fn scan_kinds_strict(
+        &self,
+        id: &str,
+        kinds: &[&str],
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        self.scan_strict(id, 0, &mut |rec| {
+            if kinds.contains(&rec.kind.as_str()) { visit(rec) } else { true }
+        })
+    }
+    /// `scan` from the start, passing each record's head ([`RecordHead`]) until `visit` returns
+    /// false; the reader parses only the records it needs (`RecordHead::record`). A file store
+    /// reads a head without parsing its line: adopting a host after a restart reads its whole
+    /// log four times, and parsing every line held big-red's daemon at a full core for minutes.
+    fn scan_heads(&self, id: &str, visit: &mut dyn FnMut(&RecordHead<'_>) -> bool) -> Result<()> {
+        self.scan(id, 0, &mut |rec| visit(&RecordHead::parsed(&rec)))
+    }
     /// Make every appended record durable (called on shutdown).
     fn flush(&self) -> Result<()> {
         Ok(())
+    }
+    /// Close the session's log until it is next written (a closed session's).
+    fn close_log(&self, _id: &str) {}
+    /// Retention (`store/compact.rs`): the log's last `seq` when it was last compacted.
+    fn compacted_seq(&self, _id: &str) -> Option<u64> {
+        None
+    }
+    /// Retention: when the log was last written, in ms, from its newest segment. None: the store
+    /// keeps no log on disk, or the chat has none.
+    fn log_written_at(&self, _id: &str) -> Option<u64> {
+        None
+    }
+    /// Reads the log and, unless a dry run, writes its compacted segments beside it. None: the
+    /// store keeps no log on disk, or the chat has none.
+    fn stage_compaction(&self, _id: &str, _mode: CompactMode) -> Result<Option<Staged>> {
+        Ok(None)
+    }
+    /// Puts a staged compaction in place unless the log changed since (false). The caller holds
+    /// the chat's append lock.
+    fn commit_compaction(&self, _id: &str, _staged: Staged) -> Result<bool> {
+        Ok(false)
     }
     fn delete(&self, id: &str) -> Result<()>;
     fn session_dir(&self, _id: &str) -> Option<PathBuf> {
@@ -514,6 +777,100 @@ pub trait Store: Send + Sync {
     fn peer_cache_dir(&self) -> Option<PathBuf> {
         None
     }
+    /// Where the brief and task ledger is saved (`hub/dispatch.rs`): `briefs.json` beside
+    /// `sessions/`, or none (in memory) for the memory store, so a hub's tasks always name
+    /// sessions of its own store.
+    fn briefs_path(&self) -> Option<PathBuf> {
+        None
+    }
+}
+
+/// One record as [`Store::scan_heads`] passes it: the fields a log line holds before its `msg`,
+/// and the whole record on demand.
+pub struct RecordHead<'a> {
+    pub seq: u64,
+    pub at: u64,
+    pub dir: &'a str,
+    pub kind: &'a str,
+    pub host_seq: Option<u64>,
+    body: HeadBody<'a>,
+}
+
+enum HeadBody<'a> {
+    /// A log line, not parsed yet.
+    Line(&'a [u8]),
+    /// A record the store holds parsed, or a line whose head did not read.
+    Parsed(&'a EventRecord),
+}
+
+impl<'a> RecordHead<'a> {
+    fn parsed(rec: &'a EventRecord) -> Self {
+        Self {
+            seq: rec.seq,
+            at: rec.at,
+            dir: &rec.dir,
+            kind: &rec.kind,
+            host_seq: rec.host_seq,
+            body: HeadBody::Parsed(rec),
+        }
+    }
+
+    /// The head of a line the daemon wrote (`{"seq":N,"at":N,"dir":"..","kind":"..","msg":..}`,
+    /// then `"hostSeq":N` when it has one); None for any other shape, which the caller parses.
+    fn read(line: &'a [u8]) -> Option<Self> {
+        let body = line.trim_ascii_end();
+        if body.last() != Some(&b'}') {
+            return None;
+        }
+        let text = |field: &'a [u8]| {
+            std::str::from_utf8(field).ok().filter(|s| !s.contains('\\') && !s.is_empty())
+        };
+        let host_seq = record_host_seq(body);
+        // A `hostSeq` anywhere but last is not the daemon's field order.
+        let head = body.get(..160).unwrap_or(body);
+        let head = head.get(..memchr::memmem::find(head, b"\"msg\":")?).unwrap_or_default();
+        if host_seq.is_none() && memchr::memmem::find(head, b"\"hostSeq\"").is_some() {
+            return None;
+        }
+        Some(Self {
+            seq: record_seq(body)?,
+            at: record_at(body)?,
+            dir: text(record_dir(body)?)?,
+            kind: text(record_kind(body)?)?,
+            host_seq,
+            body: HeadBody::Line(body),
+        })
+    }
+
+    /// The whole record (None for a line that does not parse, which `scan` passes too).
+    pub fn record(&self) -> Option<EventRecord> {
+        match self.body {
+            HeadBody::Line(line) => parse_record(line).ok(),
+            HeadBody::Parsed(rec) => Some(rec.clone()),
+        }
+    }
+
+    /// Whether the record's line may hold `needle`: true for a record held parsed, so a reader
+    /// uses it only to pass a record it surely does not need.
+    pub fn may_contain(&self, needle: &[u8]) -> bool {
+        match self.body {
+            HeadBody::Line(line) => memchr::memmem::find(line, needle).is_some(),
+            HeadBody::Parsed(_) => true,
+        }
+    }
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Log lines parsed on this thread by `scan` and `scan_heads` (tests count them).
+    pub(crate) static PARSED_LINES: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+/// Parses one log line into its record.
+fn parse_record(line: &[u8]) -> serde_json::Result<EventRecord> {
+    #[cfg(test)]
+    PARSED_LINES.with(|n| n.set(n.get() + 1));
+    serde_json::from_slice(line)
 }
 
 pub fn open(config: &StoreConfig, root: &Path) -> Result<Box<dyn Store>> {
@@ -532,20 +889,20 @@ pub struct MemoryStore {
 
 impl Store for MemoryStore {
     fn list(&self) -> Result<Vec<SessionMeta>> {
-        Ok(self.inner.lock().unwrap().values().map(|(m, _)| m.clone()).collect())
+        Ok(self.inner.lock_or_recover().values().map(|(m, _)| m.clone()).collect())
     }
     fn load(&self, id: &str) -> Result<Option<SessionMeta>> {
-        Ok(self.inner.lock().unwrap().get(id).map(|(m, _)| m.clone()))
+        Ok(self.inner.lock_or_recover().get(id).map(|(m, _)| m.clone()))
     }
     fn save(&self, meta: &SessionMeta) -> Result<()> {
-        let mut g = self.inner.lock().unwrap();
+        let mut g = self.inner.lock_or_recover();
         g.entry(meta.id.clone())
             .and_modify(|(m, _)| *m = meta.clone())
             .or_insert_with(|| (meta.clone(), Vec::new()));
         Ok(())
     }
     fn append(&self, id: &str, record: &EventRecord) -> Result<()> {
-        let mut g = self.inner.lock().unwrap();
+        let mut g = self.inner.lock_or_recover();
         if let Some((_, events)) = g.get_mut(id) {
             events.push(record.clone());
             // Bound memory: keep the newest 20k events.
@@ -557,13 +914,56 @@ impl Store for MemoryStore {
         Ok(())
     }
     fn events(&self, id: &str, after: u64, limit: usize) -> Result<Vec<EventRecord>> {
-        let g = self.inner.lock().unwrap();
+        let g = self.inner.lock_or_recover();
         Ok(g.get(id)
             .map(|(_, ev)| ev.iter().filter(|e| e.seq > after).take(limit).cloned().collect())
             .unwrap_or_default())
     }
+    /// Newest first, a bounded window at a time: a visitor that stops early clones only the
+    /// windows it read, and it runs off the lock.
+    fn scan_back(
+        &self,
+        id: &str,
+        after: u64,
+        before: u64,
+        skip: &dyn Fn(&[u8], &[u8]) -> bool,
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        const WINDOW: usize = 256;
+        let mut before = before;
+        loop {
+            let (window, lowest) = {
+                let g = self.inner.lock_or_recover();
+                let Some((_, events)) = g.get(id) else { return Ok(()) };
+                let end = events.partition_point(|e| e.seq < before);
+                let mut window = Vec::new();
+                let mut lowest = None;
+                for e in events
+                    .get(..end)
+                    .unwrap_or_default()
+                    .iter()
+                    .rev()
+                    .take_while(|e| e.seq > after)
+                    .take(WINDOW)
+                {
+                    lowest = Some(e.seq);
+                    if !skip(e.dir.as_bytes(), e.kind.as_bytes()) {
+                        window.push(e.clone());
+                    }
+                }
+                (window, lowest)
+            };
+            let Some(lowest) = lowest else { return Ok(()) };
+            for record in window {
+                if !visit(record) {
+                    return Ok(());
+                }
+            }
+            before = lowest;
+        }
+    }
     fn delete(&self, id: &str) -> Result<()> {
-        self.inner.lock().unwrap().remove(id);
+        self.inner.lock_or_recover().remove(id);
         Ok(())
     }
 }
@@ -573,13 +973,40 @@ impl Store for MemoryStore {
 pub struct LocalStore {
     root: PathBuf,
     segment_bytes: u64,
-    writers: Mutex<HashMap<String, SegmentWriter>>,
+    writers: Mutex<Writers>,
 }
+
+/// The logs held open, at most [`OPEN_LOGS`]: the least recently written one
+/// is closed for a new one. A daemon held one descriptor per session it wrote
+/// since it started, closed ones too, and ran out (cmux16, 2026-10-22: 193 of
+/// its 256, every agent start failing with "Too many open files").
+#[derive(Default)]
+struct Writers {
+    open: HashMap<String, SegmentWriter>,
+    /// Counts appends; a writer's `used` is the count at its last one.
+    clock: u64,
+}
+
+const OPEN_LOGS: usize = 64;
 
 struct SegmentWriter {
     index: u32,
     file: File,
     written: u64,
+    used: u64,
+}
+
+impl SegmentWriter {
+    /// Closes the log, durable first as `flush` would have made it. Called under the
+    /// writers' lock, so the cache never holds more than [`OPEN_LOGS`] and a session's
+    /// records stay in order. A failed sync is logged: its records were written (an append is
+    /// never synced on its own), so only a machine crash before the kernel writes them back
+    /// loses them, as it would any append since the last `flush`.
+    fn close(self, id: &str) {
+        if let Err(e) = self.file.sync_data() {
+            tracing::warn!(session = %id, "sync event log on close: {e}");
+        }
+    }
 }
 
 impl LocalStore {
@@ -589,7 +1016,7 @@ impl LocalStore {
         Ok(Self {
             root,
             segment_bytes: segment_bytes.max(64 * 1024),
-            writers: Mutex::new(HashMap::new()),
+            writers: Mutex::new(Writers::default()),
         })
     }
 
@@ -616,10 +1043,60 @@ impl LocalStore {
         Ok(out)
     }
 
+    fn list_entry(&self, entry: &std::fs::DirEntry) -> Result<Option<SessionMeta>> {
+        let kind = entry.file_type()?;
+        anyhow::ensure!(!kind.is_symlink(), "session entry {} is a link", entry.path().display());
+        if !kind.is_dir() {
+            return Ok(None);
+        }
+        let session = entry.path();
+        self.validate_session_dir(&session)?;
+        let path = session.join("session.json");
+        let Ok(file) = crate::config::private_state_file(&path) else { return Ok(None) };
+        let mut text = String::new();
+        BufReader::new(file).read_to_string(&mut text)?;
+        // Only a closed chat can be a purged chat revived by a late save. Open chats need
+        // no segment enumeration: that work belongs to their on-demand log read.
+        if let Ok(meta) = serde_json::from_str::<StatusOnly>(&text)
+            && self.purged_startup_entry(&entry.file_name().to_string_lossy(), meta.status)?
+        {
+            return Ok(None);
+        }
+        match serde_json::from_str::<SessionMeta>(&text) {
+            Ok(meta) => Ok(Some(meta)),
+            Err(e) => {
+                tracing::warn!("skip {}: {e}", path.display());
+                Ok(None)
+            }
+        }
+    }
+
+    /// Exact on-demand reads use the same directory checks as the background list before
+    /// trusting metadata or reading any log. In particular, neither directory may be a link.
+    fn validate_session_dir(&self, session: &Path) -> Result<()> {
+        crate::config::private_state_dir(session)?;
+        let events = session.join("events");
+        match std::fs::symlink_metadata(&events) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
+            Ok(_) => crate::config::private_state_dir(&events)?,
+        }
+        Ok(())
+    }
+
+    fn purged_startup_entry(&self, id: &str, status: SessionStatus) -> Result<bool> {
+        Ok(status == SessionStatus::Closed && !self.has_records(id)?)
+    }
+
     /// Whether the session's log holds a record: a segment with a byte in it (no line
-    /// is read). Every session the hub creates logs `created` right after its first
-    /// save, so a record without a log is a purged session's that a late save wrote back.
+    /// is read), or a compaction's record (`store/compact.rs`), which keeps a closed
+    /// chat's log however little of it stays. Every session the hub creates logs `created`
+    /// right after its first save, so a record without a log is a purged session's that a
+    /// late save wrote back.
     fn has_records(&self, id: &str) -> Result<bool> {
+        if std::fs::symlink_metadata(self.marker(id)).is_ok() {
+            return Ok(true);
+        }
         for (_, path) in self.segments(id)? {
             // An unreadable segment counts as a log: the session is listed as before.
             match std::fs::symlink_metadata(&path) {
@@ -641,7 +1118,7 @@ impl LocalStore {
         };
         let file = open_private_append(&path)?;
         let written = file.metadata().map(|m| m.len()).unwrap_or(0);
-        Ok(SegmentWriter { index, file, written })
+        Ok(SegmentWriter { index, file, written, used: 0 })
     }
 }
 
@@ -657,12 +1134,18 @@ struct StatusOnly {
 /// record's own (its fields before `msg` hold numbers and a fixed word). None for a line
 /// that does not start that way; the caller then parses it.
 fn record_kind(line: &[u8]) -> Option<&[u8]> {
-    const KEY: &[u8] = b"\"kind\":\"";
-    let head = &line[..line.len().min(160)];
+    record_head_field(line, b"\"kind\":\"")
+}
+
+/// The string value after `key` (`"name":"`) in the first 160 bytes of a record, before
+/// its `"msg":`; None when it is not there.
+fn record_head_field<'a>(line: &'a [u8], key: &[u8]) -> Option<&'a [u8]> {
+    let head = line.get(..160).unwrap_or(line);
     let msg = head.windows(6).position(|w| w == b"\"msg\":").unwrap_or(head.len());
-    let start = head[..msg].windows(KEY.len()).position(|w| w == KEY)? + KEY.len();
-    let len = line[start..].iter().position(|&b| b == b'"')?;
-    Some(&line[start..start + len])
+    let start = head.get(..msg)?.windows(key.len()).position(|w| w == key)? + key.len();
+    let rest = line.get(start..)?;
+    let len = rest.iter().position(|&b| b == b'"')?;
+    rest.get(..len)
 }
 
 /// The `seq` of one serialized record, read without parsing it: records are written
@@ -673,37 +1156,157 @@ fn record_seq(line: &[u8]) -> Option<u64> {
     if digits == 0 || digits > 19 || rest.get(digits) != Some(&b',') {
         return None;
     }
-    std::str::from_utf8(&rest[..digits]).ok()?.parse().ok()
+    std::str::from_utf8(rest.get(..digits)?).ok()?.parse().ok()
+}
+
+/// The `at` of one serialized record, read without parsing it: `{"seq":N,"at":N,...`.
+fn record_at(line: &[u8]) -> Option<u64> {
+    let rest = line.strip_prefix(b"{\"seq\":")?;
+    let rest = rest.get(rest.iter().take_while(|b| b.is_ascii_digit()).count()..)?;
+    let rest = rest.strip_prefix(b",\"at\":")?;
+    let digits = rest.iter().take_while(|b| b.is_ascii_digit()).count();
+    if digits == 0 || digits > 19 || rest.get(digits) != Some(&b',') {
+        return None;
+    }
+    std::str::from_utf8(rest.get(..digits)?).ok()?.parse().ok()
+}
+
+/// The `hostSeq` of one serialized record, read without parsing it: the daemon writes it last
+/// (`...,"hostSeq":N}`), so a nested one is followed by more than the record's closing brace.
+fn record_host_seq(line: &[u8]) -> Option<u64> {
+    let rest = line.strip_suffix(b"}")?;
+    let digits = rest.iter().rev().take_while(|b| b.is_ascii_digit()).count();
+    if digits == 0 || digits > 19 {
+        return None;
+    }
+    let (rest, number) = rest.split_at(rest.len() - digits);
+    rest.strip_suffix(b",\"hostSeq\":")?;
+    std::str::from_utf8(number).ok()?.parse().ok()
+}
+
+/// The `dir` of one serialized record, read without parsing it, as `record_kind` reads its kind.
+fn record_dir(line: &[u8]) -> Option<&[u8]> {
+    record_head_field(line, b"\"dir\":\"")
+}
+
+/// The byte offset in segment `path` where its first record with `seq >= before` starts (the
+/// file's length when it has none), found by a binary search on line headers: the records of a
+/// segment are appended in `seq` order. A line whose header does not read (an older field
+/// order) ends the search at the file's length, which reads the segment from its end as before.
+/// The caller reads back from the offset through the same `file`: log retention may rename a
+/// compacted segment over the path meanwhile (`store/compact.rs`).
+fn offset_of_seq(file: &mut File, before: u64) -> Result<u64> {
+    use std::io::{Seek, SeekFrom};
+    const PROBE: usize = 64 * 1024;
+    let len = file.seek(SeekFrom::End(0))?;
+    let mut buf = vec![0u8; PROBE];
+    // A segment whose last record is before `before` (every older segment of a page) needs no
+    // search: its end is the offset.
+    if len > PROBE as u64 {
+        file.seek(SeekFrom::Start(len - PROBE as u64))?;
+        file.read_exact(&mut buf)?;
+        let body = buf.strip_suffix(b"\n").unwrap_or(&buf);
+        if let Some(nl) = body.iter().rposition(|&b| b == b'\n')
+            && body.get(nl + 1..).and_then(record_seq).is_some_and(|seq| seq < before)
+        {
+            return Ok(len);
+        }
+    }
+    // The first line starting at or after `pos`: its offset and seq; None past the end, or when
+    // no line starts in the probe (a line over 64 KiB) or its header does not read.
+    let mut line_at = |pos: u64| -> Result<Option<(u64, Option<u64>)>> {
+        file.seek(SeekFrom::Start(pos))?;
+        let mut filled = 0;
+        while let Some(rest) = buf.get_mut(filled..).filter(|rest| !rest.is_empty()) {
+            let n = file.read(rest)?;
+            if n == 0 {
+                break;
+            }
+            filled += n;
+        }
+        let data = buf.get(..filled).unwrap_or_default();
+        let start = if pos == 0 {
+            0
+        } else {
+            match data.iter().position(|&b| b == b'\n') {
+                Some(nl) => nl + 1,
+                None => return Ok(None),
+            }
+        };
+        if start >= data.len() {
+            return Ok(None);
+        }
+        Ok(Some((pos + start as u64, data.get(start..).and_then(record_seq))))
+    };
+    let (mut lo, mut hi, mut end) = (0u64, len, len);
+    while hi - lo > PROBE as u64 {
+        let mid = lo + (hi - lo) / 2;
+        match line_at(mid)? {
+            Some((_, None)) | None => return Ok(len),
+            Some((start, Some(seq))) if seq >= before => {
+                hi = mid;
+                end = start;
+            }
+            Some(_) => lo = mid,
+        }
+    }
+    Ok(end)
 }
 
 /// Visits `path`'s lines newest first, reading 64 KiB blocks from the end, until `visit`
 /// returns false: a tail costs its own bytes, not the segment's.
 fn for_each_line_rev(path: &Path, visit: &mut dyn FnMut(&[u8]) -> bool) -> Result<()> {
+    for_each_line_rev_from(&mut crate::config::private_state_file(path)?, u64::MAX, visit)
+}
+
+/// `for_each_line_rev` over the bytes of `file` before offset `end` (a line start, or past the end).
+fn for_each_line_rev_from(
+    file: &mut File,
+    end: u64,
+    visit: &mut dyn FnMut(&[u8]) -> bool,
+) -> Result<()> {
     use std::io::{Seek, SeekFrom};
     const BLOCK: u64 = 64 * 1024;
-    let mut file = crate::config::private_state_file(path)?;
-    let mut end = file.seek(SeekFrom::End(0))?;
-    // Bytes of a line whose start is in an earlier block, in file order.
-    let mut carry: Vec<u8> = Vec::new();
+    let mut end = file.seek(SeekFrom::End(0))?.min(end);
+    // The blocks of a line whose start is in an earlier block, newest first: each block is read
+    // and scanned once, so a line of many megabytes costs its length, not its length squared.
+    let mut carry: Vec<Vec<u8>> = Vec::new();
+    let joined = |head: &[u8], carry: &mut Vec<Vec<u8>>| {
+        let mut line = head.to_vec();
+        for piece in carry.drain(..).rev() {
+            line.extend_from_slice(&piece);
+        }
+        line
+    };
     while end > 0 {
         let start = end.saturating_sub(BLOCK);
         let mut block = vec![0u8; (end - start) as usize];
         file.seek(SeekFrom::Start(start))?;
         file.read_exact(&mut block)?;
-        block.extend_from_slice(&carry);
         let mut cut = block.len();
-        while let Some(newline) = block[..cut].iter().rposition(|&b| b == b'\n') {
-            let line = &block[newline + 1..cut];
+        while let Some(newline) =
+            block.get(..cut).unwrap_or_default().iter().rposition(|&b| b == b'\n')
+        {
+            let head = block.get(newline + 1..cut).unwrap_or_default();
+            let whole;
+            let line = if carry.is_empty() {
+                head
+            } else {
+                whole = joined(head, &mut carry);
+                whole.as_slice()
+            };
             if !line.iter().all(u8::is_ascii_whitespace) && !visit(line) {
                 return Ok(());
             }
             cut = newline;
         }
-        carry = block[..cut].to_vec();
+        block.truncate(cut);
+        carry.push(block);
         end = start;
     }
-    if !carry.iter().all(u8::is_ascii_whitespace) {
-        visit(&carry);
+    let line = joined(&[], &mut carry);
+    if !line.iter().all(u8::is_ascii_whitespace) {
+        visit(&line);
     }
     Ok(())
 }
@@ -728,59 +1331,49 @@ fn first_seq(path: &Path) -> Result<Option<u64>> {
 
 impl Store for LocalStore {
     fn list(&self) -> Result<Vec<SessionMeta>> {
-        let mut out = Vec::new();
-        let mut skipped = 0usize;
         let Ok(rd) = std::fs::read_dir(&self.root) else {
-            return Ok(out);
+            return Ok(Vec::new());
         };
-        for entry in rd {
-            let entry = entry?;
-            let kind = entry.file_type()?;
-            if kind.is_symlink() {
-                anyhow::bail!("session entry {} is a link", entry.path().display());
-            }
-            if !kind.is_dir() {
-                continue;
-            }
-            let session = entry.path();
-            crate::config::private_state_dir(&session)?;
-            let events = session.join("events");
-            match std::fs::symlink_metadata(&events) {
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-                Err(error) => return Err(error.into()),
-                Ok(_) => crate::config::private_state_dir(&events)?,
-            }
-            let path = session.join("session.json");
-            if let Ok(file) = crate::config::private_state_file(&path) {
-                let mut text = String::new();
-                BufReader::new(file).read_to_string(&mut text)?;
-                // A closed session with no log is a purged one whose record a late save
-                // wrote back (`Hub::load_from_store`): only its status is read, so a home
-                // of thousands of them never holds their records, not even while listing.
-                let id = entry.file_name().to_string_lossy().into_owned();
-                if !self.has_records(&id)?
-                    && serde_json::from_str::<StatusOnly>(&text)
-                        .is_ok_and(|m| m.status == SessionStatus::Closed)
-                {
-                    skipped += 1;
-                    continue;
-                }
-                match serde_json::from_str::<SessionMeta>(&text) {
-                    Ok(meta) => out.push(meta),
-                    Err(e) => tracing::warn!("skip {}: {e}", path.display()),
-                }
-            }
+        let entries = rd.collect::<std::io::Result<Vec<_>>>()?;
+        if entries.is_empty() {
+            return Ok(Vec::new());
         }
-        if skipped > 0 {
-            tracing::info!(
-                "skipped {skipped} closed sessions with no log (purged; a late save wrote them back)"
-            );
-        }
-        Ok(out)
+        // Metadata reads do independent filesystem/ACL checks. Keep those checks, but do
+        // not put every chat behind every earlier chat's disk latency at daemon startup.
+        let workers = std::thread::available_parallelism().map_or(1, usize::from).min(8);
+        std::thread::scope(|scope| {
+            let workers: Vec<_> = entries
+                .chunks(entries.len().div_ceil(workers))
+                .map(|chunk| {
+                    scope.spawn(move || {
+                        let mut metas = Vec::new();
+                        for entry in chunk {
+                            if let Some(meta) = self.list_entry(entry)? {
+                                metas.push(meta);
+                            }
+                        }
+                        Ok::<_, anyhow::Error>(metas)
+                    })
+                })
+                .collect();
+            let mut metas = Vec::new();
+            for worker in workers {
+                metas.extend(
+                    worker.join().map_err(|_| anyhow::anyhow!("store list worker failed"))??,
+                );
+            }
+            Ok(metas)
+        })
     }
 
     fn load(&self, id: &str) -> Result<Option<SessionMeta>> {
-        let path = self.dir(id).join("session.json");
+        let session = self.dir(id);
+        match std::fs::symlink_metadata(&session) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(error.into()),
+            Ok(_) => self.validate_session_dir(&session)?,
+        }
+        let path = session.join("session.json");
         if !path.exists() {
             return Ok(None);
         }
@@ -789,24 +1382,67 @@ impl Store for LocalStore {
         Ok(Some(serde_json::from_str(&text)?))
     }
 
+    fn load_startup(&self, id: &str) -> Result<Option<SessionMeta>> {
+        let Some(meta) = self.load(id)? else { return Ok(None) };
+        if self.purged_startup_entry(id, meta.status)? {
+            return Ok(None);
+        }
+        Ok(Some(meta))
+    }
+
     fn save(&self, meta: &SessionMeta) -> Result<()> {
         let dir = self.dir(&meta.id);
         crate::config::private_state_dir(&dir)?;
         write_atomic(&dir.join("session.json"), serde_json::to_string_pretty(meta)?.as_bytes())
     }
 
-    fn append(&self, id: &str, record: &EventRecord) -> Result<()> {
-        let mut writers = self.writers.lock().unwrap();
-        if !writers.contains_key(id) {
-            writers.insert(id.to_owned(), self.open_writer(id)?);
+    fn flush_session(&self, id: &str) -> Result<()> {
+        let writers = self.writers.lock_or_recover();
+        if let Some(writer) = writers.open.get(id) {
+            writer.file.sync_all()?;
         }
-        let w = writers.get_mut(id).unwrap();
-        if w.written >= self.segment_bytes {
-            let index = w.index + 1;
+        let session = self.dir(id);
+        sync_directory(&session.join("events"))?;
+        sync_directory(&session)?;
+        sync_directory(&self.root)?;
+        Ok(())
+    }
+
+    fn append(&self, id: &str, record: &EventRecord) -> Result<()> {
+        // One lock hold from the eviction to the write: the least recently written log is
+        // closed before this one opens, so no more than `OPEN_LOGS` are ever open, and no other
+        // append comes between (a session's records stay in order). Its sync runs under the lock,
+        // once per eviction: only while more than `OPEN_LOGS` sessions are written.
+        let mut writers = self.writers.lock_or_recover();
+        if !writers.open.contains_key(id)
+            && writers.open.len() >= OPEN_LOGS
+            && let Some(oldest) =
+                writers.open.iter().min_by_key(|(_, w)| w.used).map(|(k, _)| k.clone())
+            && let Some(w) = writers.open.remove(&oldest)
+        {
+            w.close(&oldest);
+        }
+        if !writers.open.contains_key(id) {
+            let writer = self.open_writer(id)?;
+            writers.open.insert(id.to_owned(), writer);
+        }
+        writers.clock += 1;
+        let clock = writers.clock;
+        let full = writers.open.get(id).is_some_and(|w| w.written >= self.segment_bytes);
+        if full && let Some(old) = writers.open.remove(id) {
+            // The full segment closes before the next one opens (rare: once per segment).
+            let index = old.index + 1;
+            old.close(id);
             let path = self.dir(id).join("events").join(format!("{index:06}.ndjson"));
             let file = open_private_append(&path)?;
-            *w = SegmentWriter { index, file, written: 0 };
+            writers
+                .open
+                .insert(id.to_owned(), SegmentWriter { index, file, written: 0, used: clock });
         }
+        let Some(w) = writers.open.get_mut(id) else {
+            anyhow::bail!("no segment writer for session {id}");
+        };
+        w.used = clock;
         let mut line = serde_json::to_string(record)?;
         line.push('\n');
         w.file.write_all(line.as_bytes())?;
@@ -820,17 +1456,25 @@ impl Store for LocalStore {
     /// not the log's prefix (perf100: a 70 MB log read in 10,000-record pages parsed
     /// every earlier record again on each page).
     fn scan(&self, id: &str, after: u64, visit: &mut dyn FnMut(EventRecord) -> bool) -> Result<()> {
-        let segments = self.segments(id)?;
+        self.scan_lines(id, after, false, visit)
+    }
+
+    fn scan_strict(
+        &self,
+        id: &str,
+        after: u64,
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        self.scan_lines(id, after, true, visit)
+    }
+
+    /// Reads each line's head (`RecordHead::read`) and parses only the lines the reader asks
+    /// for, or a line whose head does not read.
+    fn scan_heads(&self, id: &str, visit: &mut dyn FnMut(&RecordHead<'_>) -> bool) -> Result<()> {
         let mut line = Vec::new();
-        for (index, (_, path)) in segments.iter().enumerate() {
-            if after > 0
-                && let Some((_, next)) = segments.get(index + 1)
-                && first_seq(next)?.is_some_and(|first| first <= after.saturating_add(1))
-            {
-                continue;
-            }
+        for (_, path) in self.segments(id)? {
             let mut reader =
-                BufReader::with_capacity(256 * 1024, crate::config::private_state_file(path)?);
+                BufReader::with_capacity(256 * 1024, crate::config::private_state_file(&path)?);
             loop {
                 line.clear();
                 if reader.read_until(b'\n', &mut line)? == 0 {
@@ -839,11 +1483,14 @@ impl Store for LocalStore {
                 if line.iter().all(u8::is_ascii_whitespace) {
                     continue;
                 }
-                if record_seq(&line).is_some_and(|seq| seq <= after) {
-                    continue;
-                }
-                let Ok(rec) = serde_json::from_slice::<EventRecord>(&line) else { continue };
-                if rec.seq > after && !visit(rec) {
+                let more = match RecordHead::read(&line) {
+                    Some(head) => visit(&head),
+                    None => {
+                        let Ok(rec) = parse_record(&line) else { continue };
+                        visit(&RecordHead::parsed(&rec))
+                    }
+                };
+                if !more {
                     return Ok(());
                 }
             }
@@ -879,66 +1526,76 @@ impl Store for LocalStore {
         kinds: &[&str],
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
-        let mut line = Vec::new();
-        for (_, path) in self.segments(id)? {
-            let mut reader =
-                BufReader::with_capacity(256 * 1024, crate::config::private_state_file(&path)?);
-            loop {
-                line.clear();
-                if reader.read_until(b'\n', &mut line)? == 0 {
-                    break;
-                }
-                if line.iter().all(u8::is_ascii_whitespace) {
-                    continue;
-                }
-                if record_kind(&line)
-                    .is_some_and(|kind| !kinds.iter().any(|k| k.as_bytes() == kind))
-                {
-                    continue;
-                }
-                let Ok(rec) = serde_json::from_slice::<EventRecord>(&line) else { continue };
-                if kinds.contains(&rec.kind.as_str()) && !visit(rec) {
-                    return Ok(());
-                }
-            }
-        }
-        Ok(())
+        self.scan_kinds_in(id, kinds, false, visit)
+    }
+
+    fn scan_kinds_strict(
+        &self,
+        id: &str,
+        kinds: &[&str],
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        self.scan_kinds_in(id, kinds, true, visit)
     }
 
     /// Segments newest first, so a page from the end reads only the segments it
     /// needs however long the log is. A segment whose first record is at or past
     /// `before` holds nothing for the page and is skipped after one line.
+    /// Reads backwards from the end of the records before `before` only: the
+    /// segment is read in blocks from the offset where `before` starts (found
+    /// by a search on the line headers), never whole, and a line `skip` names,
+    /// or one at or past `before`, is passed on its header unparsed. A page
+    /// costs its own bytes, not its segment's (perf100: every older page of a
+    /// scroll to the first message read and parsed its whole 8 MiB segment,
+    /// and opening a chat read the log once for each of its three reads).
     fn scan_back(
         &self,
         id: &str,
         after: u64,
         before: u64,
+        skip: &dyn Fn(&[u8], &[u8]) -> bool,
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
         for (_, path) in self.segments(id)?.into_iter().rev() {
             if first_seq(&path)?.is_some_and(|first| first >= before) {
                 continue;
             }
-            let mut text = String::new();
-            BufReader::new(crate::config::private_state_file(&path)?).read_to_string(&mut text)?;
-            for line in text.lines().rev() {
-                if line.trim().is_empty() {
-                    continue;
+            let mut done = false;
+            let mut file = crate::config::private_state_file(&path)?;
+            let end = offset_of_seq(&mut file, before)?;
+            for_each_line_rev_from(&mut file, end, &mut |line| {
+                match record_seq(line) {
+                    Some(seq) if seq >= before => return true,
+                    Some(seq) if seq <= after => {
+                        done = true;
+                        return false;
+                    }
+                    _ => {}
                 }
-                let Ok(rec) = serde_json::from_str::<EventRecord>(line) else { continue };
+                if let (Some(dir), Some(kind)) = (record_dir(line), record_kind(line))
+                    && skip(dir, kind)
+                {
+                    return true;
+                }
+                let Ok(rec) = serde_json::from_slice::<EventRecord>(line) else { return true };
                 if rec.seq >= before {
-                    continue;
+                    return true;
                 }
                 if rec.seq <= after || !visit(rec) {
-                    return Ok(());
+                    done = true;
+                    return false;
                 }
+                true
+            })?;
+            if done {
+                return Ok(());
             }
         }
         Ok(())
     }
 
     fn flush(&self) -> Result<()> {
-        for w in self.writers.lock().unwrap().values() {
+        for w in self.writers.lock_or_recover().open.values() {
             w.file.sync_data()?;
         }
         Ok(())
@@ -953,8 +1610,31 @@ impl Store for LocalStore {
         Ok(out)
     }
 
+    fn close_log(&self, id: &str) {
+        let mut writers = self.writers.lock_or_recover();
+        if let Some(w) = writers.open.remove(id) {
+            w.close(id);
+        }
+    }
+
+    fn compacted_seq(&self, id: &str) -> Option<u64> {
+        LocalStore::compacted_seq(self, id)
+    }
+
+    fn log_written_at(&self, id: &str) -> Option<u64> {
+        LocalStore::log_written_at(self, id)
+    }
+
+    fn stage_compaction(&self, id: &str, mode: CompactMode) -> Result<Option<Staged>> {
+        LocalStore::stage_compaction(self, id, mode)
+    }
+
+    fn commit_compaction(&self, id: &str, staged: Staged) -> Result<bool> {
+        LocalStore::commit_compaction(self, id, staged)
+    }
+
     fn delete(&self, id: &str) -> Result<()> {
-        self.writers.lock().unwrap().remove(id);
+        self.writers.lock_or_recover().open.remove(id);
         let dir = self.dir(id);
         // macOS returns ENOTEMPTY when a file lands mid-removal; retry briefly.
         let mut last = None;
@@ -987,6 +1667,27 @@ impl Store for LocalStore {
     fn peer_cache_dir(&self) -> Option<PathBuf> {
         self.root.parent().map(|home| home.join("peers"))
     }
+
+    fn briefs_path(&self) -> Option<PathBuf> {
+        self.root.parent().map(|home| home.join("briefs.json"))
+    }
+}
+
+/// Sync a directory entry after a file or subdirectory was created or replaced.
+#[cfg(unix)]
+fn sync_directory(path: &Path) -> Result<()> {
+    use std::os::unix::fs::OpenOptionsExt;
+    let dir = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW)
+        .open(path)?;
+    dir.sync_all()?;
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn sync_directory(_path: &Path) -> Result<()> {
+    Ok(())
 }
 
 /// Open one event segment for append, owner-only from creation and after an
@@ -994,6 +1695,7 @@ impl Store for LocalStore {
 #[cfg(unix)]
 fn open_private_append(path: &Path) -> Result<File> {
     use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+    crate::config::refuse_lost_home(path)?;
 
     let file = OpenOptions::new()
         .create(true)
@@ -1089,6 +1791,32 @@ mod permission_tests {
         assert_eq!(mode(&second), 0o600);
     }
 
+    /// Review 2 of #26054: a strict read of a log whose segments cannot be listed fails; `scan`
+    /// reads no record of it.
+    #[test]
+    fn a_strict_read_fails_when_the_log_cannot_be_listed() {
+        let temp = TempDir::new();
+        let root = temp.0.join("sessions");
+        let store = LocalStore::new(root.clone(), 64 * 1024).unwrap();
+        let record = EventRecord {
+            seq: 1,
+            at: 1,
+            dir: "mux".into(),
+            kind: "host_started".into(),
+            msg: serde_json::json!({}),
+            host_seq: None,
+        };
+        store.append("session-1", &record).unwrap();
+        let events = root.join("session-1").join("events");
+        std::fs::remove_dir_all(&events).unwrap();
+        std::fs::write(&events, "not a directory").unwrap();
+        assert!(store.scan("session-1", 0, &mut |_| true).is_ok());
+        assert!(
+            store.scan_strict("session-1", 0, &mut |_| true).is_err(),
+            "a strict read of a log it could not list read nothing and passed"
+        );
+    }
+
     #[test]
     fn local_store_refuses_a_symlinked_existing_session() {
         let temp = TempDir::new();
@@ -1115,3 +1843,134 @@ mod permission_tests {
         assert!(LocalStore::new(root, 64 * 1024).is_err());
     }
 }
+
+#[cfg(all(test, unix))]
+mod line_rev_tests;
+
+#[cfg(test)]
+mod agent_session_history_tests {
+    use super::{META_SCHEMA, SessionMeta};
+    use serde_json::json;
+
+    fn meta() -> SessionMeta {
+        serde_json::from_value(json!({
+            "schema": META_SCHEMA,
+            "id": "chat",
+            "name": "chat",
+            "harness": "claude",
+            "family": "claude",
+            "cwd": "/tmp",
+            "status": "idle",
+            "createdAt": 1,
+            "updatedAt": 1,
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn replacement_records_each_native_id_once_and_round_trips() {
+        let mut m = meta();
+        m.set_agent_session_id(Some("s1".into()), "claude");
+        m.set_agent_session_id(Some("s2".into()), "claude");
+        m.set_agent_session_id(None, "claude");
+        m.set_agent_session_id(Some("s2".into()), "claude");
+        m.set_agent_session_id(Some("s3".into()), "claude");
+        m.set_agent_session_id(Some("s1".into()), "claude");
+        assert_eq!(m.claude_session_ids().collect::<Vec<_>>(), ["s1", "s3", "s2"]);
+        let encoded = serde_json::to_value(&m).unwrap();
+        assert_eq!(encoded["previousAgentSessionIds"], json!(["s2", "s3"]));
+        let restored: SessionMeta = serde_json::from_value(encoded).unwrap();
+        assert_eq!(restored.claude_session_ids().collect::<Vec<_>>(), ["s1", "s3", "s2"]);
+    }
+
+    #[test]
+    fn switching_harnesses_never_authorizes_non_claude_history() {
+        let mut m = meta();
+        m.set_agent_session_id(Some("claude-old".into()), "claude");
+        m.set_agent_session_id(Some("codex-id".into()), "codex");
+        assert_eq!(m.claude_session_ids().collect::<Vec<_>>(), ["claude-old"]);
+        m.set_agent_session_id(Some("claude-new".into()), "claude");
+        assert_eq!(m.claude_session_ids().collect::<Vec<_>>(), ["claude-new", "claude-old"]);
+    }
+
+    #[test]
+    fn unknown_native_provenance_never_inherits_the_creation_family() {
+        for next_family in ["claude", "non-claude"] {
+            let mut m = meta();
+            m.agent_session_id = Some("unrelated-native-id".into());
+            m.agent_session_family = None;
+            m.set_agent_session_id(Some("new-id".into()), next_family);
+            m.set_agent_session_id(Some("confirmed-claude-id".into()), "claude");
+            assert!(!m.claude_session_ids().any(|id| id == "unrelated-native-id"));
+        }
+    }
+
+    #[test]
+    fn old_metadata_without_history_defaults_to_empty() {
+        let m = meta();
+        assert!(m.previous_agent_session_ids.is_empty());
+    }
+}
+
+fn is_zero(v: &u64) -> bool {
+    *v == 0
+}
+
+#[cfg(test)]
+mod head_tests;
+
+impl LocalStore {
+    /// `Store::scan`, and with `strict` `Store::scan_strict`.
+    fn scan_lines(
+        &self,
+        id: &str,
+        after: u64,
+        strict: bool,
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        // A strict read learns that the log's segments could not be listed (`segments` lists
+        // none then).
+        if strict {
+            std::fs::read_dir(self.dir(id).join("events"))?;
+        }
+        let segments = self.segments(id)?;
+        let mut line = Vec::new();
+        for (index, (_, path)) in segments.iter().enumerate() {
+            if after > 0
+                && let Some((_, next)) = segments.get(index + 1)
+                && first_seq(next)?.is_some_and(|first| first <= after.saturating_add(1))
+            {
+                continue;
+            }
+            let mut reader =
+                BufReader::with_capacity(256 * 1024, crate::config::private_state_file(path)?);
+            loop {
+                line.clear();
+                if reader.read_until(b'\n', &mut line)? == 0 {
+                    break;
+                }
+                if line.iter().all(u8::is_ascii_whitespace) {
+                    continue;
+                }
+                if record_seq(&line).is_some_and(|seq| seq <= after) {
+                    continue;
+                }
+                let rec = match parse_record(&line) {
+                    Ok(rec) => rec,
+                    Err(e) if strict => {
+                        anyhow::bail!("{}: a record could not be read: {e}", path.display())
+                    }
+                    Err(_) => continue,
+                };
+                if rec.seq > after && !visit(rec) {
+                    return Ok(());
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+#[cfg(all(test, unix))]
+#[path = "store/startup_tests.rs"]
+mod startup_tests;

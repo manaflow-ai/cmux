@@ -9,6 +9,7 @@
 // Then the call's locations, a path field in a cut-off input, and a path in the title. A row never
 // shows the raw input: no path found is an empty list (the card says "Unknown file").
 import { mcpCall, mcpPlainName } from "./conversation/mcpCalls";
+import { ROW_WIDTH, shortCommand } from "./conversation/shortCommand";
 import type { AcpmuxActivity } from "./model";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
@@ -43,17 +44,26 @@ export function editedPaths(tool: Tool): string[] {
 /// A short row label that describes a call without ever falling back to its raw JSON input.
 /// Paths come from the same harness-aware reader as edited-file cards, so a Write whose content
 /// precedes `file_path` still reads as `Write gen.py`. A file inside `cwd` reads by its path from there.
+///
+/// A shell call reads as what it says it does (Claude Code's Bash `description`) when it says, else
+/// as its command (`commandLabel`). One that has neither yet reads as `unnamedCommand` ("Ran a
+/// command"), never as the bare tool name ("Bash").
 export function toolLabel(
   tool: Tool,
   fallback: string,
   commandLabel: (command: string) => string,
   cwd?: string,
+  unnamedCommand?: string,
 ): string {
   const title = readableName(tool.title);
   const fallbackName = readableName(fallback, tool.kind) || "Tool";
   const paths = editedPaths(tool);
   const command = tool.command?.trim();
-  if (tool.kind === "execute" && command) return commandLabel(command);
+  if (tool.kind === "execute" && tool.description) return tool.description;
+  // Without its setup, a leading `cd <folder> &&` included: the opened Shell block names the folder (#20456).
+  // Never cut by length: the line it draws on ends in a CSS ellipsis at its right edge.
+  if (tool.kind === "execute" && command) return commandLabel(shortCommand(command, ROW_WIDTH));
+  if (unnamedCommand && isBareShellName(tool, title || fallbackName)) return unnamedCommand;
   // An MCP call reads as its server and action, never as `mcp__<server>__<tool>`.
   const call = mcpCall(tool);
   if (call) return mcpPlainName(call);
@@ -65,6 +75,15 @@ export function toolLabel(
     return title.includes(paths[0]!) ? title : `${action} ${fromFolder(paths[0]!, cwd)}`;
   }
   return title || fallbackName;
+}
+
+/// A shell tool's own name standing in for a label: "Bash", "Shell", "Terminal", `exec_command`.
+const BARE_SHELL_NAMES = /^(bash|shell|terminal|exec|exec_command|run_shell_command|local_shell|command)$/i;
+
+/// A call whose only name is its shell tool's (before its input arrives, or a harness that sends
+/// none): it reads as a command, not as "Bash".
+export function isBareShellName(tool: Tool, label: string): boolean {
+  return !tool.command?.trim() && BARE_SHELL_NAMES.test(label.trim());
 }
 
 function fromFolder(path: string, cwd: string | undefined): string {

@@ -39,7 +39,7 @@ extension SidebarBridge {
     /// The tab `ref` names: a tab with that id, else `<session>:<id>`
     /// looked up in that session's daemon.
     func pinnedTab(_ ref: String) -> (TabModel, PaneModel)? {
-        if let found = services.locateTab(ref) { return found }
+        if let found = services.locateTabOnAnyMachine(ref) { return found }
         guard let colon = ref.firstIndex(of: ":") else { return nil }
         let session = String(ref[..<colon]), id = String(ref[ref.index(after: colon)...])
         for daemon in services.machines.daemons where daemon.store.registryID == session {
@@ -91,18 +91,15 @@ extension SidebarBridge {
         return nil
     }
 
-    /// Selects `tab` in the window that lists its workspace (another open
-    /// window that owns it comes forward, else this one shows it): directly
-    /// when its pane is on screen, else through that window's selection
-    /// memory and focus. Showing the workspace switches space if needed.
+    /// Selects `tab` in this window, which shows its workspace (taking it
+    /// from another window that lists it: a click in one window never acts
+    /// in another, Lawrence 2026-10-23): directly when its pane is on screen,
+    /// else through this window's selection memory and focus. Showing the
+    /// workspace switches space if needed.
     private func reveal(_ tab: TabModel, in pane: PaneModel, workspace: String, state: WindowState) {
-        let windows = services.windows
-        let value = windows.registry.value
-        let owner = value.owner(of: workspace).flatMap { $0 != state.id && value.window($0)?.isOpen == true ? windows.controller(for: $0) : nil }
-        let target = owner?.state ?? state
-        target.selection.select(tab.id, in: pane.id)
-        target.focus.send(.selectTab(pane: pane.id, tab: tab.id, workspace: workspace, source: .intent))
+        state.selection.select(tab.id, in: pane.id)
+        state.focus.send(.selectTab(pane: pane.id, tab: tab.id, workspace: workspace, source: .intent))
         services.paneController(for: pane)?.select(StripTabID(tab.id))
-        windows.show(workspaceID: workspace, in: state)
+        services.windows.show(workspaceID: workspace, in: state, from: .thisWindow)
     }
 }

@@ -1,4 +1,6 @@
-//! The composer's requests: a chat's unsent draft (`_acpmux/draft_get`, `_acpmux/draft_set`) and
+//! The composer's requests: a chat's unsent draft (`_acpmux/draft_get`, `_acpmux/draft_set`), each
+//! typing surface's own draft and the labelled queue (`_acpmux/composer_set`, `_acpmux/composers`,
+//! `hub/composers.rs`) and
 //! a side question about it (`_acpmux/ask`, `hub/aside.rs`), a side session about it
 //! (`_acpmux/btw`, `hub/btw.rs`), and its prompt bookmarks (`_acpmux/bookmark_get`,
 //! `_acpmux/bookmark_set`, `hub/bookmarks.rs`).
@@ -11,6 +13,8 @@ pub(super) fn handles(m: &str) -> bool {
         m,
         method::MUX_DRAFT_GET
             | method::MUX_DRAFT_SET
+            | method::MUX_COMPOSER_SET
+            | method::MUX_COMPOSERS
             | method::MUX_BOOKMARK_GET
             | method::MUX_BOOKMARK_SET
             | method::MUX_ASK
@@ -43,7 +47,23 @@ pub(super) async fn handle(
             Some(Value::String(m)) => Some(m.as_str()),
             Some(_) => return Err(RpcError::invalid_params("model must be a string")),
         };
-        return hub.btw(&s, question, model, &conn.label(), opts()).await;
+        let inline = match params.get("inline") {
+            None | Some(Value::Null) => false,
+            Some(Value::Bool(inline)) => *inline,
+            Some(_) => return Err(RpcError::invalid_params("inline must be a boolean")),
+        };
+        // Boxed: the side-question state machine is too large for a debug build's request stack.
+        return Box::pin(hub.btw(&s, question, model, &conn.label(), inline, opts())).await;
+    }
+    if m == method::MUX_COMPOSERS {
+        return Ok(hub.composers_view(&s));
+    }
+    if m == method::MUX_COMPOSER_SET {
+        let surface = crate::hub::composers::surface(params.get("surface"))?
+            .ok_or_else(|| RpcError::invalid_params("surface is required"))?;
+        let text = str_param(params, "text")
+            .ok_or_else(|| RpcError::invalid_params("text is required"))?;
+        return hub.composer_set(&s, surface, text, &conn.label());
     }
     if m == method::MUX_DRAFT_GET {
         return Ok(json!({"sessionId": s.id, "draft": s.meta().composer_draft}));
@@ -54,7 +74,29 @@ pub(super) async fn handle(
         let draft = hub.set_composer_draft(&s, text).map_err(RpcError::invalid_params)?;
         return Ok(json!({"sessionId": s.id, "draft": draft}));
     }
-    hub.ask_aside(&s, text, &conn.label(), opts()).await
+    // The aside is a fork: a new session, so it needs room (`hub/admission.rs`).
+    let who = super::who(conn);
+    let admitted = hub.admit_new(super::ask(conn, params, &who)).await?;
+    admitted.run(hub.ask_aside(&s, text, &conn.label(), opts())).await
+}
+
+/// What `session/prompt` does once the hub took the prompt: tell the connection
+/// (`promptAccepted`), and when the prompt names its surface (`_meta.acpmux.surface`), label it
+/// with that surface (`hub/composers.rs`). A malformed surface refuses the prompt unrecorded.
+pub(super) fn on_accepted(
+    hub: &Arc<Hub>,
+    conn: &Arc<Conn>,
+    s: &Arc<crate::hub::Session>,
+    params: &Value,
+) -> Result<Box<dyn FnOnce(Value) + Send>, RpcError> {
+    let surface = crate::hub::composers::surface(mux_meta(params).and_then(|m| m.get("surface")))?;
+    let (notify, hub, s, client) = (conn.clone(), hub.clone(), s.clone(), conn.label());
+    Ok(Box::new(move |v| {
+        if let Some(surface) = surface {
+            hub.composer_accepted(&s, surface, &client, &v);
+        }
+        notify.send(&Message::notification(method::MUX_PROMPT_ACCEPTED, v))
+    }))
 }
 
 /// `_acpmux/bookmark_get` and `_acpmux/bookmark_set`: the chat's prompt bookmarks

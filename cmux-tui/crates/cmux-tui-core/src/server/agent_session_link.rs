@@ -243,11 +243,11 @@ fn read_bounded_line(reader: &mut impl BufRead, line: &mut Vec<u8>) -> std::io::
             Some(end) => (end + 1, true),
             None => (available.len(), false),
         };
-        let content = if done { taken - 1 } else { taken };
-        if line.len() + content > MAX_LINE_BYTES {
+        let content = if done { taken.saturating_sub(1) } else { taken };
+        if line.len().saturating_add(content) > MAX_LINE_BYTES {
             return Ok(LineRead::TooLong);
         }
-        line.extend_from_slice(&available[..content]);
+        line.extend_from_slice(available.get(..content).unwrap_or_default());
         reader.consume(taken);
         if done {
             return Ok(LineRead::Line);
@@ -284,9 +284,10 @@ impl crate::mux::Mux {
             if left.is_zero() {
                 break;
             }
+            // The session env is in the session list: no wait for the chat logs.
             let info = link.call(
                 "_acpmux/info",
-                json!({"sessionId": session}),
+                agent_message_acpmux::info_params(session),
                 left.min(WORKSPACE_LOOKUP_TIMEOUT),
             );
             let key = info.ok().and_then(|info| {

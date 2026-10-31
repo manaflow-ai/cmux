@@ -25,14 +25,14 @@
   --row-min: calc(28px * var(--settings-scale));
   --card-radius: 10px;
   --sidebar-width: 208px;
-  /* Motion: the app's MotionTunables (hover 80 ms, focus 100 ms, fade in 120 ms, fade out 80 ms),
-     overridable by the host (--cmux-motion-*). Only opacity, transform and a collapsing row's
-     own height animate, so nothing else on the page moves. */
-  --motion-hover: var(--cmux-motion-hover, 80ms);
-  --motion-focus: var(--cmux-motion-focus, 100ms);
-  --motion-in: var(--cmux-motion-in, 120ms);
-  --motion-out: var(--cmux-motion-out, 80ms);
-  --motion-ease: cubic-bezier(0.2, 0, 0, 1);
+  /* Motion: the one motion scale (--cmux-motion-*, pages/shared/desktop.css): hover, focus and
+     anything leaving quick, anything arriving micro, easing out. Only opacity, transform and a
+     collapsing row's own height animate, so nothing else on the page moves. */
+  --motion-hover: var(--cmux-motion-quick, 80ms);
+  --motion-focus: var(--cmux-motion-quick, 80ms);
+  --motion-in: var(--cmux-motion-micro, 120ms);
+  --motion-out: var(--cmux-motion-quick, 80ms);
+  --motion-ease: var(--cmux-ease-out, cubic-bezier(0, 0, 0.58, 1));
   font-size: calc(12.5px * var(--settings-scale));
 }
 
@@ -177,6 +177,46 @@
   box-shadow: none;
 }
 
+/* A glass card (Settings > Chief): the card is liquid glass (.ui-glass, ui/glass/glass.css: the
+   theme surface's translucent tint, never opaque) holding its title, help and rows; the rows drop
+   their own outline and keep the hairlines between them, under one hairline below the header. */
+.group.ui-glass {
+  border-radius: var(--card-radius);
+  padding-top: 10px;
+}
+
+.group.ui-glass > :not(.rows) {
+  margin-inline: var(--row-pad-x);
+}
+
+.group.ui-glass > .rows {
+  border: 0;
+  border-radius: 0 0 var(--card-radius) var(--card-radius);
+  box-shadow: inset 0 1px 0 var(--border);
+}
+
+.group.ui-glass > .rows > .row:first-child {
+  border-radius: 0;
+}
+
+.group.ui-glass > :last-child:not(.rows) {
+  margin-bottom: 12px;
+}
+
+/* Look's characters keep clear of the Bubble Style row's hairline. */
+.group.chief-pet.ui-glass > :not(.rows):has(+ .rows) {
+  margin-bottom: 16px;
+}
+
+/* A Chief row lays out across (picture, name and role, backend, Locked): `.row` above stacks a
+   row's lines and loads after styles.css's .chiefs-row, so the row drew every part centred down
+   the card. */
+.rows > .chiefs-row {
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+}
+
 .rows > .row:first-child {
   border-top-left-radius: var(--card-radius);
   border-top-right-radius: var(--card-radius);
@@ -307,7 +347,8 @@
   white-space: normal;
 }
 
-.link-button {
+.link-button,
+.channel-link {
   color: var(--accent-text);
 }
 
@@ -343,6 +384,7 @@
   margin-top: 14px;
   color: var(--muted-text);
   font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 .theme-tokens-row,
@@ -390,7 +432,7 @@
 }
 
 .theme-token:not(:disabled) {
-  cursor: pointer;
+  cursor: default;
 }
 
 .theme-token:not(:disabled):hover {
@@ -446,6 +488,7 @@
   gap: 4px;
   color: var(--muted-text);
   font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 .token-tuner-slider input {
@@ -476,7 +519,7 @@
   padding: 0;
   border: 1px solid var(--border);
   border-radius: 50%;
-  cursor: pointer;
+  cursor: default;
 }
 
 .token-tuner-contrast {
@@ -486,6 +529,7 @@
   gap: 8px;
   color: var(--muted-text);
   font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 .token-tuner-contrast[data-contrast-low] {
@@ -534,6 +578,63 @@
 .theme-files-row .field {
   flex: 1 1 180px;
   min-width: 0;
+}
+
+/* Colors the Ghostty config sets itself, which no theme changes: what, where, and the way out.
+   A card like the theme rows (the app theme's own border); the icon, on the message's first line,
+   and the message in the warning color, as the settings file's row notices (.notice). */
+.theme-overrides {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 16px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--card-radius);
+  font-size: var(--text-sm);
+}
+
+.theme-overrides > svg {
+  flex: none;
+  margin-top: 2px;
+  color: var(--warning);
+}
+
+/* Text and buttons share a row; when the text would get too narrow, the buttons move under it,
+   aligned with its start. */
+.theme-overrides-body {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  min-width: 0;
+}
+
+.theme-overrides-text {
+  display: flex;
+  flex: 1 1 280px;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  color: var(--warning);
+}
+
+/* The where is secondary: muted, so only the message reads as the warning. */
+.theme-overrides-source {
+  color: var(--muted-text);
+  overflow-wrap: break-word;
+}
+
+.theme-overrides-error {
+  color: var(--danger);
+}
+
+.theme-overrides-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
 }
 
 /* The Theme section's help explains a choice; it wraps instead of truncating. */
@@ -646,6 +747,7 @@
 .theme-empty {
   padding: 6px;
   font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 
 .theme-count {
@@ -797,6 +899,7 @@
   margin: 0;
   color: var(--muted-text);
   font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 
 .chief-pet-preview {
@@ -866,7 +969,7 @@
   font: inherit;
   position: relative;
   text-align: center;
-  cursor: pointer;
+  cursor: default;
   transition: border-color var(--motion-hover) var(--motion-ease);
 }
 
@@ -887,6 +990,7 @@
   color: var(--text);
   font-size: var(--text-body);
   font-weight: 600;
+  letter-spacing: var(--text-body--letter-spacing);
 }
 
 .chief-pet-choice-art {
@@ -904,12 +1008,14 @@
 .chief-pet-choice strong {
   font-size: var(--text-body);
   font-weight: 600;
+  letter-spacing: var(--text-body--letter-spacing);
 }
 
 .chief-pet-choice-help {
   color: var(--muted-text);
   font-size: var(--text-caption);
   line-height: 1.35;
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 /* An accent's swatch: the color it gives the app theme (AccentPicker draws it, and Art Color's hue

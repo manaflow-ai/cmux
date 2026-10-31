@@ -93,6 +93,9 @@ nonisolated enum OmnibarSettingsSchema {
         case .choiceOrNumber(let choices, let number):
             "expected one of " + choices.map { "\"\($0.value)\"" }.joined(separator: ", ")
                 + " or a number from \(Int(number.range.lowerBound)) to \(Int(number.range.upperBound))"
+        case .choiceOrURL(let choices, let urlKey):
+            "expected one of " + choices.map { "\"\($0.value)\"" }.joined(separator: ", ")
+                + " or {\"\(urlKey)\": \"http(s)://host[:port]\"}"
         default: "invalid value"
         }
     }

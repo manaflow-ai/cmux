@@ -13,6 +13,14 @@ public struct ChiefEngineReport: Decodable, Sendable, Equatable {
         public var effort: String?
         /// `fast` (the harness's priority tier), else nil or `default`: the harness's own.
         public var speed: String?
+        /// The reaction classifier (a416): its harness, model and instructions ("" in `engine`: the
+        /// host's Claude route, the built-in prompt), and whether a tapback may wake the Chief. In
+        /// `engine` the brain's resolution (engine.json over cmux.json); in `choice` this Chief's own.
+        /// Nil from an older brain.
+        public var classifierHarness: String?
+        public var classifierModel: String?
+        public var classifierPrompt: String?
+        public var reactionsCanWake: Bool?
 
         public init(harness: String? = nil, model: String? = nil, effort: String? = nil, speed: String? = nil) {
             self.harness = harness
@@ -20,34 +28,66 @@ public struct ChiefEngineReport: Decodable, Sendable, Equatable {
             self.effort = effort
             self.speed = speed
         }
+
+        enum CodingKeys: String, CodingKey {
+            case harness, model, effort, speed
+            case classifierHarness = "classifier_harness", classifierModel = "classifier_model"
+            case classifierPrompt = "classifier_prompt", reactionsCanWake = "reactions_can_wake"
+        }
+
+        public init(from decoder: any Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            harness = try c.decodeIfPresent(String.self, forKey: .harness)
+            model = try c.decodeIfPresent(String.self, forKey: .model)
+            effort = try c.decodeIfPresent(String.self, forKey: .effort)
+            speed = try c.decodeIfPresent(String.self, forKey: .speed)
+            classifierHarness = try c.decodeIfPresent(String.self, forKey: .classifierHarness)
+            classifierModel = try c.decodeIfPresent(String.self, forKey: .classifierModel)
+            classifierPrompt = try c.decodeIfPresent(String.self, forKey: .classifierPrompt)
+            // engine.json may keep it as the string a set sent ("true"/"false").
+            if let on = try? c.decodeIfPresent(Bool.self, forKey: .reactionsCanWake) {
+                reactionsCanWake = on
+            } else {
+                reactionsCanWake = (try? c.decodeIfPresent(String.self, forKey: .reactionsCanWake)).flatMap { $0.flatMap(Bool.init) }
+            }
+        }
     }
 
     /// One recent turn's end, as the brain summarizes its trace.
+    /// Every field is optional (decoded only when present), so an older brain's summary, which
+    /// lacks `ts`, `effort`, `error` and the usage's `output`, still decodes.
     public struct Turn: Decodable, Sendable, Equatable {
         public var harness: String?
         public var model: String?
+        /// The effort the turn ran at (`high`), nil when the harness has none or the brain is older.
+        public var effort: String?
         public var status: String?
+        /// When the turn ended, in milliseconds since 1970.
+        public var ts: Double?
         public var ms: Double?
         public var tools: Int?
         public var toolErrors: Int?
         public var costUSD: Double?
         public var usage: Usage?
         public var reply: String?
+        /// The first characters of the error a failed turn ended with.
+        public var error: String?
 
         public struct Usage: Decodable, Sendable, Equatable {
             public var cacheRead: Double?
             public var cacheWrite: Double?
             public var input: Double?
+            public var output: Double?
 
             enum CodingKeys: String, CodingKey {
-                case input
+                case input, output
                 case cacheRead = "cache_read"
                 case cacheWrite = "cache_write"
             }
         }
 
         enum CodingKeys: String, CodingKey {
-            case harness, model, status, ms, tools, usage, reply
+            case harness, model, effort, status, ts, ms, tools, usage, reply, error
             case toolErrors = "tool_errors"
             case costUSD = "cost_usd"
         }
@@ -206,7 +246,21 @@ public struct ChiefControlClient: Sendable {
     public func setChiefEngine(harness: String? = nil, model: String? = nil, effort: String? = nil,
                                speed: String? = nil, chief: String? = nil) async throws(ChiefControlError) -> ChiefEngineReport {
         let fields = [("harness", harness), ("model", model), ("effort", effort), ("speed", speed)]
-        let params = Self.naming(chief, Dictionary(uniqueKeysWithValues: fields.compactMap { key, value in value.map { (key, JSONValue.string($0)) } }))
+        return try await setChiefEngine(Dictionary(uniqueKeysWithValues: fields.compactMap { key, value in value.map { (key, $0) } }), chief: chief)
+    }
+
+    /// The fields `chief.engine.set` takes: the turns' engine, and the reaction classifier (a416).
+    public static let engineSetKeys: Set<String> = ["harness", "model", "effort", "speed", "classifier_harness",
+                                                    "classifier_model", "classifier_prompt", "reactions_can_wake"]
+
+    /// `params` of a `chief.engine.set` of `fields` (only ``engineSetKeys``; "default" clears one).
+    static func engineSetParams(_ fields: [String: String], chief: String?) -> [String: JSONValue] {
+        naming(chief, fields.filter { engineSetKeys.contains($0.key) }.mapValues(JSONValue.string))
+    }
+
+    /// `chief.engine.set` of any ``engineSetKeys`` fields: absent ones stay, "default" clears one.
+    public func setChiefEngine(_ fields: [String: String], chief: String? = nil) async throws(ChiefControlError) -> ChiefEngineReport {
+        let params = Self.engineSetParams(fields, chief: chief)
         let key = "cmux-next-chief-engine-" + UUID().uuidString.lowercased()
         do {
             return try await connection.resourceRequest({ id in
@@ -227,6 +281,35 @@ public struct ChiefControlClient: Sendable {
             return try await connection.resourceRequest({ id in
                 ResourceRequestEnvelope(id: id, operation: "chief.stop", params: params, idempotencyKey: key)
             }, as: ResourceMutationResult<Stopped>.self).value.stopped
+        } catch {
+            throw ChiefControlError(error)
+        }
+    }
+
+    /// `chief.stop {all: true}` (Stop all agents): the running turn and every
+    /// subagent at work or queued stop; the answer names the subagents (the
+    /// undo toast's list and its Restart). `chief` as in `chiefEngine(chief:)`.
+    public func stopAllAgents(chief: String? = nil) async throws(ChiefControlError) -> ChiefStopAll {
+        let key = "cmux-next-chief-stop-all-" + UUID().uuidString.lowercased()
+        let params = Self.naming(chief, ["all": .bool(true)])
+        do {
+            return try await connection.resourceRequest({ id in
+                ResourceRequestEnvelope(id: id, operation: "chief.stop", params: params, idempotencyKey: key)
+            }, as: ResourceMutationResult<ChiefStopAll>.self).value
+        } catch {
+            throw ChiefControlError(error)
+        }
+    }
+
+    /// `chief.stop {restart: [ids]}` (Restart on the stop-all toast): those
+    /// subagents go on; nothing stops. `chief` as in `chiefEngine(chief:)`.
+    public func restartAgents(_ names: [String], chief: String? = nil) async throws(ChiefControlError) -> ChiefRestart {
+        let key = "cmux-next-chief-restart-" + UUID().uuidString.lowercased()
+        let params = Self.naming(chief, ["restart": .array(names.map(JSONValue.string))])
+        do {
+            return try await connection.resourceRequest({ id in
+                ResourceRequestEnvelope(id: id, operation: "chief.stop", params: params, idempotencyKey: key)
+            }, as: ResourceMutationResult<ChiefRestart>.self).value
         } catch {
             throw ChiefControlError(error)
         }

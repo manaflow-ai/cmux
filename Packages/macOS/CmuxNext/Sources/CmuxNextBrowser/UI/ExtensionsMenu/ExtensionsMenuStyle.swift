@@ -1,53 +1,64 @@
 import AppKit
 import CmuxNextDesign
 
-/// The Extensions bubble's geometry and type, copied from Chrome's legacy Extensions menu
-/// (`ExtensionsMenuView`, the menu Chrome shows on desktop while `ExtensionsMenuAccessControl` is
-/// off): `chrome/browser/ui/views/extensions/extensions_menu_view.cc` and
-/// `extensions_menu_item_view.cc`, with the distances of `chrome_layout_provider.cc`. Colors are
-/// the cmux theme's (``Palette``), read in the bubble's theme scope; cmux has no accent color, so
-/// a pinned extension's pin draws in the primary text color where Chrome draws its blue.
+/// The Extensions bubble's geometry and type: cmux's popover look (``PopupStyle``: the glass
+/// card, small radii, rows inset from the card's edge with their own rounded highlight) laid out
+/// as Chrome's and Edge's Extensions menus are: a title with a close button, rows grouped by
+/// what they can do on the current site, each with its access under its name, and the footer
+/// links. Colors are the cmux theme's (``Palette``), read in the bubble's theme scope; a pinned
+/// extension's pin takes the theme's accent (``Palette/accentFill``).
 struct ExtensionsMenuStyle {
-    /// `DISTANCE_BUBBLE_PREFERRED_WIDTH`: the legacy menu's fixed width.
-    let width: CGFloat = 320
-    /// `kDialogRadius` (`kMediumSmall`).
-    let cornerRadius: CGFloat = 12
-    /// `INSETS_DIALOG`: the bubble's side and title insets.
-    let dialogInset: CGFloat = 20
-    /// The list scrolls above this height (`kMaxExtensionButtonsHeightDp`).
-    let maxListHeight: CGFloat = 448
-    /// `DISTANCE_EXTENSIONS_MENU_EXTENSION_ICON_SIZE`: the extension icon's box.
-    let extensionIconBox: CGFloat = 28
-    /// The extension action icon inside its box (`ExtensionAction::ActionIconSize`).
-    let extensionIcon: CGFloat = 16
-    /// `DISTANCE_EXTENSIONS_MENU_BUTTON_ICON_SIZE`: the pin, more and settings glyphs.
-    let buttonIcon: CGFloat = 20
-    /// `DISTANCE_EXTENSIONS_MENU_BUTTON_MARGIN`: the padding around a pin or more glyph.
-    let buttonMargin: CGFloat = 12
-    /// `DISTANCE_EXTENSIONS_MENU_ICON_SPACING`: (28 − 20) / 2, lines the footer gear up with the
-    /// extension icons.
-    var iconSpacing: CGFloat { (extensionIconBox - buttonIcon) / 2 }
-    /// The primary button's vertical border (12 − 4).
-    let primaryVerticalInset: CGFloat = 8
-    /// `DISTANCE_RELATED_LABEL_HORIZONTAL`: HoverButton's space between image and label.
-    let imageLabelSpacing: CGFloat = 12
-    /// `kExtensionsMenuButtonRadius`: the hover highlight's corner radius.
-    let highlightRadius: CGFloat = 4
-    /// The close button (16 glyph and a 4 inset).
+    /// The bubble's width (Edge's menu, a little narrower).
+    let width: CGFloat = 340
+    var cornerRadius: CGFloat { PopupStyle.standard.cornerRadius }
+    /// Space between the card's edge and a row's highlight.
+    var padding: CGFloat { PopupStyle.standard.padding }
+    /// Space between a row's highlight and its content.
+    let rowInset: CGFloat = 8
+    /// Where text and icons start: the padding and the row inset.
+    var contentInset: CGFloat { padding + rowInset }
+    /// The list scrolls above this height.
+    let maxListHeight: CGFloat = 400
+    /// The title row: the title, the site under it, and the close button.
+    let headerHeight: CGFloat = 48
+    /// A section title ("Can see and change this site").
+    let sectionHeight: CGFloat = 28
+    /// An extension row: the name and its access on two lines.
+    let rowHeight: CGFloat = 44
+    /// A footer row (Manage Extensions, Get extensions).
+    var footerRowHeight: CGFloat { PopupStyle.standard.rowHeight + 4 }
+    /// The empty state's height (no extensions installed).
+    let emptyHeight: CGFloat = 112
+    /// The extension's icon, and the box it is centered in.
+    let extensionIcon: CGFloat = 20
+    let extensionIconBox: CGFloat = 24
+    /// A row's trailing button (side panel, pin, more) and its glyph.
+    let squareButton: CGFloat = 28
+    let buttonIcon: CGFloat = 16
+    /// Space between a row's trailing buttons.
+    let buttonSpacing: CGFloat = 2
+    /// The footer's glyphs, centered in the extension icon's box.
+    let footerIcon: CGFloat = 16
+    /// Space between an icon's box and its label.
+    let imageLabelSpacing: CGFloat = 10
+    /// The close button and its glyph.
     let closeButton: CGFloat = 24
-    let closeGlyph: CGFloat = 16
+    let closeGlyph: CGFloat = 14
+    /// A highlight's corner radius (rows and buttons).
+    var highlightRadius: CGFloat { PopupStyle.standard.rowCornerRadius }
+    /// The pinned pin's fill: the accent, washed (``Palette/menuHighlight`` strength), and a
+    /// little stronger under the pointer.
+    let pinnedFillOpacity: CGFloat = 0.18
+    let pinnedHoverFillOpacity: CGFloat = 0.28
 
-    /// A row: the icon box between the primary button's borders.
-    var rowHeight: CGFloat { extensionIconBox + primaryVerticalInset * 2 }
-    /// A pin or more button: the glyph and its margin on each side.
-    var squareButton: CGFloat { buttonIcon + buttonMargin * 2 }
+    var titleFont: NSFont { Typography.bodyEmphasized }
+    var subtitleFont: NSFont { Typography.caption }
+    var sectionFont: NSFont { Typography.header }
+    /// Extension names and the footer.
+    var labelFont: NSFont { Typography.body }
+    /// The line under an extension's name.
+    var detailFont: NSFont { Typography.caption }
 
-    /// Chrome's `STYLE_HEADLINE_4` is 16 pt medium; cmux's type scale has no 16, so the title
-    /// takes its nearest step (title, emphasis).
-    var titleFont: NSFont { .systemFont(ofSize: TypeScale.title, weight: TypeScale.emphasis) }
-    /// Chrome's default label size (`kDefaultSize`, 12 pt): extension names and the footer.
-    var labelFont: NSFont { .systemFont(ofSize: TypeScale.detail, weight: TypeScale.regular) }
-
-    /// Chrome's style for every Extensions bubble.
-    static let chrome = ExtensionsMenuStyle()
+    /// The style of every Extensions bubble.
+    static let standard = ExtensionsMenuStyle()
 }

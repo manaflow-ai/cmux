@@ -46,7 +46,7 @@ extension Draft {
             next += 1
         }
         flush()
-        if next < attachments.count { out += attachments[next...].map { .attachment($0) } }
+        out += attachments.dropFirst(next).map { .attachment($0) }
         return out
     }
 

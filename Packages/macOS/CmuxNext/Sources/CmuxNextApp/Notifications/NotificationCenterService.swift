@@ -11,6 +11,7 @@ import CmuxNextTerminal
 import CmuxNextWakeups
 import Observation
 import CmuxNextFocus
+import CmuxNextFeed
 
 /// Notifications in the app (plans/cmux-next/notifications.md). The daemon
 /// owns every notification and its unread marker; this service reacts to
@@ -23,14 +24,16 @@ import CmuxNextFocus
 final class NotificationCenterService {
     /// `notifications.*` from cmux.json (the mute action updates it at once).
     var preferences = NotificationPreferences()
-    /// Highlights the user dismissed (Dismiss Highlight, cx-epgo): per
-    /// workspace id, the newest notification id whose attention ring is
-    /// hidden. A newer notification rings again. Presentation only: the
-    /// notifications stay unread in the daemon.
-    var dismissedHighlights: [String: UInt64] = [:]
-    /// The daemon session the dismissed ids belong to: ids restart with a
-    /// new session, so the dismissals apply only within this one.
-    var dismissedHighlightSession: String?
+    /// A dismissal belongs to one daemon session, never another machine with the same IDs.
+    struct HighlightKey: Hashable {
+        let machine: String
+        let session: String?
+        let id: String
+    }
+
+    /// Newest notification / manual-mark generation dismissed for each owning resource.
+    var dismissedHighlights: [HighlightKey: UInt64] = [:]
+    var dismissedMarks: [HighlightKey: UInt64] = [:]
     @ObservationIgnored weak var services: AppServices?
     /// Bumped when a window's settled focus changes: the viewed-tab rules
     /// (`followViewedProgramStatus`) re-read which tabs are viewed.
@@ -41,6 +44,16 @@ final class NotificationCenterService {
     /// Tabs read because the person went into their pane (a click, a key, an
     /// open), until the layout takes them for the ring's dismiss flash.
     @ObservationIgnored var entryReads: Set<String> = []
+    /// A press on a pane's tab strip, read on its mouse-up unless it dragged
+    /// (`NotificationCenterService+StripPress`).
+    @ObservationIgnored var stripPress: StripPress?
+    /// Tabs a strip press picked up, whose focus is not a look until the person's next input
+    /// (`NotificationCenterService+StripPress`).
+    @ObservationIgnored var viewHolds: Set<String> = []
+    /// Whether the left button is still down, and where the pointer is (screen coordinates);
+    /// tests stand in for the hardware.
+    @ObservationIgnored var leftButtonIsDown: @MainActor () -> Bool = { NSEvent.pressedMouseButtons & 1 != 0 }
+    @ObservationIgnored var pointerLocation: @MainActor () -> NSPoint = { NSEvent.mouseLocation }
     /// Agent chat tabs whose turn ended, by the generation of their ring: the pane rings until
     /// the person goes into it (acpmux reads a turn that ends in a shown chat at once, so no
     /// notification marks it). Observed: the attention marks follow it.
@@ -48,6 +61,10 @@ final class NotificationCenterService {
     /// Ring generations for ``agentFinished``, above any notification id, so a new finish
     /// restarts the ring's arrival and never equals a notification's mark.
     @ObservationIgnored private var agentFinishGeneration: UInt64 = 1 << 62
+    /// When an agent chat's ring last pulsed, for coalescing a burst of turn ends.
+    @ObservationIgnored private var lastAgentPulse: ContinuousClock.Instant?
+    /// Agent chats whose ring arrives at rest, with no pulse: a later finish in a burst.
+    @ObservationIgnored var quietAgentFinishes: Set<String> = []
     @ObservationIgnored let desktop = DesktopNotifier()
     /// A passkey request's banner was clicked (its request id): the passkey hand-off answers it
     /// (plans/cmux-next/agent-browser-passkey-DESIGN.md 3.2).
@@ -63,11 +80,13 @@ final class NotificationCenterService {
     /// Banner ids posted per tab id, withdrawn once the tab is read.
     @ObservationIgnored private var banners: [String: [String]] = [:]
     @ObservationIgnored let finishedBursts = FinishedBannerBursts()
+    /// Every sound cmux plays passes here (burst cooldown, player; `notifications.sounds`); tests pass a recorder.
+    @ObservationIgnored var soundGate = NotificationSoundGate()
     /// The Chief pet's notices (`NotificationCenterService+ChiefPet`); nil while it is off.
     @ObservationIgnored var chiefPet: ChiefPetController?
     @ObservationIgnored private var lastSeen: UInt64 = 0
-    /// The Dock badge this service set last (nil: none).
-    @ObservationIgnored var dockBadgeLabel: String?
+    /// The Dock icon's unread badge (`notifications.dockBadge`), shown again when the icon returns.
+    @ObservationIgnored let dockBadge = DockBadge(tile: AppDockTile())
     /// `notifications.dockBounce`: the running bounce, ended when nothing is unread.
     @ObservationIgnored let dockAttention = DockAttention()
     /// Hands the daemon's local feed items to the cloud owner (feed.md 9.1).
@@ -79,13 +98,22 @@ final class NotificationCenterService {
     @ObservationIgnored let approvals = AgentApprovalBanners()
     @ObservationIgnored var localAgentHost: @MainActor () -> String? = { nil }
     @ObservationIgnored private var tasks: [Task<Void, Never>] = []
+    /// Workspace statuses `followStatusRuns` examined since start: what a status change costs it
+    /// (tests read it; it must follow the workspaces whose status changed, not the session).
+    @ObservationIgnored var statusRunVisits = 0
     /// Recent arrivals and what was decided (for `debug.notifications`).
     @ObservationIgnored private(set) var log: [String] = []
     /// Showcase captures seed the real daemon ledger without showing banners
     /// or prompting for system authorization at launch.
     @ObservationIgnored var desktopPostingEnabled = true
-    /// When a banner shows an agent's last message (Show Previews, like macOS) and the screen lock it reads; tests pin both.
-    @ObservationIgnored var previews: NotificationPreviews = .whenUnlocked
+    /// When a banner shows an agent's last message (`notifications.showPreviews`, like macOS's
+    /// Show Previews), and the screen lock it reads; tests pin both.
+    var previews: NotificationPreviews {
+        get { preferences.showPreviews }
+        set { preferences.showPreviews = newValue }
+    }
+    /// What each banner says: where, who and state, what (`NotificationBannerFormatter`).
+    @ObservationIgnored var bannerFormatter = NotificationBannerFormatter()
     @ObservationIgnored var screenLocked: () -> Bool = { NotificationPreviews.screenIsLocked }
     /// The deadline clock; tests inject their own.
     @ObservationIgnored var clock: any Clock<Duration> = ContinuousClock()
@@ -98,6 +126,13 @@ final class NotificationCenterService {
         GhosttyRuntime.shared.desktopNotificationsEnabled
     }
     private static let logLimit = 64
+
+    // The Dock badge watcher owns an NSRunningApplication KVO token. Cancel
+    // every watcher before this service goes away so AsyncStream terminates
+    // and invalidates that token while the observed application still exists.
+    nonisolated deinit {
+        tasks.forEach { $0.cancel() }
+    }
 
     func start(services: AppServices) {
         self.services = services
@@ -122,11 +157,16 @@ final class NotificationCenterService {
         desktop.onOpen = { [weak self] id, surface in
             if id == IPhonePairNotices.id { try? self?.services?.settingsWindow.show(section: nil, route: IPhonePairNotices.settingsRoute); return }
             if let request = AppBrowserPasskeyHost.requestID(banner: id) { self?.onPasskeyBanner?(request); return }
+            if self?.services?.agentTabs.pageChats.openNotice(banner: id) == true { return }
             self?.open(surface: surface.map(SurfaceID.init(rawValue:)))
             self?.webNotificationClicks.run(bannerID: id)
         }
         desktop.onReply = { [weak self] id, surface, text in
             self?.reply(banner: id, surface: surface.map(SurfaceID.init(rawValue:)), text: text)
+        }
+        desktop.onMarkRead = { [weak self] id, surface in
+            guard let self, let store = self.services?.daemon.store else { return }
+            self.markRead(banner: id, surface: surface.map(SurfaceID.init(rawValue:)), in: store)
         }
         followApprovals(services)
         let store = services.daemon.store
@@ -140,6 +180,7 @@ final class NotificationCenterService {
             }
         })
         tasks.append(followViewedProgramStatus(store))
+        tasks.append(followStatusRuns(store))
         tasks.append(followNotificationLedger(services.daemon))
         tasks.append(Task { [weak self] in
             for await count in ObservationStream({ [weak self] in self?.currentUnreadCount() ?? 0 }) {
@@ -147,6 +188,8 @@ final class NotificationCenterService {
                 self?.dropReadChiefPetNotices()
             }
         })
+        // The Dock drops the badge while cmux runs windowless with no Dock icon; it comes back with the icon.
+        tasks.append(Task { [dockBadge] in await dockBadge.follow(DockBadge.activationPolicies()) })
     }
 
     /// Follows `notifications.*` in every loaded snapshot.
@@ -164,13 +207,7 @@ final class NotificationCenterService {
     /// The source of `tab`'s retained marker, from the daemon
     /// (`notification-source-v1`).
     func source(of tab: TabModel) -> NotificationSource {
-        Self.source(tab.notification?.source)
-    }
-
-    /// The per-source settings a daemon source uses: `daemon` producers and
-    /// daemons without sources count as agent, as before sources existed.
-    nonisolated static func source(_ wire: String?) -> NotificationSource {
-        wire.flatMap(NotificationSource.init(rawValue:)) ?? .agent
+        NotificationSource(wire: tab.notification?.source)
     }
 
     // MARK: Interactions
@@ -179,28 +216,48 @@ final class NotificationCenterService {
     func noteTyping(in window: NSWindow?) {
         guard let tab = focusedTab(in: window) else { return }
         lastKeystroke[tab] = .now
-        if isTerminalFocused(in: window) { clearUnreadMark(ofTab: tab) }
-        interacted(.keystroke, tabID: tab)
+        // Workspace Mark as Unread belongs to this Mac; typing in another machine's terminal
+        // must not clear a local mark whose tab id happens to be the same.
+        if isTerminalFocused(in: window), content(of: window)?.daemon.isLocal != false {
+            clearUnreadMark(ofTab: tab)
+        }
+        interacted(.keystroke, tabID: tab, in: window)
     }
 
     /// A mouse-down landed in `window` at `location` (window coordinates,
     /// after AppKit dispatched it): reads the pane under the pointer, never
     /// another one, so a ring stays until its own pane is clicked. A click
-    /// outside the panes (sidebar, titlebar, tab bar gaps) reads nothing.
-    func noteMouseDown(in window: NSWindow?, at location: NSPoint) {
-        guard let tab = clickedTab(in: window, at: location) else { return }
-        interacted(.click, tabID: tab)
+    /// outside the panes (sidebar, titlebar, tab bar gaps) reads nothing. A
+    /// left press on a pane's tab strip waits for its mouse-up (``noteMouseUp(in:at:)``):
+    /// it may start dragging the tab or the pane, and the ring goes with it.
+    /// `screen`: where it went down before dispatch (a titlebar press may have moved the window
+    /// since); `synthetic`: the app's own input (`SyntheticInput`), whose button is no hardware's.
+    func noteMouseDown(in window: NSWindow?, at location: NSPoint, left: Bool = true,
+                       screen: NSPoint? = nil, synthetic: Bool = false) {
+        // A right or middle press during a strip drag leaves the drag alone.
+        if !left, stripPress != nil, leftButtonIsDown() { return }
+        // Any new press ends the holds of earlier moves: the person has moved on.
+        stripPress = nil
+        endViewHolds()
+        guard let press = clickedTab(in: window, at: location) else { return }
+        if left, press.onStrip, let window {
+            beginStripPress(tab: press.tab, target: interactionTarget(tabID: press.tab, in: window), at: screen ?? window.convertPoint(toScreen: location), synthetic: synthetic)
+            return
+        }
+        interacted(.click, tabID: press.tab, in: window)
     }
 
     /// The selected tab of the pane under `location` in `window`. A child
     /// window (a Chromium page's) is hit-tested in the workspace window it
     /// belongs to. A window outside any workspace window, or one showing a top
     /// page, reads the tab that has the keyboard, which the click gave it.
-    func clickedTab(in window: NSWindow?, at location: NSPoint) -> String? {
+    /// `onStrip`: the press is on the pane's tab strip, found from the pane's own
+    /// strip rather than a window hit test (in the top row the titlebar takes that).
+    func clickedTab(in window: NSWindow?, at location: NSPoint) -> (tab: String, onStrip: Bool)? {
         guard let services, let window else { return nil }
         let host = CmuxApplication.accessibilityWindow(for: window) ?? window
         guard let controller = services.windows.controllers.first(where: { $0.window === host }),
-              controller.state.page == nil, let content = controller.content else { return focusedTab(in: window) }
+              controller.state.page == nil, let content = controller.content else { return focusedTab(in: window).map { ($0, false) } }
         let inHost = host === window ? location : host.convertPoint(fromScreen: window.convertPoint(toScreen: location))
         let root = content.layoutView
         let point = root.convert(inHost, from: nil)
@@ -211,7 +268,10 @@ final class NotificationCenterService {
         guard let pane = hits.first(where: { $0.rawValue == focused }) ?? (hits.count == 1 ? hits.first : nil),
               let model = content.paneModel(key: pane.rawValue), !model.tabs.isEmpty else { return nil }
         let selected = controller.state.selection.selection(in: model.id)
-        return (model.tabs.first { $0.id == selected } ?? model.tabs[min(max(model.defaultTabIndex, 0), model.tabs.count - 1)]).id
+        let tab = (model.tabs.first { $0.id == selected } ?? model.tabs[min(max(model.defaultTabIndex, 0), model.tabs.count - 1)]).id
+        let strip = content.panes[pane]?.view.stripView
+        let onStrip = strip.map { $0.window === host && !$0.isHiddenOrHasHiddenAncestor && $0.bounds.contains($0.convert(inHost, from: nil)) } ?? false
+        return (tab, onStrip)
     }
 
     /// A window's settled focus changed (window key, app active, workspace or
@@ -247,9 +307,22 @@ final class NotificationCenterService {
         type(text, into: located)
     }
 
+    /// A banner's Mark as Read: reads the tab of `surface` in place (no window, no focus change),
+    /// as a dismiss verb does.
+    func markRead(banner: String, surface: SurfaceID?, in store: DaemonStore) {
+        guard let surface, let located = locate(surface: surface, in: store) else {
+            note("mark read: \(banner) has no tab")
+            return
+        }
+        note("mark read \(banner) \(located.tab.id)")
+        ProgramStatusSeenStore.shared.markSeen(located.tab)
+        acknowledge(located.tab)
+    }
+
     /// Opening from a verb (jump to unread): reads it unless the policy is `never`.
     func opened(_ tab: TabModel) {
-        interacted(.open, tabID: tab.id)
+        guard let services else { return }
+        interacted(.open, tab: tab, local: services.machines.daemon(forTab: tab).isLocal)
     }
 
     func interacted(_ trigger: NotificationTrigger, tabID: String) {
@@ -257,20 +330,93 @@ final class NotificationCenterService {
         interacted(trigger, tab: tab)
     }
 
+    func interactionTarget(tabID: String, in window: NSWindow?) -> TabInteractionTarget? {
+        guard let services else { return nil }
+        let content = content(of: window)
+        let daemon = content?.daemon ?? services.daemon
+        guard let tab = daemon.store.tab(idOrResource: tabID) else { return nil }
+        // Typing reaches this on every keystroke; use the store's identity indexes to check
+        // ownership without allocating and walking the workspace's entire tab tree.
+        if let content {
+            guard let pane = daemon.store.pane(holding: tab),
+                  daemon.store.workspace(containing: pane.handle) === content.workspace else { return nil }
+        }
+        return TabInteractionTarget(tab: tab, store: daemon.store, local: daemon.isLocal)
+    }
+
+    func interacted(_ trigger: NotificationTrigger, target: TabInteractionTarget) {
+        // A closed tab or replaced store is no longer the object pressed, even if its id is reused.
+        guard target.store.tab(idOrResource: target.tab.id) === target.tab, target.attentionUnchanged else { return }
+        interacted(trigger, tab: target.tab, local: target.local)
+    }
+
+    func interacted(_ trigger: NotificationTrigger, tabID: String, in window: NSWindow?) {
+        guard let target = interactionTarget(tabID: tabID, in: window) else { return }
+        interacted(trigger, target: target)
+    }
+
+    /// The workspace content `window` shows (a Chromium page window resolves to its cmux window);
+    /// nil for a window that shows none.
+    private func content(of window: NSWindow?) -> WorkspaceContentController? {
+        guard let host = window.map({ CmuxApplication.accessibilityWindow(for: $0) ?? $0 }) else { return nil }
+        return services?.windows.controllers.first(where: { $0.window === host })?.content
+    }
+
+    /// Resolve `tabID` within the shown workspace. Return false when that workspace has no tab by
+    /// that id so callers can apply the local fallback only on a local workspace.
+    @discardableResult
+    func interacted(_ trigger: NotificationTrigger, tabID: String, in workspace: WorkspaceModel, local: Bool) -> Bool {
+        let tabs = workspace.screens.lazy.flatMap(\.panes).flatMap(\.tabs)
+        guard let tab = tabs.first(where: { $0.id == tabID }) else { return false }
+        interacted(trigger, tab: tab, local: local)
+        return true
+    }
+
+    /// A tab on this machine follows the normal notification policy. A remote tab only hides its
+    /// attention ring, which is local view state on the owning model.
+    private func interacted(_ trigger: NotificationTrigger, tab: TabModel, local: Bool) {
+        if local { interacted(trigger, tab: tab) } else { dismissAttention(trigger, tab: tab) }
+    }
+
     func interacted(_ trigger: NotificationTrigger, tab: TabModel) {
+        // Going into a tab a strip press held ends the hold: its focus is a look again.
+        if [.click, .keystroke, .open].contains(trigger), !viewHolds.isEmpty { viewHolds.remove(tab.id) }
         // Any look at the tab sees its OSC 7501 done and error records and an
         // agent chat's completed turn (client view state; the owners keep the facts).
         ProgramStatusSeenStore.shared.markSeen(tab)
         if agentFinished[tab.id] != nil, NotificationPolicy(prefs: preferences).clears(trigger, for: .agent) {
             note("\(trigger.rawValue) read agent turn \(tab.id)")
             agentFinished[tab.id] = nil
-            if [.click, .keystroke, .open].contains(trigger) { entryReads.insert(tab.id) }
+            quietAgentFinishes.remove(tab.id)
+            if DesignSettings.shared.attention.flashesOnEntry(trigger) { entryReads.insert(tab.id) }
         }
+        readMark(trigger, tab: tab)
         guard tab.hasUnread else { return }
         guard NotificationPolicy(prefs: preferences).clears(trigger, for: source(of: tab)) else { return }
         note("\(trigger.rawValue) read \(tab.id)")
-        if [.click, .keystroke, .open].contains(trigger) { entryReads.insert(tab.id) }
+        if DesignSettings.shared.attention.flashesOnEntry(trigger) { entryReads.insert(tab.id) }
         acknowledge(tab)
+    }
+
+    /// The person went into a tab an agent marked (a click, a key or opening it): its ring has done its job,
+    /// the mark stays until the agent clears it or the page changes.
+    func dismissAttention(_ trigger: NotificationTrigger, tab: TabModel) {
+        // Hiding the ring is this client's view state, so a mark without a request id (an older
+        // daemon's) hides it too, by its generation; only the owner's clear needs the id.
+        // Opening it (jump to unread, a banner) goes into the tab as a click does.
+        guard tab.attention != nil, [.click, .keystroke, .open].contains(trigger) else { return }
+        tab.attentionRingHiddenThrough = tab.attentionGeneration
+    }
+
+    /// Going into a pane (a click or a key) reads its tab's Mark as Unread, as it reads an unread
+    /// notification: the ring both draw goes with it. Focus alone keeps the mark (a tab marked
+    /// while viewed stays marked until it is viewed again, ``clearTabMarks(entering:)``).
+    private func readMark(_ trigger: NotificationTrigger, tab: TabModel) {
+        dismissAttention(trigger, tab: tab)
+        guard tab.markedUnread, trigger == .click || trigger == .keystroke, let services else { return }
+        note("\(trigger.rawValue) read mark \(tab.id)")
+        if DesignSettings.shared.attention.flashesOnEntry(trigger) { entryReads.insert(tab.id) }
+        try? TabUnreadMark.set(false, tab: tab, daemon: services.daemon)
     }
 
     /// Typing into a terminal clears its workspace's manual unread mark, as
@@ -289,6 +435,7 @@ final class NotificationCenterService {
     func acknowledge(_ tab: TabModel) {
         note("ack \(tab.id)")
         if agentFinished[tab.id] != nil { agentFinished[tab.id] = nil }
+        quietAgentFinishes.remove(tab.id)
         timeouts.removeValue(forKey: tab.id)?.cancel()
         approvals.forget(tab: tab.id, retire: true)
         finishedBursts.read(tab: tab.id)
@@ -305,30 +452,61 @@ final class NotificationCenterService {
         }
     }
 
-    /// An agent chat's turn ended: ring the panes that show its tab until the person goes in.
+    /// An agent chat's turn ended: with `notifications.attention.agentChats` on (off by default),
+    /// ring the panes that show its tab until the person goes in. Off, nothing rings: acpmux reads
+    /// a turn that ends in a shown chat at once, as before #22678. A chat the person is looking at
+    /// (the focused content of the key window) never rings, and a burst pulses once: a finish
+    /// within `burstWindow` of the last pulse rings at rest (cmuxterm-hq#2959).
     func agentTurnEnded(session: String) {
         guard let services else { return }
-        for workspace in services.daemon.store.workspaces {
-            for tab in workspace.screens.flatMap(\.panes).flatMap(\.tabs) where tab.agentSession?.session == session {
+        agentTurnEnded(session: session, in: services.daemon.store.workspaces)
+    }
+
+    func agentTurnEnded(session: String, in workspaces: [WorkspaceModel],
+                        rings: Bool = DesignSettings.shared.attention.rings(agentChat: true),
+                        viewed: ((String) -> Bool)? = nil, now: ContinuousClock.Instant = .now) {
+        guard rings else { return }
+        for workspace in workspaces {
+            for tab in workspace.screens.flatMap(\.panes).flatMap(\.tabs)
+            where tab.agentSession?.session == session && !(viewed?(tab.id) ?? isViewed(tab.id)) {
                 agentFinishGeneration &+= 1
                 agentFinished[tab.id] = agentFinishGeneration
+                if let last = lastAgentPulse, now - last < Self.burstWindow {
+                    quietAgentFinishes.insert(tab.id)
+                } else {
+                    quietAgentFinishes.remove(tab.id)
+                    lastAgentPulse = now
+                }
                 note("agent turn ended \(tab.id)")
             }
         }
     }
+
+    /// Turn ends closer together than this pulse once; the rest ring at rest.
+    static let burstWindow: Duration = .milliseconds(900)
 
     // MARK: Arrival
 
     private func arrived(_ notification: DaemonNotification) {
         guard let services else { return }
         let store = services.daemon.store
-        arrive(notification, located: notification.surface.flatMap { locate(surface: $0, in: store) })
+        let located = notification.surface.flatMap { locate(surface: $0, in: store) }
+        arrive(notification, located: located, workspace: located == nil ? Self.workspace(of: notification, in: store) : nil)
     }
 
-    /// One arrival on `located` (nil: its tab is not in the store). `visibility` is where the tab
-    /// is for the user now (`visibility(of:)` when nil); tests pass their own.
-    func arrive(_ notification: DaemonNotification, located: LocatedTab?, visibility: TerminalVisibility? = nil) {
-        let source = Self.source(notification.source)
+    /// The workspace a terminal-less notification names (`cmux notify --workspace ws_…`), when
+    /// it is in `store`.
+    static func workspace(of notification: DaemonNotification, in store: DaemonStore) -> WorkspaceModel? {
+        guard notification.surface == nil, let id = notification.workspaceID else { return nil }
+        return store.workspace(resourceID: id)
+    }
+
+    /// One arrival on `located` (nil: its tab is not in the store). `workspace`: the workspace a
+    /// notification with no tab belongs to (`notify --workspace`), else nil. `visibility` is where
+    /// the tab is for the user now (`visibility(of:)` when nil); tests pass their own.
+    func arrive(_ notification: DaemonNotification, located: LocatedTab?, workspace: WorkspaceModel? = nil,
+                visibility: TerminalVisibility? = nil) {
+        let source = NotificationSource(wire: notification.source)
         if source == .terminal, !terminalNotificationsEnabled() {
             note("arrived \(notification.notification.rawValue) terminal off (desktop-notifications = false)")
             if let located { acknowledge(located.tab) }
@@ -336,31 +514,43 @@ final class NotificationCenterService {
         }
         var arrival = NotificationPolicy.Arrival(source: source)
         arrival.bannerAllowed = notification.desktop
-        arrival.appActive = NSApp.isActive
+        arrival.appActive = services?.appActiveSource() ?? false
+        if let workspace = located?.workspace ?? workspace {
+            arrival.workspaceMuted = preferences.mutedWorkspaces.contains(workspace.id)
+        }
+        (arrival.soundEvent, arrival.soundScope) = soundGate.classify(level: notification.level.rawValue, source: source,
+                                                                     agent: located?.tab.agentSession?.harness ?? located?.tab.agent?.agent, workspace: (located?.workspace ?? workspace)?.id)
         if let located {
-            arrival.workspaceMuted = preferences.mutedWorkspaces.contains(located.workspace.id)
             arrival.paneIsViewed = isViewed(located.tab.id)
             arrival.typedAgo = lastKeystroke[located.tab.id].map { Self.seconds(ContinuousClock.now - $0) }
         }
         let components = Calendar.current.dateComponents([.hour, .minute], from: Date())
         arrival.minuteOfDay = (components.hour ?? 0) * 60 + (components.minute ?? 0)
-        let decision = NotificationPolicy(prefs: preferences).decide(arrival)
+        var decision = NotificationPolicy(prefs: preferences).decide(arrival)
         note("arrived \(notification.notification.rawValue) \(source.rawValue) tab=\(located?.tab.id ?? "-") \(decision)")
         guard let located else {
             guard desktopPostingEnabled else { return note("desktop posting suppressed") }
             feedDriver?.run()
-            if decision.desktop { post(notification, tab: nil, workspace: nil, sound: decision.sound) }
-            if !notification.desktop, let sound = decision.sound { NotificationSounds.playWithoutBanner(sound) }
+            if let workspace, decision.attention { moveToTop(workspace) }
+            soundGate.admit(&decision, cooldownSeconds: preferences.sounds.cooldownSeconds)
+            if decision.desktop {
+                // A workspace's notification names its workspace in the title, as a terminal's does.
+                post(notification, tab: nil, workspace: workspace?.id, workspaceName: workspace?.displayName,
+                     sound: decision.sound, volume: decision.soundVolume)
+            }
+            if !notification.desktop, let sound = decision.sound { soundGate.player.play(sound, volume: decision.soundVolume, banner: false) }
             if let mode = decision.bounce { dockAttention.bounce(untilActive: mode == .untilActive) }
             return
         }
         if decision.acknowledge {
+            // Read on sight: under `sounds.when = always` it still sounds (no banner shows for it).
+            soundGate.playSeen(decision, sounds: preferences.sounds)
             acknowledge(located.tab)
             return
         }
         // A turn that finished in front of the user is already seen (cx-slk1h) when the dismissal
-        // reads a pane on sight (`focus`): the history keeps it, read. Under the default `click`
-        // (2026-10-20) its ring stays until the pane is clicked or typed in. An agent that asks or
+        // reads a pane on sight (`focus`, the default): the history keeps it, read. Under `click`
+        // its ring stays until the pane is clicked or typed in. An agent that asks or
         // fails stays unread even there, and so does an earlier ask or error the tab still holds
         // (acknowledging reads the whole tab).
         let shown = visibility ?? self.visibility(of: located)
@@ -370,6 +560,7 @@ final class NotificationCenterService {
                 return keepSeenUnread(located, decision: decision, note: "finished turn visible: kept unread, no banner")
             }
             note("finished turn visible: read at once")
+            soundGate.playSeen(decision, sounds: preferences.sounds)
             acknowledge(located.tab)
             return
         }
@@ -389,14 +580,16 @@ final class NotificationCenterService {
     /// dismissal still gets its deadline.
     private func keepSeenUnread(_ located: LocatedTab, decision: NotificationPolicy.Decision, note line: String) {
         note(line)
+        soundGate.playSeen(decision, sounds: preferences.sounds)
         feedDriver?.noteArrival(terminal: located.tab.terminalResourceID?.rawValue, alerted: false)
         if let seconds = decision.timeout { scheduleTimeout(seconds, tabID: located.tab.id) }
     }
 
     /// The rest of an arrival once its OSC 7501 record (if any) is known.
     func deliver(_ notification: DaemonNotification, source: NotificationSource, located: LocatedTab,
-                 decision: NotificationPolicy.Decision, program: ProgramStatusNotification?,
+                 decision held: NotificationPolicy.Decision, program: ProgramStatusNotification?,
                  visibility: TerminalVisibility? = nil) {
+        var decision = held
         // An OSC 7501 done for a terminal the user can see posts nothing (cx-kxa2). It is read at
         // once when the dismissal reads a pane on sight (`focus`); under `click` its ring stays
         // until the pane is clicked or typed in.
@@ -405,6 +598,7 @@ final class NotificationCenterService {
                 return keepSeenUnread(located, decision: decision, note: "program status \(program.reason.rawValue) visible: kept unread, no banner")
             }
             note("program status \(program.reason.rawValue) visible: read at once")
+            soundGate.playSeen(decision, sounds: preferences.sounds)
             acknowledge(located.tab)
             return
         }
@@ -421,50 +615,58 @@ final class NotificationCenterService {
         }
         feedDriver?.noteArrival(terminal: located.tab.terminalResourceID?.rawValue, alerted: decision.alerts)
         feedDriver?.run()
+        soundGate.admit(&decision, cooldownSeconds: preferences.sounds.cooldownSeconds)
         if decision.desktop {
             // Agents finishing together in one workspace share one silent digest banner (FinishedBannerBursts).
             let digest = program == nil ? finishedBursts.join(notification, workspace: located.workspace.id, tab: located.tab.id, clock: clock) : nil
             desktop.withdraw(digest?.replacing ?? [])
-            post(notification, tab: located.tab, workspace: located.workspace.id, sound: digest == nil ? decision.sound : nil,
-                 subtitle: digest == nil ? notification.shownSubtitle ?? Self.bannerSubtitle(source: source, workspace: located.workspace.displayName) : located.workspace.displayName,
-                 program: program, title: digest.map { String(localized: "notifications.finishedBurst.title", defaultValue: "\($0.count) agents finished",
-                                                                    table: "NotificationsPanel", bundle: .module) })
+            // A digest names only its workspace: its agents sit in several tabs.
+            post(notification, tab: digest == nil ? located.tab : nil, workspace: located.workspace.id,
+                 workspaceName: located.workspace.displayName, sound: digest == nil ? decision.sound : nil, volume: decision.soundVolume,
+                 program: program, headline: digest.map { String(localized: "notifications.finishedBurst.title", defaultValue: "\($0.count) agents finished",
+                                                                       table: "NotificationsPanel", bundle: .module) },
+                 owner: located.tab)
         }
-        if !decision.desktop, let sound = decision.sound {
-            notification.desktop ? NotificationSounds.play(sound) : NotificationSounds.playWithoutBanner(sound)
-        }
+        if !decision.desktop, let sound = decision.sound { soundGate.player.play(sound, volume: decision.soundVolume, banner: notification.desktop) }
         if let seconds = decision.timeout { scheduleTimeout(seconds, tabID: located.tab.id) }
         if let mode = decision.bounce { dockAttention.bounce(untilActive: mode == .untilActive) }
     }
 
-    private func post(_ notification: DaemonNotification, tab: TabModel?, workspace: String?, sound: String?,
-                      subtitle: String? = nil, program: ProgramStatusNotification? = nil, title: String? = nil) {
+    /// Posts `notification`'s banner. `tab` is the tab the banner names (nil: a digest, or no
+    /// tab in the store); `owner` (default `tab`) is the tab whose read withdraws it. The title is
+    /// where it came from (`workspaceName › tab`), which the app writes, so a terminal program
+    /// cannot pose as another terminal; the poster's title is the subtitle.
+    private func post(_ notification: DaemonNotification, tab: TabModel?, workspace: String?, workspaceName: String? = nil,
+                      sound: String?, volume: Double = 1, program: ProgramStatusNotification? = nil, headline: String? = nil,
+                      owner: TabModel? = nil) {
         let id = "cmux-notification-\(notification.notification.rawValue)"
+        let owner = owner ?? tab
         // An OSC 7501 alert reads in the app's language; the daemon's English is the fallback.
-        let title = title ?? program?.title(localizations: localizations)
-            ?? (notification.title.isEmpty ? (tab?.displayTitle ?? "cmux") : notification.title)
+        let headline = headline ?? program?.title(localizations: localizations) ?? notification.title
         // An agent chat's permission prompt: Allow once and Deny, and what it asks as the body.
-        withApproval(of: notification, tab: tab) { [weak self] approval in
+        withApproval(of: notification, tab: owner) { [weak self] approval in
             guard let self else { return }
-            self.desktop.post(id: id, title: title, subtitle: subtitle, body: approval?.summary ?? notification.bannerBody(previews: self.previews, screenLocked: self.screenLocked()),
+            let content = self.bannerFormatter.content(
+                headline: headline, posterSubtitle: notification.shownSubtitle,
+                body: approval?.summary ?? notification.bannerBody(previews: self.previews, screenLocked: self.screenLocked()),
+                workspace: workspaceName, tab: tab.map { self.shownName(of: $0) }, host: tab?.remote?.sessionName, plain: approval == nil)
+            self.desktop.post(id: id, title: content.title, subtitle: content.subtitle, body: content.body,
                               surface: notification.surface?.rawValue, workspace: workspace, defaultSound: sound == "default",
                               attachment: program.flatMap { StatusNotificationImage.data($0.reason) },
-                              reply: notification.reply && tab?.kind == .pty, approval: approval != nil)
-            if let sound, sound != "default" { NotificationSounds.play(sound) }
-            if let tab {
-                self.banners[tab.id, default: []].append(id)
-                self.approvals.keep(id, approval: approval, tab: tab.id)
+                              reply: notification.reply && owner?.kind == .pty, approval: approval != nil)
+            if let sound, sound != "default" { self.soundGate.player.play(sound, volume: volume, banner: true) }
+            if let owner {
+                self.banners[owner.id, default: []].append(id)
+                self.approvals.keep(id, approval: approval, tab: owner.id)
             }
         }
     }
 
-    /// A terminal program chose its banner's title and text (OSC 9/777/99,
-    /// an OSC 7501 record), so the banner names the workspace it came from
-    /// and a program cannot pose as one in another terminal. Other sources
-    /// keep no subtitle.
-    nonisolated static func bannerSubtitle(source: NotificationSource, workspace: String?) -> String? {
-        guard source == .terminal, let workspace, !workspace.isEmpty else { return nil }
-        return workspace
+    /// The name a banner or the Chief pet gives `tab`: a Home conversation tab its conversation's
+    /// (a Chief's own name, as its tab strip shows it), any other tab its record's.
+    func shownName(of tab: TabModel) -> String {
+        guard tab.kind == .conversation, let home = services?.home else { return tab.displayTitle }
+        return home.tabTitle(for: tab)
     }
 
     private func scheduleTimeout(_ seconds: Double, tabID: String) {

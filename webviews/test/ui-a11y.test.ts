@@ -78,21 +78,59 @@ await requireBrowserLane("ui-a11y.test.ts", async () => {
   });
 
   /** What has focus as a screen reader hears it: the element, or the row its activedescendant names. */
-  function focused(page: Page) {
-    return page.evaluate(() => {
-      const element = document.activeElement as HTMLElement | null;
-      const name = (node: Element | null) => (node?.getAttribute("aria-label") ?? node?.textContent ?? "").trim();
-      const id = element?.getAttribute("aria-activedescendant");
-      const active = id ? document.getElementById(id) : null;
-      return {
-        role: element?.getAttribute("role") ?? element?.tagName.toLowerCase() ?? "",
-        name: name(element),
-        active: active ? name(active) : null,
-        activeTitle: active?.getAttribute("title") ?? null,
-        activeExists: id ? active !== null : null,
-      };
-    });
+  function readFocus() {
+    const element = document.activeElement as HTMLElement | null;
+    const name = (node: Element | null) => (node?.getAttribute("aria-label") ?? node?.textContent ?? "").trim();
+    const id = element?.getAttribute("aria-activedescendant");
+    const active = id ? document.getElementById(id) : null;
+    return {
+      role: element?.getAttribute("role") ?? element?.tagName.toLowerCase() ?? "",
+      name: name(element),
+      active: active ? name(active) : null,
+      activeTitle: active?.getAttribute("title") ?? null,
+      activeExists: id ? active !== null : null,
+    };
   }
+  type Focus = ReturnType<typeof readFocus>;
+  const focused = (page: Page) => page.evaluate(readFocus);
+
+  /** Waits until `check` holds in the page (at most 4 s); the expect after it says what was wrong. */
+  const until = <Arg>(page: Page, check: string | ((arg: Arg) => unknown), arg?: Arg) =>
+    page.waitForFunction(check as string | ((arg: unknown) => unknown), arg, { timeout: 4000 }).then(
+      () => undefined,
+      () => undefined,
+    );
+  /** Waits until what has focus passes `check` (a function of readFocus's result, run in the page). */
+  const untilFocus = (page: Page, check: (state: Focus) => boolean) =>
+    until(page, `(${String(check)})((${String(readFocus)})())`);
+  const untilResult = (page: Page, want: string) =>
+    until(page, (want) => document.getElementById("result")!.textContent === want, want);
+  const untilSnapshot = (page: Page, want: string) =>
+    until(page, (want) => (window as unknown as { __snapshot(): string }).__snapshot().includes(want), want);
+  /** Waits until `count` elements match `selector` and are visible. */
+  const untilVisible = (page: Page, selector: string, count: number) =>
+    until(
+      page,
+      ([selector, count]) =>
+        [...document.querySelectorAll(selector)].filter(
+          (node) => node.getClientRects().length > 0 && getComputedStyle(node).visibility !== "hidden",
+        ).length === count,
+      [selector, count] as const,
+    );
+  /** Selects `selector`'s first text from `start` to `end` and waits for the selectionchange the editor reads. */
+  const select = (page: Page, selector: string, start: number, end: number) =>
+    page.evaluate(
+      ([selector, start, end]) =>
+        new Promise<void>((resolve) => {
+          document.addEventListener("selectionchange", () => resolve(), { once: true });
+          const range = document.createRange();
+          range.setStart(document.querySelector(selector)!.firstChild!, start);
+          range.setEnd(document.querySelector(selector)!.firstChild!, end);
+          getSelection()!.removeAllRanges();
+          getSelection()!.addRange(range);
+        }),
+      [selector, start, end] as const,
+    );
 
   const result = (page: Page) => page.evaluate(() => document.getElementById("result")!.textContent);
   const visible = (page: Page, selector: string) =>
@@ -103,7 +141,6 @@ await requireBrowserLane("ui-a11y.test.ts", async () => {
           .map((node) => (node.textContent ?? "").trim()),
       selector,
     );
-  const settle = (page: Page, ms = 150) => page.waitForTimeout(ms);
   /** The visible hint texts once they equal `want` (hints load on first use; keyboard focus shows them at once). */
   async function hints(page: Page, want: string[]) {
     await page
@@ -123,7 +160,7 @@ await requireBrowserLane("ui-a11y.test.ts", async () => {
 
   /** axe violations at this state, the waiver's nodes counted apart. */
   async function axe(page: Page, state: string, log: AxeLog) {
-    // Judge the settled state: a popup's open fade (ui-popup-fade, 120 ms) still running when axe
+    // Judge the settled state: a fade (a dialog's or tooltip's, 120 ms) still running when axe
     // samples reads as low contrast on every row. Finite animations only (a loop never finishes).
     await page.evaluate(() =>
       Promise.all(
@@ -181,6 +218,8 @@ await requireBrowserLane("ui-a11y.test.ts", async () => {
 
   async function open(browser: Browser, query: string): Promise<Page> {
     const page = await browser.newPage({ reducedMotion: "reduce" });
+    // The page's timers run on Playwright's clock (in step with real time until a test moves it).
+    await page.clock.install();
     const errors: string[] = [];
     page.on("pageerror", (error) => errors.push(String(error)));
     (page as unknown as { errors: string[] }).errors = errors;
@@ -224,7 +263,7 @@ await requireBrowserLane("ui-a11y.test.ts", async () => {
           await page.keyboard.press("Tab");
           expect((await focused(page)).name).toBe("Source");
           await page.keyboard.press("Enter");
-          await settle(page);
+          await untilFocus(page, (state) => state.name === "Working tree");
           expect(await focused(page)).toMatchObject({ role: "menuitem", name: "Working tree" });
           expect(
             await page.evaluate(() =>
@@ -233,21 +272,24 @@ await requireBrowserLane("ui-a11y.test.ts", async () => {
           ).toBe(true);
           expect(await axe(page, "menu", log)).toEqual([]);
           await page.keyboard.press("c");
-          await settle(page);
+          await untilFocus(page, (state) => state.name.startsWith("Committed"));
           expect((await focused(page)).name).toStartWith("Committed");
           await page.keyboard.press(inlineEnd);
-          await settle(page, 300);
+          await untilFocus(page, (state) => state.name === "HEAD~1");
           expect((await focused(page)).name).toBe("HEAD~1");
           expect(await axe(page, "submenu", log)).toEqual([]);
           await page.keyboard.press("Escape");
-          await settle(page, 300);
+          await untilFocus(page, (state) => state.name.startsWith("Committed"));
+          await untilVisible(page, '[role="menu"]', 1);
           expect((await focused(page)).name).toStartWith("Committed");
           expect(await visible(page, '[role="menu"]')).toHaveLength(1);
           await page.keyboard.press(inlineEnd);
-          await settle(page, 300);
+          await untilFocus(page, (state) => state.name === "HEAD~1");
           await page.keyboard.press("ArrowDown");
           await page.keyboard.press("Enter");
-          await settle(page, 300);
+          await untilResult(page, "source: HEAD~2");
+          await untilFocus(page, (state) => state.name === "Source");
+          await untilVisible(page, '[role="menu"]', 0);
           expect(await result(page)).toBe("source: HEAD~2");
           expect((await focused(page)).name).toBe("Source");
           expect(await visible(page, '[role="menu"]')).toHaveLength(0);
@@ -259,22 +301,21 @@ await requireBrowserLane("ui-a11y.test.ts", async () => {
           const page = await open(browser, `case=widgets${dir}`);
           await page.keyboard.press("Tab");
           await page.keyboard.press("Tab");
-          await settle(page, 800);
+          await untilFocus(page, (state) => state.name === "Split view");
           expect((await focused(page)).name).toBe("Split view");
           expect(await hints(page, ["Split view"])).toEqual(["Split view"]);
           expect(await axe(page, "toolbar tooltip", log)).toEqual([]);
           await page.keyboard.press(inlineEnd);
-          await settle(page, 300);
+          await untilFocus(page, (state) => state.name === "Unified view");
           expect((await focused(page)).name).toBe("Unified view");
           expect(await hints(page, ["Unified view"])).toEqual(["Unified view"]);
           await page.keyboard.press("Escape");
-          await settle(page, 300);
           expect(await hints(page, [])).toEqual([]);
           await page.keyboard.press(inlineStart);
           await page.keyboard.press("Enter");
           expect(await result(page)).toBe("tool: Split view");
           await page.keyboard.press("Tab");
-          await settle(page);
+          await untilFocus(page, (state) => state.role === "listbox");
           // One Tab leaves the toolbar for the recent list.
           expect((await focused(page)).role).toBe("listbox");
           await page.close();
@@ -342,7 +383,7 @@ await requireBrowserLane("ui-a11y.test.ts", async () => {
             () => document.querySelector('[data-row="entry"] .ve-picker-name')?.textContent === "folder-0000",
           );
           await page.keyboard.press("End");
-          await settle(page, 300);
+          await untilFocus(page, (state) => state.active === "folder-0299");
           state = await focused(page);
           expect(state).toMatchObject({ active: "folder-0299", activeExists: true });
           const census = await page.evaluate(() => {
@@ -359,7 +400,7 @@ await requireBrowserLane("ui-a11y.test.ts", async () => {
           expect(census).toMatchObject({ posinset: "300", setsize: "300" });
           expect(await axe(page, "picker virtualized", log)).toEqual([]);
           await page.keyboard.press("Escape"); // empty query: cancels
-          await settle(page);
+          await untilResult(page, "cancel");
           expect(await result(page)).toBe("cancel");
           expect((page as unknown as { errors: string[] }).errors).toEqual([]);
           await page.close();
@@ -369,14 +410,32 @@ await requireBrowserLane("ui-a11y.test.ts", async () => {
           const page = await open(browser, `case=markdown${dir}`);
           await page.waitForFunction(() => (window as unknown as { __ready?: boolean }).__ready === true);
           expect(await axe(page, "markdown", log)).toEqual([]);
-          await page.keyboard.press("Tab");
-          await settle(page, 800);
+          const editButton = page.getByRole("button", { name: md["edit.button"] });
+          expect(await visible(page, ".md-edit-button")).toEqual([md["edit.button"]]);
+          await editButton.click();
+          await untilResult(page, "mode: source");
+          expect(await visible(page, ".md-source")).toHaveLength(1);
+          await page.getByRole("button", { name: md["mode.rich"] }).click();
+          await untilResult(page, "mode: rich");
+          // Start the directional toolbar walk from the first history control in both LTR and RTL.
+          // A mode switch can leave the document itself focused in Chromium RTL, so establish the
+          // same concrete starting point instead of relying on Tab order from a detached button.
+          await page.locator(".md-history-button").first().focus();
+          await untilFocus(
+            page,
+            (state) => state.name === document.querySelector(".md-history-button")?.getAttribute("aria-label"),
+          );
           expect((await focused(page)).name).toBe(md["nav.back"]);
           // ‹ and › are obvious glyphs: named for screen readers, with no hover hint (Leo, 2026-10-20).
+          // fixed-wait: there is no hint to wait for; this gives a lazily loaded one time to show if the glyph got one
+          await page.waitForTimeout(800);
           expect(await hints(page, [])).toEqual([]);
           await page.keyboard.press(inlineEnd);
           expect((await focused(page)).name).toBe(md["nav.forward"]);
           await page.keyboard.press(inlineEnd);
+          expect((await focused(page)).name).toBe(md["edit.button"]);
+          await page.keyboard.press(inlineEnd);
+          expect((await focused(page)).name).toBe(md["mode.rich"]);
           await page.keyboard.press(inlineEnd);
           expect((await focused(page)).name).toBe(md["mode.source"]);
           await page.keyboard.press("Enter");
@@ -387,17 +446,9 @@ await requireBrowserLane("ui-a11y.test.ts", async () => {
           // The link popover (the app's `link` command): focus in the field, inside the page.
           await page.click(".md-doc h2");
           // Select the heading's text (the editor reads the DOM selection).
-          await page.evaluate(() => {
-            const text = document.querySelector(".md-doc h2")!.firstChild!;
-            const range = document.createRange();
-            range.setStart(text, 0);
-            range.setEnd(text, 3);
-            getSelection()!.removeAllRanges();
-            getSelection()!.addRange(range);
-          });
-          await settle(page);
+          await select(page, ".md-doc h2", 0, 3);
           await page.evaluate(() => (window as unknown as { __openLink(): void }).__openLink());
-          await settle(page);
+          await untilFocus(page, (state) => state.name === "Link URL or path");
           expect(await focused(page)).toMatchObject({ role: "combobox", name: "Link URL or path" });
           expect(
             await page.evaluate(() =>
@@ -410,16 +461,17 @@ await requireBrowserLane("ui-a11y.test.ts", async () => {
           await page.keyboard.press("ArrowDown");
           expect((await focused(page)).active).toBe("#getting-started");
           await page.keyboard.press("Enter");
-          await settle(page);
+          await until(page, () => !document.querySelector(".md-link-popover"));
           expect(await page.evaluate(() => document.querySelector(".md-link-popover"))).toBe(null);
           expect(await page.evaluate(() => (window as unknown as { __snapshot(): string }).__snapshot())).toContain(
             "[API](#getting-started)",
           );
           // Escape cancels and returns focus to the editor.
           await page.evaluate(() => (window as unknown as { __openLink(): void }).__openLink());
-          await settle(page);
+          await untilFocus(page, (state) => state.name === "Link URL or path");
           await page.keyboard.press("Escape");
-          await settle(page);
+          await until(page, () => !document.querySelector(".md-link-popover"));
+          await until(page, () => document.activeElement?.classList.contains("ProseMirror"));
           expect(await page.evaluate(() => document.querySelector(".md-link-popover"))).toBe(null);
           expect(await page.evaluate(() => document.activeElement?.classList.contains("ProseMirror"))).toBe(true);
           // The link bubble shows for the link around the caret (Google Docs). (Left to
@@ -427,16 +479,9 @@ await requireBrowserLane("ui-a11y.test.ts", async () => {
           if (!rtl) {
             await page.click(".md-doc p");
             // The caret at the paragraph start (Home is not line start on macOS WebKit), then arrows.
-            await page.evaluate(() => {
-              const range = document.createRange();
-              range.setStart(document.querySelector(".md-doc p")!.firstChild!, 0);
-              range.collapse(true);
-              getSelection()!.removeAllRanges();
-              getSelection()!.addRange(range);
-            });
-            await settle(page);
+            await select(page, ".md-doc p", 0, 0);
             for (let index = 0; index < 6; index += 1) await page.keyboard.press("ArrowRight");
-            await settle(page, 600);
+            await untilVisible(page, ".md-link-bubble .md-link-bubble-url", 1);
             expect(await visible(page, ".md-link-bubble .md-link-bubble-url")).toEqual(["/w/docs/guide.md"]);
             expect(await page.evaluate(() => document.querySelector(".md-link-bubble")?.getAttribute("role"))).toBe(
               "dialog",
@@ -446,26 +491,28 @@ await requireBrowserLane("ui-a11y.test.ts", async () => {
             expect(await axe(page, "link bubble", log)).toEqual([]);
             // Edit opens the Text and URL form with focus in the URL field; Escape returns to the editor.
             await page.click('.md-link-bubble button[aria-label="edit"]');
-            await settle(page);
+            await untilFocus(page, (state) => state.name === "Link URL or path");
             expect(await focused(page)).toMatchObject({ role: "combobox", name: "Link URL or path" });
             expect(await axe(page, "link edit form", log)).toEqual([]);
             await page.keyboard.press("Escape");
-            await settle(page);
+            await until(page, () => !document.querySelector(".md-link-popover"));
+            await until(page, () => document.activeElement?.classList.contains("ProseMirror"));
             expect(await page.evaluate(() => document.querySelector(".md-link-popover"))).toBe(null);
             expect(await page.evaluate(() => document.activeElement?.classList.contains("ProseMirror"))).toBe(true);
           }
           // Hovering a link shows nothing (no hover card); a click on it shows the bubble.
           await page.click(".md-doc h1");
-          await settle(page);
+          await until(page, () => !document.querySelector(".md-link-bubble"));
           await page.hover('.md-doc a[href="docs/guide.md"]');
-          await settle(page, 900);
+          // Past any hover delay on the page's clock.
+          await page.clock.runFor(900);
           expect(await page.evaluate(() => document.querySelector(".md-link-bubble"))).toBe(null);
           await page.click('.md-doc a[href="docs/guide.md"]');
-          await settle(page);
+          await untilVisible(page, ".md-link-bubble .md-link-bubble-url", 1);
           expect(await visible(page, ".md-link-bubble .md-link-bubble-url")).toEqual(["/w/docs/guide.md"]);
           // Remove keeps the text.
           await page.click('.md-link-bubble button[aria-label="remove"]');
-          await settle(page);
+          await untilSnapshot(page, "See the guide for more.");
           expect(await page.evaluate(() => (window as unknown as { __snapshot(): string }).__snapshot())).toContain(
             "See the guide for more.",
           );

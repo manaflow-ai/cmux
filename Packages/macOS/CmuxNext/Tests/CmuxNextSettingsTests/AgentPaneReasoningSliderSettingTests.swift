@@ -9,6 +9,7 @@ struct AgentPaneReasoningSliderSettingTests {
         let snapshot = CmuxConfigSnapshot.parse(.object([:]), validDensities: [], validMetrics: [])
         #expect(snapshot.agentPaneComposer.reasoningSlider == false)
         #expect(snapshot.agentPaneComposer.reasoningSliderStyle == "accent")
+        #expect(snapshot.agentPaneComposer.spellChecking == false)
         #expect(snapshot.agentPaneComposer.pageValue.value(at: ["reasoningSlider"])?.boolValue == false)
         #expect(snapshot.agentPaneComposer.pageValue.value(at: ["reasoningSliderStyle"])?.stringValue == "accent")
     }
@@ -27,6 +28,14 @@ struct AgentPaneReasoningSliderSettingTests {
         #expect(setting.pageValue.value(at: ["reasoningSlider"])?.boolValue == true)
         #expect(setting.pageValue.value(at: ["reasoningSliderStyle"])?.stringValue == "minimal")
         #expect(setting.pageValue.value(at: ["showDictation"])?.boolValue == true)
+        #expect(setting.pageValue.value(at: ["spellChecking"])?.boolValue == false)
+    }
+
+    @Test func spellCheckingIsAnOptInSetting() {
+        let root = JSONValue.object(["agentPane": .object(["spellChecking": .bool(true)])])
+        let snapshot = CmuxConfigSnapshot.parse(root, validDensities: [], validMetrics: [])
+        #expect(snapshot.agentPaneComposer.spellChecking == true)
+        #expect(SettingsSchema.descriptor(for: ["agentPane", "spellChecking"]) != nil)
     }
 
 }

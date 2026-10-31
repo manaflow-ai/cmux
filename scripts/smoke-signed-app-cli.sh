@@ -30,6 +30,9 @@ elif [[ $# -ne 1 ]]; then
   echo "usage: $0 <app-path> [--canary]" >&2
   exit 2
 fi
+# Canary mode gives the app acpmux's test agent as its one harness.
+TEST_AGENT=0
+[[ "$CANARY" == 0 ]] || TEST_AGENT=1
 
 APP_PATH="$1"
 if [[ ! -d "$APP_PATH/Contents" ]]; then
@@ -106,9 +109,9 @@ cleanup() {
     # shellcheck source=SCRIPTDIR/lib/stop-cmux-tui-owners.sh
     source "$(dirname "${BASH_SOURCE[0]}")/lib/stop-cmux-tui-owners.sh"
     cmux_stop_cmux_tui_owners "$APP_PATH/Contents/Resources/bin"
-    # --canary started the bundle's acpmux daemon with this run's home; stop
-    # it (and its test agents) through that home, as TagTeardown does.
-    if [[ "$CANARY" == 1 && -d "$ACPMUX_HOME_DIR" ]]; then
+    # --canary started the bundle's acpmux daemon with this run's home; stop it
+    # (and its test agents) through that home, as TagTeardown does.
+    if [[ "$TEST_AGENT" == 1 && -d "$ACPMUX_HOME_DIR" ]]; then
       ACPMUX_HOME="$ACPMUX_HOME_DIR" "$APP_PATH/Contents/Resources/bin/acpmux" daemon shutdown --end-agents >/dev/null 2>&1 || true
     fi
   fi
@@ -208,7 +211,7 @@ echo "ok: $ACPMUX_VERSION"
 # the window from taking focus.
 STEP="launch app"
 launch_env=()
-if [[ "$CANARY" == 1 ]]; then
+if [[ "$TEST_AGENT" == 1 ]]; then
   mkdir -p "$ACPMUX_HOME_DIR" "$WORK_DIR/agent-cwd"
   cp "$SCRIPT_DIR/../cmux-tui/crates/acpmux/tests/fake_agent.py" "$WORK_DIR/fake_agent.py"
   python3 -c 'import json, sys; json.dump({"harnesses": {sys.argv[1]: {"argv": [sys.argv[2], sys.argv[3]]}}}, open(sys.argv[4], "w"))' \
@@ -231,7 +234,13 @@ STEP="wait for socket"
 deadline=$((SECONDS + SOCKET_TIMEOUT_SECONDS))
 until [[ -S "$SOCKET_PATH" ]]; do
   kill -0 "$APP_PID" 2>/dev/null || fail "app exited before opening its control socket"
-  (( SECONDS < deadline )) || fail "control socket $SOCKET_PATH did not appear within ${SOCKET_TIMEOUT_SECONDS}s"
+  if (( SECONDS >= deadline )); then
+    # A socket that never appears is usually a main-thread stall (nightly
+    # afa4850): sample the app first, so the log shows where it was stuck.
+    echo "--- sample of app pid $APP_PID (3 s) ---" >&2
+    /usr/bin/sample "$APP_PID" 3 -mayDie 2>/dev/null | head -n 120 >&2 || true
+    fail "control socket $SOCKET_PATH did not appear within ${SOCKET_TIMEOUT_SECONDS}s"
+  fi
   sleep 0.25
 done
 

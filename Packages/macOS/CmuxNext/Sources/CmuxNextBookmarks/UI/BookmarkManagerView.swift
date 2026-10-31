@@ -36,20 +36,11 @@ struct BookmarkManagerView: View {
             ThemedField(text: $model.query, placeholder: BookmarkStrings.searchPlaceholder, focusOnAppear: true,
                         identifier: "cmux.bookmarks.manager.search")
                 .frame(maxWidth: Metrics.paletteWidth / 2)
-            Menu {
-                Button(BookmarkStrings.addBookmark) { model.startAddBookmark() }
-                Button(BookmarkStrings.addFolder) { model.startAddFolder() }
-                Divider()
-                Button(BookmarkStrings.importFromBrowser) { model.source?.importFromBrowser() }
-                Button(BookmarkStrings.importHTML) { model.source?.importHTML() }
-                Button(BookmarkStrings.exportHTML) { model.source?.exportHTML() }
-            } label: {
-                Icon(.actionMore, size: 14)
+            // The app's one more button (⋮, OverflowButton); its rows are the registered bookmark actions.
+            OverflowMenuButton(label: BookmarkStrings.more, identifier: "cmux.bookmarks.manager.menu") { [model] in
+                model.source?.moreMenu(folder: model.addFolder)
             }
-            .menuStyle(.borderlessButton)
             .fixedSize()
-            .accessibilityIdentifier("cmux.bookmarks.manager.menu")
-            .accessibilityLabel(BookmarkStrings.more)
         }
         .padding(.horizontal, Metrics.space6)
         .padding(.vertical, Metrics.space4)

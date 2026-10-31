@@ -8,7 +8,7 @@
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
-import { chromium, type Browser, type Page } from "playwright";
+import { chromium, type Browser, type Locator, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -35,9 +35,9 @@ await requireBrowserLane("passwords-narrow.test.ts", async () => {
     await vite?.close();
   });
 
-  async function open(width: number): Promise<Page> {
+  async function open(width: number, colorScheme: "light" | "dark" = "light"): Promise<Page> {
     const { port } = vite!.httpServer!.address() as { port: number };
-    const page = await browser!.newPage({ viewport: { width, height: 720 } });
+    const page = await browser!.newPage({ viewport: { width, height: 720 }, colorScheme });
     await page.goto(`http://127.0.0.1:${port}${PAGE}`);
     await page.locator(".pw-site .pw-row .pw-username").first().waitFor();
     return page;
@@ -53,7 +53,12 @@ await requireBrowserLane("passwords-narrow.test.ts", async () => {
       const rows = [...document.querySelectorAll(".pw-site .pw-row")].map((row) => {
         const name = row.querySelector<HTMLElement>(".pw-username")!;
         const actions = box(row.querySelector(".pw-actions")!);
-        return { name: box(name).width, wants: name.scrollWidth, nameTop: box(name).top, actionsTop: actions.top };
+        return {
+          name: box(name).width,
+          wants: name.scrollWidth,
+          nameTop: box(name).top,
+          actionsTop: actions.top,
+        };
       });
       return {
         header: { left: header.left, right: header.right },
@@ -68,6 +73,61 @@ await requireBrowserLane("passwords-narrow.test.ts", async () => {
     });
 
   describe("passwords page", () => {
+    for (const theme of ["light", "dark"] as const) {
+      test(`${theme}: only row buttons highlight on hover, press and keyboard focus`, async () => {
+        const page = await open(900, theme);
+        const background = (element: Locator) => element.evaluate((node) => getComputedStyle(node).backgroundColor);
+        try {
+          for (const section of ["pw-passwords", "pw-passkeys", "pw-exceptions"]) {
+            const row = page.locator(`[aria-labelledby="${section}"] .pw-row`).first();
+            await page.mouse.move(0, 0);
+            const restingRow = await background(row);
+            const buttons = row.locator(".pw-row-button");
+            expect(await buttons.count()).toBeGreaterThan(0);
+            const restingButtons = await Promise.all((await buttons.all()).map(background));
+
+            // The left padding is blank space, outside every child control.
+            await row.hover({ position: { x: 2, y: 2 } });
+            expect(await background(row)).toBe(restingRow);
+            expect(await Promise.all((await buttons.all()).map(background))).toEqual(restingButtons);
+
+            // Includes Reveal, Copy, Edit and Delete, plus passkey/exception removal.
+            for (const [index, button] of (await buttons.all()).entries()) {
+              await button.hover();
+              const hoveredButton = await background(button);
+              expect(hoveredButton).not.toBe(restingButtons[index]);
+              expect(await background(row)).toBe(restingRow);
+              await page.mouse.down();
+              try {
+                expect(await button.evaluate((node) => node.matches(":active"))).toBe(true);
+                expect(await background(button)).toBe(hoveredButton);
+                expect(await background(row)).toBe(restingRow);
+              } finally {
+                // Release outside the row so destructive actions never run.
+                await page.mouse.move(0, 0);
+                await page.mouse.up();
+              }
+
+              await button.focus();
+              await page.keyboard.press("Shift+Tab");
+              await page.keyboard.press("Tab");
+              const focus = await button.evaluate((node) => ({
+                visible: node.matches(":focus-visible"),
+                style: getComputedStyle(node).outlineStyle,
+                width: Number.parseFloat(getComputedStyle(node).outlineWidth),
+              }));
+              expect(focus.visible).toBe(true);
+              expect(focus.style).not.toBe("none");
+              expect(focus.width).toBeGreaterThan(0);
+              expect(await background(row)).toBe(restingRow);
+            }
+          }
+        } finally {
+          await page.close();
+        }
+      });
+    }
+
     test("at 360 px the header and the saved logins fit the pane", async () => {
       const page = await open(360);
       const m = await measure(page);

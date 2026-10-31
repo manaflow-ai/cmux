@@ -174,9 +174,7 @@ export function HistoryPage({
         </p>
       ) : null}
       {snap.connection === "disconnected" ? (
-        <div className="history-empty" role="status">
-          {t("page.disconnected")}
-        </div>
+        <output className="history-empty">{t("page.disconnected")}</output>
       ) : snap.groups.length === 0 ? (
         <div className="history-empty">{snap.loading ? "" : t(snap.text ? "page.emptySearch" : "page.empty")}</div>
       ) : (

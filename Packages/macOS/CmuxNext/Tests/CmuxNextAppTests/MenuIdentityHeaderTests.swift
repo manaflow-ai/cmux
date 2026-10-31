@@ -55,6 +55,27 @@ struct MenuIdentityHeaderTests {
         #expect(renamed.names == ["api server"], "a blank name is not a rename")
     }
 
+    /// Escape closes the menu before the field sees the key (live dogfood, 2026-10-20): the menu
+    /// closing on an Escape press keeps the old name, as Escape on any menu cancels.
+    @Test func closingTheMenuWithEscapeRenamesNothing() throws {
+        let (registry, menu, renamed) = workspaceMenu()
+        MenuIdentityHeader.install(in: menu, registry: registry, target: target, name: "api", rename: "renameWorkspace")
+        let field = try #require((menu.items.first?.view as? MenuIdentityHeaderView)?.field)
+        let escape = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0,
+                                                   context: nil, characters: "\u{1b}", charactersIgnoringModifiers: "\u{1b}",
+                                                   isARepeat: false, keyCode: 53))
+
+        field.reset()
+        field.stringValue = "ch"
+        field.menuClosed(by: escape)
+        #expect(renamed.names.isEmpty, "Escape keeps the old name")
+
+        field.reset()
+        field.stringValue = "de"
+        field.menuClosed(by: nil)
+        #expect(renamed.names == ["de"], "a click outside keeps what was typed")
+    }
+
     /// A multi-row selection renames no one row: the header is the swatches alone.
     @Test func aSelectionGetsSwatchesWithoutAField() throws {
         let (registry, menu, _) = workspaceMenu()

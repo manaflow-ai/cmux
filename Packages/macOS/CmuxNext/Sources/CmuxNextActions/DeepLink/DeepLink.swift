@@ -41,8 +41,16 @@ public nonisolated struct DeepLink: Sendable, Hashable {
         /// name (`claude`, `codex`, `opencode`, …) and the session is the id the
         /// harness gives it (`CLAUDE_CODE_SESSION_ID`, `CODEX_THREAD_ID`). An
         /// address, not a credential: it opens only a tab this app already
-        /// shows that session in.
+        /// shows that session in. Its `?host=`, `?name=` and `?message=`
+        /// parameters, and what happens to one cmux cannot use, are
+        /// schemas/deeplinks/agent-link.json, the schema cmux.com's deeplink
+        /// page writes these links by.
         case agent(harness: String, session: String)
+        /// A cloud group (plans/cmux-next/cloud-groups-DESIGN.md) by the `grp_` id cmux Cloud
+        /// minted for it, and optionally one of its workspaces (`group/<id>/workspace/<ws_>`).
+        /// The group's record lives in the team's cloud directory, so the link means the same
+        /// thing on every Mac, the iPhone and every Chief.
+        case group(String, workspace: String?)
         /// Nightly's `workspace/<uuid>`: the durable workspace key, with the
         /// `stable_workspace_id` fallback.
         case legacyWorkspace(UUID, fallback: UUID?)
@@ -70,6 +78,11 @@ public nonisolated struct DeepLink: Sendable, Hashable {
     /// An agent link's `?name=` display hint: the agent's name. Never used to
     /// find the session or to trust the link.
     public var nameHint: String?
+    /// An agent link's `?message=`: one message of that session to scroll to
+    /// and highlight once it opens, by the harness message id acpmux reports
+    /// for it. A message this machine's transcript does not have leaves the
+    /// view where it is; it never finds or trusts the session.
+    public var message: String?
 
     /// A link to `target`.
     ///
@@ -78,11 +91,14 @@ public nonisolated struct DeepLink: Sendable, Hashable {
     ///   - machine: The `machine_` id of a remote machine; nil for none.
     ///   - hostHint: An agent link's machine name for display; nil for none.
     ///   - nameHint: An agent link's agent name for display; nil for none.
-    public init(_ target: Target, machine: String? = nil, hostHint: String? = nil, nameHint: String? = nil) {
+    ///   - message: An agent link's message to scroll to; nil for none.
+    public init(_ target: Target, machine: String? = nil, hostHint: String? = nil, nameHint: String? = nil,
+                message: String? = nil) {
         self.target = target
         self.machine = machine
         self.hostHint = hostHint
         self.nameHint = nameHint
+        self.message = message
     }
 
     /// The host of the sign-in callback (`<scheme>://auth-callback`), which
@@ -107,10 +123,16 @@ public nonisolated struct DeepLink: Sendable, Hashable {
             text += "session/\(id)"
             fragment = turn.map { Self.turnFragmentPrefix + $0 }
         case .chiefSession(let home, let session): text += "chief/\(home)/session/\(session)"
+        case .group(let id, let workspace):
+            text += "group/\(id)"
+            if let workspace { text += "/workspace/\(workspace)" }
         case .agent(let harness, let session):
             text += "agent/\(harness)/\(session)"
+            // The order schemas/deeplinks/agent-link.json states, so every emitter writes the
+            // same link for the same chat.
             if let hostHint { query.append("\(Self.hostHintKey)=\(hostHint)") }
             if let nameHint { query.append("\(Self.nameHintKey)=\(nameHint)") }
+            if let message { query.append("\(Self.messageKey)=\(message)") }
         case .legacyWorkspace(let workspace, let fallback):
             text += "workspace/\(workspace.uuidString)"
             if let fallback { query.append("stable_workspace_id=\(fallback.uuidString)") }
@@ -127,20 +149,46 @@ public nonisolated struct DeepLink: Sendable, Hashable {
         return URL(string: text)
     }
 
+    /// The names of the parameters this link carries a value for.
+    ///
+    /// A reader that names what a link ignored never denies one of these: a stray name of its own
+    /// (`?host%20=x` beside `?host=big-red`) can be shown as a parameter's name, and saying that
+    /// name was ignored would contradict the chat the link opened
+    /// (schemas/deeplinks/agent-link.json `ignoredOrder`).
+    public var usedParameters: Set<String> {
+        var names: Set<String> = []
+        // An agent link carries its harness and session in the path, where the page carries them
+        // as parameters (schemas/deeplinks/agent-link.json `pathParams`), so a stray `?session=x`
+        // beside `cmux://agent/claude/s1` must not read as a session the link left out either.
+        if case .agent = target { names.formUnion(Self.agentPathKeys) }
+        if machine != nil { names.insert(Self.machineKey) }
+        if hostHint != nil { names.insert(Self.hostHintKey) }
+        if nameHint != nil { names.insert(Self.nameHintKey) }
+        if message != nil { names.insert(Self.messageKey) }
+        return names
+    }
+
     /// The fragment that names a turn: `#turn-<turnId>`.
     static let turnFragmentPrefix = "turn-"
+
+    /// What the page calls the two parts of an agent link's path
+    /// (schemas/deeplinks/agent-link.json `pathParams`).
+    static let agentPathKeys: Set<String> = ["harness", "session"]
 
     /// The query parameters of an agent link's display hints.
     static let hostHintKey = "host"
     static let nameHintKey = "name"
+    /// The query parameter that names one message of an agent link's session.
+    static let messageKey = "message"
 
     /// Whether every id fits its kind's grammar (``parse(_:scheme:)``).
     var isWellFormed: Bool {
         if let machine, !Self.isResourceID(machine, prefix: "machine_") { return false }
         if let hostHint, !Self.isHint(hostHint) { return false }
         if let nameHint, !Self.isHint(nameHint) { return false }
+        if let message, !Self.isAgentMessage(message) { return false }
         // Only an agent link carries hints; any other would not parse back the same.
-        if hostHint != nil || nameHint != nil, !target.isAgent { return false }
+        if hostHint != nil || nameHint != nil || message != nil, !target.isAgent { return false }
         switch target {
         case .workspace(let id): return Self.isResourceID(id, prefix: "ws_")
         case .pane(let id): return Self.isResourceID(id, prefix: "pane_")
@@ -148,6 +196,8 @@ public nonisolated struct DeepLink: Sendable, Hashable {
         case .session(let id, let turn): return Self.isToken(id) && (turn.map(Self.isToken) ?? true)
         case .chiefSession(let home, let session): return Self.isChiefHome(home) && Self.isToken(session)
         case .agent(let harness, let session): return Self.isHarness(harness) && Self.isAgentSession(session)
+        case .group(let id, let workspace):
+            return Self.isGroupID(id) && (workspace.map { Self.isResourceID($0, prefix: "ws_") } ?? true)
         case .legacyWorkspace, .legacyPane, .legacySurface: return true
         }
     }
@@ -156,6 +206,8 @@ public nonisolated struct DeepLink: Sendable, Hashable {
     static let resourceHexDigits = 32
     /// The lengths a session or turn id may have.
     static let tokenLengths = 1...200
+    /// The daemon's outside-harness session id bound and alphabet.
+    static let agentSessionLengths = 1...256
     /// The lengths a harness name or a display hint may have.
     static let shortTokenLengths = 1...64
 
@@ -165,6 +217,14 @@ public nonisolated struct DeepLink: Sendable, Hashable {
         guard text.hasPrefix(prefix) else { return false }
         let hex = text.utf8.dropFirst(prefix.utf8.count)
         return hex.count == resourceHexDigits && hex.allSatisfy { (48...57).contains($0) || (97...102).contains($0) }
+    }
+
+    /// A cloud group id: `grp_` and 20 lowercase letters or digits, as TeamDO mints it
+    /// (`ctx.newId("grp")`, backend packages/protocol team-group-ops.ts `GroupId`).
+    static func isGroupID(_ text: String) -> Bool {
+        guard text.hasPrefix("grp_") else { return false }
+        let rest = text.utf8.dropFirst(4)
+        return rest.count == 20 && rest.allSatisfy { (48...57).contains($0) || (97...122).contains($0) }
     }
 
     /// A Chief home id: 8 lowercase hex digits (FNV-1a 32 of the home's path).
@@ -195,9 +255,20 @@ public nonisolated struct DeepLink: Sendable, Hashable {
         shortTokenLengths.contains(text.utf8.count) && isToken(text) && !isOnlyDots(text)
     }
 
-    /// An agent link's harness session id: a token that is not only dots,
-    /// which a URL path would collapse (`.`, `..`).
+    /// An agent link's harness session id. The daemon may publish `:` and up
+    /// to 256 bytes; dots-only values are rejected because URL paths collapse
+    /// `.` and `..`.
     static func isAgentSession(_ text: String) -> Bool {
+        agentSessionLengths.contains(text.utf8.count) && !isOnlyDots(text)
+            && text.utf8.allSatisfy { byte in
+                (48...57).contains(byte) || (65...90).contains(byte) || (97...122).contains(byte)
+                    || byte == UInt8(ascii: "-") || byte == UInt8(ascii: "_")
+                    || byte == UInt8(ascii: ".") || byte == UInt8(ascii: ":")
+            }
+    }
+
+    /// Agent message ids retain the original token grammar.
+    static func isAgentMessage(_ text: String) -> Bool {
         isToken(text) && !isOnlyDots(text)
     }
 

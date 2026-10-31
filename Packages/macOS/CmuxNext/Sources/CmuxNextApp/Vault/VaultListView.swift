@@ -1,5 +1,6 @@
 import CmuxNextDesign
 import SwiftUI
+import CmuxNextHistory
 
 /// The vault: a search field over the session list. Rows get value snapshots
 /// and an action bundle only (the snapshot boundary rule).
@@ -41,6 +42,7 @@ struct VaultListView: View {
                             VaultRowView(row: row, isSelected: row.id == selection, colors: colors, actions: actions)
                         }
                     }
+                    .thinScrollers()
                     .padding(.horizontal, Metrics.panelInset / 2)
                 }
             }

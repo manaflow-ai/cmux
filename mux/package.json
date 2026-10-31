@@ -3,7 +3,9 @@
   "private": true,
   "type": "module",
   "description": "The local mux brain host for cmux-next Home (plans/cmux-next/home.md section 4).",
-  "bin": { "mux": "host/src/main.ts" },
+  "bin": {
+    "mux": "host/src/main.ts"
+  },
   "scripts": {
     "test": "bun test",
     "typecheck": "tsc --noEmit -p .",
@@ -11,6 +13,6 @@
   },
   "devDependencies": {
     "@types/bun": "1.2.23",
-    "typescript": "5.9.3"
+    "typescript": "7.0.2"
   }
 }

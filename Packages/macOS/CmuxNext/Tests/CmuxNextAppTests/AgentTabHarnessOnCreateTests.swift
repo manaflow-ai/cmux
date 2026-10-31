@@ -2,7 +2,7 @@ import CmuxAgentBrands
 @testable import CmuxNextAgentPane
 import CmuxNextActions
 import CmuxNextBridge
-import CmuxNextDaemon
+@testable import CmuxNextDaemon
 import CmuxNextTabs
 import Foundation
 import Testing
@@ -25,9 +25,10 @@ struct AgentTabHarnessOnCreateTests {
         var harness: String?
     }
 
-    private static func agentTabs() -> AgentTabStore {
+    private static func agentTabs(defaults: UserDefaults = UserDefaults()) -> AgentTabStore {
         let environment = [AgentPaneSource.devURLVariable: "http://127.0.0.1:9"]
-        let tabs = AgentTabStore(build: nil, registry: ActionRegistry.standard(), environment: environment, showcase: true)
+        let tabs = AgentTabStore(build: nil, registry: ActionRegistry.standard(), environment: environment, showcase: true,
+                                  defaults: defaults)
         tabs.localHost = host
         return tabs
     }
@@ -39,6 +40,7 @@ struct AgentTabHarnessOnCreateTests {
         tab.conversation = ConversationTabRef(agentSession: AgentSessionRef(host: host, session: session))
         let screen = ScreenSnapshot(id: 1, layout: .leaf(1), panes: [PaneSnapshot(id: 1, tabs: [tab])])
         store.apply(snapshot: DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: nil, name: "w", screens: [screen])]))
+        store.connectionState = .connected(DaemonIdentity(generation: DaemonGeneration(rawValue: "agent-link-test")))
         return store
     }
 
@@ -156,5 +158,21 @@ struct AgentTabHarnessOnCreateTests {
         _ = await view.model.respond(to: Self.persist("s-other"))
         await Self.settle { binds.count > 1 }
         #expect(tabs.tab(resuming: adopt) == nil, "a tab showing another chat still claims the outside chat")
+    }
+
+    @Test func anAdoptionSurvivesStoreRecreationAndNeedsAConnectedDaemon() throws {
+        let defaults = UserDefaults()
+        let store = Self.store(session: "outside-1")
+        let first = Self.agentTabs(defaults: defaults)
+        Self.wired(first, store) { _ in }
+        let key = try #require(store.tab(surface: 1)?.id)
+        let adopt = AgentPaneAdopt(harness: "claude", agentSessionId: "outside-1")
+        first.adoptions["claude:outside-1"] = key
+
+        let restored = Self.agentTabs(defaults: defaults)
+        Self.wired(restored, store) { _ in }
+        #expect(restored.tab(resuming: adopt) == key)
+        store.connectionState = .disconnected("offline")
+        #expect(restored.tab(resuming: adopt) == nil, "a stale restored tree must not win while offline")
     }
 }

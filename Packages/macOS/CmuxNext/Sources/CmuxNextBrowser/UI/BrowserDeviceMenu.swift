@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextDesign
 
 /// Chrome's device menu (Emulate Device…) drawn from the daemon's device
 /// list (`browser.devices.list`, browser-devices-v1, cx-ocbf3): No Device,
@@ -7,6 +8,8 @@ public import AppKit
 /// Displays, Smart Displays) newest first, the custom devices, and every
 /// device under All Devices (phones split by brand, rumored devices last,
 /// a search field on top). It holds no device data; each row sends `choose`.
+/// Every row has an icon (its device class, the fit's or the orientation's),
+/// shown as a standard macOS menu in the toolbar's look (`NSMenu.themeRows(in:)`).
 @MainActor
 public struct BrowserDeviceMenu {
     /// One device of the daemon's list, as the menu shows it.
@@ -108,16 +111,38 @@ public struct BrowserDeviceMenu {
         return leading + rest + (names.contains("Other") ? ["Other"] : [])
     }
 
+    /// The device class's glyph: a row's icon in every section and search result.
+    static func symbol(group: String) -> String {
+        switch group {
+        case "foldable": "rectangle.split.2x1"
+        case "tablet": "ipad"
+        case "laptop": "laptopcomputer"
+        case "desktop": "desktopcomputer"
+        case "smart-display": "tv"
+        default: "iphone"
+        }
+    }
+
+    static func symbol(orientation: String) -> String {
+        switch orientation {
+        case "vertical": "rectangle.portrait"
+        case "horizontal": "rectangle"
+        case "vertical-spanned": "rectangle.split.2x1"
+        default: "rectangle.split.1x2"
+        }
+    }
+
     public func menu() -> NSMenu {
         let menu = NSMenu()
-        add(Strings.noDevice, to: menu, checked: current == nil && fit == nil) { choose(nil, nil) }
+        add(Strings.noDevice, symbol: "macwindow", to: menu, checked: current == nil && fit == nil) { choose(nil, nil) }
         for (value, title) in [("16:9", Strings.fitDesktop), ("1280", Strings.fitDesktop1280)] where fits.contains(value) {
-            add(title, to: menu, checked: fit == value) { toggleFit(value) }
+            add(title, symbol: "rectangle.ratio.16.to.9", to: menu, checked: fit == value) { toggleFit(value) }
         }
         if let current, current.orientations.count > 1 {
             menu.addItem(.separator())
             for name in current.orientations {
-                add(Strings.orientation(name), to: menu, checked: name == current.orientation) { choose(current.title, name) }
+                add(Strings.orientation(name), symbol: Self.symbol(orientation: name), to: menu,
+                    checked: name == current.orientation) { choose(current.title, name) }
             }
         }
         let builtIn = devices.filter { !$0.isCustom }
@@ -134,6 +159,7 @@ public struct BrowserDeviceMenu {
         }
         menu.addItem(.separator())
         let allItem = NSMenuItem(title: Strings.allDevices, action: nil, keyEquivalent: "")
+        allItem.image = NSImage.menuSymbol("list.bullet")
         allItem.submenu = allDevices(builtIn)
         menu.addItem(allItem)
         return menu
@@ -158,6 +184,7 @@ public struct BrowserDeviceMenu {
                 let sub = NSMenu()
                 addDevices(listed.filter { $0.brand == brand }, to: sub)
                 let item = NSMenuItem(title: brand == "Other" ? Strings.otherBrand : brand, action: nil, keyEquivalent: "")
+                item.image = NSImage.menuSymbol(Self.symbol(group: group))
                 item.submenu = sub
                 all.addItem(item)
             }
@@ -174,17 +201,20 @@ public struct BrowserDeviceMenu {
     private func addDevices(_ list: [Device], to menu: NSMenu) {
         for device in list {
             let tip = device.size.map { Strings.details(width: $0.width, height: $0.height, ratio: $0.ratio) }
-            add(device.rowTitle, to: menu, checked: device.title == current?.title, toolTip: tip) { choose(device.title, nil) }
+            add(device.rowTitle, symbol: Self.symbol(group: device.group), to: menu, checked: device.title == current?.title,
+                toolTip: tip) { choose(device.title, nil) }
         }
     }
 
-    private func add(_ title: String, to menu: NSMenu, checked: Bool = false, toolTip: String? = nil, _ action: @escaping @MainActor () -> Void) {
+    private func add(_ title: String, symbol: String, to menu: NSMenu, checked: Bool = false, toolTip: String? = nil,
+                     _ action: @escaping @MainActor () -> Void) {
         let target = Row(action)
         let item = NSMenuItem(title: title, action: #selector(Row.run), keyEquivalent: "")
         item.target = target
         item.representedObject = target // the item keeps its target
         item.state = checked ? .on : .off
         item.toolTip = toolTip
+        item.image = NSImage.menuSymbol(symbol)
         menu.addItem(item)
     }
 

@@ -158,7 +158,7 @@ final class SidebarGroupEditorRow: NSView {
 }
 
 /// The group editor's and the group chip's strings (Resources/Localizable.xcstrings, en and ja).
-/// Rows the group's right-click menu also offers use its words (Close Group, Ungroup, Move to
+/// Rows the group's right-click menu also offers use its words (Close All in Group, Ungroup, Move to
 /// New Window: CmuxNextActions ObjectMenuLabels).
 enum GroupEditorStrings {
     static var editor: String { String(localized: "sidebar.groupEditor.ax", defaultValue: "Edit Workspace Group", bundle: .module) }
@@ -166,7 +166,7 @@ enum GroupEditorStrings {
     static var namePlaceholder: String { String(localized: "sidebar.groupEditor.namePlaceholder", defaultValue: "Name this group", bundle: .module) }
     static var newWorkspace: String { String(localized: "sidebar.groupEditor.newWorkspace", defaultValue: "New Workspace in Group", bundle: .module) }
     static var moveToNewWindow: String { String(localized: "sidebar.groupEditor.moveToNewWindow", defaultValue: "Move to New Window", bundle: .module) }
-    static var close: String { String(localized: "sidebar.groupEditor.close", defaultValue: "Close Group", bundle: .module) }
+    static var close: String { String(localized: "sidebar.groupEditor.closeAll", defaultValue: "Close All in Group", bundle: .module) }
     static var ungroup: String { String(localized: "sidebar.groupEditor.ungroup", defaultValue: "Ungroup", bundle: .module) }
     static var delete: String { String(localized: "sidebar.groupEditor.delete", defaultValue: "Delete Group", bundle: .module) }
     static var pin: String { String(localized: "sidebar.groupEditor.pin", defaultValue: "Pin Group", bundle: .module) }

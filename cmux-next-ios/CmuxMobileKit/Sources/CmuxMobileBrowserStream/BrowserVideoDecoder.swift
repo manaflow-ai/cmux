@@ -29,6 +29,8 @@ public final class BrowserVideoDecoder: @unchecked Sendable {
     private var sps: Data?
     private var pps: Data?
     private var needKeyframe = true
+    /// Frames skipped while waiting for a keyframe (diagnostics).
+    private var skipped = 0
     private var lastPixels: CVPixelBuffer?
     /// Asks the host for a keyframe.
     public var requestKeyframe: @Sendable () -> Void = {}
@@ -58,14 +60,25 @@ public final class BrowserVideoDecoder: @unchecked Sendable {
         queue.async { [self] in done(lastPixels) }
     }
 
-    /// Drops the decoder (link gone); the next keyframe starts it again.
+    /// Drops the decoder (link gone, or the page stalled); the next keyframe
+    /// starts it again.
     public func reset() {
-        queue.async { [self] in
-            if let session { VTDecompressionSessionInvalidate(session) }
-            session = nil
-            format = nil
-            needKeyframe = true
-        }
+        queue.async { [self] in dropSession() }
+    }
+
+    private func dropSession() {
+        if let session { VTDecompressionSessionInvalidate(session) }
+        session = nil
+        format = nil
+        sps = nil
+        pps = nil
+        needKeyframe = true
+    }
+
+    /// Tests: invalidate the session under the decoder, as iOS does to a
+    /// decoder while the app is in the background.
+    func invalidateSessionForTesting() {
+        queue.sync { if let session { VTDecompressionSessionInvalidate(session) } }
     }
 
     private func decode(frame: UInt32, accessUnit: Data, keyframe: Bool, received: UInt64, age: Int64?) {
@@ -74,6 +87,10 @@ public final class BrowserVideoDecoder: @unchecked Sendable {
             guard makeSession(sps: sps, pps: pps) else { return }
         }
         if needKeyframe, !unit.isIDR {
+            skipped += 1
+            if skipped.nonzeroBitCount == 1 {
+                log.info("skipped \(self.skipped) frames waiting for a keyframe (frame \(frame), keyframe flag \(keyframe))")
+            }
             return
         }
         guard let session, let format, !unit.units.isEmpty else {
@@ -100,11 +117,16 @@ public final class BrowserVideoDecoder: @unchecked Sendable {
         }
         guard status == noErr, let pixels = shownPixels else {
             log.error("decode failed (\(status)) on frame \(frame); asking for a keyframe")
-            needKeyframe = true
+            // The session itself may be what failed (iOS invalidates a decoder
+            // while the app is in the background, kVTInvalidSessionErr): the
+            // next keyframe starts a new one, so a dead session never turns
+            // every keyframe into another request.
+            dropSession()
             requestKeyframe()
             return
         }
         needKeyframe = false
+        skipped = 0
         lastPixels = pixels
         enqueue(pixels)
         let done = now()

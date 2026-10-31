@@ -12,19 +12,39 @@ public nonisolated struct SettingsPageLayout: Sendable {
     /// studio, file actions). Raw values are the export's card ids.
     public nonisolated enum Card: String, Sendable, Hashable, CaseIterable {
         case themeStudio, terminalInfo, ghosttyDiagnostics, computerUse, harnesses, spaces, browserProfiles
-        case machines, accounts, agentHarnesses, chiefs, advancedInfo, advancedActions, backdrops, mobile, chiefPet
+        case machines, accounts, agentHarnesses, agentIntegrations, chiefs, advancedInfo, advancedActions, backdrops, mobile, devices, chiefPet
         /// The density tiles, preview and custom density editor (plans/cmux-next/density-DESIGN.md).
         case density
+        /// What this Mac has that cmux can bring over (CmuxNextImportCards), every card found.
+        case importSuggestions
+        /// Every release channel's recent builds, with the one this Mac runs (Settings > Updates).
+        case channels
+        /// The web UI served now, its last check and Roll Back (plans/cmux-next/web-ota.md); NIGHTLY only.
+        case webUpdates
+        /// Settings > Chief's Voice input row: the Debug toggle home.voiceInput, only where it exists.
+        case voiceInput
+        /// Settings > Chief's Notices row: it opens Notifications, which holds the Chief's notices.
+        case notices
+        /// Settings > Menus: every right-click menu's rows, arranged by the person (ContextMenuLayout).
+        case contextMenus
+        /// Settings > Server: each server's status, version line, Restart Recommended, socket and tailnet
+        /// address (plans/cmux-next/server-updates-DESIGN.md section 10).
+        case server
+        /// Settings > Accounts > Cloud Environments: the team's environments, Build, Delete and Add
+        /// (plans/cmux-next/cloud-environments-DESIGN.md); `cmux.settings.environments.*`.
+        case cloudEnvironments
     }
 
-    /// A group card as the layout states it: the rows of a schema group
-    /// (minus rows another card claims), plus rows claimed by key.
+    /// A group card as the layout states it: rows claimed by key to lead it, the rows
+    /// of a schema group (minus rows another card claims), then rows claimed by key.
     public nonisolated struct GroupSpec: Sendable {
         /// A schema group key: its title, and every row of it no other card claims.
         public var group: String?
         /// Rows by key, moved here from their schema group; `title` names the card then.
         public var keys: [String] = []
         public var title: SettingText?
+        /// Rows by key, claimed like `keys` but drawn first, before the schema group's own rows.
+        public var leadKeys: [String] = []
     }
 
     public nonisolated struct CategorySpec: Sendable {
@@ -39,6 +59,8 @@ public nonisolated struct SettingsPageLayout: Sendable {
         public var actions: [SettingsSection] = []
         /// The section ids (`cmux settings open --section`, old links) that open this category.
         public var aliases: [SettingsSection] = []
+        /// Shown only in DEV builds: the page hides it when the host says it is not one.
+        public var devOnly = false
     }
 
     /// A resolved group card: its rows in display order.
@@ -58,11 +80,11 @@ public nonisolated struct SettingsPageLayout: Sendable {
     public init() {}
 
     /// The categories with their cards resolved against `rows`: only rows the
-    /// page shows, empty cards dropped, schema-group rows in schema order.
+    /// page shows, empty cards dropped, lead keys first, then schema-group rows in schema order.
     public func categories(rows: [SettingDescriptor] = SettingsSchema.all) -> [Category] {
         let shown = rows.filter(\.isShownOnSettingsPage)
         let specs = Self.specs
-        let claimed = Set(specs.flatMap { $0.groups.flatMap(\.keys) })
+        let claimed = Set(specs.flatMap { $0.groups.flatMap { $0.leadKeys + $0.keys } })
         let ids = Set(shown.map(\.id))
         return specs.map { spec in
             let groups = spec.groups.enumerated().compactMap { index, group -> Group? in
@@ -70,7 +92,7 @@ public nonisolated struct SettingsPageLayout: Sendable {
                     shown.filter { $0.textKeys.group == key && !claimed.contains($0.id) }.map(\.id)
                 } ?? []
                 let moved = group.keys.filter(ids.contains)
-                let rows = own + moved
+                let rows = group.leadKeys.filter(ids.contains) + own + moved
                 let title = group.title ?? group.group.flatMap { key in
                     shown.first { $0.textKeys.group == key }.map { SettingText(key: key, text: $0.group) }
                 }
@@ -91,14 +113,26 @@ public nonisolated struct SettingsPageLayout: Sendable {
         CategorySpec(
             id: "general", title: section(.general), symbol: "gearshape",
             groups: [
-                group("settings.group.window"), group("settings.group.tabs"), group("settings.group.columns"),
+                // Show All Chats on New Tab keeps its `sidebar.` key from when All chats was a sidebar section.
+                group("settings.group.window"), GroupSpec(group: "settings.group.tabs", keys: ["sidebar.showChats"]),
+                group("settings.group.columns"), group("settings.group.autoArchive"), group("settings.group.workspaceHibernation"),
                 group("settings.group.history"), group("settings.group.quit"), group("settings.group.picker"),
                 group("settings.group.tasks"), group("settings.group.diffViewer"), group("settings.group.markdownViewer"),
                 // The Screenshots pane's folders sit beside the other file-viewer groups.
-                group("settings.group.files"), group("settings.group.screenshots"), group("settings.group.updates"),
+                group("settings.group.files"), group("settings.group.screenshots"),
                 group("settings.group.announcements"), group("settings.group.chats"),
             ],
             trail: [.spaces], actions: [.general, .rooms], aliases: [.general, .rooms]),
+        // How this Mac updates, then every channel's recent builds (docs/release-rings.md in hq).
+        CategorySpec(
+            id: "updates", title: SettingsText.keyed("settings.category.updates", "Updates"), symbol: "icloud.and.arrow.down",
+            groups: [
+                group("settings.group.updates"),
+                GroupSpec(keys: ["updates.idleInstallMaxWaitSeconds", "updates.idleInstallQuietSeconds"],
+                          title: SettingsText.keyed("settings.pageGroup.updatesAdvanced", "Updates: Advanced")),
+            ],
+            // After the groups: the Web UI card (the web half of Updates; NIGHTLY only), then the channels.
+            trail: [.webUpdates, .channels]),
         CategorySpec(
             id: "theme", title: SettingsText.keyed("settings.category.theme", "Theme"), symbol: "paintpalette",
             // appearance.theme and appearance.appTheme are drawn by the theme
@@ -113,7 +147,10 @@ public nonisolated struct SettingsPageLayout: Sendable {
                 group("settings.group.terminalFont"), group("settings.group.densityMotion"), group("settings.group.motion"),
                 group("settings.group.colorTransition"),
                 group("settings.group.windowBackground"), group("settings.group.panes"), group("settings.group.focusRing"),
-                group("settings.group.sidebar"), group("settings.group.workspaceRows"),
+                // Show Workspace Tabs leads the Sidebar card: it is off by default, and this is
+                // where a person turns each workspace's tabs back on (#26384).
+                GroupSpec(group: "settings.group.sidebar", leadKeys: ["sidebar.showWorkspaceTabs"]),
+                group("settings.group.workspaceRows"),
                 group("settings.group.statusIndicator"), group("settings.group.surfaces"),
             ],
             // Change Background… lands here: the art picker draws appearance.background and
@@ -143,8 +180,6 @@ public nonisolated struct SettingsPageLayout: Sendable {
             id: "agents", title: SettingsText.keyed("settings.category.agents", "Agents"), symbol: "sparkles",
             groups: [
                 GroupSpec(group: "settings.group.agentChat", keys: ["app.warnBeforeClosingAgentSession"]),
-                // How the Chief chat's bubbles look (the theme's colours, or iMessage's).
-                group("settings.group.chiefChat"),
                 group("settings.group.computerUse"),
                 // The free AI model while signed out (cx-ds09i).
                 group("settings.group.freeModel"),
@@ -156,40 +191,68 @@ public nonisolated struct SettingsPageLayout: Sendable {
                 group("settings.group.folderTrust"),
             ],
             // Harnesses lists every harness; Your Agents (BRING-YOUR-OWN-HARNESS) adds, checks and
-            // removes the ones you added; Chiefs lists every Chief, each opening its editor (u2586).
-            trail: [.harnesses, .agentHarnesses, .chiefs, .computerUse]),
-        // The Chief pet floating over every app (ChatGPT's Mini & Pets): its card draws the preview,
-        // Show/Hide and the characters from its group's two rows (the page lists them for search).
+            // removes the ones you added. Agent integrations (optional help, collapsed) installs the
+            // hooks that report an agent's state, through `cmux agent hook`.
+            trail: [.harnesses, .agentHarnesses, .computerUse, .agentIntegrations]),
+        // Every Chief setting on one page (Leo 2026-10-20: the name pill's popover is the quick
+        // version; its All Chief Settings link opens this): Chiefs lists every Chief, each opening
+        // its editor (name, picture, backend; u2586); the Chief Pet card (ChatGPT's Mini & Pets)
+        // draws the preview, Show/Hide and the characters from its group's two rows; then the
+        // chat's look. Voice input (the message box's mic) shows only in builds with Debug Settings.
+        // Notices last: a row that opens Notifications (the Chief's notices are the app's
+        // notifications; their rows keep their one home there).
         CategorySpec(
-            id: "chief-pet", title: SettingsText.keyed("settings.category.chiefPet", "Chief Pet"), symbol: "pawprint",
-            groups: [group("settings.group.chiefPet")], lead: [.chiefPet]),
+            id: "chief", title: SettingsText.keyed("settings.category.chief", "Chief"), symbol: "crown",
+            groups: [
+                // How the Chief chat's bubbles look (the theme's colours, or iMessage's).
+                group("settings.group.chiefChat"),
+                // The Chief pet floating over every app, and its character.
+                group("settings.group.chiefPet"),
+                // Which Chief Home opens; the Chiefs card draws it as its Engine row.
+                group("settings.group.chiefEngine"),
+                // Whether a tapback on a Chief message can start a turn, and the classifier that decides (a416).
+                group("settings.group.chiefReactions"),
+            ],
+            lead: [.chiefs, .chiefPet, .voiceInput], trail: [.notices]),
         // A core cmux feature: banners, sounds, the attention ring and the
         // feed for agents, terminal programs and `cmux notify`.
         CategorySpec(
             id: "notifications", title: section(.notifications), symbol: "bell",
             groups: [
-                group("settings.group.banners"), group("settings.group.dismissal"), group("settings.group.attention"),
+                // Sounds: per-event sounds, volume, timing and the burst cooldown
+                // (NotificationSoundSettingsSchema); its per-level maps stay off the page.
+                group("settings.group.banners"), group("settings.group.sounds"), group("settings.group.dismissal"),
+                group("settings.group.attention"),
                 group("settings.group.feedMirror"), group("settings.group.githubInbox"),
             ],
             actions: [.notifications], aliases: [.notifications]),
         CategorySpec(
             id: "browser", title: section(.browser), symbol: "globe",
             groups: [
-                group("settings.group.engine"), group("settings.group.addressBar"), group("settings.group.toolbar"),
+                group("settings.group.engine"), group("settings.group.addressBar"), group("settings.group.toolbar"), group("settings.group.media"),
                 group("settings.group.bookmarks"), group("settings.group.agentInput"), group("settings.group.extensions"),
                 group("settings.group.links"), group("settings.group.openingLinks"), group("settings.group.passwords"),
-                group("settings.group.memory"), group("settings.group.remote"),
+                group("settings.group.import"), group("settings.group.memory"), group("settings.group.remote"),
             ],
             trail: [.browserProfiles], actions: [.browser], aliases: [.browser]),
+        // Bring things over from other browsers, agents and terminals on this Mac.
+        CategorySpec(
+            id: "import", title: SettingsText.keyed("settings.category.import", "Import"), symbol: "square.and.arrow.down",
+            groups: [], lead: [.importSuggestions]),
         CategorySpec(
             id: "keyboard", title: section(.keyboard), symbol: "keyboard",
             groups: [
                 group("settings.shortcuts.hintsGroup"),
-                GroupSpec(keys: ["sidebar.numbering", "sidebar.cmd9", "sidebar.stepping", "sidebar.steppingWraps"],
+                GroupSpec(keys: ["tabs.commandDigits", "sidebar.numbering", "sidebar.cmd9", "sidebar.stepping", "sidebar.steppingWraps"],
                           title: SettingsText.keyed("settings.pageGroup.sidebarKeys", "Sidebar Navigation")),
-                group("settings.group.palette"),
+                group("settings.group.palette"), group("settings.group.macScreenKeyboard"),
             ],
             actions: [.keyboard], aliases: [.keyboard]),
+        // Every right-click menu: promote rows out of More, reorder, hide, separators, reset
+        // (cmux.json contextMenus). Customize Menu… at the end of each menu opens it on that menu.
+        CategorySpec(
+            id: "menus", title: SettingsText.keyed("settings.category.menus", "Menus"), symbol: "contextualmenu.and.cursorarrow",
+            groups: [], lead: [.contextMenus]),
         CategorySpec(
             id: "privacy", title: SettingsText.keyed("settings.category.privacy", "Privacy and Security"),
             symbol: "hand.raised",
@@ -198,17 +261,32 @@ public nonisolated struct SettingsPageLayout: Sendable {
                           title: SettingsText.keyed("settings.pageGroup.localData", "Data on This Mac")),
                 GroupSpec(keys: ["browser.omnibar.remoteSuggestions", "announcements.fetch"],
                           title: SettingsText.keyed("settings.pageGroup.network", "Network Requests")),
+                GroupSpec(group: "settings.group.hangReports"),
+                // The hosts an ssh:// link from another app reaches without asking (ExternalLinkGate).
+                GroupSpec(group: "settings.group.sshLinks"),
             ],
             actions: [.home], aliases: [.home]),
         CategorySpec(
             id: "accounts", title: section(.accounts), symbol: "person.crop.circle",
-            // Phone access sits beside the account it signs in with and the machines list.
-            groups: [group("settings.group.phone")],
-            lead: [.accounts, .machines], actions: [.accounts, .machines], aliases: [.accounts, .machines]),
+            // Phone access sits beside the account it signs in with and the machines list. The
+            // Machines card draws Machine Colors on its rows (a color well per machine).
+            groups: [group("settings.group.phone"), group("settings.group.messagesServer"), group("settings.group.machineColors")],
+            lead: [.accounts, .machines, .cloudEnvironments], actions: [.accounts, .machines], aliases: [.accounts, .machines]),
         // Phones reaching this Mac: the iPhone host's switch, then its live status and phones.
         CategorySpec(
             id: "mobile", title: SettingsText.keyed("settings.category.mobile", "Mobile"), symbol: "iphone",
             groups: [group("settings.group.mobile")], trail: [.mobile]),
+        // The servers behind the app (cmux-tui, acpmux): status, versions, restart when one is older.
+        CategorySpec(
+            id: "server", title: SettingsText.keyed("settings.category.server", "Server"), symbol: "server.rack",
+            groups: [], lead: [.server]),
+        // This Mac and the person's other devices on the device hub: names, fingerprints, Mac
+        // Screen access, relays and the access history (docs/device-hub). Every build: NIGHTLY and
+        // Release use the built-in hub (DeviceHubSettings.resolvedBaseURL), and Mac Screen's
+        // sharing switch, permissions and relays live only here.
+        CategorySpec(
+            id: "devices", title: SettingsText.keyed("settings.category.devices", "Devices"), symbol: "laptopcomputer",
+            groups: [], lead: [.devices]),
         CategorySpec(
             id: "advanced", title: section(.advanced), symbol: "curlybraces", groups: [],
             lead: [.advancedInfo], trail: [.advancedActions], actions: [.advanced], aliases: [.advanced]),
@@ -219,5 +297,8 @@ public nonisolated struct SettingsPageLayout: Sendable {
                 GroupSpec(group: "settings.group.labs", keys: ["appearance.experimentalControls"]),
                 group("settings.group.appearanceTuning"),
             ]),
+        CategorySpec(
+            id: "development", title: section(.development), symbol: "hammer",
+            groups: [group("settings.group.macScreen"), group("settings.group.deviceHub")], aliases: [.development], devOnly: true),
     ]
 }

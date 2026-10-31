@@ -27,6 +27,7 @@ final class FeedPanelController {
     private func show() {
         guard let window = context.services.windows.active?.window, case let feed = context.services.feed else { return }
         feed.startIfSignedIn()
+        feed.model.place = FeedPlace.lookup(context.services.daemon.store.place)
         let panel = panel ?? makePanel(model: feed.model)
         self.panel = panel
         window.themeScope.adopt(panel)
@@ -56,7 +57,7 @@ final class FeedPanelController {
 
     private func makePanel(model: FeedModel) -> FeedPanel {
         let panel = FeedPanel()
-        panel.contentView = FeedHostView(model: model, floating: true)
+        panel.contentView = FeedHostView(model: model, surface: .panel)
         panel.onEscape = { [weak self] in self?.close() }
         return panel
     }

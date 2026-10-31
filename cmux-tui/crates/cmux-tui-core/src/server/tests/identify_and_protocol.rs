@@ -501,6 +501,14 @@ fn identify_advertises_private_link_port_discovery() {
     assert!(matches!(command, Command::MachineListeningTcp));
 }
 
+#[test]
+fn identify_advertises_terminal_ports() {
+    assert!(advertised_capabilities(true).contains(&TERMINAL_PORTS_CAPABILITY));
+    let command: Command =
+        serde_json::from_value(json!({"cmd": "terminal-ports", "surface": 7})).unwrap();
+    assert!(matches!(command, Command::TerminalPorts { surface: 7 }));
+}
+
 #[cfg(target_os = "linux")]
 #[test]
 fn private_link_port_discovery_reports_listener_process() {

@@ -172,8 +172,10 @@ fn act_on_orphan_term() {
         // The newest recorded SIGTERM is the one acted on.
         let recorded = NEXT_SLOT.load(Ordering::Acquire).min(MAX_RECORDED_SIGNALS);
         if let Some(index) = (0..recorded).rev().find(|index| {
-            SLOTS[*index].ready.load(Ordering::Acquire) == 1
-                && SLOTS[*index].signal.load(Ordering::Relaxed) == libc::SIGTERM
+            SLOTS.get(*index).is_some_and(|slot| {
+                slot.ready.load(Ordering::Acquire) == 1
+                    && slot.signal.load(Ordering::Relaxed) == libc::SIGTERM
+            })
         }) {
             ORPHAN_TERM_SLOT.store(index, Ordering::Release);
         }
@@ -241,8 +243,7 @@ extern "C" fn record_signal(
             TERM_PENDING.store(true, Ordering::Release);
         }
         let index = NEXT_SLOT.fetch_add(1, Ordering::AcqRel);
-        if index < MAX_RECORDED_SIGNALS {
-            let slot = &SLOTS[index];
+        if let Some(slot) = SLOTS.get(index) {
             let mut now = libc::timespec { tv_sec: 0, tv_nsec: 0 };
             libc::clock_gettime(libc::CLOCK_REALTIME, &mut now);
             let at_ms = now.tv_sec.saturating_mul(1000) + now.tv_nsec / 1_000_000;
@@ -358,7 +359,7 @@ fn flush() {
     let recorded = NEXT_SLOT.load(Ordering::Acquire);
     let mut lines = String::new();
     while *written < recorded.min(MAX_RECORDED_SIGNALS) {
-        let slot = &SLOTS[*written];
+        let Some(slot) = SLOTS.get(*written) else { break };
         if slot.ready.load(Ordering::Acquire) == 0 {
             break;
         }

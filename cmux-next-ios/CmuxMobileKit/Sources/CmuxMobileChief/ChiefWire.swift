@@ -11,11 +11,18 @@ struct ChiefWire {
 
     func date(_ value: Any?) -> Date? {
         guard let text = value as? String else { return nil }
-        let precise = ISO8601DateFormatter()
-        precise.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let date = precise.date(from: text) { return date }
-        return ISO8601DateFormatter().date(from: text)
+        if let date = try? Date(text, strategy: Self.precise) { return date }
+        if let date = try? Date(text, strategy: Self.plain) { return date }
+        // Micro- or nanoseconds: keep milliseconds and read it again.
+        guard let dot = text.firstIndex(of: "."), let end = text[dot...].dropFirst().firstIndex(where: { !$0.isNumber }) else { return nil }
+        let digits = text[text.index(after: dot)..<end]
+        guard digits.count > 3 else { return nil }
+        return try? Date(String(text[...dot]) + digits.prefix(3) + text[end...], strategy: Self.precise)
     }
+
+    // Made once: two formatters per message cost about 1,500 for a 500-message page.
+    private static let precise = Date.ISO8601FormatStyle(includingFractionalSeconds: true)
+    private static let plain = Date.ISO8601FormatStyle()
 
     // MARK: Tapbacks
 
@@ -93,17 +100,24 @@ struct ChiefWire {
         // diagnostics by the backend (``failure(_:)``).
         var shown = retracted == nil ? text(parts: parts) : ""
         if author == identity.chiefID, let failure = ChiefTurnFailure(text: shown) { shown = failure.displayText }
+        // Chief and agents write Markdown links; the bubble shows each label as
+        // a link. My own text stays as typed (Edit must get it back verbatim).
+        let shownMentions = retracted == nil ? mentions(parts: parts) : []
+        let linked: (text: String, links: [ConversationTextLink], mentions: [ConversationMention]) = mine
+            ? (shown, [], shownMentions)
+            : ConversationMarkdownLinks.extract(shown, mentions: shownMentions)
         return ConversationMessage(
             id: id, seq: seq, clientMessageID: object["client_msg_id"] as? String, senderID: author,
             sentAt: date(object["created_at"]) ?? Date(),
-            text: shown,
+            text: linked.text,
             replyToID: (object["reply_to"] as? [String: Any])?["message_id"] as? String,
             editedAt: date(object["edited_at"]),
             unsentAt: retracted,
             reactions: reactions,
             attachments: retracted == nil ? parts.compactMap { attachment($0, bytes: ($0["hash"] as? String).flatMap { bytes[$0] }) } : [],
             delivery: mine ? (seq <= peerReadSeq ? .read(nil) : .delivered) : nil,
-            mentions: retracted == nil ? mentions(parts: parts) : []
+            mentions: linked.mentions,
+            links: linked.links
         )
     }
 

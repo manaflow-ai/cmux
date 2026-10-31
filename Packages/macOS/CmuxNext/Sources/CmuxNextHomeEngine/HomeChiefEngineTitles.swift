@@ -19,8 +19,9 @@ nonisolated struct HomeChiefEngineTitles {
     /// does not say it has none (or the Chief is on Fast now, so it can be turned off).
     var offersFast: Bool
 
-    init(_ snapshot: HomeChiefSnapshot, recents: [String] = []) {
-        harnesses = HomeChiefSettingsView.harnessItems(routeConfigured: snapshot.routeConfigured)
+    /// - Parameter listed: this Mac's acpmux harness ids, offered after the official engines.
+    init(_ snapshot: HomeChiefSnapshot, recents: [String] = [], listed: [String] = []) {
+        harnesses = HomeChiefSettingsView.harnessItems(routeConfigured: snapshot.routeConfigured, listed: listed)
         // The models acpmux offers for the engine's harness (cx-miuo), grouped and deduped;
         // acpmux's own "default" is the picker's first item.
         menu = HomeChiefModelMenu(models: snapshot.models, chosen: snapshot.model, recents: recents)
@@ -38,10 +39,12 @@ nonisolated struct HomeChiefEngineTitles {
         offersFast = snapshot.speeds.contains("fast") && (running?.fast != false || snapshot.speed == "fast")
         // The effective engine is engine.json over the brain's defaults, so it names what
         // Default runs only for a field with no choice; a chosen field's Default stays plain.
-        defaultHarness = Self.titled((snapshot.harness == nil ? engine?.harness : nil).map(ChiefBackend.title(for:)))
+        defaultHarness = Self.titled((snapshot.harness == nil ? engine?.harness : nil).map { $0 == "default" ? $0 : ChiefBackend.title(for: $0) })
         let defaultModelRow = snapshot.model == nil ? defaultRuns.flatMap { HomeChiefModelMenu.release(of: $0, in: snapshot.models) } : nil
+        // A model the catalog does not name reads by its id made readable, never the raw id.
         defaultModel = Self.titled(snapshot.model == nil
-            ? defaultModelRow.map { $0.shortName ?? $0.name } ?? defaultRuns : nil)
+            ? defaultModelRow.map { $0.shortName ?? HomeChiefModelMenu.readable($0) } ?? defaultRuns.map { $0 == "default" ? $0 : HomeChiefModelMenu.name(of: $0, in: snapshot.models) }
+            : nil)
         let defaultLevel = engine?.effort ?? running?.defaultEffort
         defaultEffort = Self.titled((snapshot.effort == nil ? defaultLevel : nil).map(HomeEngineStrings.effortTitle))
     }

@@ -42,6 +42,33 @@ struct AuthCoordinatorTeamActionsTests {
         #expect(await client.lastSelectedTeamID == "team-b")
     }
 
+    /// A team refresh that read the account's selection before a switch must
+    /// not put the old team back when it lands after the switch.
+    @Test func aRefreshInFlightDoesNotUndoASwitch() async throws {
+        let user = CMUXAuthUser(id: "user", primaryEmail: "user@example.com", displayName: "User")
+        let client = FakeAuthClient(user: user)
+        await client.setTeams([
+            CMUXAuthTeam(id: "team-a", displayName: "Alpha"),
+            CMUXAuthTeam(id: "team-b", displayName: "Beta")
+        ])
+        await client.setServerSelectedTeamID("team-a")
+        let coordinator = makeCoordinator(client: client)
+        try await coordinator.signInWithPassword(email: "user@example.com", password: "password")
+        #expect(coordinator.resolvedTeamID == "team-a")
+        let started = TestPhaseSignal()
+        let release = TestContinuationBlocker()
+        await client.holdNextSelectedTeamRead(started: started, release: release)
+
+        let refresh = Task { await coordinator.refreshTeams() }
+        await started.waitUntilStarted()
+        try await coordinator.selectTeam(id: "team-b")
+        await release.release()
+        await refresh.value
+
+        #expect(coordinator.resolvedTeamID == "team-b")
+        #expect(await client.lastSelectedTeamID == "team-b")
+    }
+
     @Test func creatingTeamAddsAndSelectsAuthoritativeTeam() async throws {
         let user = CMUXAuthUser(id: "user", primaryEmail: "user@example.com", displayName: "User")
         let client = FakeAuthClient(user: user)
@@ -55,6 +82,20 @@ struct AuthCoordinatorTeamActionsTests {
         #expect(coordinator.resolvedTeamID == created.id)
         #expect(coordinator.availableTeams.contains(created))
         #expect(await client.lastSelectedTeamID == created.id)
+    }
+
+    @Test func creatingTeamSurvivesFailedMembershipRefresh() async throws {
+        let (coordinator, client) = try await makeSignedInCoordinator()
+        let previousTeams = coordinator.availableTeams
+        await client.setThrowOnListTeams(AuthClientError.userUnavailable)
+
+        let created = try await coordinator.createTeam(displayName: "Recovered Team")
+
+        #expect(await client.teamCreateCount == 1)
+        #expect(coordinator.availableTeams == previousTeams + [created])
+        #expect(coordinator.resolvedTeamID == created.id)
+        #expect(await client.lastSelectedTeamID == created.id)
+        #expect(!coordinator.isCreatingTeam)
     }
 
     @Test func stalledCreateTimesOutInsteadOfLeavingThePickerFrozen() async throws {

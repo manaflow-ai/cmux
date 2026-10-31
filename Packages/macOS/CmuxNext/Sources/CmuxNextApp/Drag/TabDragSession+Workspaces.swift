@@ -8,7 +8,8 @@ import CmuxNextSidebar
 // here and flies as the same glass ghost as a tab (row image plus a live
 // thumbnail of the workspace's selected tab). Targets: any window's sidebar
 // (slot, group header, or row = append), a pane of a window's shown
-// workspace (`WorkspaceMerge`), any window's content (append),
+// workspace (`WorkspaceMerge`; with `sidebar.multiView` a pane edge shows
+// the workspace beside it), any window's content (append),
 // outside every window (new window under the pointer; with every
 // workspace of the source window, that window moves instead).
 extension TabDragSession {
@@ -70,9 +71,9 @@ extension TabDragSession {
         let sourceID = drag.source.window?.state.id
         let sourceMembers = sourceID.map(services.windows.registry.members(of:)) ?? []
         drag.workspaceOutcome = WorkspaceDragResolver.outcome(
-            windowID: controller?.state.id, sidebarHit: sidebarHit, layoutHit: layoutHit, sourceWindowID: sourceID,
+            windowID: controller?.state.id, sidebarHit: sidebarHit, layoutHit: layoutHit, placesBeside: SidebarTunables.multiView.value, sourceWindowID: sourceID,
             draggingAllOfSource: !sourceMembers.isEmpty && Set(ids).isSuperset(of: sourceMembers),
-            isGroup: group != nil, screenPoint: point
+            isGroup: group != nil, screenPoint: point, besideEdge: controller?.besideEdge(at: point, dragging: ids, group: group)
         )
         // Never across incognito and normal windows: no drop target there.
         if case .window(let id, _) = drag.workspaceOutcome, services.windows.registry.value.crossesIncognito(ids, to: id) {
@@ -80,7 +81,7 @@ extension TabDragSession {
         }
         if case .window(_, .window) = drag.workspaceOutcome, highlight == nil {
             highlight = controller?.window?.frame
-        }
+        } else if case .window(_, .beside(let edge)) = drag.workspaceOutcome { highlight = controller?.besideHighlight(edge, at: point) ?? highlight }
         drag.workspaceHighlight = drag.workspaceOutcome == .cancel ? nil : highlight
         present(drag)
         wake(drag)
@@ -116,6 +117,7 @@ extension TabDragSession {
             case let .intoGroup(group): controller.sidebar.accept(workspaceIDs, intoGroup: group)
             case .window: controller.sidebar.accept(workspaceIDs, at: nil)
             case let .merge(kind): ids.first.map { WorkspaceMerge.run($0, at: kind, into: controller, drag: drag, session: self) }
+            case let .beside(edge): ids.first.map { controller.placeBeside($0, edge: edge, at: drag.point) }
             }
             services.windows.bringToFront(controller)
         }

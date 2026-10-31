@@ -36,12 +36,14 @@ final class PhoneProcess: PhoneRunningCommand, Sendable {
         let errPipe = Pipe()
         process.standardError = errPipe
         errPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
-            // concurrency-allow: readabilityHandler runs on Foundation's pipe queue, never main; data is ready.
-            let data = handle.availableData
-            if data.isEmpty { handle.readabilityHandler = nil; return }
-            self?.state.withLock { state in
-                state.stderr.append(data)
-                if state.stderr.count > 16_384 { state.stderr.removeFirst(state.stderr.count - 16_384) }
+            switch handle.readReady() {
+            case .bytes(let data):
+                self?.state.withLock { state in
+                    state.stderr.append(data)
+                    if state.stderr.count > 16_384 { state.stderr.removeFirst(state.stderr.count - 16_384) }
+                }
+            case .retry: return
+            case .end: handle.readabilityHandler = nil
             }
         }
         if let stdoutFile {
@@ -51,14 +53,13 @@ final class PhoneProcess: PhoneRunningCommand, Sendable {
             let outPipe = Pipe()
             process.standardOutput = outPipe
             outPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
-                // concurrency-allow: readabilityHandler runs on Foundation's pipe queue, never main; data is ready.
-                let data = handle.availableData
-                if data.isEmpty {
+                switch handle.readReady() {
+                case .bytes(let data): self?.state.withLock { $0.stdout.append(data) }
+                case .retry: return
+                case .end:
                     handle.readabilityHandler = nil
                     self?.settle { $0.outputClosed = true }
-                    return
                 }
-                self?.state.withLock { $0.stdout.append(data) }
             }
             state.withLock { $0.outputClosed = false }
         } else {
@@ -73,8 +74,14 @@ final class PhoneProcess: PhoneRunningCommand, Sendable {
         }
         try process.run()
         if let inPipe, let stdin {
-            inPipe.fileHandleForWriting.write(stdin)
-            try? inPipe.fileHandleForWriting.close()
+            // A child that exits without reading closes the read end: the write then fails with
+            // EPIPE, which `write(_:)` raises as an uncatchable Objective-C exception, and SIGPIPE
+            // would end a process that does not ignore it. Neither is the caller's problem; the
+            // child's own exit status tells what went wrong.
+            let writer = inPipe.fileHandleForWriting
+            _ = fcntl(writer.fileDescriptor, F_SETNOSIGPIPE, 1)
+            try? writer.write(contentsOf: stdin)
+            try? writer.close()
         }
     }
 

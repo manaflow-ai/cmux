@@ -25,6 +25,8 @@ pub struct AnswerContext {
     pub ice: IceSource,
     pub include_loopback: bool,
     pub exclude_cgnat: bool,
+    /// Supervised: sealed replies the backend holds for this Mac (`mailbox.rs`).
+    pub mailbox: Option<Arc<crate::mailbox::Mailbox>>,
 }
 
 #[derive(Clone)]
@@ -73,11 +75,17 @@ impl IceSource {
         }
     }
 
-    /// Measurement support (`CMUX_MOBILE_BASELINE`): fetch per answer, as before the cache.
-    async fn servers_uncached(&self) -> (Vec<IceServer>, bool) {
+    /// A sleep can outlast TURN credentials while the platform's monotonic clock
+    /// stands still. Never reuse pre-wake ICE credentials for the next phone dial.
+    fn invalidate(&self) {
         if let Self::Api { cache, .. } = self {
             cache.clear();
         }
+    }
+
+    /// Measurement support (`CMUX_MOBILE_BASELINE`): fetch per answer, as before the cache.
+    async fn servers_uncached(&self) -> (Vec<IceServer>, bool) {
+        self.invalidate();
         self.servers().await
     }
 
@@ -116,6 +124,10 @@ fn registration_lookup(base_url: String, tokens: Arc<Tokens>) -> crate::pairing:
 /// Run until the process is stopped, reconnecting with backoff. Returns `Ok` only when
 /// the owner removed this Mac (`removed`): registering again would undo that.
 pub async fn run(config: HostConfig) -> Result<()> {
+    run_with_changes(config, crate::netwatch::changes()).await
+}
+
+async fn run_with_changes(config: HostConfig, mut changes: tokio::sync::watch::Receiver<u64>) -> Result<()> {
     let tokens = Arc::new(Tokens::new(config.tokens.clone()));
     let mut services = config.services.clone();
     if let Some(pairing) = services.pairing.as_mut() {
@@ -124,16 +136,34 @@ pub async fn run(config: HostConfig) -> Result<()> {
     let services = Arc::new(services);
     // One ICE cache for the life of the process (reconnects keep it).
     let ice = IceSource::api(config.base_url.clone(), Arc::clone(&tokens));
-    if crate::notify::enabled() {
-        tokio::spawn(crate::notify::run(
+    let _notifications = if crate::notify::enabled() {
+        // Paired phones that gave a push key get sealed notifications (sealed_notify.rs).
+        let sealer = services.pairing.as_ref().map(|pairing| {
+            Arc::new(crate::sealed_notify::Sealer {
+                mac: pairing.mac_device_id.clone(),
+                identity: pairing.identity.clone(),
+                trust: pairing.trust.clone(),
+                push_keys: Arc::clone(&pairing.push_keys),
+                acpmux: services.acpmux.clone(),
+            })
+        });
+        Some(AbortTask(tokio::spawn(crate::notify::run(
             config.base_url.clone(),
             config.device_id.clone(),
             Arc::clone(&tokens),
             config.services.acpmux.clone(),
-        ));
-    }
+            Some(config.services.daemon_socket()),
+            sealer,
+        ))))
+    } else {
+        None
+    };
+    let mailbox = mailbox_for(&services);
     // Phones keep their WireGuard sessions when the Mac changes networks.
-    tokio::spawn(crate::netwatch::run());
+    let _network_watch = AbortTask(tokio::spawn(crate::netwatch::run()));
+    // Live tunnels can roam even while signaling is unreachable. Rehome resends
+    // their latest endpoint announcements once the replacement socket connects.
+    let _endpoint_refresh = AbortTask(tokio::spawn(crate::netwatch::refresh_endpoints(changes.clone())));
     // Test-only signal hooks, never in a normal install: only when the state
     // folder holds a `test-signals` file a rig created (PR #22555 review).
     if crate::config::default_state_dir().join("test-signals").exists() {
@@ -144,7 +174,17 @@ pub async fn run(config: HostConfig) -> Result<()> {
     loop {
         control::emit(&Event::Connecting);
         let started = std::time::Instant::now();
-        let reason = match connect_once(&config, &tokens, &services, &ice).await {
+        let attempt = tokio::select! {
+            // Process a server removal first if both events are ready.
+            biased;
+            result = connect_once(&config, &tokens, &services, &ice, &mailbox) => result,
+            Ok(()) = changes.changed() => {
+                ice.invalidate();
+                backoff = Duration::from_secs(1);
+                continue;
+            }
+        };
+        let reason = match attempt {
             Ok(reason) if removed(&reason) => {
                 // Registering again would undo the owner's removal: stop for good.
                 tracing::warn!(reason, "this Mac was removed from the account's devices; stopping");
@@ -172,7 +212,13 @@ pub async fn run(config: HostConfig) -> Result<()> {
             }
         };
         control::emit(&Event::Waiting { reason, retry_in_seconds: backoff.as_secs() });
-        tokio::time::sleep(backoff).await;
+        tokio::select! {
+            () = tokio::time::sleep(backoff) => {},
+            Ok(()) = changes.changed() => {
+                ice.invalidate();
+                backoff = Duration::from_secs(1);
+            }
+        }
     }
 }
 
@@ -181,6 +227,7 @@ async fn connect_once(
     tokens: &Arc<Tokens>,
     services: &Arc<ServiceConfig>,
     ice: &IceSource,
+    mailbox: &Option<Arc<crate::mailbox::Mailbox>>,
 ) -> Result<String> {
     let token = tokens.access_token().await.context("access token")?;
     let owner = config
@@ -189,6 +236,7 @@ async fn connect_once(
         .or_else(|| claims(&token).sub)
         .context("the access token has no sub; set CMUX_MOBILE_OWNER_USER_ID")?;
     let api = ApiClient::new(&config.base_url, &token);
+    let (machine_id, sibling_device_ids) = config.machine(&owner);
     let device = api
         .register_device(&DeviceRegistration {
             device_id: config.device_id.clone(),
@@ -196,6 +244,8 @@ async fn connect_once(
             name: config.device_name.clone(),
             team_id: config.team_id.clone(),
             wg_public_key: None,
+            machine_id,
+            sibling_device_ids,
         })
         .await
         .context("POST /v1/devices")?;
@@ -203,6 +253,9 @@ async fn connect_once(
     let signaling = SignalingClient::connect(&config.base_url, &token, &config.team_id, &config.device_id)
         .await
         .context("signaling connect")?;
+    // Cancellation on wake/network change must close the old socket and stop
+    // its auxiliary tasks; dropping a SignalingClient alone does neither.
+    let mut lifetime = ConnectionLifetime { signaling: signaling.clone(), tasks: Vec::new() };
     tracing::info!(device_id = config.device_id, "signaling connected");
     // Sessions of the previous socket (WireGuard tunnels outlive it) send
     // their `bye` on this one now.
@@ -217,13 +270,28 @@ async fn connect_once(
         ice: ice.clone(),
         include_loopback: config.include_loopback,
         exclude_cgnat: config.exclude_cgnat,
+        mailbox: mailbox.clone(),
     };
     let refresher = if std::env::var_os("CMUX_MOBILE_BASELINE").is_some() { None } else { ice.keep_fresh() };
-    let reason = serve_signaling(signaling, context).await;
     if let Some(task) = refresher {
-        task.abort();
+        lifetime.tasks.push(task);
     }
-    Ok(reason)
+    Ok(serve_signaling(signaling, context).await)
+}
+
+/// Owns all per-connection work, including when a wake cancels an attempt.
+struct ConnectionLifetime {
+    signaling: SignalingClient,
+    tasks: Vec<tokio::task::JoinHandle<()>>,
+}
+
+impl Drop for ConnectionLifetime {
+    fn drop(&mut self) {
+        self.signaling.close();
+        for task in &self.tasks {
+            task.abort();
+        }
+    }
 }
 
 /// hostd's exit status after the owner removed this Mac (`removed`): a supervisor must not restart it.
@@ -253,6 +321,76 @@ pub fn unauthorized(error: &anyhow::Error) -> bool {
     })
 }
 
+/// The mailbox of a supervised hostd: its pairing's keys and trust, the
+/// services a link reaches, and the replies already spent (on disk).
+fn mailbox_for(services: &ServiceConfig) -> Option<Arc<crate::mailbox::Mailbox>> {
+    let pairing = services.pairing.as_ref()?;
+    let daemon_socket = services
+        .default_socket
+        .clone()
+        .unwrap_or_else(|| services.tui_socket_dir.join(format!("{}.sock", services.default_session)));
+    Some(Arc::new(crate::mailbox::Mailbox {
+        mac: pairing.mac_device_id.clone(),
+        trust: pairing.trust.clone(),
+        identity: pairing.identity.clone(),
+        spent: Arc::clone(&pairing.spent_replies),
+        key_wait: crate::pairing::TRUST_WAIT,
+        applier: Arc::new(crate::mailbox_apply::LiveApplier {
+            acpmux: services.acpmux.clone(),
+            daemon_socket,
+            chief_socket: services.chief_socket.clone(),
+        }),
+    }))
+}
+
+/// How long hostd waits before it tries an item it could not settle again.
+const MAILBOX_RETRY: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// Checks and applies a `mailbox` frame in the background, then acks every
+/// settled item (signed). An item it could not settle yet (the app has not
+/// sent its keys, a service is out of reach) is not acknowledged: it stays
+/// queued at the backend and is tried again here while the socket lives.
+/// Without pairing (unsupervised) nothing is applied.
+pub fn answer_mailbox(
+    signaling: &SignalingClient,
+    mailbox: Option<Arc<crate::mailbox::Mailbox>>,
+    items: Vec<cmux_mobile_link::signaling::MailboxItem>,
+) {
+    let signaling = signaling.clone();
+    tokio::spawn(async move {
+        let Some(mailbox) = mailbox else {
+            let results = items
+                .into_iter()
+                .take(crate::mailbox::MAX_ITEMS)
+                .map(|item| cmux_mobile_link::signaling::MailboxResult {
+                    id: item.id,
+                    applied: false,
+                    reason: Some("not_paired".into()),
+                    sig: None,
+                })
+                .collect();
+            if let Err(error) = signaling.send_mailbox_ack(results) {
+                tracing::warn!(%error, "mailbox ack not sent");
+            }
+            return;
+        };
+        let mut items = items;
+        while !items.is_empty() && signaling.closed_reason().is_none() {
+            let handled = mailbox.handle(items, crate::mailbox::now()).await;
+            if !handled.results.is_empty()
+                && let Err(error) = signaling.send_mailbox_ack(handled.results)
+            {
+                tracing::warn!(%error, "mailbox ack not sent");
+                return;
+            }
+            items = handled.later;
+            if !items.is_empty() {
+                tokio::time::sleep(MAILBOX_RETRY).await;
+            }
+        }
+    });
+}
+
 /// Answer every admitted dial on `signaling` until it closes; returns the
 /// close reason.
 pub async fn serve_signaling(signaling: SignalingClient, context: AnswerContext) -> String {
@@ -263,6 +401,11 @@ pub async fn serve_signaling(signaling: SignalingClient, context: AnswerContext)
                 Some(session) => session,
                 None => return signaling.closed_reason().unwrap_or_else(|| "signaling closed".into()),
             },
+            // A queue, not an event: frames sent right after `hello` wait for this loop.
+            Some(items) = signaling.next_mailbox() => {
+                answer_mailbox(&signaling, context.mailbox.clone(), items);
+                continue;
+            }
             event = events.recv() => match event {
                 Ok(cmux_mobile_link::signaling::SignalingEvent::Disconnected(reason)) => return reason,
                 Ok(cmux_mobile_link::signaling::SignalingEvent::Error { code, message, session_id }) => {
@@ -502,3 +645,15 @@ mod tests {
         assert!(!unauthorized(&anyhow::anyhow!("the app sent no access token")));
     }
 }
+
+/// Scope a process watcher to the host loop, including removal and cancellation.
+struct AbortTask(tokio::task::JoinHandle<()>);
+impl Drop for AbortTask {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
+
+#[cfg(test)]
+#[path = "host_recovery_tests.rs"]
+mod recovery_tests;

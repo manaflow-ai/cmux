@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 #[cfg(unix)]
 use super::start_apps_when_ready;
 use super::{
-    ACCEPT_RETRY_INITIAL, ACCEPT_RETRY_MAX, RenderService, claim_connection, cleanup,
+    ACCEPT_RETRY_INITIAL, ACCEPT_RETRY_MAX, RenderService, claim_watched_connection, cleanup,
     handle_connection_with_permit, try_default_socket_path,
 };
 use crate::mux::Mux;
@@ -35,12 +35,12 @@ impl PendingServer {
         self.mux.mark_server_lifecycle_ready();
         #[cfg(unix)]
         start_apps_when_ready(&self.mux);
-        Ok(self.path.take().expect("pending server path is available"))
+        self.path.take().ok_or_else(|| anyhow::anyhow!("pending server path was already taken"))
     }
 
     /// Transfer socket cleanup while another startup owner publishes readiness.
     pub fn into_bound_path(mut self) -> PathBuf {
-        self.path.take().expect("pending server path is available")
+        self.path.take().unwrap_or_default()
     }
 }
 
@@ -407,7 +407,7 @@ impl ServedSession {
     /// Serve one accepted connection on its own thread (bounded by the
     /// session's connection permits).
     pub(super) fn serve(&self, stream: Box<dyn transport::Stream>) {
-        let Some(permit) = claim_connection(self.mux.connection_stats()) else {
+        let Some(permit) = claim_watched_connection(self.mux.connection_stats(), &*stream) else {
             refuse_busy(stream);
             return;
         };
@@ -430,7 +430,7 @@ pub(super) const REFUSED_BUSY_LINE: &str = concat!(
 
 /// Best effort: a short write timeout keeps the accept loop from waiting on a
 /// client that does not read.
-fn refuse_busy(mut stream: Box<dyn transport::Stream>) {
+pub(super) fn refuse_busy(mut stream: Box<dyn transport::Stream>) {
     use std::io::Write as _;
     let _ = stream.set_write_timeout(Some(Duration::from_millis(50)));
     let _ = stream.write_all(REFUSED_BUSY_LINE.as_bytes());

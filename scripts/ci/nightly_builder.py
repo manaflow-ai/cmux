@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import json
+import math
 import os
 from pathlib import Path
 import shutil
@@ -35,6 +36,19 @@ ROLES = {
                   "refs/heads/feat-cmux-next", "cmux-next nightly gate daemon tests"),
 }
 MIN_FREE_BYTES = 40 * 1024 ** 3
+# glaeda's job-started hook passes the dedicated runner's own disk floor (the manifest's runner.dedicated minFreeGib)
+# to this admission. When it is there it is the one number: the listener gate already holds the runner off under it,
+# so the builder never refuses a job its runner took under a different floor (2026-10-27: refused at 32.4-35.4 GiB).
+GLAEDA_FLOOR_ENV = "GLAEDA_MIN_FREE_GIB"
+
+
+def min_free_bytes(env: dict) -> int:
+    """glaeda's floor for this runner (GLAEDA_FLOOR_ENV, GiB) when it is a finite number above 0, else MIN_FREE_BYTES."""
+    try:
+        gib = float(env.get(GLAEDA_FLOOR_ENV) or "")
+    except ValueError:
+        return MIN_FREE_BYTES
+    return int(gib * 1024 ** 3) if math.isfinite(gib) and 0 < gib <= 10000 else MIN_FREE_BYTES
 STALE_AFTER = dt.timedelta(minutes=75)
 DIAG_KEEP_S = 7 * 86400
 TEMP_KEEP_S = 86400
@@ -249,7 +263,7 @@ def main(argv: list[str]) -> int:
     args = parser.parse_args(argv)
     if args.cmd == "admit":
         ok, reason = admit(dict(os.environ), _free_bytes(Path(os.environ.get("GITHUB_WORKSPACE", HOME))),
-                           role=args.role)
+                           min_free=min_free_bytes(os.environ), role=args.role)
         print(f"nightly-builder: {reason}", file=sys.stderr if not ok else sys.stdout)
         _log({"time": dt.datetime.now(dt.timezone.utc).isoformat(), "admit": ok, "role": args.role, "reason": reason,
               "run": os.environ.get("GITHUB_RUN_ID"), "job": os.environ.get("GITHUB_JOB"),

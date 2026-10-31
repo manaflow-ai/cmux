@@ -8,12 +8,16 @@ import { CommentsSidebarSection } from "../comments/CommentsSection";
 import { type DiffCommentLabels } from "../comments/labels";
 import { type DiffItem, type FileTreeSource } from "../diff-stream";
 import { treeFileRowPath } from "../file-activation";
+import { nativeMenu, pickedId } from "../ui/nativeMenu";
 import { defaultDiffFileFilter, isDiffFileFilterActive, type DiffFileFilter } from "../file-filter";
 import { planPierreFileTreeRefresh, selectPierreFileTreePath } from "../file-tree-refresh";
 import {
   createTextMeasure,
-  diffStatSpriteSheet,
-  fileTreeStatsDecoration,
+  diffChangeSpriteSheet,
+  diffFileChangeOf,
+  fileTreeChangeDecoration,
+  nameColoredGitStatus,
+  type DiffFileChange,
   type FileTreeStatsDecoration,
   type MeasureText,
 } from "../file-tree-stats";
@@ -293,17 +297,24 @@ function PierreFileTree({
     preparedInput: initialPreparedInput,
     search: false,
     stickyFolders: true,
-    // No `gitStatus`: the classic list shows no status letters, changed-folder
-    // dots or status-colored names, only the counts.
-    icons: fileTreeIcons(source.statsByPath.values(), measureStats),
+    // Only Added and Deleted go to the tree's git status, for their green and red names; its
+    // status letters and changed-folder dots are hidden (pierre-options.ts). The row's square
+    // says the change (fileTreeRowDecoration).
+    gitStatus: nameColoredGitStatus(source.gitStatus, source.paths),
+    icons: fileTreeIcons(source, measureStats),
     sort: () => 0,
     unsafeCSS: fileTreeUnsafeCSS(),
     composition: { contextMenu: { enabled: true, triggerMode: "right-click" } },
-    // "+N -N" in green and red (file-tree-stats.ts). Viewed marks stay on the
-    // file bar's eye and the row's context menu.
+    // "+N -N" in green and red, then the change square (file-tree-stats.ts). Viewed marks stay
+    // on the file bar's eye and the row's context menu.
     renderRowDecoration({ item }) {
+      const current = latest.current.source;
+      if (!current.pathToItemId.has(item.path)) {
+        return null;
+      }
       return fileTreeRowDecoration(
-        latest.current.source.statsByPath.get(item.path),
+        fileChangeOf(current, item.path),
+        current.statsByPath.get(item.path),
         latest.current.label,
         measureStats,
       );
@@ -334,7 +345,31 @@ function PierreFileTree({
     // A file row click acts on the file like its header bar (file-activation.ts).
     // The capture phase sees the row before the tree's own click handler
     // selects it, so the action reads the state the user clicked on.
-    <div className="file-tree-activation" ref={treeActivationRef}>
+    <div
+      className="file-tree-activation"
+      ref={treeActivationRef}
+      // In the app a file row's right-click opens the app's standard macOS menu (ui/nativeMenu.ts)
+      // before the tree draws its own.
+      onContextMenuCapture={(event) => {
+        const native = nativeMenu();
+        const path = native && treeFileRowPath({ composedPath: () => event.nativeEvent.composedPath() });
+        if (!native || !path) return;
+        event.preventDefault();
+        event.stopPropagation();
+        const viewed = viewedStateByPath.get(path) === "viewed";
+        const row = {
+          id: "toggleViewed",
+          label: viewed ? label("markNotViewed") : label("markViewed"),
+          symbol: viewed ? "eye" : "checkmark",
+        };
+        native({ items: [row], point: { x: event.clientX, y: event.clientY } }).then(
+          (reply) => {
+            if (pickedId(reply) === row.id) onToggleViewedPath(path);
+          },
+          () => undefined,
+        );
+      }}
+    >
       <FileTree
         model={model}
         style={{ height: "100%" }}
@@ -395,7 +430,8 @@ function usePierreFileTreeSource(
     // Setting the icons re-renders the rows, so new counts show, and adds the
     // count symbols of new files (file-tree-stats.ts).
     if (useFullGitStatus || plan.kind !== "append" || plan.addedPaths.length > 0 || source.statsChanged === true) {
-      model.setIcons(fileTreeIcons(source.statsByPath.values(), measureStats));
+      model.setGitStatus(nameColoredGitStatus(source.gitStatus, source.paths));
+      model.setIcons(fileTreeIcons(source, measureStats));
     }
   }, [measureStats, model, source]);
 }
@@ -429,7 +465,7 @@ function usePierreFileTreeSelection(
 
 const FILE_TREE_ITEM_HEIGHT = 29;
 const FILE_TREE_FONT_FAMILY =
-  'system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif';
+  '"Inter", system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif';
 
 export function getInitialFileTreeRowCount(): number {
   const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
@@ -439,27 +475,60 @@ export function getInitialFileTreeRowCount(): number {
   return Math.min(96, Math.max(25, Math.ceil(viewportHeight / FILE_TREE_ITEM_HEIGHT)));
 }
 
+const CHANGE_TITLE_KEYS = {
+  added: "filterAddedFiles",
+  deleted: "filterDeletedFiles",
+  modified: "filterModifiedFiles",
+  renamed: "filterRenamedFiles",
+} as const;
+
 /**
- * A file row's decoration: its viewed mark, then the nonzero "+N" and "-N"
- * counts (screenshot parity: "+75 -10", "-1", "+18"). Folders get none.
+ * A file row's decoration: the nonzero "+N" and "-N" counts (screenshot parity: "+75 -10",
+ * "-1", "+18"), then the change square: a plus when added, a minus when deleted, a dot when
+ * edited or renamed. Folders get none.
  */
 export function fileTreeRowDecoration(
+  change: DiffFileChange,
   stats: { added: number; deleted: number } | undefined,
   label: DiffViewerLabelResolver,
   measure: MeasureText,
-): FileTreeStatsDecoration | null {
-  return fileTreeStatsDecoration(stats, { additions: label("additions"), deletions: label("deletions") }, measure);
+): FileTreeStatsDecoration {
+  return fileTreeChangeDecoration(
+    change,
+    stats,
+    { additions: label("additions"), deletions: label("deletions"), change: label(CHANGE_TITLE_KEYS[change]) },
+    measure,
+  );
+}
+
+function fileChangeOf(source: FileTreeSource, path: string): DiffFileChange {
+  return diffFileChangeOf(changeByPath(source).get(path));
+}
+
+/** The tree source's git status by path, made once per source. */
+const changesBySource = new WeakMap<FileTreeSource, Map<string, string>>();
+function changeByPath(source: FileTreeSource): Map<string, string> {
+  let changes = changesBySource.get(source);
+  if (!changes) {
+    changes = new Map(source.gitStatus.map((entry) => [entry.path, entry.status]));
+    changesBySource.set(source, changes);
+  }
+  return changes;
 }
 
 /**
  * The tree's icon config: the built-in set, the classic list's thin folder
- * caret, and one symbol per count pair.
+ * caret, and one symbol per change and count pair.
  */
-function fileTreeIcons(stats: Iterable<{ added: number; deleted: number }>, measure: MeasureText) {
+function fileTreeIcons(source: FileTreeSource, measure: MeasureText) {
+  const files = source.paths.map((path) => ({
+    change: fileChangeOf(source, path),
+    stats: source.statsByPath.get(path),
+  }));
   return {
     set: "complete" as const,
     remap: { "file-tree-icon-chevron": { name: FILE_TREE_CARET_SYMBOL, width: 16, height: 16, viewBox: "0 0 16 16" } },
-    spriteSheet: diffStatSpriteSheet(stats, measure, FILE_TREE_CARET_SPRITE),
+    spriteSheet: diffChangeSpriteSheet(files, measure, FILE_TREE_CARET_SPRITE),
   };
 }
 

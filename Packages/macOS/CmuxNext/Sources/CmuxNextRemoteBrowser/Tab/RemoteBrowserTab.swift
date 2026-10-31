@@ -147,7 +147,7 @@ public final class RemoteBrowserTab: BrowserTab {
     }
 
     /// Scripts run through the browser host on the runtime host (RT7), not here.
-    public func evaluate(_ script: String, world: BrowserScriptWorld) async throws -> BrowserJSValue {
+    public func evaluate(_ script: String, world: BrowserScriptWorld, gesture: BrowserScriptGesture) async throws -> BrowserJSValue {
         throw BrowserTabError.unsupported("remote tab")
     }
 

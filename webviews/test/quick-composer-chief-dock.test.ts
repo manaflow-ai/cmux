@@ -10,6 +10,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -45,6 +46,7 @@ await requireBrowserLane("quick-composer-chief-dock.test.ts", async () => {
 
   async function quickComposer(experiments?: Record<string, string>): Promise<Page> {
     const page = await browser!.newPage({ viewport: PANEL });
+    await installPaintedFrames(page);
     await page.addInitScript((experiments) => {
       const w = window as unknown as Record<string, unknown>;
       if (experiments) w.cmuxExperiments = experiments;
@@ -75,7 +77,15 @@ await requireBrowserLane("quick-composer-chief-dock.test.ts", async () => {
 
   test("at the panel's 680 x 220 the prompt takes its own clicks: no dock covers it by default", async () => {
     const page = await quickComposer();
-    await page.waitForTimeout(500);
+    // The surface has taken the handshake's answer (it drew the quick prompt); once its entrance
+    // has run and two more frames have painted, a dock it would show is there.
+    await page.evaluate(async () => {
+      const finite = () =>
+        document.getAnimations().filter((animation) => animation.effect?.getComputedTiming().endTime !== Infinity);
+      await Promise.all(finite().map((animation) => animation.finished.catch(() => undefined)));
+      await window.cmuxPaintFrame();
+      await window.cmuxPaintFrame();
+    });
     expect(await page.locator(".acpmux-chief-dock").count()).toBe(0);
     expect(await promptHits(page)).toEqual([true, true, true]);
     const prompt = page.locator(".acpmux-shell[data-surface='quick'] .acpmux-composer-prompt");

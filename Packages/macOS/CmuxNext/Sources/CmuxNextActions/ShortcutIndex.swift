@@ -8,4 +8,10 @@ nonisolated struct ShortcutIndex {
     var chordDigitFamilies: [Shortcut: [Shortcut: [ActionID]]] = [:]
     /// The binding table built from the same bindings (`RegistryKeyBindings.table`).
     var bindingTable: KeyBindingTable?
+    /// Whether `bindingTable` holds the workspaces-as-tabs keys: a table built with the other answer
+    /// is rebuilt (`ActionRegistry.includesWorkspaceTabKeys` follows a Debug tunable).
+    var bindingTableHasWorkspaceTabKeys = false
+    /// Tables derived from `bindingTable` by a filter (`RegistryKeyBindings.subtable`), by name;
+    /// dropped with it.
+    var subtables: [String: KeyBindingTable] = [:]
 }

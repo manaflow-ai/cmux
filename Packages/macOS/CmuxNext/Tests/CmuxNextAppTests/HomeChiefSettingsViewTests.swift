@@ -21,7 +21,7 @@ import Testing
         // The model shows by the name acpmux offers, and acpmux's own "default" is not an item.
         #expect(titles.defaultModel == Self.named("Opus 5.5"))
         #expect(titles.models.map(\.value) == ["claude-opus-5-5"])
-        #expect(titles.defaultEffort == Self.named("high"))
+        #expect(titles.defaultEffort == Self.named(HomeEngineStrings.effortTitle("high")))
     }
 
     /// The effective engine includes the owner's choice, so a chosen field's
@@ -51,6 +51,24 @@ import Testing
         #expect(HomeEngineStrings.reply(text) == "\u{201C}Done.\u{201D} claude")
     }
 
+    /// The popover is the quick version (Leo 2026-10-20): its All Chief Settings link opens the
+    /// Settings page with every Chief setting, whichever brain the card shows.
+    @Test func allChiefSettingsOpensTheSettingsPage() throws {
+        let view = HomeChiefSettingsView(muxHome: FileManager.default.temporaryDirectory, source: OfflineChief())
+        var opened = 0
+        view.onAllSettings = { opened += 1 }
+        let link = try #require(Self.subviews(of: view).compactMap { $0 as? NSButton }
+            .first { $0.accessibilityIdentifier() == "cmux.home.chief.allSettings" })
+        #expect(!link.isHidden)
+        #expect(link.accessibilityLabel() == HomeEngineStrings.allChiefSettings)
+        link.performClick(nil)
+        #expect(opened == 1)
+    }
+
+    private static func subviews(of view: NSView) -> [NSView] {
+        view.subviews + view.subviews.flatMap { subviews(of: $0) }
+    }
+
     @Test func diagnosticsStartClosedAndTheNameIsTheOnlyField() throws {
         let view = HomeChiefSettingsView(muxHome: FileManager.default.temporaryDirectory, source: OfflineChief())
         #expect(!view.showsDiagnostics)
@@ -68,7 +86,7 @@ import Testing
     @Test func leavingAnUnchangedNameRenamesNothing() async {
         let view = HomeChiefSettingsView(muxHome: FileManager.default.temporaryDirectory, source: OfflineChief())
         var renamed: [String] = []
-        view.onRename = { renamed.append($0); return true }
+        view.onRename = { renamed.append($0); return nil }
         view.setName("Chief")
         #expect(view.commitName() == nil)
         view.nameField.stringValue = "  Ada  "
@@ -82,7 +100,7 @@ import Testing
     @Test func clearingTheNameShowsItAgain() async {
         let view = HomeChiefSettingsView(muxHome: FileManager.default.temporaryDirectory, source: OfflineChief())
         var renamed: [String] = []
-        view.onRename = { renamed.append($0); return true }
+        view.onRename = { renamed.append($0); return nil }
         view.setName("Chief")
         view.nameField.stringValue = "   "
         view.renamed()

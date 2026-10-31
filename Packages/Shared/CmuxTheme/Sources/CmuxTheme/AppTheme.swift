@@ -60,17 +60,19 @@ public struct AppTheme: Hashable, Sendable {
     private static let statusSurfaces: [Token] = plainSurfaces + [.hover]
 
     /// Every pair the tokens are used in, with its minimum (the web module's `APP_THEME_CONTRACT`).
-    public static let contract: [Pair] = textSurfaces.map { Pair(token: .text, on: $0, minimum: textMinimum) }
-        + textSurfaces.map { Pair(token: .textSecondary, on: $0, minimum: textMinimum) }
-        + textSurfaces.map { Pair(token: .icon, on: $0, minimum: uiMinimum) }
-        + (plainSurfaces + [.control]).map { Pair(token: .controlStroke, on: $0, minimum: uiMinimum) }
-        + plainSurfaces.map { Pair(token: .accent, on: $0, minimum: uiMinimum) }
-        + plainSurfaces.map { Pair(token: .focusRing, on: $0, minimum: uiMinimum) }
-        + [Pair(token: .onAccent, on: .accent, minimum: textMinimum)]
-        + (statusSurfaces + [.selection]).map { Pair(token: .accentText, on: $0, minimum: textMinimum) }
-        + statusSurfaces.map { Pair(token: .danger, on: $0, minimum: textMinimum) }
-        + statusSurfaces.map { Pair(token: .warning, on: $0, minimum: textMinimum) }
-        + statusSurfaces.map { Pair(token: .success, on: $0, minimum: textMinimum) }
+    public static let contract: [Pair] = ([
+        textSurfaces.map { Pair(token: .text, on: $0, minimum: textMinimum) },
+        textSurfaces.map { Pair(token: .textSecondary, on: $0, minimum: textMinimum) },
+        textSurfaces.map { Pair(token: .icon, on: $0, minimum: uiMinimum) },
+        (plainSurfaces + [.control]).map { Pair(token: .controlStroke, on: $0, minimum: uiMinimum) },
+        plainSurfaces.map { Pair(token: .accent, on: $0, minimum: uiMinimum) },
+        plainSurfaces.map { Pair(token: .focusRing, on: $0, minimum: uiMinimum) },
+        [Pair(token: .onAccent, on: .accent, minimum: textMinimum)],
+        (statusSurfaces + [.selection]).map { Pair(token: .accentText, on: $0, minimum: textMinimum) },
+        statusSurfaces.map { Pair(token: .danger, on: $0, minimum: textMinimum) },
+        statusSurfaces.map { Pair(token: .warning, on: $0, minimum: textMinimum) },
+        statusSurfaces.map { Pair(token: .success, on: $0, minimum: textMinimum) },
+    ] as [[Pair]]).flatMap { $0 }
 
     /// Every contract pair whose measured ratio is below its minimum (empty for a derived theme).
     public var failures: [Pair] {

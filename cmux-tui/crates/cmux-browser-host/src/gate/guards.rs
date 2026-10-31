@@ -4,6 +4,7 @@
 
 use super::Gate;
 use crate::protocol::{DriverError, ErrorCode};
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use std::sync::PoisonError;
 
@@ -182,7 +183,7 @@ impl Gate {
             let mut call = json!({"targetId": target, "world": "host", "source": source, "args": args,
                 "closedRoots": source != CAPTURE_UNMASK});
             if !frame.is_null() {
-                call["frameId"] = frame.clone();
+                call.set("frameId", frame.clone());
             }
             self.driver.call("frame.evaluate", &call)
         };

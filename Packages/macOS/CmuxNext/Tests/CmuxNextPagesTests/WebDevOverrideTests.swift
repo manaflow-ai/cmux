@@ -8,6 +8,10 @@ import Testing
 struct WebDevOverrideTests {
     private let home = URL(fileURLWithPath: "/Users/someone", isDirectory: true)
 
+    @Test func liveReloadIsOffByDefault() {
+        #expect(PageTunables.webDevOverride.defaultValue == false)
+    }
+
     @Test func parsesALoopbackServerAndAHomeOverlay() throws {
         let value = WebDevOverride.parse(Data(#"{"server": "http://127.0.0.1:4181/", "overlay": "~/web-overlay"}"#.utf8), home: home)
         #expect(value.server?.root.absoluteString == "http://127.0.0.1:4181/")
@@ -34,6 +38,10 @@ struct WebDevOverrideTests {
         #expect(!WebDevOverride.isAvailable(bundleID: "com.cmuxterm.app", isDebugBuild: false))
         #expect(!WebDevOverride.isAvailable(bundleID: "com.cmuxterm.app.rc", isDebugBuild: false))
         #expect(!WebDevOverride.isAvailable(bundleID: "com.cmuxterm.app.nightlyx", isDebugBuild: false))
+        // cmux NEXT DEV, a Release compile, reads it; no other id under it does.
+        #expect(WebDevOverride.isAvailable(bundleID: "com.cmuxterm.app.debug.next", isDebugBuild: false))
+        #expect(!WebDevOverride.isAvailable(bundleID: "com.cmuxterm.app.debug.nextx", isDebugBuild: false))
+        #expect(!WebDevOverride.isAvailable(bundleID: "com.cmuxterm.app.debug.next.other", isDebugBuild: false))
         #expect(!WebDevOverride.isAvailable(bundleID: nil, isDebugBuild: false))
     }
 

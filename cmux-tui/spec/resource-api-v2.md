@@ -87,7 +87,7 @@ lowercase hexadecimal digits. Older records keep the IDs they already have
 | App workspaces (`app-screens-v1`, one per installed app), app tabs | shared | `workspace.ensure_app` |
 | Workspace agent folder (where new agent chats start; set only by the user) | shared | `workspace.agent_folder.set` |
 | Web links of a workspace (open on its right side, reuse its browser tab) | shared | `workspace.open_url` |
-| Tab pin, zoom, user icon, manual unread mark, browser back/forward, browser owner | shared | `tab.pin`, `tab.unpin`, `tab.update` |
+| Tab pin, zoom, user icon, manual unread mark, attention mark, browser back/forward, browser owner | shared | `tab.pin`, `tab.unpin`, `tab.update` |
 | Tab groups | shared | `tab_group.*` |
 | Screen pin, color, icon, order; screen groups | shared | `screen.update`, `screen.move`, `screen_group.*` |
 | Closed history (one group per close gesture, kept until deleted) | shared | `closed.list`, `closed.reopen`, `closed.delete` |
@@ -122,7 +122,7 @@ workspace, absent for a normal one), `agent_folder` (absent until set), `descrip
 (`workspace-description-v1`, absent until set), `task_status` (`todo`, `working`,
 `needs-attention`, `review` or `done`, `workspace-status-v1`; absent while automatic); tab `pinned`,
 `tab_group_id`, `zoom`, `icon` (the user icon, absent until set), `marked_unread`
-(`true` while the person marked the tab unread by hand, `tab-mark-unread-v1`; absent otherwise), `back`, `forward`, `owner` (the install id of the app
+(`true` while the person marked the tab unread by hand, `tab-mark-unread-v1`; absent otherwise), `attention` (`{reason, at_ms, request_id}` while an agent needs the person in the tab, `tab-attention-v1`; absent otherwise), `back`, `forward`, `owner` (the install id of the app
 that hosts a frontend-rendered browser, its record's only writer), `relaunch`
 (`{cwd}` for a tab kept by `shutdown-daemon {end_terminals, keep_layout}`,
 absent otherwise); screen `pinned`, `color`, `icon`,
@@ -501,8 +501,21 @@ the pages it opened close again and every member stays, so a retry opens
 each page once. App tabs and pages that are not http(s) are never stashed.
 `stash.delete` drops members or a stash, `stash.import {source: onetab,
 groups}` stores OneTab groups (http(s) pages only), and `stash.list` never
-shows back/forward history. Changes are `state_upsert`/`state_delete` of
-resource `stash`. Restore opens URLs and every mutation changes local state,
+shows back/forward history. Every listed member has a `kind`: `tab` (a
+page) or `workspace`. With `stash-workspaces-v1`, `stash.create {workspaces,
+name?}` closes those workspaces whole, every tab and terminal, in one commit
+as one stash (named `name`, else the workspace's name when there is one
+workspace) of `kind: "workspace"` members in the closed-history workspace
+record (screens, splits, presentation), and records nothing in the closed
+history; an incognito workspace refuses the request and the home workspace
+is `home.not_closable`, with nothing closed. Their terminals end and keep no
+archived screen. `stash.list` shows a workspace member's `name`,
+`tab_count` and its first 50 `tabs` (`kind`, `title`, and `url` for a web
+page only). `stash.restore` reopens a workspace member as its own workspace
+for either target, with its screens, splits, name, color, group, sidebar
+place and tab groups; `new_workspace` takes only the pages. Deleting a
+workspace member moves its agent-home folder to the Trash, as `closed.delete`
+does. Changes are `state_upsert`/`state_delete` of resource `stash`. Restore opens URLs and every mutation changes local state,
 so no remote relay may forward `stash.*`; MCP and the CLI do not offer them.
 
 ## Selectors
@@ -1363,6 +1376,12 @@ The daemon owns the records in `chiefs.sqlite3` in the session state
 directory. A Chief's id is its conversation participant id: the default
 Chief is `agent_mux` and exists from the first read; a new Chief is `agent_`
 and 26 Crockford base32 characters. A deleted id is never reused.
+`chief.profile.list` answers `{chiefs, deleted}`: the live records and the ids
+of deleted Chiefs, so a client hides their conversations. Deleting a Chief
+stops its brain, ends its sessions and then removes its brain home
+(`<home>/c/<id tail>`, its memory and state) when its `chief-id` names that Chief
+and no brain holds its lock (a folder still locked stays); the default Chief is
+never deleted.
 
 With `chief-profile-history-v1` every committed state of a record is kept as a
 revision (the newest 100 per Chief, dropped with a deleted Chief):

@@ -26,7 +26,7 @@
 use std::path::PathBuf;
 
 /// Live while held. `on_change` returns true when it needs no more events.
-pub(super) struct DirWatch {
+pub(crate) struct DirWatch {
     #[cfg(target_os = "macos")]
     kq: std::sync::Arc<std::os::fd::OwnedFd>,
     #[cfg(target_os = "linux")]
@@ -54,11 +54,31 @@ fn kevent_change(
 }
 
 impl DirWatch {
+    /// Watch only each path's own identity, not directory entries or file contents.
+    /// The kernel excludes sibling activity before waking the watcher thread. Symlinks are
+    /// watched themselves; callers also supply resolved targets when both identities matter.
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    pub(crate) fn start_identities(
+        paths: &[PathBuf],
+        on_change: impl FnMut() -> bool + Send + 'static,
+    ) -> Option<Self> {
+        Self::start_native(paths, true, on_change)
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    pub(crate) fn start(
+        dirs: &[PathBuf],
+        on_change: impl FnMut() -> bool + Send + 'static,
+    ) -> Option<Self> {
+        Self::start_native(dirs, false, on_change)
+    }
+
     /// Watches every directory of `dirs` that can be opened (a missing one
     /// is skipped with a warning). None when no directory is watched.
     #[cfg(target_os = "macos")]
-    pub(super) fn start(
+    fn start_native(
         dirs: &[PathBuf],
+        identities_only: bool,
         mut on_change: impl FnMut() -> bool + Send + 'static,
     ) -> Option<Self> {
         use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
@@ -80,13 +100,20 @@ impl DirWatch {
             tracing::warn!("the host cannot watch its record: kevent: {e}");
             return None;
         }
-        let fflags = libc::NOTE_WRITE | libc::NOTE_DELETE | libc::NOTE_RENAME | libc::NOTE_REVOKE;
+        // NOTE_EXTEND and NOTE_ATTRIB: a watched file (the harness profile
+        // watch) that is truncated or grows without a NOTE_WRITE.
+        let identity_events = libc::NOTE_DELETE | libc::NOTE_RENAME | libc::NOTE_REVOKE;
+        let fflags = if identities_only {
+            identity_events
+        } else {
+            identity_events | libc::NOTE_WRITE | libc::NOTE_EXTEND | libc::NOTE_ATTRIB
+        };
         let mut files = Vec::new();
         for dir in dirs {
             // O_EVTONLY: the open descriptor never keeps the volume from unmounting.
             let opened = std::fs::OpenOptions::new()
                 .read(true)
-                .custom_flags(libc::O_EVTONLY)
+                .custom_flags(libc::O_EVTONLY | if identities_only { libc::O_SYMLINK } else { 0 })
                 .open(dir)
                 .and_then(|file| {
                     let ident = file.as_raw_fd() as usize;
@@ -119,8 +146,9 @@ impl DirWatch {
     }
 
     #[cfg(target_os = "linux")]
-    pub(super) fn start(
+    fn start_native(
         dirs: &[PathBuf],
+        identities_only: bool,
         mut on_change: impl FnMut() -> bool + Send + 'static,
     ) -> Option<Self> {
         use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
@@ -150,15 +178,29 @@ impl DirWatch {
         // Entry changes and the directory's own end only: no IN_OPEN,
         // IN_ACCESS, IN_CLOSE_* or IN_MODIFY, which a read of the record
         // (the callback's own) or a write to an open file would queue.
-        let mask = libc::IN_CREATE
-            | libc::IN_DELETE
-            | libc::IN_MOVED_FROM
-            | libc::IN_MOVED_TO
-            | libc::IN_DELETE_SELF
-            | libc::IN_MOVE_SELF
-            | libc::IN_ONLYDIR;
+        let identity_events = libc::IN_DELETE_SELF | libc::IN_MOVE_SELF;
+        let mask = if identities_only {
+            identity_events | libc::IN_DONT_FOLLOW
+        } else {
+            identity_events
+                | libc::IN_CREATE
+                | libc::IN_DELETE
+                | libc::IN_MOVED_FROM
+                | libc::IN_MOVED_TO
+                | libc::IN_ONLYDIR
+        };
         let mut watched = 0;
         for dir in dirs {
+            // An unlinked lock can remain open until shutdown: inotify delays DELETE_SELF
+            // until its final close, but reports the link-count change as ATTRIB immediately.
+            // Do not request ATTRIB for ancestor directories (unrelated mkdir changes nlink).
+            let mask = if identities_only
+                && std::fs::symlink_metadata(dir).is_ok_and(|metadata| !metadata.is_dir())
+            {
+                mask | libc::IN_ATTRIB
+            } else {
+                mask
+            };
             let added = std::ffi::CString::new(dir.as_os_str().as_bytes())
                 .map_err(std::io::Error::other)
                 .and_then(|path| {
@@ -188,7 +230,7 @@ impl DirWatch {
     }
 
     #[cfg(not(any(target_os = "macos", target_os = "linux")))]
-    pub(super) fn start(
+    pub(crate) fn start(
         dirs: &[PathBuf],
         mut on_change: impl FnMut() -> bool + Send + 'static,
     ) -> Option<Self> {
@@ -337,5 +379,72 @@ impl Drop for DirWatch {
         let _ = unsafe {
             libc::write(self.stop.as_raw_fd(), (&raw const one).cast(), std::mem::size_of::<u64>())
         };
+    }
+}
+
+#[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+mod identity_tests {
+    use super::DirWatch;
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    #[test]
+    fn identity_watch_ignores_sibling_activity_but_reports_ancestor_rename() {
+        let dir = tempfile::tempdir().unwrap();
+        let ancestor = dir.path().join("ancestor");
+        let home = ancestor.join("home");
+        std::fs::create_dir_all(&home).unwrap();
+        let (tx, rx) = mpsc::channel();
+        let _watch = DirWatch::start_identities(
+            &[dir.path().to_path_buf(), ancestor.clone(), home],
+            move || {
+                let _ = tx.send(());
+                false
+            },
+        )
+        .expect("identity watch starts");
+        // These would wake a directory-entry watcher, even if a later callback discards them.
+        let sibling = dir.path().join("unrelated");
+        std::fs::create_dir(&sibling).unwrap();
+        std::fs::write(sibling.join("file"), "unrelated write").unwrap();
+        std::fs::rename(&sibling, dir.path().join("other")).unwrap();
+        std::fs::remove_dir_all(dir.path().join("other")).unwrap();
+        assert_eq!(
+            rx.recv_timeout(Duration::from_millis(200)),
+            Err(mpsc::RecvTimeoutError::Timeout)
+        );
+        std::fs::rename(&ancestor, dir.path().join("moved")).unwrap();
+        rx.recv_timeout(Duration::from_secs(5)).expect("ancestor rename wakes the watch");
+    }
+
+    #[test]
+    fn identity_watch_reports_a_symlink_replacement_and_a_lock_removal() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("target");
+        std::fs::create_dir(&target).unwrap();
+        let link = dir.path().join("link");
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        let (tx, rx) = mpsc::channel();
+        let _watch = DirWatch::start_identities(std::slice::from_ref(&link), move || {
+            let _ = tx.send(());
+            true
+        })
+        .expect("symlink watch starts");
+        let replacement = dir.path().join("replacement");
+        std::os::unix::fs::symlink(dir.path(), &replacement).unwrap();
+        std::fs::rename(replacement, link).unwrap();
+        rx.recv_timeout(Duration::from_secs(5)).expect("symlink replacement wakes the watch");
+
+        let lock = target.join("lock");
+        std::fs::write(&lock, "held").unwrap();
+        let _held_lock = std::fs::File::open(&lock).unwrap();
+        let (tx, rx) = mpsc::channel();
+        let _watch = DirWatch::start_identities(std::slice::from_ref(&lock), move || {
+            let _ = tx.send(());
+            true
+        })
+        .expect("lock watch starts");
+        std::fs::remove_file(lock).unwrap();
+        rx.recv_timeout(Duration::from_secs(5)).expect("lock removal wakes the watch");
     }
 }

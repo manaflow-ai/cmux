@@ -260,7 +260,10 @@ the row axis; the app step builds on 6553984ff79 or later.
 - V5. Input: a plain vertical wheel or trackpad scroll over a pane goes to the terminal
   (scrollback, mouse reporting) as today. Rows scroll with the vertical gesture when it is over a
   gap between rows or over the column's row scrollbar, or anywhere in the column while
-  `layout.rowScrollModifier` (default Command) is held. A column whose rows overflow (docked or
+  Command is held. Since 2026-10-24 `layout.scrollModifier` (default `command`) makes this one
+  rule for both axes: a plain scroll over a pane is always the pane's, Command + scroll moves the
+  rows (vertical) or the strip (horizontal) anywhere in the screen, and the first event of a
+  gesture decides its owner through its momentum; `none` keeps the rule above (LayoutRootView+Scroll). A column whose rows overflow (docked or
   not) gets a vertical row scrollbar on its trailing edge, new UI that follows B1 to B5 of
   dock-column.md on the vertical axis with its own setting `layout.rowScrollbar`: `auto`
   (default, fades in while the column scrolls or the pointer is over the band), `always` (while
@@ -386,7 +389,7 @@ that run is green. `Destination::Row` is `MoveTabToRow` (no Destination enum exi
 ## Step 4 status (2026-10-04)
 
 App half on branch `feat-cmux-next-rows-app`. Done: decode of `columns[].rows` and `rows-v1` in
-`DaemonCapabilities.optional`; `LayoutColumn.rows` (the column's `root` stays the compat chain for
+`DaemonCapability.optional`; `LayoutColumn.rows` (the column's `root` stays the compat chain for
 pane queries; split queries use the row trees); geometry G1 with gaps only between rows
 (`(height + gap) * p - gap`, so a row of 1000 is today's column) and G2; rendering; a vertical
 offset per overflowing column through the column scroll reducer behind the `RowScroll` adapter
@@ -421,7 +424,12 @@ with `never`), focus N1 to N3, `debug.rows`, `--height` and `--cwd` on `pane new
    scrollbar (V5).
 4. Docked rows: decided later, not in `rows-v1`.
 5. Legacy `apply-layout` (blueprints) on a screen with rows is refused
-   (`rows-layout-replace-unsupported`) until blueprints carry rows.
+   (`rows-layout-replace-unsupported`) until blueprints carry rows. Resource layout
+   documents (2026-10-21): a columns document applies to a screen with rows and each column
+   keeps its rows and heights, so `screen.layout.export` round-trips; a split-tree document is
+   still refused. Since 2026-10-21 the column carries `rows: [{row_id, height}]` (row 2..n's id is
+   its chain split), so a document sets row heights, makes rows from a vertical split chain, and
+   `rows: []` returns a column to one row.
 
 ## Agent review (2026-10-01)
 

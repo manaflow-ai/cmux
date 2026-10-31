@@ -147,7 +147,9 @@ test("a busy partial day before the drawn range does not dim the drawn days", ()
 
 test("tooltip days and hours read in the person's language", () => {
   expect(formatDay("2026-10-12", "en")).toBe("Mon, Oct 12");
-  expect(formatDay("2026-10-12", "de")).toBe("Mo., 12. Okt.");
+  // ICU data versions differ on the comma after a German short weekday ("Mo., 12. Okt." here
+  // before, "Mo. 12. Okt." from bun 1.4.2 on the fleet): the words and their order are what matter.
+  expect(formatDay("2026-10-12", "de")).toMatch(/^Mo\.,? 12\. Okt\.$/);
   expect(formatHour(0, "en")).toBe("12 AM");
   expect(formatHour(13, "en")).toBe("1 PM");
   expect(formatHour(13, "de")).toBe("13 Uhr");

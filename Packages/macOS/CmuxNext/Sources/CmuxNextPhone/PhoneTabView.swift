@@ -19,6 +19,8 @@ public final class PhoneTabView: NSView {
     let screen = PhoneScreenView(frame: .zero)
     /// The simulator streaming into ``screen`` now, if any.
     private var liveUDID: String?
+    /// This tab's watch of that simulator's frames.
+    private var liveWatch: SimulatorKitHID.ScreenWatch?
     /// The Android phone streaming into ``screen`` now, if any.
     private var androidStream: (id: PhoneDeviceID, stream: AndroidScreenStream)?
     /// Where and when a touch on a still frame began (sent as one tap or swipe when it ends).
@@ -166,7 +168,7 @@ extension PhoneTabView {
         if liveUDID == device.id.raw { return true }
         stopLive()
         do {
-            try live.startScreen(device.id.raw) { [weak self] surface in self?.screen.show(surface: surface) }
+            liveWatch = try live.startScreen(device.id.raw) { [weak self] surface in self?.screen.show(surface: surface) }
             liveUDID = device.id.raw
             return true
         } catch {
@@ -200,8 +202,9 @@ extension PhoneTabView {
             androidStream = nil
             screen.endVideo()
         }
-        guard let udid = liveUDID else { return }
-        service.live?.stopScreen(udid)
+        guard liveUDID != nil else { return }
+        if let liveWatch { service.live?.stopScreen(liveWatch) }
+        liveWatch = nil
         liveUDID = nil
     }
 

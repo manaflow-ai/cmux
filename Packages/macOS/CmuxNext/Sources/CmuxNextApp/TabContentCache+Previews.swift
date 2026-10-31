@@ -26,7 +26,7 @@ extension TabContentCache {
            let image = await capturePage(entry, key: key, accepts: { [weak self] in self?.browsers[key] === entry }) {
             return await TabPreviewFitting.fit(image, maxPixelSize)
         }
-        if let image = pageThumbnails.image(for: key) ?? previews.image(for: key) {
+        if let image = pageThumbnails.image(for: key) ?? previews.image(for: key) ?? hibernation?.snapshots.image(for: key) {
             return await TabPreviewFitting.fit(image, maxPixelSize)
         }
         return nil

@@ -27,17 +27,50 @@ export type MessageMenuTarget = {
 
 /// What the page reports on `contextmenu`: the message under the pointer, and the selected
 /// transcript text when the pointer is inside it (Quote in Reply, Search the Web...).
-export type MessageMenuReport = Partial<MessageMenuTarget> & { selection?: string; openImage?: true; part?: MenuPart };
+export type MessageMenuReport = Partial<MessageMenuTarget> & {
+  selection?: string;
+  openImage?: true;
+  /// The pointer is on an image (a reply's, one I sent, the gallery's): the menu's Copy Image,
+  /// Save Image As…, Quick Look and Show in Finder act on it (imageMenuActions.ts).
+  image?: true;
+  part?: MenuPart;
+  /// The message's More button (MessageActions.tsx MessageMore), in CSS px: the host opens the
+  /// menu a right-click on the message opens under it, now (the report is the right-click's).
+  popUp?: { left: number; top: number; right: number; bottom: number };
+};
 
-/// Whether a turn can be forked now: acpmux serves forks, the pane is connected, no turn is
-/// running and the chat is on this computer (acpmux refuses the rest). The turn footer's Fork
-/// shows on the same rule.
-export const canFork = (snapshot: AcpmuxSnapshot) =>
+/// Whether acpmux can fork the chat at all here: it serves forks, the pane is connected and the
+/// chat is on this computer (acpmux refuses the rest).
+const forkServed = (snapshot: AcpmuxSnapshot) =>
   Boolean(snapshot.canFork) &&
-  !snapshot.isWorking &&
   !snapshot.summary?.peer &&
   snapshot.connection !== "disconnected" &&
   !snapshot.connection.startsWith("connecting");
+
+/// Whether a turn can be forked now: acpmux serves the fork (`forkServed`) and no turn is running.
+/// The turn footer's Fork shows on the same rule. The whole chat forks while it works too
+/// (`forkToTarget`).
+export const canFork = (snapshot: AcpmuxSnapshot) => forkServed(snapshot) && !snapshot.isWorking;
+
+/// Why Fork Conversation from the app (the palette's step, the chat's right-click menu, its
+/// shortcut: `chat.forkTo`) cannot fork the chat now, or undefined when it can: "unavailable" when
+/// acpmux, the connection or the chat's machine does not serve the fork, "nothingYet" before the
+/// chat's first turn (a Claude chat with none has no conversation to copy). A working chat forks
+/// now, as it is: the person never waits for its turn to end (2026-10-21).
+export function forkRefusal(snapshot: AcpmuxSnapshot): "unavailable" | "nothingYet" | undefined {
+  if (!forkServed(snapshot)) return "unavailable";
+  if (!snapshot.isWorking && latestForkSeq(snapshot.rows) === undefined) return "nothingYet";
+  return undefined;
+}
+
+/// What Fork Conversation forks: a working chat as it is now (`live`: acpmux copies its running
+/// turn cut off there and leaves the chat's turn running), else the chat through its latest
+/// finished turn. Undefined when there is nothing to fork yet.
+export function forkToTarget(snapshot: AcpmuxSnapshot): { live: true } | { throughSeq: number } | undefined {
+  if (snapshot.isWorking) return { live: true };
+  const throughSeq = latestForkSeq(snapshot.rows);
+  return throughSeq === undefined ? undefined : { throughSeq };
+}
 
 /// Whether every completed turn can be forked: acpmux forks a Claude or Codex chat through any of
 /// them (`hub/fork_at.rs`, cx-yqiv, cx-a7r); other agents fork only at a chat's end.
@@ -199,7 +232,50 @@ export function setMessageMenuSource(next: MessageSource | undefined) {
 
 type Handler = { postMessage(body: unknown): void };
 
+const webkitHandler = () =>
+  (window as unknown as { webkit?: { messageHandlers?: Record<string, Handler | undefined> } }).webkit
+    ?.messageHandlers?.[MESSAGE_MENU_HANDLER];
+/// Where reports go: the handler `installMessageMenuReporter` was given.
+let menuHandler: () => Handler | undefined = () => undefined;
+
+/// Whether a host shows this page's message menu (its More button would do nothing without one).
+export const hasMessageMenuHost = () => menuHandler() !== undefined;
+
+/// More (…) on row `rowId`'s action row: asks the host for the menu a right-click on that message
+/// opens, with the same report, shown under `anchor`. False when the row is not a message or no
+/// host shows the menu.
+export function openForkMenu(throughSeq: number, anchor?: Element): boolean {
+  const handler = menuHandler();
+  if (!handler) return false;
+  const { left, top, right, bottom } = (anchor ?? document.body).getBoundingClientRect();
+  handler.postMessage({ forkDestinations: throughSeq, popUp: { left, top, right, bottom } });
+  return true;
+}
+
+export function openMessageMenu(rowId: string, anchor: Element): boolean {
+  const message = source?.(rowId);
+  const handler = menuHandler();
+  if (!message || !handler) return false;
+  reportedImage = undefined;
+  reportedPicture = undefined;
+  const { left, top, right, bottom } = anchor.getBoundingClientRect();
+  handler.postMessage({ ...message, popUp: { left, top, right, bottom } } satisfies MessageMenuReport);
+  return true;
+}
+
 let reportedImage: HTMLElement | undefined;
+let reportedPicture: HTMLImageElement | undefined;
+
+/// The image the last report named, for one image action: its source, its name (alt text) and the
+/// file a reply read it from (`data-image-path`). Undefined when the report named none; it is used up.
+export function takeReportedPicture(): { src: string; name: string; path?: string } | undefined {
+  const picture = reportedPicture;
+  reportedPicture = undefined;
+  const src = picture?.currentSrc || picture?.getAttribute("src") || "";
+  if (!picture || !src) return undefined;
+  const path = picture.closest<HTMLElement>("[data-image-path]")?.getAttribute("data-image-path") || undefined;
+  return { src, name: picture.getAttribute("alt") ?? "", ...(path ? { path } : {}) };
+}
 
 /// Open Image: opens the image the last report named as its click does; false when it named none.
 export function openReportedImage(): boolean {
@@ -213,30 +289,35 @@ export function openReportedImage(): boolean {
 /// stops the event still reports). Returns the remover.
 export function installMessageMenuReporter(
   doc: Document,
-  handler: () => Handler | undefined = () =>
-    (window as unknown as { webkit?: { messageHandlers?: Record<string, Handler | undefined> } }).webkit
-      ?.messageHandlers?.[MESSAGE_MENU_HANDLER],
+  handler: () => Handler | undefined = webkitHandler,
 ): () => void {
+  menuHandler = handler;
   const report = (event: Event) => {
     const target = event.target as Element | null;
     const rowId = target?.closest?.("[data-row-id]")?.getAttribute("data-row-id");
     const message = (rowId && source?.(rowId)) || undefined;
     reportedImage = target?.closest?.<HTMLElement>("[data-open-image]") ?? undefined;
+    const picture = reportedImage?.querySelector("img") ?? target?.closest?.("img") ?? undefined;
+    reportedPicture = picture && (picture.currentSrc || picture.getAttribute("src")) ? picture : undefined;
     const selection = selectionAt(doc, target);
     const part = selection ? undefined : menuPartAt(target);
     const body: MessageMenuReport | null =
-      message || selection || reportedImage || part
+      message || selection || reportedImage || reportedPicture || part
         ? {
             ...message,
             ...(selection ? { selection } : {}),
             ...(reportedImage ? { openImage: true as const } : {}),
+            ...(reportedPicture ? { image: true as const } : {}),
             ...(part ? { part } : {}),
           }
         : null;
     handler()?.postMessage(body);
   };
   doc.addEventListener("contextmenu", report, true);
-  return () => doc.removeEventListener("contextmenu", report, true);
+  return () => {
+    doc.removeEventListener("contextmenu", report, true);
+    if (menuHandler === handler) menuHandler = () => undefined;
+  };
 }
 
 /// The selected transcript text when the right-click is inside the selection; nothing for a

@@ -56,11 +56,12 @@ struct ChromiumPageHostWireTests {
             (source: "start()", atDocumentEnd: false, mainFrameOnly: true),
             (source: "end()", atDocumentEnd: true, mainFrameOnly: false),
         ])
-        #expect(scripts.sources.count == 3)
+        #expect(scripts.sources.count == 4)
         #expect(scripts.sources[0].contains("if (window !== window.top) return;"))
         #expect(scripts.sources[0].contains("start()"))
         #expect(!scripts.sources[1].contains("window.top"))
         #expect(scripts.sources[1].contains("DOMContentLoaded"))
         #expect(scripts.sources[2] == PageChromiumDocumentScripts.navigationScript)
+        #expect(scripts.sources[3] == PageChromiumDocumentScripts.hostDropScript)
     }
 }

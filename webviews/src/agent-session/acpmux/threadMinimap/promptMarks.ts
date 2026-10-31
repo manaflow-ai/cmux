@@ -1,9 +1,10 @@
 // Bookmarked prompts as the rail, its card and the transcript's own prompt rows see them. acpmux
 // keeps the marks with the session (bookmarks.ts, `_acpmux/bookmark_set`): a mark is the seq of the
-// prompt's `user_message` record, which is its row id (`user-<seq>`). This is the one place that
+// prompt's `user_message` record, which is its row id (`user-<seq>`). A message's Pin is the same mark:
+// on a prompt, or on an answer through its turn's `turn_result` (`summary-<seq>`). This is the one place that
 // reads that API, so the rail and the rows never key a mark on their own.
 import { createContext, useContext } from "react";
-import { promptSeq, useBookmarks } from "./bookmarks";
+import { markSeq, useBookmarks } from "./bookmarks";
 
 /// A prompt as a mark names it: its row id.
 export type MarkedPrompt = { id: string };
@@ -24,22 +25,22 @@ export function usePromptMarks(sessionId: string | undefined): {
 } {
   const session = markedSession(sessionId);
   const { marks, toggle } = useBookmarks(session);
-  const can = (prompt: MarkedPrompt) => session !== undefined && promptSeq(prompt.id) !== undefined;
+  const can = (prompt: MarkedPrompt) => session !== undefined && markSeq(prompt.id) !== undefined;
   return {
     has: (prompt) => {
-      const seq = promptSeq(prompt.id);
+      const seq = markSeq(prompt.id);
       return seq !== undefined && marks.has(seq);
     },
     can,
     toggle: (prompt) => {
-      const seq = promptSeq(prompt.id);
+      const seq = markSeq(prompt.id);
       if (seq !== undefined) toggle(seq);
     },
   };
 }
 
-/// The mark of a transcript prompt row in the session being shown.
-export function usePromptRowMark(row: { id: string }): { can: boolean; marked: boolean; toggle: () => void } {
+/// The pin of a transcript row (a prompt, or an answer's footer) in the session being shown.
+export function useRowMark(row: { id: string }): { can: boolean; marked: boolean; toggle: () => void } {
   const marks = usePromptMarks(useContext(PromptMarksSession));
   return { can: marks.can(row), marked: marks.has(row), toggle: () => marks.toggle(row) };
 }

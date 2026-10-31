@@ -20,6 +20,7 @@ final class PageChromiumSession {
         deadline.cancel()
         bridge.uninstall()
         page.onEvent = nil
+        page.resources = nil
         page.contentView.removeFromSuperview()
         page.close()
     }

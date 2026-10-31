@@ -61,6 +61,6 @@ public struct ListTabGroupsRequest: DaemonRequest {
         public var groups: [TabGroupSnapshot]
     }
     public static let command = "list-tab-groups"
-    public static let requiredCapability: String? = DaemonCapabilities.shared.tabGroups
+    public static let requiredCapability: String? = DaemonCapability.tabGroups.rawValue
     public init() {}
 }

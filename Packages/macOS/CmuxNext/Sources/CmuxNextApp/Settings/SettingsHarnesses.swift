@@ -74,8 +74,8 @@ final class SettingsHarnesses {
                     "outdated": .bool(health?["outdated"]?.boolValue ?? false),
                     "auth": .string(health?["auth"]?.stringValue ?? "unknown"),
                     "update": update ?? .null,
-                    // The update owner runs only npm and native installations; others show no Update.
-                    "ownerUpdate": .bool(["npm", "native"].contains(health?["channel"]?.stringValue ?? "")),
+                    // The update owner runs only npm, Bun and native installations; others show no Update.
+                    "ownerUpdate": .bool(["npm", "bun", "native"].contains(health?["channel"]?.stringValue ?? "")),
                     "autoUpdate": .bool(health?["autoUpdate"]?.boolValue ?? false),
                     "lastAutoUpdate": health?["lastAutoUpdate"].flatMap { last -> JSONValue? in
                         guard let ok = last["ok"]?.boolValue else { return nil }

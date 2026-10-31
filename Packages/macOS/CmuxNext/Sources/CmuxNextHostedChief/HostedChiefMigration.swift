@@ -288,7 +288,7 @@ public final class HostedChiefMigration {
     /// The local Chief conversation's messages, read from the Chief home's owner.
     private static func localHistory(_ owner: ChiefConversationOwner) async throws -> LocalHistory {
         var connection: DaemonConnection?
-        for await next in ObservationStream({ owner.supports(DaemonCapabilities.shared.localConversations) ? owner.connection : nil }) {
+        for await next in ObservationStream({ owner.supports(DaemonCapability.localConversations.rawValue) ? owner.connection : nil }) {
             if let next { connection = next; break }
         }
         guard let connection else { return .none("no_owner") }

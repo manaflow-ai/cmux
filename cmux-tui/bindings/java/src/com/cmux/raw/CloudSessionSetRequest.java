@@ -12,41 +12,50 @@ import java.util.Objects;
 
 /** Immutable cloud-session-set request. Protocol v12; authority: local-admin. */
 public final class CloudSessionSetRequest implements WireValue {
-    private final String accessToken;
+    private final Field<String> accessToken;
     private final String apiBaseUrl;
+    private final Field<String> auth;
     private final Field<String> clientVersion;
-    private final UInt64 expiresAt;
+    private final Field<UInt64> expiresAt;
 
     private CloudSessionSetRequest(Builder builder) {
-        if (!builder.accessTokenSet) throw new IllegalArgumentException("access_token is required");
-        this.accessToken = Wire.nonNull(builder.accessToken, "access_token");
+        this.accessToken = builder.accessToken;
         if (!builder.apiBaseUrlSet) throw new IllegalArgumentException("api_base_url is required");
         this.apiBaseUrl = Wire.nonNull(builder.apiBaseUrl, "api_base_url");
+        this.auth = builder.auth;
         this.clientVersion = builder.clientVersion;
-        if (!builder.expiresAtSet) throw new IllegalArgumentException("expires_at is required");
-        this.expiresAt = Wire.nonNull(builder.expiresAt, "expires_at");
+        this.expiresAt = builder.expiresAt;
     }
 
     public static Builder builder() { return new Builder(); }
 
-    public String accessToken() { return accessToken; }
+    public Field<String> accessToken() { return accessToken; }
     public String apiBaseUrl() { return apiBaseUrl; }
+    public Field<String> auth() { return auth; }
     public Field<String> clientVersion() { return clientVersion; }
-    public UInt64 expiresAt() { return expiresAt; }
+    public Field<UInt64> expiresAt() { return expiresAt; }
 
     public static CloudSessionSetRequest fromWire(Object value) {
         Map<String, Object> object = Wire.object(value, "CloudSessionSetRequest");
         Builder builder = builder();
-        Object rawAccessToken = Wire.required(object, "access_token");
-        builder.accessToken(Wire.string(rawAccessToken, "CloudSessionSetRequest.access_token"));
+        Object rawAccessToken = Wire.optional(object, "access_token");
+        if (!Wire.isMissing(rawAccessToken)) {
+            builder.accessToken(Wire.string(rawAccessToken, "CloudSessionSetRequest.access_token"));
+        }
         Object rawApiBaseUrl = Wire.required(object, "api_base_url");
         builder.apiBaseUrl(Wire.string(rawApiBaseUrl, "CloudSessionSetRequest.api_base_url"));
+        Object rawAuth = Wire.optional(object, "auth");
+        if (!Wire.isMissing(rawAuth)) {
+            builder.auth(rawAuth == null ? null : Wire.string(rawAuth, "CloudSessionSetRequest.auth"));
+        }
         Object rawClientVersion = Wire.optional(object, "client_version");
         if (!Wire.isMissing(rawClientVersion)) {
             builder.clientVersion(rawClientVersion == null ? null : Wire.string(rawClientVersion, "CloudSessionSetRequest.client_version"));
         }
-        Object rawExpiresAt = Wire.required(object, "expires_at");
-        builder.expiresAt(Wire.uint64(rawExpiresAt, "CloudSessionSetRequest.expires_at"));
+        Object rawExpiresAt = Wire.optional(object, "expires_at");
+        if (!Wire.isMissing(rawExpiresAt)) {
+            builder.expiresAt(Wire.uint64(rawExpiresAt, "CloudSessionSetRequest.expires_at"));
+        }
         return builder.build();
     }
 
@@ -55,6 +64,7 @@ public final class CloudSessionSetRequest implements WireValue {
         LinkedHashMap<String, Object> object = new LinkedHashMap<>();
         Wire.put(object, "access_token", accessToken);
         Wire.put(object, "api_base_url", apiBaseUrl);
+        Wire.put(object, "auth", auth);
         Wire.put(object, "client_version", clientVersion);
         Wire.put(object, "expires_at", expiresAt);
         return Collections.unmodifiableMap(object);
@@ -63,27 +73,25 @@ public final class CloudSessionSetRequest implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof CloudSessionSetRequest that)) return false;
-        return Objects.equals(accessToken, that.accessToken) && Objects.equals(apiBaseUrl, that.apiBaseUrl) && Objects.equals(clientVersion, that.clientVersion) && Objects.equals(expiresAt, that.expiresAt);
+        return Objects.equals(accessToken, that.accessToken) && Objects.equals(apiBaseUrl, that.apiBaseUrl) && Objects.equals(auth, that.auth) && Objects.equals(clientVersion, that.clientVersion) && Objects.equals(expiresAt, that.expiresAt);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(accessToken, apiBaseUrl, clientVersion, expiresAt); }
+    public int hashCode() { return Objects.hash(accessToken, apiBaseUrl, auth, clientVersion, expiresAt); }
 
     @Override
     public String toString() { return "CloudSessionSetRequest" + toWire(); }
 
     public static final class Builder {
-        private String accessToken;
-        private boolean accessTokenSet;
+        private Field<String> accessToken = Field.omitted();
         private String apiBaseUrl;
         private boolean apiBaseUrlSet;
+        private Field<String> auth = Field.omitted();
         private Field<String> clientVersion = Field.omitted();
-        private UInt64 expiresAt;
-        private boolean expiresAtSet;
+        private Field<UInt64> expiresAt = Field.omitted();
 
         public Builder accessToken(String value) {
-            this.accessToken = value;
-            this.accessTokenSet = true;
+            this.accessToken = Field.of(value);
             return this;
         }
         public Builder apiBaseUrl(String value) {
@@ -91,13 +99,16 @@ public final class CloudSessionSetRequest implements WireValue {
             this.apiBaseUrlSet = true;
             return this;
         }
+        public Builder auth(String value) {
+            this.auth = Field.ofNullable(value);
+            return this;
+        }
         public Builder clientVersion(String value) {
             this.clientVersion = Field.ofNullable(value);
             return this;
         }
         public Builder expiresAt(UInt64 value) {
-            this.expiresAt = value;
-            this.expiresAtSet = true;
+            this.expiresAt = Field.of(value);
             return this;
         }
         public CloudSessionSetRequest build() { return new CloudSessionSetRequest(this); }

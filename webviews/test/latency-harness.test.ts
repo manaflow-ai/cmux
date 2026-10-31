@@ -6,6 +6,7 @@ import { describe, expect, setDefaultTimeout, test } from "bun:test";
 import { chromium, webkit, type BrowserType } from "playwright";
 import { measureAction, type LatencyAction } from "./latency/measure";
 import { installLatencyProbe } from "./latency/probe";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("latency-harness.test.ts", async () => {
@@ -41,11 +42,9 @@ document.getElementById("busy").onclick = () => { const end = performance.now() 
       const value = await page.evaluate(() => document.getElementById("out")!.textContent);
       return `document.getElementById("out").textContent !== ${JSON.stringify(value)}`;
     },
+    // No settle: each handler has done all it does once its response is painted.
     async input(page) {
       await page.click(`#${id}`);
-    },
-    async settle(page) {
-      await page.waitForTimeout(80);
     },
   });
 
@@ -59,7 +58,11 @@ document.getElementById("busy").onclick = () => { const end = performance.now() 
           const page = await browser.newPage();
           await page.setContent(PAGE);
           await page.evaluate(installLatencyProbe);
-          await page.waitForTimeout(300);
+          // The probe times the display's frames (its frame budget): about 300 ms of them first.
+          await installPaintedFrames(page);
+          await page.evaluate(async () => {
+            for (let frame = 0; frame < 20; frame++) await window.cmuxPaintFrame();
+          });
           const sync = await measureAction(page, { page: "probe", engine: name }, press("sync"), 3);
           expect(sync.pass).toBe(true);
           expect(sync.work).toBeLessThan(16.7);

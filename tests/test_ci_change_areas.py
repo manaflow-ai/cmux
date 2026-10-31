@@ -2385,6 +2385,107 @@ def test_helper_named_by_product_source_or_a_native_test_fails_open() -> None:
     assert helper_areas({}, references=native) is None
 
 
+def test_helper_a_test_only_unrouted_workflows_run_names_reaches_no_lane() -> None:
+    """feat-cmux-next's cmux-next.yml and nightly.yml, outside ci.yml's call tree, run tests (the
+    checks-workflow test, the nightly strip test) that name ci.yml helpers. Such a test is a dead end
+    like its workflow, not a native test that fails open. (Naming those tests' paths here would make
+    this file a runner of them.)"""
+    unrouted_test = {
+        "tests/test_unrouted.py": "# runs scripts/ci/helper.py\nimport helper\n",
+        ".github/workflows/next.yml": "on: pull_request\njobs:\n  checks:\n    runs-on: macos-15\n"
+                                      "    steps:\n      - run: python3 tests/test_unrouted.py\n",
+        # A registry lane no Mac job runs names it without running it.
+        "tests/test-execution.toml": 'version = 1\n[[test]]\npath = "tests/test_unrouted.py"\nlane = "linux-guard"\n',
+    }
+    assert helper_areas(unrouted_test) == areas()
+    # A macOS registry lane runs it (ci-macos.yml's run_python_test_lane.py), so it fails open.
+    macos_lane = {
+        **unrouted_test,
+        "tests/test-execution.toml": 'version = 1\n[[test]]\npath = "tests/test_unrouted.py"\nlane = "macos-shell"\n',
+    }
+    assert helper_areas(macos_lane) is None
+    # A test a routed job names, or that something else runs, still fails open.
+    run_by_a_script = {**unrouted_test, "scripts/run-it.sh": "python3 tests/test_unrouted.py\n"}
+    assert helper_areas(run_by_a_script) is None
+    # A nightly step script only an unrouted workflow runs is a dead end too.
+    step_script = {
+        **unrouted_test,
+        ".github/workflows/next.yml": "on: pull_request\njobs:\n  checks:\n    runs-on: macos-15\n"
+                                      "    steps:\n      - run: bash scripts/run-it.sh\n",
+        "scripts/run-it.sh": "python3 tests/test_unrouted.py\n",
+    }
+    assert helper_areas(step_script) == areas()
+    nothing_runs = {"tests/test_unrouted.py": unrouted_test["tests/test_unrouted.py"]}
+    assert helper_areas(nothing_runs) is None
+
+
+def _trusted_router_copy(directory: Path):
+    """detect_ci_change_areas.py loaded from a copy of only the files ci.yml's
+    trusted-ci-router step copies, so no other scripts/ci module is importable."""
+    workflow = CI_WORKFLOW.read_text(encoding="utf-8")
+    block = re.search(r"for trusted_path in \\\n(.*?)\n\s*do\n", workflow, re.S)
+    assert block, "ci.yml's trusted router copy list moved"
+    trusted = [line.strip().rstrip("\\").strip() for line in block.group(1).splitlines() if line.strip()]
+    assert "scripts/ci/detect_ci_change_areas.py" in trusted, trusted
+    assert "scripts/ci/test_execution_registry.py" not in trusted, trusted
+    for relative in trusted:
+        target = directory / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(ROOT / relative, target)
+    copy_spec = importlib.util.spec_from_file_location(
+        "trusted_detect_ci_change_areas", directory / "scripts/ci/detect_ci_change_areas.py"
+    )
+    assert copy_spec and copy_spec.loader
+    trusted_module = importlib.util.module_from_spec(copy_spec)
+    sys.modules[copy_spec.name] = trusted_module
+    copy_spec.loader.exec_module(trusted_module)
+    return trusted_module
+
+
+def test_trusted_base_router_copy_applies_the_registry_lane_rule() -> None:
+    """A PR that edits scripts/ci routes through the trusted base router, a copy of only a few
+    files. It must read the registry itself, not import test_execution_registry.py, or a
+    linux-guard test would fail open on pull requests and not on pushes."""
+    unrouted_test = {
+        "tests/test_unrouted.py": "# runs scripts/ci/helper.py\nimport helper\n",
+        ".github/workflows/next.yml": "on: pull_request\njobs:\n  checks:\n    runs-on: macos-15\n"
+                                      "    steps:\n      - run: python3 tests/test_unrouted.py\n",
+        "tests/test-execution.toml": 'version = 1\n[[test]]\npath = "tests/test_unrouted.py"\nlane = "linux-guard"\n',
+    }
+    with tempfile.TemporaryDirectory() as directory:
+        trusted_module = _trusted_router_copy(Path(directory))
+        saved_path = list(sys.path)
+        sys.path[:] = [entry for entry in sys.path if Path(entry or ".").resolve() != HELPER.parent]
+        saved_registry = sys.modules.pop("test_execution_registry", None)
+        try:
+            def trusted_areas(files: dict[str, str]):
+                head = _helper_repo({**ROUTED_TREE, **files})
+                return trusted_module.ci_helper_areas("scripts/ci/helper.py", head, GUARD_ONLY_REFERENCES)
+
+            assert trusted_areas(unrouted_test) == trusted_module.ChangeAreas(
+                macos=False, web=False, agent_session_web=False, swift_packages=False, release_build=False
+            )
+            # Every fail-open case still answers every area from the copy.
+            for registry in (
+                'version = 1\n[[test]]\npath = "tests/test_unrouted.py"\nlane = "macos-shell"\n',
+                'version = 1\n[[test]]\npath = "tests/test_unrouted.py"\n',
+                'version = 1\n[[test]]\npath = "tests/other.py"\nlane = "linux-guard"\n'
+                'reason = "like tests/test_unrouted.py"\n',
+                'version = 1\n[[test]]\npath = "tests/test_unrouted.py"\nlane = "linux-guard"\n'
+                '[[test]]\npath = "tests/test_unrouted.py"\nlane = "macos-shell"\n',
+                'version = 2\n[[test]]\npath = "tests/test_unrouted.py"\nlane = "linux-guard"\n',
+                # Invalid TOML (an unquoted string) that still names the test.
+                'version = 1\n[[test]]\npath = "tests/test_unrouted.py"\nlane = linux-guard\n',
+            ):
+                assert trusted_areas({**unrouted_test, "tests/test-execution.toml": registry}) is None, registry
+            assert "test_execution_registry" not in sys.modules
+        finally:
+            sys.path[:] = saved_path
+            sys.modules.pop("trusted_detect_ci_change_areas", None)
+            if saved_registry is not None:
+                sys.modules["test_execution_registry"] = saved_registry
+
+
 def test_helper_nothing_names_is_unknown_and_fails_open() -> None:
     tree = {k: v for k, v in ROUTED_TREE.items() if not k.startswith("tests/")}
     why: list[str] = []
@@ -2912,8 +3013,10 @@ def test_ci_status_waits_for_platform_workflows() -> None:
     for job_name in MACOS_JOBS:
         assert f"      - {job_name}" not in block
     # The verdict folded in from the retired `tests` job keeps its skip of
-    # pull requests into feat-cmux-next, inside the step.
-    assert 'os.environ.get("GITHUB_BASE_REF") == "feat-cmux-next"' in block.split("name: Check platform workflow routing", 1)[1]
+    # cmux NEXT pull requests, stacked ones included (next_line), inside the step.
+    routing = block.split("name: Check platform workflow routing", 1)[1]
+    assert 'get("next_line") == "true"' in routing
+    assert 'os.environ.get("GITHUB_BASE_REF") == "feat-cmux-next"' in routing
     assert 'macos_route not in {"true", "false"}' in block
     assert 'macos_result != "success"' in block
     assert 'web_result not in {"success", "skipped"}' in block
@@ -2955,22 +3058,31 @@ def test_webviews_bun_jobs_match_dev_engines_pin() -> None:
 
 def test_react_apps_check_keeps_a_stable_aggregate_gate() -> None:
     block = workflow_job_block("react-apps-check", WEB_WORKFLOW)
-    assert "needs: [web-subarea-scope, react-apps-check-shard, react-doctor]" in block
-    assert "react-apps-check-shard" in block
-    assert "react-doctor" in block
-    assert "if: ${{ !cancelled() && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}" in block
+    # #24927 moved a pull request's base comparison into react-apps-base-check;
+    # the gate waits on it too and requires it only on pull requests.
+    assert "needs: [web-subarea-scope, react-apps-check-shard, react-apps-base-check, react-doctor]" in block
+    assert 'required_jobs = ["react-apps-check-shard", "react-doctor"]' in block
+    assert 'required_jobs.append("react-apps-base-check")' in block
+    # always(): a cancelled shard reports a red gate, never a skipped (passing) one.
+    assert "if: ${{ always() && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}" in block
 
 
 def test_react_doctor_runs_as_an_independent_required_lane() -> None:
     block = workflow_job_block("react-doctor", WEB_WORKFLOW)
-    assert "needs: web-subarea-scope" in block
+    assert "needs: [web-subarea-scope, runners]" in block
     assert "react-apps-check-shard" not in block
     assert "bun run react-doctor:ci" in block
     assert "hashFiles('webviews/bun.lock')" in block
-    assert "blacksmith-4vcpu-ubuntu-2404" in block
+    # 16 vCPU from the capability map: on 4 vCPU it hit its 10 min timeout.
+    assert "runs-on: ${{ fromJSON(needs.runners.outputs.map).linux_16 }}" in block
 
 
 def test_every_setup_bun_step_declares_a_version() -> None:
+    # webviews/package.json devEngines is the one bun version; every setup-bun
+    # step in every workflow installs exactly it, so a bump is one edit there
+    # plus these copies, and a copy left behind fails here.
+    package = json.loads((ROOT / "webviews" / "package.json").read_text(encoding="utf-8"))
+    pin = package["devEngines"]["packageManager"]["version"]
     workflows = ROOT / ".github" / "workflows"
     action = "oven-sh/setup-bun@"
     found = 0
@@ -2982,10 +3094,20 @@ def test_every_setup_bun_step_declares_a_version() -> None:
                 continue
             found += 1
             tail = lines[index + 1:index + 7]
-            assert any("bun-version:" in candidate for candidate in tail), (
+            versions = [
+                match.group(1)
+                for candidate in tail
+                if (match := re.match(r'^\s+bun-version:\s*"?([^"\s#]*)"?', candidate))
+            ]
+            assert versions, (
                 workflow_path.relative_to(ROOT),
                 index + 1,
                 "setup-bun must declare an explicit bun-version",
+            )
+            assert versions[0] == pin, (
+                workflow_path.relative_to(ROOT),
+                index + 1,
+                f"setup-bun installs bun {versions[0]}; webviews/package.json devEngines declares {pin}",
             )
 
     assert found >= 20, "setup-bun inventory unexpectedly disappeared"
@@ -3076,6 +3198,10 @@ def _job_runs_only_on_linux(job: dict) -> bool:
         called = yaml.safe_load((ROOT / uses.removeprefix("./")).read_text(encoding="utf-8"))
         return all(_job_runs_only_on_linux(inner) for inner in called["jobs"].values())
     runs_on = str(job.get("runs-on", ""))
+    # A job on the runner capability map (.github/runners.json) names its key.
+    capabilities = re.findall(r"outputs\.map\)\.([a-z0-9_]+)", runs_on)
+    if capabilities:
+        return all(key.startswith("linux") for key in capabilities)
     return "macos" not in runs_on.lower() and ("ubuntu" in runs_on or "LINUX_RUNNER" in runs_on)
 
 
@@ -3932,6 +4058,22 @@ def test_unchanged_build_inputs_skip_mac_compile_before_runner_allocation() -> N
 
     lookup = workflow_step_block("changes", "Look for an earlier run that compiled these inputs")
     assert "steps.unchanged_inputs.outputs.compile_admitted != 'true'" in lookup
+    # A feat-cmux-next pull request never routes macOS (next-route), so it
+    # spends no runs/jobs reads on a compile_admitted nothing consumes.
+    assert "steps.next-route.outputs.macos != 'false'" in lookup
+
+
+def test_pool_picker_reads_the_routes_the_job_outputs_carry() -> None:
+    # With next-route's macOS lanes off, the picker plans no Mac job and makes
+    # no API call; reading detect's raw route spent three per feat push.
+    picker = workflow_step_block("changes", "Choose the pull request macOS pool")
+    for env, step_output in (
+        ("RUN_MACOS", "steps.next-route.outputs.macos || steps.detect.outputs.macos"),
+        ("RUN_FULL_SUITE", "steps.next-route.outputs.full_suite || steps.suite.outputs.full_suite"),
+        ("RUN_SWIFT_PACKAGES", "steps.next-route.outputs.swift_packages || steps.detect.outputs.swift_packages"),
+        ("RUN_RELEASE_BUILD", "steps.next-route.outputs.release_build || steps.detect.outputs.release_build"),
+    ):
+        assert f"          {env}: ${{{{ {step_output} }}}}" in picker, env
 
 
 def test_published_fingerprint_artifact_is_the_one_the_lookup_reads() -> None:
@@ -3987,7 +4129,7 @@ def product_runner_output(key: str) -> str:
     # so it takes pr_gui_runner before the root label:
     # pr_runner_pool.gui_label() of the same owned pick, so the same Xcode.
     gui = "inputs.pr_gui_runner || "
-    return ("${{ (github.run_attempt > 2 && (github.triggering_actor == 'github-actions[bot]' || github.event_name != 'pull_request') || !contains(inputs.pr_owned_jobs, " + key + ")) "
+    return ("${{ (github.run_attempt > 2 && (contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor) || github.event_name != 'pull_request') || !contains(inputs.pr_owned_jobs, " + key + ")) "
             "&& inputs.pr_retry_runner || " + gui + "needs.macos-compile-admission.outputs.runner }}")
 
 
@@ -4291,7 +4433,8 @@ def test_macos_compile_admission_builds_the_product_once() -> None:
 
 def test_static_preflight_rejects_stale_generated_output_before_native_work() -> None:
     steps = yaml.safe_load(CI_WORKFLOW.read_text())["jobs"]["static-preflight"]["steps"]
-    scripts = [step["run"] for step in steps if "run" in step]
+    # The line step routes (it writes GITHUB_OUTPUT); the validators are the rest.
+    scripts = [step["run"] for step in steps if "run" in step and step.get("id") != "line"]
     with tempfile.TemporaryDirectory(prefix="cmux-generated-preflight-") as tmp:
         repo = Path(tmp)
         # Run the actual CI wrapper while isolating the launch policy checker from
@@ -4977,7 +5120,7 @@ def test_macos_jobs_use_lane_specific_xcode_pin_vars() -> None:
     assert "vars.MACOS_RUNNER_PR" not in package_block
     assert (
         "CMUX_CI_XCODE_APP: ${{ (github.event_name == 'pull_request' && contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && "
-        "(github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') || "
+        "(github.run_attempt <= 2 || !contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor)) || "
         "github.event_name == 'workflow_dispatch' && github.run_attempt <= 2) && "
         "contains(inputs.pr_owned_jobs, ' swift-package ') && (inputs.pr_side_runner || inputs.pr_runner) && "
         "(inputs.pr_xcode_app || vars.CMUX_CI_XCODE_APP_PR) || vars.CMUX_CI_XCODE_APP_MACOS_15 }}"
@@ -4990,7 +5133,7 @@ def test_macos_jobs_use_lane_specific_xcode_pin_vars() -> None:
 
     release_block = workflow_job_block("release-build", MACOS_WORKFLOW)
     assert (
-        "CMUX_CI_XCODE_APP: ${{ (github.event_name == 'pull_request' && contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') || github.event_name == 'workflow_dispatch' && github.run_attempt <= 2) && contains(inputs.pr_owned_jobs, ' release-build ') && (inputs.pr_side_runner || inputs.pr_runner) "
+        "CMUX_CI_XCODE_APP: ${{ (github.event_name == 'pull_request' && contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && (github.run_attempt <= 2 || !contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor)) || github.event_name == 'workflow_dispatch' && github.run_attempt <= 2) && contains(inputs.pr_owned_jobs, ' release-build ') && (inputs.pr_side_runner || inputs.pr_runner) "
         "&& (inputs.pr_xcode_app || vars.CMUX_CI_XCODE_APP_PR) || vars.CMUX_CI_XCODE_APP_MACOS_26 }}"
     ) in release_block
     assert 'CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"' in release_block
@@ -5062,7 +5205,7 @@ def test_guard_bun_setup_runs_only_for_owned_groups() -> None:
     setup = block.index("      - name: Set up Bun for guard tests")
     next_step = block.index("      - name: Run agent-chat tests", setup)
     setup_block = block[setup:next_step]
-    assert "if: ${{ matrix.group == 'preflight-agent-chat' || matrix.group == 'release-ios' }}" in setup_block
+    assert "if: ${{ !cancelled() && (matrix.group == 'preflight-agent-chat' || matrix.group == 'release-ios') }}" in setup_block
     assert block.count("setup-bun@") == 1
 
 
@@ -5071,7 +5214,7 @@ def test_guard_python_setup_is_scoped_to_owning_groups() -> None:
     setup = block.index("      - name: Set up Python 3.9 for nightly prune compatibility")
     prepare = block.index("      - name: Prepare workflow guard Python dependencies", setup)
     setup_block = block[setup:prepare]
-    assert "if: ${{ matrix.group == 'release-tooling' }}" in setup_block
+    assert "if: ${{ !cancelled() && matrix.group == 'release-tooling' }}" in setup_block
     prepare_block = block[
         prepare:block.index("      - name: Validate Blacksmith Testbox broker trust boundary", prepare)
     ]
@@ -5080,9 +5223,9 @@ def test_guard_python_setup_is_scoped_to_owning_groups() -> None:
     # the venv.
     # preflight needs YAML traversal for the macOS runner identity guard.
     assert (
-        "if: ${{ matrix.group == 'preflight' || matrix.group == 'ci' || matrix.group == 'app-host-execution' || "
+        "if: ${{ !cancelled() && (matrix.group == 'preflight' || matrix.group == 'ci' || matrix.group == 'app-host-execution' || "
         "matrix.group == 'app-host-cache' || "
-        "matrix.group == 'release-notary' || matrix.group == 'release-tooling' }}"
+        "matrix.group == 'release-notary' || matrix.group == 'release-tooling') }}"
     ) in prepare_block
     assert "python3 -m venv" in prepare_block
     assert "packages=(PyYAML==6.0.3)" in prepare_block
@@ -5097,7 +5240,7 @@ def test_pipe_safe_capture_guard_runs_once_in_app_host_execution_group() -> None
     start = block.index("      - name: Validate pipe-safe CI capture")
     end = block.index("      - name: Validate focused test launcher", start)
     step = block[start:end]
-    assert "if: ${{ matrix.group == 'app-host-execution' }}" in step
+    assert "if: ${{ !cancelled() && matrix.group == 'app-host-execution' }}" in step
     assert block.count("Validate pipe-safe CI capture") == 1
 
 

@@ -4,6 +4,7 @@
 //! arm of `handle_command_with_cancellation`.
 
 use super::size_state_for_client;
+use crate::panic_free::RecoverPoison;
 
 use super::AttachWireShape;
 use super::AttachWorkerCommit;
@@ -346,11 +347,12 @@ pub(super) fn attach_surface(
             resize_completion,
         } = mark_client_attached(mux, client, surface_id, outbound_stream.clone(), initial_size)?;
         if let Some(reservation) = resize_reservation
-            && let Err(error) = wait_for_initial_browser_resize(
-                resize_completion.as_ref().expect("sized browser attach has a completion receiver"),
-                surface_id,
-                reservation,
-            )
+            && let Err(error) = match resize_completion.as_ref() {
+                Some(completion) => {
+                    wait_for_initial_browser_resize(completion, surface_id, reservation)
+                }
+                None => Err(anyhow::anyhow!("sized browser attach has no completion receiver")),
+            }
         {
             lifecycle.cancel();
             rollback_failed_attach(mux, client, surface_id, outbound_stream.id, size_rollback);
@@ -415,7 +417,7 @@ pub(super) fn attach_surface(
                         break;
                     }
                 }
-                let update = std::mem::take(&mut *frames.slot.lock().unwrap());
+                let update = std::mem::take(&mut *frames.slot.lock().recover_poison());
                 // A frame event applies its bitmap and authority
                 // atomically. Publish it before a paired state
                 // snapshot can expose the same positive token.

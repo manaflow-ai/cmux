@@ -13,6 +13,10 @@ const SAVE_EVERY_MS: u64 = 30_000;
 #[serde(rename_all = "camelCase")]
 struct Saved {
     last_seen: Option<u64>,
+    #[serde(default)]
+    down_since: Option<u64>,
+    #[serde(default)]
+    next_retry_at: Option<u64>,
     sessions: Vec<Value>,
 }
 
@@ -25,8 +29,21 @@ fn cache_path(dir: &std::path::Path, peer: &str) -> Option<std::path::PathBuf> {
 /// clients read), `stale`, and when the peer was last seen. Returns whether
 /// the row changed.
 pub(super) fn mark_stale(summary: &mut Value, last_seen: Option<u64>) -> bool {
+    // A completed chat stays completed even when its machine goes away.
+    if summary["status"] == "closed" {
+        return false;
+    }
     let before = summary.clone();
     summary["status"] = Value::String("unreachable".into());
+    if summary.get("state").is_some() {
+        summary["state"] = Value::String("unreachable".into());
+    }
+    // Unreachable is not stuck: last-known stuck details would contradict `state`.
+    for key in ["stuckReason", "stuckSince", "stuckError"] {
+        if summary.get(key).is_some() {
+            summary[key] = Value::Null;
+        }
+    }
     summary["stale"] = Value::Bool(true);
     summary["lastSeen"] = json!(last_seen);
     super::views::decide(summary);
@@ -34,9 +51,20 @@ pub(super) fn mark_stale(summary: &mut Value, last_seen: Option<u64>) -> bool {
 }
 
 impl Hub {
-    /// Save `peer`'s rows; unless `now`, at most once per `SAVE_EVERY_MS`.
-    pub(super) fn save_peer_cache(&self, peer: &str, now: bool) {
-        let (Some(dir), Some(p)) = (self.store.peer_cache_dir(), self.peer(peer)) else { return };
+    /// Save `peer`'s rows, while `generation` is the instance registered
+    /// under that name; unless `now`, at most once per `SAVE_EVERY_MS`.
+    pub(super) fn save_peer_cache(&self, peer: &str, generation: u64, now: bool) {
+        // Held to the end: a lease, `add_peer` taking a leased name over and
+        // `remove_peer` change who holds the name under this lock, so a save
+        // of a replaced or removed instance never lands (lock order:
+        // `peer_leases` first).
+        let leases = self.peer_leases.lock().unwrap_or_else(|e| e.into_inner());
+        // A leased peer leaves nothing on disk (`peer_lease.rs`).
+        if leases.contains_key(peer) {
+            return;
+        }
+        let p = self.peer(peer).filter(|p| p.generation == generation);
+        let (Some(dir), Some(p)) = (self.store.peer_cache_dir(), p) else { return };
         let Some(path) = cache_path(&dir, peer) else { return };
         let at = now_ms();
         let last = p.cache_saved_at.load(std::sync::atomic::Ordering::SeqCst);
@@ -52,14 +80,24 @@ impl Hub {
             .filter(|r| r.peer == peer)
             .map(|r| r.summary.clone())
             .collect();
-        let saved = Saved { last_seen: p.link().last_seen, sessions };
+        let link = p.link();
+        let saved = Saved {
+            last_seen: link.last_seen,
+            down_since: link.down_since,
+            next_retry_at: link.next_retry_at,
+            sessions,
+        };
         let write = || -> anyhow::Result<()> {
             crate::config::private_state_dir(&dir)?;
             crate::config::write_atomic(&path, &serde_json::to_vec(&saved)?)
         };
         if let Err(e) = write() {
             tracing::warn!(peer = %peer, "saving the peer's last-known sessions failed: {e}");
+        } else {
+            p.cache_saved_outage
+                .store(saved.down_since.is_some(), std::sync::atomic::Ordering::SeqCst);
         }
+        drop(leases);
     }
 
     /// A peer that starts with no rows here (this daemon just started) lists
@@ -69,7 +107,9 @@ impl Hub {
         let Some(path) = cache_path(&dir, &peer.name) else { return };
         let Ok(bytes) = std::fs::read(&path) else { return };
         let Ok(saved) = serde_json::from_slice::<Saved>(&bytes) else { return };
-        peer.seed_last_seen(saved.last_seen);
+        peer.seed_cached_link(saved.last_seen, saved.down_since, saved.next_retry_at);
+        peer.cache_saved_outage
+            .store(saved.down_since.is_some(), std::sync::atomic::Ordering::SeqCst);
         let mut map = self.remote_sessions.lock().unwrap_or_else(|e| e.into_inner());
         if map.values().any(|r| r.peer == peer.name) {
             return;
@@ -77,15 +117,44 @@ impl Hub {
         for mut summary in saved.sessions {
             let Some(receipt) = super::peers::session_receipt(&summary) else { continue };
             mark_stale(&mut summary, saved.last_seen);
+            // An older build saved rows with a peer's own display line.
+            super::drop_display_lines(&mut summary);
             let remote = RemoteSession { peer: peer.name.clone(), summary, receipt };
             map.insert(remote.receipt.qualified_id(), remote);
         }
     }
 
+    /// `forget_peer_files` under the rows lock (`remove_peer` holds it itself).
+    #[cfg(test)]
     pub(super) fn forget_peer_cache(&self, peer: &str) {
+        let _rows = self.remote_sessions.lock().unwrap_or_else(|e| e.into_inner());
+        self.forget_peer_files(peer);
+    }
+
+    /// `forget_peer_cache` with the rows lock held by the caller (`remove_peer`).
+    pub(super) fn forget_peer_files(&self, peer: &str) {
         if let Some(path) = self.store.peer_cache_dir().and_then(|d| cache_path(&d, peer)) {
             let _ = std::fs::remove_file(path);
         }
+        // And its sessions' event snapshots (`peer_snapshot.rs`), under the rows lock once the
+        // peer has left the registry (`remove_peer`): a listing or capture of it that found it
+        // current (under this lock) has sent its op already and none after it does, so no
+        // listing that lets a page start a copy again comes after this.
+        self.peer_snapshots.forget_peer(peer);
+    }
+
+    /// A peer `name` that is registered but whose link is down, having listed `rows` and taken
+    /// attachments before it went: what a server test sends to while the peer is unreachable.
+    #[cfg(test)]
+    pub(crate) fn seed_down_peer(&self, name: &str, rows: Vec<Value>) -> Arc<crate::peer::Peer> {
+        use crate::peer::PeerNotice;
+        let (tx, _rx) = tokio::sync::mpsc::channel(8);
+        let peer = crate::peer::Peer::new(name, "ws://127.0.0.1:9", None, None, tx);
+        peer.seed_send_attach(true);
+        self.peers.lock().unwrap().insert(name.to_owned(), peer.clone());
+        self.apply_peer_notice(name, peer.generation, PeerNotice::Sessions(rows));
+        self.apply_peer_notice(name, peer.generation, PeerNotice::Disconnected("down".into()));
+        peer
     }
 
     /// The refusal for `PEER/name` when PEER is a peer that is down and
@@ -116,6 +185,52 @@ mod tests {
         (hub_at(dir.path()), dir)
     }
 
+    #[tokio::test]
+    async fn an_empty_peer_outage_survives_a_daemon_restart() {
+        let (hub, dir) = test_hub();
+        let peer = crate::peer::Peer::new(
+            "absent",
+            "invalid://peer",
+            None,
+            None,
+            hub.peer_notices.clone(),
+        );
+        let down_since = now_ms() - 86_400_001;
+        peer.seed_outage(Some(down_since));
+        hub.peers.lock().unwrap().insert("absent".into(), peer.clone());
+        let mut settled = peer.settled();
+        let running = tokio::spawn(peer.clone().run());
+        tokio::time::timeout(std::time::Duration::from_secs(5), settled.changed())
+            .await
+            .unwrap()
+            .unwrap();
+        peer.stop();
+        running.await.unwrap();
+
+        let again = hub_at(dir.path());
+        let restored = add_idle_peer(&again, "absent");
+        again.load_peer_cache(&restored);
+        assert_eq!(restored.link().down_since, Some(down_since));
+        assert_eq!(restored.link().last_seen, None, "never reached is preserved");
+        assert!(
+            restored.link().next_retry_at.is_some_and(|at| at > now_ms()),
+            "the remaining parked interval survives reboot"
+        );
+        assert!(again.remote_sessions().is_empty());
+        let mut backoff = crate::peer_link::Backoff::default();
+        assert_eq!(
+            restored.link().retry_delay(&mut backoff, now_ms(), 0.0),
+            std::time::Duration::from_secs(3_600)
+        );
+    }
+
+    #[test]
+    fn older_peer_caches_have_no_proven_outage_age() {
+        let saved: Saved = serde_json::from_value(json!({"lastSeen": 1, "sessions": []})).unwrap();
+        assert_eq!(saved.down_since, None);
+        assert_eq!(saved.next_retry_at, None);
+    }
+
     /// A peer that is registered but never runs: its link stays down.
     fn add_idle_peer(hub: &Hub, name: &str) -> Arc<crate::peer::Peer> {
         let (tx, _rx) = tokio::sync::mpsc::channel(8);
@@ -132,14 +247,22 @@ mod tests {
     fn a_down_peer_keeps_its_sessions_listed_as_stale_and_restarts_list_them_again() {
         let (hub, dir) = test_hub();
         let peer = add_idle_peer(&hub, "huge-blue");
-        hub.apply_peer_notice("huge-blue", PeerNotice::Sessions(vec![remote("m1", "lane")]));
+        hub.apply_peer_notice(
+            "huge-blue",
+            peer.generation,
+            PeerNotice::Sessions(vec![remote("m1", "lane")]),
+        );
         let fresh = hub.remote_sessions();
         assert_eq!(fresh.len(), 1);
         assert_eq!(fresh[0]["stale"], false, "{fresh:?}");
         assert_eq!(fresh[0]["peer"], "huge-blue");
 
         peer.seed_last_seen(Some(now_ms() - 40_000));
-        hub.apply_peer_notice("huge-blue", PeerNotice::Disconnected("connect timed out".into()));
+        hub.apply_peer_notice(
+            "huge-blue",
+            peer.generation,
+            PeerNotice::Disconnected("connect timed out".into()),
+        );
         let stale = hub.remote_sessions();
         assert_eq!(stale.len(), 1, "kept, not dropped");
         assert_eq!(stale[0]["status"], "unreachable", "what older clients read");
@@ -161,7 +284,11 @@ mod tests {
         assert_eq!(peer.state(), crate::peer_link::PeerState::Reconnecting);
 
         // Its first handshake replaces the saved rows with fresh ones.
-        again.apply_peer_notice("huge-blue", PeerNotice::Sessions(vec![remote("m1", "lane")]));
+        again.apply_peer_notice(
+            "huge-blue",
+            peer.generation,
+            PeerNotice::Sessions(vec![remote("m1", "lane")]),
+        );
         let back = again.remote_sessions();
         assert_eq!(back[0]["stale"], false, "{back:?}");
         assert_eq!(back[0]["status"], "idle");
@@ -170,14 +297,42 @@ mod tests {
         assert!(!dir.path().join("peers/huge-blue.json").exists());
     }
 
+    /// A cache an older build saved can hold a peer's own display line on a pending ask: the
+    /// row a restart lists carries none (`drop_display_lines`), the tool's own input kept.
+    #[test]
+    fn a_saved_rows_display_line_is_dropped_when_loaded() {
+        let (hub, dir) = test_hub();
+        let mut row = Hub::remote_summary("huge-blue", remote("m1", "lane"));
+        row["pending"] = json!([{"permissionId": "p1", "request": {"toolCall": {
+            "rawInput": {"_meta": {"acpmux": {"display": {"headline": "the tool's own input"}}}},
+            "_meta": {"acpmux": {"display": {"headline": "Leo wants to say hi"}}}}}}]);
+        std::fs::create_dir_all(dir.path().join("peers")).unwrap();
+        let saved = json!({"lastSeen": now_ms() - 40_000, "sessions": [row]});
+        std::fs::write(dir.path().join("peers/huge-blue.json"), saved.to_string()).unwrap();
+        let peer = add_idle_peer(&hub, "huge-blue");
+        hub.load_peer_cache(&peer);
+        let listed = Value::from(hub.remote_sessions());
+        assert_eq!(listed[0]["name"], "huge-blue/lane", "{listed}");
+        assert!(!listed.to_string().contains("Leo wants to say hi"), "{listed}");
+        assert!(listed.to_string().contains("the tool's own input"), "{listed}");
+    }
+
     #[tokio::test]
     async fn a_request_for_a_down_peers_session_is_peer_unreachable_not_no_session() {
         let (hub, _dir) = test_hub();
         let peer = add_idle_peer(&hub, "huge-blue");
         *peer.last_error.lock().unwrap() = Some("connect timed out".into());
         peer.seed_last_seen(Some(now_ms() - 40_000));
-        hub.apply_peer_notice("huge-blue", PeerNotice::Sessions(vec![remote("m1", "lane")]));
-        hub.apply_peer_notice("huge-blue", PeerNotice::Disconnected("connect timed out".into()));
+        hub.apply_peer_notice(
+            "huge-blue",
+            peer.generation,
+            PeerNotice::Sessions(vec![remote("m1", "lane")]),
+        );
+        hub.apply_peer_notice(
+            "huge-blue",
+            peer.generation,
+            PeerNotice::Disconnected("connect timed out".into()),
+        );
 
         let (found, id, _) = hub.resolve_remote("huge-blue/lane").expect("still listed");
         let e = found.request(method::SESSION_PROMPT, json!({"sessionId": id})).await.unwrap_err();
@@ -186,7 +341,11 @@ mod tests {
             "{}",
             e.message
         );
-        assert!(e.message.ends_with(": connect timed out)"), "{}", e.message);
+        assert!(
+            e.message.contains(": connect timed out); the request was not sent"),
+            "{}",
+            e.message
+        );
         assert_eq!(e.data.as_ref().unwrap()["reason"], "peer_unreachable");
 
         // A name the peer never listed here: still the peer, not no_session.
@@ -194,5 +353,16 @@ mod tests {
         assert!(e.message.starts_with("peer_unreachable: huge-blue"), "{}", e.message);
         assert!(hub.peer_down_for("nopeer/lane").is_none());
         assert!(hub.peer_down_for("lane").is_none());
+    }
+
+    #[test]
+    fn a_stale_row_is_unreachable_with_no_stuck_details() {
+        let mut row = json!({"sessionId": "m1", "status": "ready", "state": "stuck",
+            "stuckReason": "capacity", "stuckSince": 7, "stuckError": "HTTP 503"});
+        assert!(mark_stale(&mut row, Some(9)));
+        assert_eq!(row["state"], "unreachable", "{row}");
+        for key in ["stuckReason", "stuckSince", "stuckError"] {
+            assert!(row[key].is_null(), "{key}: {row}");
+        }
     }
 }

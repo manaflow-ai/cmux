@@ -4,20 +4,53 @@ import CmuxNextDesign
 /// cx-0q7o: an allow went to an agent daemon run on another machine that holds no person key of
 /// this app for that run, so that daemon refuses it. The pane says remote approvals are
 /// off there and, when the chat's machine offers it, restarts that daemon with a key of this app.
+/// A peer of this Mac's daemon that has not enrolled this Mac (peer-route approvals) gets the
+/// same notice, naming the peer, with Enroll this Mac.
 extension AgentPaneView {
     func showRemoteApprovalsOff(_ approvals: AgentPaneRemoteApprovals?) {
-        guard remoteApprovalsNotice == nil else { return }
+        guard remoteApprovalsNotice == nil || peerApprovalsReason != nil else { return }
+        hideRemoteApprovalsOff()
         let machine = approvals?.label ?? Self.remoteApprovalsThisMachine
-        let title = ChromeLabel(wrappingLabelWithString: Self.remoteApprovalsOffTitle(machine))
-        title.font = .boldSystemFont(ofSize: NSFont.smallSystemFontSize)
-        let detail = ChromeLabel(wrappingLabelWithString: Self.remoteApprovalsOffDetail(machine))
-        detail.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
-        var views: [NSView] = [title, detail]
         remoteApprovals = approvals
-        if approvals != nil {
-            let restart = ThemedBezelButton(title: Self.remoteApprovalsRestart, target: self, action: #selector(restartWithApprovals(_:)))
-            restart.bezelStyle = .rounded
-            views.append(restart)
+        let restart = approvals == nil ? nil : (Self.remoteApprovalsRestart, #selector(restartWithApprovals(_:)))
+        showApprovalsNotice(title: Self.remoteApprovalsOffTitle(machine), detail: Self.remoteApprovalsOffDetail(machine), button: restart)
+    }
+
+    /// Peer-route approvals: a peer of this Mac's agent daemon did not count this Mac's allow.
+    /// Not enrolled there: the notice names the peer and offers to enroll this Mac (`acpmux host
+    /// approvals enroll`); the person then chooses Allow once again. Not a one-time allow: the
+    /// notice says only those work. A new reason replaces the notice; the same one keeps it (an
+    /// enroll may be running); nil (a later answer counted) removes a peer notice.
+    func showPeerApprovalsOff(_ reason: AgentPanePeerApprovals?) {
+        guard let reason else {
+            if peerApprovalsReason != nil { hideRemoteApprovalsOff() }
+            return
+        }
+        guard peerApprovalsReason != reason else { return }
+        hideRemoteApprovalsOff()
+        peerApprovalsReason = reason
+        switch reason {
+        case .notEnrolled(let peer):
+            let enroll = model.transport.peerApprover?.enroll == nil ? nil : (Self.peerApprovalsEnroll, #selector(enrollThisMac(_:)))
+            showApprovalsNotice(title: Self.peerApprovalsOffTitle(peer), detail: Self.peerApprovalsOffDetail, button: enroll)
+        case .onceOnly:
+            showApprovalsNotice(title: Self.peerApprovalsOnceOnly, detail: nil, button: nil)
+        }
+    }
+
+    private func showApprovalsNotice(title text: String, detail detailText: String?, button: (String, Selector)?) {
+        let title = ChromeLabel(wrappingLabelWithString: text)
+        title.font = .boldSystemFont(ofSize: NSFont.smallSystemFontSize)
+        var views: [NSView] = [title]
+        if let detailText {
+            let detail = ChromeLabel(wrappingLabelWithString: detailText)
+            detail.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+            views.append(detail)
+        }
+        if let button {
+            let control = ThemedBezelButton(title: button.0, target: self, action: button.1)
+            control.bezelStyle = .rounded
+            views.append(control)
         }
         for case let label as ChromeLabel in views {
             label.alignment = .center
@@ -38,7 +71,7 @@ extension AgentPaneView {
         remoteApprovalsNotice = notice
     }
 
-    #if DEBUG
+    #if DEBUG || CMUX_BENCH_HOOKS
     /// Debug socket (cx-kvmz T2): the notice's text lines and whether it offers the restart; nil
     /// without a notice. Reads the views a person sees, nothing else.
     public var remoteApprovalsNoticeLines: (lines: [String], restart: Bool)? {
@@ -60,6 +93,27 @@ extension AgentPaneView {
         remoteApprovalsNotice?.removeFromSuperview()
         remoteApprovalsNotice = nil
         remoteApprovals = nil
+        peerApprovalsReason = nil
+    }
+
+    @objc private func enrollThisMac(_ sender: NSButton) {
+        // The daemon this pane talks to now, which named the peer: a reconnect while the command
+        // runs does not change where it enrolls, and a pane with no daemon enrolls nowhere.
+        guard case .notEnrolled(let peer) = peerApprovalsReason, let approver = model.transport.peerApprover, let enroll = approver.enroll,
+              let notice = remoteApprovalsNotice, let socket = model.transport.acpmuxSocket else { return }
+        let daemon = approver.daemon(socket: socket)
+        sender.isEnabled = false
+        // task-owner: one enroll per click; the notice it updates belongs to this pane
+        Task { @MainActor [weak self, weak notice, weak sender] in
+            let failure = await enroll(peer, daemon)
+            guard let self, let notice, self.remoteApprovalsNotice === notice else { return }
+            // Enrolled: the prompt is still open there, and Allow once now counts.
+            guard let failure else { return self.hideRemoteApprovalsOff() }
+            sender?.isEnabled = true
+            if let detail = notice.arrangedSubviews.dropFirst().first as? any ShownText {
+                detail.stringValue = Self.peerApprovalsEnrollFailed(peer, failure)
+            }
+        }
     }
 
     @objc private func restartWithApprovals(_ sender: NSButton) {

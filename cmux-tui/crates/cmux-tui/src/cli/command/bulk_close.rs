@@ -37,7 +37,12 @@ pub(super) fn close(
                 "--include-pinned needs --others, --to-right, --to-left or --all",
             ));
         }
-        return request(plain, selectors, flags, Map::new());
+        let mut params = Map::new();
+        // A workspace close names the closed groups it stored when asked.
+        if level == "workspace" && flags.boolean("report-closed-ids") {
+            params.insert("report_closed_ids".into(), Value::Bool(true));
+        }
+        return request(plain, selectors, flags, params);
     };
     if chosen.len() > 1 {
         return Err(UsageError::new("use one of --others, --to-right, --to-left and --all"));

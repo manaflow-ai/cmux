@@ -1,6 +1,55 @@
 --- a/Sources/MessagesLabSidebar/Vendor/appkit-native/SidebarDrawing.swift
 +++ b/Sources/MessagesLabSidebar/Vendor/appkit-native/SidebarDrawing.swift
-@@ -405,7 +405,8 @@
+@@ -236,11 +236,7 @@
+         case let .emoji(e):
+             g.setFillColor(p.groupDisc)
+             g.fillEllipse(in: r)
+-            let font = emojiFont(r.width * 0.5) // held, not made per draw (cx-qpqs)
+-            let l = line(e, font, CGColor(gray: 0, alpha: 1))
+-            var asc: CGFloat = 0, desc: CGFloat = 0
+-            let lw = CGFloat(CTLineGetTypographicBounds(l, &asc, &desc, nil))
+-            draw(l, x: r.midX - lw / 2, baseline: r.midY + (asc - desc) / 2, g)
++            emoji(e, in: r, g) // cmux: centered by its drawn box, one share of the disc
+         case let .group(members):
+             g.setFillColor(p.groupDisc)
+             g.fillEllipse(in: r)
+@@ -261,8 +257,35 @@
+                 avatar(member ?? .monogram(""), in: sub, g, p)
+             }
+         }
++    }
++
++    /// cmux: an emoji avatar's drawn box (its glyph image bounds) spans this share of the disc's
++    /// diameter at every size, so the pinned tile and the row draw one avatar.
++    static let emojiShare: CGFloat = 0.6
++
++    /// cmux: `e` centered on the disc `r` by its drawn box, not by its advance and line height,
++    /// at `emojiShare` of the disc. Set at half the disc, the art of the Chief's 🫡 filled 47 % of
++    /// the tile's disc and 52 % of the row's (the user's screenshot, 2026-10-20: a small emoji in
++    /// a big disc).
++    static func emoji(_ e: String, in r: CGRect, _ g: CGContext) {
++        let black = CGColor(gray: 0, alpha: 1)
++        let probe = drawnBounds(line(e, emojiFont(r.width * 0.5), black))
++        let side = max(probe.width, probe.height)
++        guard side > 0, side.isFinite else { return }
++        // Half points, so the held fonts stay few (cx-qpqs).
++        let size = max(1, (r.width * 0.5 * emojiShare * r.width / side * 2).rounded() / 2)
++        let l = line(e, emojiFont(size), black)
++        let b = drawnBounds(l) // y up from the baseline; `draw` puts the baseline at y down
++        draw(l, x: r.midX - b.midX, baseline: r.midY + b.midY, g)
+     }
+ 
++    /// cmux: a line's drawn box (glyph bounds, y up from the baseline), else its typographic box.
++    static func drawnBounds(_ l: CTLine) -> CGRect {
++        let glyphs = CTLineGetBoundsWithOptions(l, .useGlyphPathBounds)
++        if glyphs.width > 0, glyphs.height > 0, glyphs.width.isFinite, glyphs.height.isFinite { return glyphs }
++        return CTLineGetBoundsWithOptions(l, [])
++    }
++
+     // MARK: Row
+ 
+     /// The row's parts, each its own layer: the avatar (shared avatar bitmap) and the unread
+@@ -405,7 +428,8 @@
      /// The avatar's rect in a tile (tile coordinates).
      static func tileAvatar(_ m: SidebarMetrics) -> CGRect {
          let d = m.pinAvatar
@@ -10,7 +59,20 @@
      }
  
      /// A pinned tile is layers: the avatar (one bitmap at the largest pin size, scaled), the
-@@ -432,7 +433,7 @@
+@@ -422,8 +446,10 @@
+         return (n, b)
+     }
+     /// The width a tile name bitmap is drawn for: 0 when the name fits (natural width), else the room.
+-    static func tileNameKeyWidth(natural: CGFloat, tileWidth: CGFloat) -> CGFloat {
+-        natural <= tileWidth - 8 ? 0 : (tileWidth - 8).rounded(.down)
++    /// `unread`: the room leaves space for the dot before the name (`tileLabel`).
++    static func tileNameKeyWidth(natural: CGFloat, tileWidth: CGFloat, unread: Bool = false) -> CGFloat {
++        let room = tileWidth - 8 - (unread ? tileDotDiameter + tileDotGap : 0)
++        return natural <= room ? 0 : room.rounded(.down)
+     }
+     /// The width a bubble is drawn for: 0 when the preview fits on one line, else the bubble's room.
+     static func tileBubbleKeyWidth(natural: CGFloat, tileWidth: CGFloat) -> CGFloat {
+@@ -432,7 +458,7 @@
      /// The name, 16 pt tall, baseline 11 pt; `keyWidth` 0: natural width.
      static func tileNameImage(_ c: ConversationSummary, emphasized: Bool, keyWidth: CGFloat, ctx: SidebarRenderContext) -> CGImage? { // nil when the bitmap cannot be allocated
          let p = ctx.palette
@@ -19,19 +81,49 @@
          let full = line(tileName(c), pinNameFont, color)
          let l = keyWidth > 0 ? truncated(full, keyWidth, pinNameFont, color) : full
          let w = max(1, width(l).rounded(.up))
-@@ -488,6 +489,11 @@
-     /// The 12 pt unread dot on the tile's leading edge, left of the avatar, and below the bubble
-     /// (`bubble`, nil: none) so a wide bubble never covers it (cmux-next's rule, 2026-10-08).
-     static func tileUnreadDot(_ m: SidebarMetrics, bubble: CGRect?) -> CGRect {
-+        if m.compact { // cmux: the compact list's tile dot sits where a row's dot sits (tile coordinates)
-+            let d = SidebarMetrics.dotDiameter
-+            let x0 = m.tileRect(0).minX
-+            return CGRect(x: m.dotCenterX - x0 - d / 2, y: (m.tileHeight / 2 - d / 2).rounded(), width: d, height: d)
-+        }
-         let d: CGFloat = 12
+@@ -485,16 +511,33 @@
+         return CGRect(x: (c.x - d / 2).rounded(), y: (c.y - d / 2).rounded(), width: d, height: d)
+     }
+ 
+-    /// The 12 pt unread dot on the tile's leading edge, left of the avatar, and below the bubble
+-    /// (`bubble`, nil: none) so a wide bubble never covers it (cmux-next's rule, 2026-10-08).
+-    static func tileUnreadDot(_ m: SidebarMetrics, bubble: CGRect?) -> CGRect {
+-        let d: CGFloat = 12
++    /// The pinned tile's unread dot: the row dot's size, this far before the name.
++    static let tileDotDiameter: CGFloat = SidebarMetrics.dotDiameter
++    static let tileDotGap: CGFloat = 4
++
++    /// The name's frame and the unread dot's (nil: read) under the avatar (tile coordinates).
++    /// Messages' pinned grid: the dot sits inline before the name ("• Instinct") and the pair is
++    /// centred, so the dot never meets the bubble over the avatar's top, its tail or the avatar
++    /// (the user, 2026-10-21: the old dot at the avatar's upper left overlapped the bubble's tail).
++    /// `nameWidth`: the name bitmap's width in points. Not for the compact list (no names).
++    static func tileLabel(_ m: SidebarMetrics, nameWidth nw: CGFloat, unread: Bool) -> (name: CGRect, dot: CGRect?) {
          let ar = tileAvatar(m)
-         let cx = max(d / 2 + 1, ar.minX - d / 2 - 1)
-@@ -648,7 +654,7 @@
+-        let cx = max(d / 2 + 1, ar.minX - d / 2 - 1)
+-        var cy = ar.midY - ar.height * 0.25
+-        if let bubble { cy = max(cy, bubble.maxY + d / 2 + 3) }
+-        return CGRect(x: cx - d / 2, y: cy - d / 2, width: d, height: d)
++        let y = ar.maxY + SidebarMetrics.pinNameGap
++        let lead = unread ? tileDotDiameter + tileDotGap : 0
++        let x0 = max(4, ((m.tileWidth - lead - nw) / 2).rounded())
++        let name = CGRect(x: x0 + lead, y: y, width: nw, height: SidebarMetrics.pinNameHeight)
++        guard unread else { return (name, nil) }
++        // Centred on the name's lowercase letters (11 pt font, baseline 11 pt in the 16 pt line).
++        let d = tileDotDiameter
++        return (name, CGRect(x: x0, y: (y + 7 - d / 2).rounded(), width: d, height: d))
+     }
++
++    /// The compact list's tile dot: where a row's dot sits (tile coordinates; no names there).
++    static func compactTileUnreadDot(_ m: SidebarMetrics) -> CGRect {
++        let d = SidebarMetrics.dotDiameter
++        let x0 = m.tileRect(0).minX
++        return CGRect(x: m.dotCenterX - x0 - d / 2, y: (m.tileHeight / 2 - d / 2).rounded(), width: d, height: d)
++    }
+ }
+ 
+ /// The list's motion (render-server animations only; no main-thread frames). Start values are the
+@@ -648,7 +691,7 @@
          for d in lit { d.backgroundColor = p.typingDot; d.contentsScale = scale }
      }
      /// The dots pulse (tests: every lit dot has its animation, or the still phase is set).
@@ -40,7 +132,7 @@
      /// Still scenes: the dots stand at this phase of the pulse (0-1) instead of animating (nil: animate).
      static var stillPhase: Double?
      private static func level(_ i: Int, phase t: Double) -> Double {
-@@ -658,9 +664,12 @@
+@@ -658,9 +701,12 @@
      }
      /// Starts the pulse once. Phase-locked to whole periods of the media clock, so every bubble
      /// in the list pulses in step and a row that scrolls back in does not restart its cycle.

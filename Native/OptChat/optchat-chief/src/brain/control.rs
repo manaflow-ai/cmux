@@ -409,7 +409,7 @@ impl Brain {
         sub.status == SubStatus::Running && sub.session_id.is_some()
     }
 
-    fn control_interrupt(
+    pub(super) fn control_interrupt(
         &mut self,
         sub: &SubRecord,
         message: Option<&str>,
@@ -754,7 +754,9 @@ impl Brain {
                 },
                 None => outcome(
                     "done",
-                    format!("{id} is cancelled; it is still starting and gets nothing more"),
+                    format!(
+                        "{id} is cancelled; it is still starting, and its turn stops as soon as it starts"
+                    ),
                 ),
             },
             SubStatus::Done | SubStatus::Reported => {
@@ -763,13 +765,14 @@ impl Brain {
         }
     }
 
-    fn control_restart(
+    pub(super) fn control_restart(
         &mut self,
         sub: &SubRecord,
         message: Option<&str>,
     ) -> Result<String, String> {
         let id = sub.id.as_str();
         let text = message.unwrap_or(RESTART_PROMPT).to_owned();
+        self.outcome_resumed(id);
         if let Some(s) = self.state.sub_mut(id) {
             s.cancelled = false;
             s.paused = false;
@@ -857,14 +860,18 @@ impl Brain {
     fn control_cloud(&mut self, peer: Option<&str>) -> Result<String, String> {
         let now = |p: Option<&str>| {
             match p {
+            Some(crate::subagents::PER_AGENT) => "each new subagent runs in its own Freestyle VM (chief-sub-<id>), sized to its task; tasks that need the Mac stay here (spawn place \"local\" keeps one here, \"cloud:small|medium|large\" picks the size)".to_owned(),
             Some(p) => format!("new subagents run on the cloud peer {p} (spawn place \"local\" keeps one here)"),
             None => "new subagents run on this host (spawn place \"cloud\" needs a peer: control cloud PEER)".to_owned(),
         }
         };
         let current = self.state.cloud_peer.clone();
+        // Nothing saved: cloud by default when a pool tool is set up (v2).
+        let pool = self.cloud_vms.as_ref().is_some_and(|v| v.available());
         let effective = |saved: &Option<String>| match saved.as_deref() {
             Some("") => None,
             Some(p) => Some(p.to_owned()),
+            None if pool => Some(crate::subagents::PER_AGENT.to_owned()),
             None => None,
         };
         let Some(peer) = peer.map(str::trim).filter(|p| !p.is_empty()) else {
