@@ -13,8 +13,7 @@ import type { Root } from "react-dom/client";
 import { noChat } from "../src/gallery/fixtures/acpmux";
 import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
 import type { ComposerHandle } from "../src/agent-session/acpmux/Composer";
-import * as composerDraft from "../src/agent-session/acpmux/composerDraft";
-import { hydratedDraft, notifyDraftActionsChanged } from "../src/agent-session/acpmux/composerDraft";
+import { MAX_DRAFT_CHARS, hydratedDraft, notifyDraftActionsChanged } from "../src/agent-session/acpmux/composerDraft";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -430,7 +429,7 @@ test("a quit's read answers before the load's: the editor and acpmux both keep s
 // stays exactly as it was, and the editor keeps what the person typed. Nothing is lost.
 // The limit as the stores keep it (acpmux's Hub::MAX_COMPOSER_DRAFT_CHARS, AgentUnsentDrafts).
 const LIMIT = 1_000_000;
-const tooLong = (text: string) => [...text].length > LIMIT;
+const tooLong = (text: string) => Array.from(text).length > LIMIT;
 
 test("the web's draft limit is acpmux's and AgentUnsentDrafts'", () => {
   const repo = path.resolve(import.meta.dir, "../..");
@@ -440,10 +439,9 @@ test("the web's draft limit is acpmux's and AgentUnsentDrafts'", () => {
     "utf8",
   );
   const number = (match: RegExpMatchArray | null) => Number(match?.[1]?.replaceAll("_", ""));
-  const web = (composerDraft as Record<string, unknown>).MAX_DRAFT_CHARS;
   expect(number(rust.match(/MAX_COMPOSER_DRAFT_CHARS: usize = ([\d_]+);/))).toBe(LIMIT);
   expect(number(swift.match(/static let maximumCharacters = ([\d_]+)/))).toBe(LIMIT);
-  expect(web).toBe(LIMIT);
+  expect(MAX_DRAFT_CHARS).toBe(LIMIT);
 });
 
 test("a saved draft at the limit and text typed before the read: nothing written over it, the typing kept", async () => {
