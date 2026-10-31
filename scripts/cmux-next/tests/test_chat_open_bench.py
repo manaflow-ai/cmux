@@ -50,10 +50,25 @@ def open_(first, empty=0.0, **extra):
 
 
 class SubagentNameTests(unittest.TestCase):
-    def test_opens_click_the_newest_subagents_first(self):
+    class Run:
+        def __init__(self, shown):
+            self.shown, self.hovered = shown, []
+
+        def rpc(self, method, params=None, timeout=40):
+            self.hovered.append(params["text"])
+            return {} if params["text"] in self.shown else {"error": "no visible element matches"}
+
+    def test_clicks_the_newest_subagent_the_chat_shows(self):
         bench = load_bench("--runs=3")
-        # The chat holds Auditor 0..3; the oldest is out of the rendered rows.
-        self.assertEqual([bench.subagent_name(i) for i in range(3)], ["Auditor 3", "Auditor 2", "Auditor 1"])
+        # The chat holds Auditor 0..3; this build renders only 0 and 2.
+        run = self.Run({"Auditor 0", "Auditor 2"})
+        self.assertEqual(bench.subagent_name(run), "Auditor 2")
+        self.assertEqual(run.hovered, ["Auditor 3", "Auditor 2"])
+
+    def test_falls_back_to_the_newest_when_none_shows(self):
+        bench = load_bench("--runs=3")
+        self.assertEqual(bench.subagent_name(self.Run(set())), "Auditor 3")
+
 
 class SummaryTests(unittest.TestCase):
     def test_complete_case_reports_medians(self):
