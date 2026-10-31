@@ -413,21 +413,20 @@ mod tests {
         assert!(!taking.is_finished(), "takeover raced a watched tail into the journal");
         assert!(session.meta().watching.is_some(), "the view-only owner changed before the tail finished");
 
-        // These lines were read before Take Over, but the reader has yet to
-        // append them. The watch must be gone by the time it acquires the gate.
-        let late_line = json!({"type": "user", "message": {"content": "late watched prompt"}}).to_string();
-        let late_tail = tokio::spawn({
-            let (hub, session) = (hub.clone(), session.clone());
-            async move { hub.show_watched(&session, &[late_line], 128).await }
-        });
-        tokio::task::yield_now().await;
-        assert!(!late_tail.is_finished(), "the tail escaped the turn gate");
-
         drop(tail_guard);
         taking.await.unwrap().unwrap();
-        late_tail.await.unwrap();
         assert!(session.meta().watching.is_none());
+
+        // A file read can finish before Take Over and be scheduled afterward.
+        // Exercise that stale completion deterministically: the old reader
+        // must neither create a watched turn nor append any record to the live
+        // conversation's journal.
+        let before = session.meta().event_count;
+        let late_line = json!({"type": "user", "message": {"content": "late watched prompt"}}).to_string();
+        hub.show_watched(&session, &[late_line], 128).await;
         assert_eq!(session.meta().turn_count, 0, "a watched turn was appended after Take Over");
+        assert_eq!(session.meta().event_count, before, "the stale reader wrote after Take Over");
+        assert!(hub.watch_take_over(&session, IfLive::Open).await.is_err(), "Take Over succeeded twice");
         hub.shutdown_all().await;
     }
 
