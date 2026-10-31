@@ -181,6 +181,11 @@ export interface EventsParams {
   /** Default 5000. */
   limit?: (number | null);
   maxBytes?: (number | null);
+  /**
+   * Every prompt before `beforeSeq`, oldest first, each cut to its id and the start of its text,
+   * in one reply (`Hub::prompt_index`): `kinds`, `limit` and `maxBytes` are not read.
+   */
+  promptIndex?: (boolean | null);
   sessionId: string;
 }
 

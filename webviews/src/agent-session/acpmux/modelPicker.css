@@ -668,8 +668,9 @@
   font-size: var(--text-caption);
   white-space: nowrap;
 }
-/* A row that is not the running one shows its effort item only while pointed at or reached. */
-.acpmux-quick-model-effort:not([data-running]):not(:hover):not(:has([data-highlighted], [data-popup-open]))
+/* A row that is not the running one shows its effort item only while pointed at or reached; a row
+   of another tab (nothing runs there yet) always names the level its pick lands. */
+.acpmux-quick-model-effort:not([data-running], [data-held]):not(:hover):not(:has([data-highlighted], [data-popup-open]))
   .acpmux-quick-effort-trigger {
   opacity: 0;
 }
