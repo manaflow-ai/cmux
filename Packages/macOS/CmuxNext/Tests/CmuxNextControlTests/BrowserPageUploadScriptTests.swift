@@ -114,22 +114,18 @@ import WebKit
         #expect(try await page.read("document.getElementById('upload').__cmuxUploads.size") == 0)
     }
 
-    /// An upload id names one upload on the page. Starting a second upload with an id that is still
-    /// active is refused, so it can never take over the first upload's input and corrupt both.
+    /// An upload id names one upload on the page. Starting a second upload with an active id is refused.
     @Test func aSecondUploadCannotReuseAnActiveID() async throws {
         let page = BrowserPageSnapshotTests.Page()
         await page.load()
-        // A window made in code is released by close() unless told not to (see above).
         defer { page.window.isReleasedWhenClosed = false; page.window.close() }
         _ = try await page.read("(() => { document.body.innerHTML = '<input id=\"a\" type=\"file\"><input id=\"b\" type=\"file\">'; return true; })()")
-
         let first = try await page.read(BrowserPageScripts.startUpload("#a", id: "X", files: [("a.txt", "text/plain")]))
         #expect(first["error"] == nil, "page script failed: \(first)")
         let second = try await page.read(BrowserPageScripts.startUpload("#b", id: "X", files: [("b.txt", "text/plain")]))
         #expect(second["code"] == "upload_id_in_use", "a reused active id was accepted: \(second)")
         #expect(try await page.read("document.getElementById('b').__cmuxUploads === undefined") == true,
                 "the refused upload left state on the other input")
-
         _ = try await page.read(BrowserPageScripts.uploadChunk("#a", id: "X", index: 0, base64: Data("mine".utf8).base64EncodedString()))
         let done = try await page.read(BrowserPageScripts.finishUpload("#a", id: "X"))
         #expect(done["error"] == nil, "page script failed: \(done)")
@@ -154,6 +150,9 @@ import WebKit
         _ = try await run(BrowserPageScripts.startUpload("@e1", id: "R", files: [("R.txt", "text/plain")]))
         _ = try await run(BrowserPageScripts.uploadChunk("@e1", id: "R", index: 0, base64: Data("first".utf8).base64EncodedString()))
         _ = try await page.read("(() => { document.getElementById('a').removeAttribute('data-cmux-ref'); document.getElementById('b').setAttribute('data-cmux-ref', 'e1'); return true; })()")
+
+        let duplicate = try await page.read(BrowserPageScripts.startUpload("@e1", id: "R", files: [("other.txt", "text/plain")]))
+        #expect(duplicate["code"] == "upload_id_in_use", "an active id must not be rebound to another input")
 
         _ = try await run(BrowserPageScripts.uploadChunk("@e1", id: "R", index: 0, base64: Data("second".utf8).base64EncodedString()))
         #expect(try await page.read("document.getElementById('a').__cmuxUploads.get('R').files[0].parts.length") == 2,
