@@ -204,3 +204,24 @@ test("the socket boundary drops malformed nested frame payloads and keeps render
   expect(r.seen.snapshots).toEqual([[], []]);
   expect(r.seen.records).toEqual([3]);
 });
+
+test("a tool call with no arguments (`rawInput: {}`) still reaches the transcript", () => {
+  const r = room();
+  r.client.connect();
+  r.last().frame("snapshot", { records: [], watermark: 0, prompts: [] });
+  r.last().frame("records", {
+    records: [
+      {
+        ...record(1),
+        kind: "tool_call",
+        msg: {
+          method: "session/update",
+          params: {
+            update: { sessionUpdate: "tool_call", toolCallId: "t-1", title: "List files", kind: "read", rawInput: {} },
+          },
+        },
+      },
+    ],
+  });
+  expect(r.seen.records).toEqual([1]);
+});

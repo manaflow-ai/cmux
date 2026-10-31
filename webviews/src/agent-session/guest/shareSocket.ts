@@ -65,19 +65,19 @@ const isObject = (value: unknown): value is Record<string, unknown> =>
 /**
  * Room frames are untrusted JSON.  A record's payload is eventually handed to the transcript
  * reducer, where an object in an array is assumed to have its ACP shape.  Keep the decoder as the
- * one trust boundary: optional scalar nulls are fine, but null or an empty object in an array (or
- * an object-valued field) is never a usable ACP value.  This also covers new update kinds until
- * their generated protocol type gains a narrower decoder.
+ * one trust boundary: optional scalar nulls are fine, but null or an empty object in an array is
+ * never a usable ACP value.  An empty object as a field's value is (a tool call's `rawInput: {}`,
+ * a call with no arguments), and dropping its record would hide the row.  This also covers new
+ * update kinds until their generated protocol type gains a narrower decoder.
  */
-function noMalformedContainers(value: unknown, root = false, key?: string): boolean {
+function noMalformedContainers(value: unknown): boolean {
   if (value === null || value === undefined) return true;
   if (Array.isArray(value))
     return value.every(
       (entry) => entry !== null && (!isObject(entry) || Object.keys(entry).length > 0) && noMalformedContainers(entry),
     );
   if (!isObject(value)) return true;
-  if (!root && Object.keys(value).length === 0 && key !== "_meta") return false;
-  return Object.entries(value).every(([name, entry]) => noMalformedContainers(entry, false, name));
+  return Object.values(value).every((entry) => noMalformedContainers(entry));
 }
 
 function configOptionOf(value: unknown): boolean {
@@ -97,7 +97,7 @@ function configOptionOf(value: unknown): boolean {
 
 function sessionUpdateOf(value: unknown): boolean {
   if (!isObject(value) || typeof value.sessionUpdate !== "string" || !value.sessionUpdate) return false;
-  if (!noMalformedContainers(value, true)) return false;
+  if (!noMalformedContainers(value)) return false;
   if (value.sessionUpdate === "config_option_update")
     return Array.isArray(value.configOptions) && value.configOptions.every(configOptionOf);
   if (value.sessionUpdate === "available_commands_update") {
