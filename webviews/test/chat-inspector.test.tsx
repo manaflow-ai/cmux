@@ -299,14 +299,7 @@ test("Session Info does not render when the transcript scrolls", async () => {
   let renders = 0;
   await act(async () => {
     root = createRoot(container);
-    root.render(
-      <Pane
-        snapshot={localChat}
-        onOpenOutput={noop}
-        rerenderOnScroll
-        onPanelRender={() => renders++}
-      />,
-    );
+    root.render(<Pane snapshot={localChat} onOpenOutput={noop} rerenderOnScroll onPanelRender={() => renders++} />);
   });
   const beforeScroll = renders;
   const shell = container.querySelector<HTMLElement>(".acpmux-shell")!;
