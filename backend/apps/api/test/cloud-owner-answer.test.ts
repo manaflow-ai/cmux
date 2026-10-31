@@ -46,11 +46,17 @@ describe("owner answer: vm_kind on connect_info and link_token", { timeout: 60_0
     expect((await connectInfo(x, agent, host)).value.vm_kind).toBe("team")
   })
 
-  it("a shared-team machine is team for a teammate and for its own creator; the teammate's token says team", async () => {
+  it("a shared-team creator is owner while each teammate keeps team access", async () => {
     await sharedTeamMembers()
     const creator = person(SHARED_TEAM)
     const { host, keyset } = await createdAndBound(creator)
-    expect((await connectInfo(creator, creator.p, host)).value.vm_kind).toBe("team")
+    expect((await connectInfo(creator, creator.p, host)).value.vm_kind).toBe("owner")
+    const creatorToken = await creator.stub.mintLinkToken(SHARED_TEAM, installOf(creator.p), { host, services: ["daemon", "ssh"] })
+    expect(creatorToken.ok, JSON.stringify(creatorToken)).toBe(true)
+    expect(creatorToken.value.vm_kind).toBe("owner")
+    expect(await verifyLinkToken(creatorToken.value.token, { aud: host, epoch: 1, now: now(), keyset: keyset.keys })).toMatchObject({ ok: true, claims: { vmk: "owner" } })
+    const third = person(SHARED_TEAM)
+    expect((await connectInfo(third, third.p, host)).value.vm_kind).toBe("team")
     const mate = person(SHARED_TEAM)
     const mateInfo = await connectInfo(mate, mate.p, host)
     expect(mateInfo.ok, JSON.stringify(mateInfo)).toBe(true)

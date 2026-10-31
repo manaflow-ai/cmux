@@ -63,6 +63,8 @@ public final class PaletteModel {
     public internal(set) var fieldHint: String?
     /// The footer title's clickable segments (`PalettePageSpec.crumbs`).
     public internal(set) var pageCrumbs: [String] = []
+    /// The current page's chosen values, drawn as chips before the query (`PalettePageSpec.tokens`).
+    public internal(set) var pageTokens: [PaletteToken] = []
     /// Why the last command could not run, shown as its row's subtitle
     /// until the query or the page changes (never a beep).
     public internal(set) var notice: PaletteNotice?

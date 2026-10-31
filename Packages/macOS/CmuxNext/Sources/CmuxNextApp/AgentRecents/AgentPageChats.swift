@@ -30,6 +30,8 @@ final class AgentPageChats {
     var environments: (any AgentPaneEnvironmentStoring)?
     /// A new chat's Sandboxed send (``AgentPaneModel/onSandboxRun``), one runner for every page.
     var sandboxRun: (@MainActor (String, String?, String) async -> [String: Any])?
+    /// A new chat's first send in Cloud (``CloudStartChat``), one runner for every page, given the pane that sent.
+    var cloudStart: (@MainActor (AgentPaneView?, AgentPaneCloudStart) async -> [String: Any])?
     /// The app-level waiter on every Sandboxed send's Run, and its notification (``SandboxRunNotices``).
     private(set) var runNotices: SandboxRunNotices?
     /// The app-level waiter on every hand-off of a chat to a Cloud machine, and its notification.
@@ -87,6 +89,14 @@ final class AgentPageChats {
         view.recentlyClosed = closed
         view.model.startFolders.environments = environments
         view.model.onSandboxRun = sandboxRun
+        // Written out with its type: Xcode 26.6 could not type the `map` form.
+        if let run = cloudStart {
+            view.model.onCloudStartChat = { @MainActor [weak view] (start: AgentPaneCloudStart) async -> [String: Any] in
+                await run(view, start)
+            }
+        } else {
+            view.model.onCloudStartChat = nil
+        }
     }
 
     /// Sandboxed sends run through `services`' signed-in Cloud client (hq#3367), only while Labs >
@@ -97,6 +107,7 @@ final class AgentPageChats {
     static func wireSandbox(_ tabs: AgentTabStore, services: AppServices) {
         let notices = SandboxRunNotices(services: services)
         tabs.pageChats.runNotices = notices
+        tabs.pageChats.cloudStart = CloudStartChat.runner(tabs, services: services)
         notices.start()
         let handoffs = HandoffNotices(services: services)
         tabs.pageChats.handoffNotices = handoffs

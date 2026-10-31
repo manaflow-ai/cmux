@@ -66,6 +66,8 @@ public actor AgentSessionAttachClient {
     private var transport: LineTransport?
     private var connecting: Task<(LineTransport, Served), any Error>?
     private let handler = HandlerBox()
+    /// The newest ``attach(afterSeq:beforeSeq:limit:kinds:events:)``, which the next one waits for.
+    private var attachTail: Task<Void, Never>?
     private var closed = false
     /// A quiet try (``sharedConnection(quiet:)``) lost its connection in its handshake and told no
     /// one yet.
@@ -96,6 +98,8 @@ public actor AgentSessionAttachClient {
         var children = false
         /// `agent-session-presence-v1`.
         var presence = false
+        /// `agent-session-folders-v1`.
+        var folders = false
     }
 
     /// A start that needs the app's person key in that machine's acpmux (cx-0w0jj): `instance`
@@ -120,7 +124,19 @@ public actor AgentSessionAttachClient {
     public func attach(afterSeq: UInt64?, beforeSeq: UInt64?, limit: Int?, kinds: [String]?,
                        events: @escaping EventHandler) async throws -> Data {
         handler.set(events)
-        return try await call(mode.command, page(afterSeq, beforeSeq, limit, kinds))
+        // One attach at a time: the daemon refuses a second attach of the tab while the first still
+        // connects (its slot is reserved: `agent_session.limit`, "too many attached agent tabs"), and
+        // the remote wire asks two at once (the page's session list and its attach, sent together
+        // since #27755). The later one waits and is then a page of the live attachment.
+        let previous = attachTail
+        let command = mode.command, params = page(afterSeq, beforeSeq, limit, kinds)
+        // task-owner: this attach; the next attach waits on it, and the caller's cancel cancels it
+        let task = Task {
+            await previous?.value
+            return try await self.call(command, params)
+        }
+        attachTail = Task { _ = await task.result }
+        return try await withTaskCancellationHandler { try await task.value } onCancel: { task.cancel() }
     }
 
     public func events(afterSeq: UInt64?, beforeSeq: UInt64?, limit: Int?, kinds: [String]?) async throws -> Data {
@@ -303,6 +319,20 @@ public actor AgentSessionAttachClient {
     /// `agent-session-children` (`agent-session-children-v1`): the chats the attached tab's session
     /// started on the daemon's machine (`{sessions}`, acpmux summaries); the attachment then
     /// streams their changes too. A daemon without the verb lists none.
+    /// That machine's folders for a new chat (`agent-session-folders-v1`): its work folder
+    /// (`default`, nil when it has none) and the folders under it. A daemon without the verb
+    /// answers none (the app then asks the person for a folder).
+    public func folders() async throws -> (work: String?, folders: [String]) {
+        guard mode == .attach else { return (nil, []) }
+        _ = try await liveTransport()
+        guard served.folders else { return (nil, []) }
+        let data = try await call("agent-session-folders", [:])
+        let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
+        let absolute = { (path: String) in path.hasPrefix("/") }
+        let work = (object["default"] as? String).flatMap { absolute($0) ? $0 : nil }
+        return (work, (object["folders"] as? [String] ?? []).filter(absolute))
+    }
+
     public func children() async throws -> Data {
         _ = try await liveTransport()
         guard served.children else { return Data(#"{"sessions":[]}"#.utf8) }
@@ -478,7 +508,8 @@ public actor AgentSessionAttachClient {
                             model: identity.supports(DaemonCapability.agentSessionStartModel.rawValue),
                             trustVMKind: identity.supports(DaemonCapability.agentSessionTrustVMKind.rawValue),
                             children: identity.supports(DaemonCapability.agentSessionChildren.rawValue),
-                            presence: identity.supports(DaemonCapability.agentSessionPresence.rawValue))
+                            presence: identity.supports(DaemonCapability.agentSessionPresence.rawValue),
+                            folders: identity.supports(DaemonCapability.agentSessionFolders.rawValue))
             _ = try await DaemonConnection.perform(
                 // `agent-session-presence-v1` echoed: the daemon then streams presence (an app
                 // from before it would end its attachment on an event it does not know).
