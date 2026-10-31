@@ -101,10 +101,11 @@ struct CloseThenTypeKeysTests {
     /// Cmd-W, as the person presses it.
     private static func cmdW(in p: Panes) throws -> Bool { try Self.press("w", .command, keyCode: 13, in: p) }
 
-    private static func shows(_ marker: String, on surface: SurfaceID, within milliseconds: Int = 20_000, in p: Panes) async throws -> Bool {
-        let screen = try await p.connection.request(WaitForTextRequest(surface: surface, pattern: marker, timeoutMs: milliseconds),
-                                                    timeout: .milliseconds(milliseconds + 5_000))
-        return screen.matched == true
+    /// Whether `surface` shows `marker` within `milliseconds` (false on a timeout or a closed terminal, never a throw).
+    private static func shows(_ marker: String, on surface: SurfaceID, within milliseconds: Int = 20_000, in p: Panes) async -> Bool {
+        let screen = try? await p.connection.request(WaitForTextRequest(surface: surface, pattern: marker, timeoutMs: milliseconds),
+                                                     timeout: .milliseconds(milliseconds + 5_000))
+        return screen?.matched == true
     }
 
     private static func screen(_ surface: SurfaceID, in p: Panes) async -> String {
@@ -119,18 +120,31 @@ struct CloseThenTypeKeysTests {
             let rightModel = try #require(store.tab(id: p.right.tab))
             try #require(TabCloseGuard.asks([rightModel], services: p.services), "the terminal close warning does not apply")
 
+            // The close warning's read is held (the debug seam), so the line is typed inside it in every run, as the
+            // journey's first key was in round s3; the read answers only at the release below.
+            let hold = p.services.daemon.closeReadHold
+            hold.arm()
+            defer { hold.release() }
             #expect(try Self.cmdW(in: p), "the key router did not take Cmd-W")
-            // As for a person: the close waits for the daemon's read first (the gap the first key fell into).
             try #require(TabCloseGuard.reading.contains(p.right.tab), "Cmd-W closed at once: the test needs the close warning's read")
             let nonce = String(UInt32.random(in: 100_000...999_999))
             try Self.type("echo cw\(nonce)x$((6*7))\r", in: p)
 
+            // Where the keys went while the read waited: the closing terminal shows them at once if they went there.
+            let inClosing = await Self.shows("cw\(nonce)", on: p.right.surface, within: 3_000, in: p)
+            var closing = ""
+            if inClosing { closing = await Self.screen(p.right.surface, in: p) }
+            let resumed = hold.release()
+            try #require(resumed == 1, "the close warning's read was not held (resumed \(resumed)): the line was not typed inside it")
             try await PinnedPageTests.until({ store.tab(surface: p.right.surface) == nil },
                                             report: { "waiting for the right terminal to close: reading \(TabCloseGuard.reading), asking \(TabCloseGuard.asking)" })
-            let ran = try await Self.shows("cw\(nonce)x42", on: p.left.surface, in: p)
+            let ran = await Self.shows("cw\(nonce)x42", on: p.left.surface, within: 10_000, in: p)
             let left = await Self.screen(p.left.surface, in: p)
-            #expect(ran, "the line typed right after Cmd-W did not run whole in the left terminal (keys went into the closing terminal): \(left.suffix(400))")
-            #expect(!left.contains("cho cw\(nonce)"), "the first key typed after Cmd-W was lost: \(left.suffix(400))")
+            let outcome = inClosing ? "the line ran in the closing pane" : ran ? "the left pane ran it" :
+                left.contains("cho cw\(nonce)") ? "first key lost" : left.contains("cw\(nonce)") ? "the line reached the left pane incomplete" : "the line reached no pane"
+            #expect(!inClosing, "the line ran in the closing pane (typed inside the close warning's read): \(closing.suffix(300))")
+            #expect(!left.contains("cho cw\(nonce)"), "first key lost: \(left.suffix(300))")
+            #expect(ran, "the line did not run whole in the left pane (\(outcome)): \(left.suffix(400))")
             #expect(p.content.focus.state.resolved == .terminal(pane: p.left.pane.paneKey, tab: p.left.tab))
         }
     }
@@ -139,6 +153,16 @@ struct CloseThenTypeKeysTests {
     /// person cancels. The right terminal stays, and the keys typed meanwhile are its keys: never the left terminal's,
     /// never dropped.
     @Test func keysTypedWhileTheCloseWarningIsCancelledGoToTheTerminalThatStays() async throws {
+        try await Self.cancelledClose(focusElsewhereFirst: false)
+    }
+
+    /// The same, but the person clicks into the left pane while the warning shows, then cancels: the keys typed for the
+    /// right terminal still go to it (by that terminal), never to the pane that has the focus now.
+    @Test func keysOfACancelledCloseGoToTheTerminalThatStaysWhenTheFocusMovedAway() async throws {
+        try await Self.cancelledClose(focusElsewhereFirst: true)
+    }
+
+    private static func cancelledClose(focusElsewhereFirst: Bool) async throws {
         try await Self.withTwoTerminals { p in
             try Self.type("cat\r", in: p)
             var running: String?
@@ -157,11 +181,12 @@ struct CloseThenTypeKeysTests {
 
             try await PinnedPageTests.until({ warning() != nil }, report: { "waiting for the close warning: dialogs \(dialogs.records.map { $0.spec.identifier ?? "-" }), asking \(TabCloseGuard.asking)" })
             let shown = try #require(warning())
+            if focusElsewhereFirst { PaneHandlers.focus(p.left.pane.layoutPaneID, in: p.content) }
             #expect(dialogs.press(shown.id, button: "cancel"))
             try await PinnedPageTests.until({ !TabCloseGuard.asking.contains(p.right.tab) }, report: { "waiting for the cancelled close to stop asking: asking \(TabCloseGuard.asking)" })
 
             // `cat` writes the line back after the terminal's own echo: two lines on the right, none on the left.
-            _ = try await Self.shows("zq\(nonce)", on: p.right.surface, in: p)
+            _ = await Self.shows("zq\(nonce)", on: p.right.surface, in: p)
             var right = ""
             for _ in 0..<100 {
                 right = await Self.screen(p.right.surface, in: p)
@@ -173,7 +198,7 @@ struct CloseThenTypeKeysTests {
                     "the keys typed while the warning asked did not reach the terminal that stays: \(right.suffix(400))")
             #expect(!left.contains("zq\(nonce)"), "keys typed for the terminal that stays went to the left terminal: \(left.suffix(400))")
             #expect(p.services.daemon.store.tab(surface: p.right.surface) != nil, "Cancel closed the right terminal")
-            #expect(p.content.focus.state.resolved == .terminal(pane: p.right.pane.paneKey, tab: p.right.tab))
+            if !focusElsewhereFirst { #expect(p.content.focus.state.resolved == .terminal(pane: p.right.pane.paneKey, tab: p.right.tab)) }
         }
     }
 }
