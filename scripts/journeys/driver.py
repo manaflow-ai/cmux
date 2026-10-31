@@ -632,7 +632,14 @@ class Journey:
         return {}
 
     def step_rpc(self, step):
-        return {"reply": self.app.rpc(step["method"], self.sub(step.get("params") or {}))}
+        reply = self.app.rpc(step["method"], self.sub(step.get("params") or {}))
+        # `at_least` {path: n}: the step fails unless the reply's number at `path` is n or more (e.g. a test hold's
+        # release must have resumed what it held, else the round did not test what it claims).
+        for path, least in (step.get("at_least") or {}).items():
+            got = dig(reply, path)
+            if not isinstance(got, (int, float)) or got < least:
+                raise StepError(f"{step['method']}: {path} is {got!r}, want at least {least} (reply {str(reply)[:200]})")
+        return {"reply": reply}
 
     # -- scroll, paste, select: the pointer, the clipboard, helper files --
 

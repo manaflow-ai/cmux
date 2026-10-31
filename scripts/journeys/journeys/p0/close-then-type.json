@@ -83,7 +83,10 @@
    "do": "rpc",
    "title": "try 1: release the read (its reply's 'resumed' must be 1: the line was typed inside it)",
    "method": "debug.close.release",
-   "params": {}
+   "params": {},
+   "at_least": {
+    "resumed": 1
+   }
   },
   {
    "do": "expect",
@@ -156,7 +159,10 @@
    "do": "rpc",
    "title": "try 2: release the read (its reply's 'resumed' must be 1: the line was typed inside it)",
    "method": "debug.close.release",
-   "params": {}
+   "params": {},
+   "at_least": {
+    "resumed": 1
+   }
   },
   {
    "do": "expect",
@@ -229,7 +235,10 @@
    "do": "rpc",
    "title": "try 3: release the read (its reply's 'resumed' must be 1: the line was typed inside it)",
    "method": "debug.close.release",
-   "params": {}
+   "params": {},
+   "at_least": {
+    "resumed": 1
+   }
   },
   {
    "do": "expect",
@@ -302,7 +311,10 @@
    "do": "rpc",
    "title": "try 4: release the read (its reply's 'resumed' must be 1: the line was typed inside it)",
    "method": "debug.close.release",
-   "params": {}
+   "params": {},
+   "at_least": {
+    "resumed": 1
+   }
   },
   {
    "do": "expect",
@@ -375,7 +387,10 @@
    "do": "rpc",
    "title": "try 5: release the read (its reply's 'resumed' must be 1: the line was typed inside it)",
    "method": "debug.close.release",
-   "params": {}
+   "params": {},
+   "at_least": {
+    "resumed": 1
+   }
   },
   {
    "do": "expect",
@@ -448,7 +463,10 @@
    "do": "rpc",
    "title": "try 6: release the read (its reply's 'resumed' must be 1: the line was typed inside it)",
    "method": "debug.close.release",
-   "params": {}
+   "params": {},
+   "at_least": {
+    "resumed": 1
+   }
   },
   {
    "do": "expect",
@@ -521,7 +539,10 @@
    "do": "rpc",
    "title": "try 7: release the read (its reply's 'resumed' must be 1: the line was typed inside it)",
    "method": "debug.close.release",
-   "params": {}
+   "params": {},
+   "at_least": {
+    "resumed": 1
+   }
   },
   {
    "do": "expect",
@@ -594,7 +615,10 @@
    "do": "rpc",
    "title": "try 8: release the read (its reply's 'resumed' must be 1: the line was typed inside it)",
    "method": "debug.close.release",
-   "params": {}
+   "params": {},
+   "at_least": {
+    "resumed": 1
+   }
   },
   {
    "do": "expect",
