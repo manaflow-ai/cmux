@@ -244,6 +244,8 @@ export type DiffPageVariant = VariantBase & {
   files?: DiffFixtureFile[];
   repoRoot?: string;
   baseRef?: string;
+  /** A machine error while the loaded diff remains visible. */
+  fingerprintError?: { code: string; message: string };
 };
 
 /** The App Store page on an in-page cmuxPage host serving its supervisor projection. */
