@@ -1,9 +1,10 @@
+import { publicVmBase } from "../../../../services/vms/publicVm";
 import * as Effect from "effect/Effect";
 import type { AuthedUser } from "../../../../services/vms/auth";
 import { vmClientRoutesTeamNetworks, vmTeamDirectory } from "../../../../services/vms/teamDirectory";
 import { defaultMemoryMbForPlan } from "../../../../services/vms/entitlements";
 import { assertVmCreateEnabled } from "../../../../services/vms/config";
-import { defaultProviderId, isProviderId, vmCapabilitiesFor, type ProviderId } from "../../../../services/vms/drivers";
+import { defaultProviderId, isProviderId, type ProviderId } from "../../../../services/vms/drivers";
 import {
   isVmCreateDisabledError,
   isVmImageConfigError,
@@ -11,7 +12,6 @@ import {
 import {
   inferVmProviderForImage,
   resolveVmImage,
-  vmImageKindFor,
 } from "../../../../services/vms/images/resolver";
 import {
   reportVmImageConfigError,
@@ -142,22 +142,7 @@ export async function runBaseRoute(input: {
   if (!run.ok) return run.response;
   const entry = run.value;
 
-  return jsonResponse({
-    id: entry.providerVmId,
-    provider: entry.provider,
-    image: entry.image,
-    imageVersion: entry.imageVersion,
-    kind: vmImageKindFor(entry.provider, entry.image),
-    status: entry.status,
-    createdAt: entry.createdAt,
-    capabilities: vmCapabilitiesFor(entry.provider),
-    base: {
-      id: entry.baseId,
-      name: entry.baseName,
-      generation: entry.generation,
-      retainedProviderVmId: entry.retainedProviderVmId,
-    },
-  });
+  return jsonResponse(publicVmBase(entry));
 }
 
 function baseWorkflowErrorResponders(operation: BaseOperation, planId: string): VmWorkflowErrorOverrides {

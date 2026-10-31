@@ -1,5 +1,5 @@
+import { publicVmRestored } from "../../../../../services/vms/publicVm";
 import * as Effect from "effect/Effect";
-import { vmCapabilitiesFor } from "../../../../../services/vms/drivers";
 import { vmClientRoutesTeamNetworks, vmTeamDirectory } from "../../../../../services/vms/teamDirectory";
 import {
   jsonResponse,
@@ -106,14 +106,8 @@ export async function POST(
       if (!run.ok) return run.response;
       const result = run.value;
       return jsonResponse({
+        ...publicVmRestored(result.fork),
         snapshotId: result.snapshot?.id ?? null,
-        id: result.fork.providerVmId,
-        provider: result.fork.provider,
-        image: result.fork.image,
-        imageVersion: result.fork.imageVersion,
-        status: result.fork.status,
-        createdAt: result.fork.createdAt,
-        capabilities: vmCapabilitiesFor(result.fork.provider),
       });
     },
   );

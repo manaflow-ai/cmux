@@ -1,3 +1,4 @@
+import { publicVmDashboard } from "../../../services/vms/publicVm";
 import { z } from "zod";
 import * as accessGrantsRoute from "@/app/api/vm/access-grants/route";
 import * as accessGrantRoute from "@/app/api/vm/access-grants/[id]/route";
@@ -66,12 +67,7 @@ const machines = authed
       machines: [
         ...personal.map((vm) => ({ vm, teamId: null })),
         ...team.map((vm) => ({ vm, teamId })),
-      ].map(({ vm, teamId: owner }) => ({
-        id: vm.providerVmId,
-        name: vm.displayName ?? vm.slug ?? vm.providerVmId,
-        status: vm.status,
-        teamId: owner,
-      })),
+      ].map(({ vm, teamId: owner }) => publicVmDashboard(vm, owner)),
     };
   });
 

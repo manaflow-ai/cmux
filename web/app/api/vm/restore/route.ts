@@ -1,7 +1,8 @@
+import { publicVmRestored } from "../../../../services/vms/publicVm";
 import * as Effect from "effect/Effect";
 import { vmClientRoutesTeamNetworks, vmTeamDirectory } from "../../../../services/vms/teamDirectory";
 import { assertVmCreateEnabled } from "../../../../services/vms/config";
-import { defaultProviderId, vmCapabilitiesFor } from "../../../../services/vms/drivers";
+import { defaultProviderId } from "../../../../services/vms/drivers";
 import { isVmCreateDisabledError } from "../../../../services/vms/errors";
 import { captureVmProvisionOutcome } from "../../../../services/vms/observability";
 import { vmModelPlaneGatewayFor } from "../../../../services/vms/modelPlaneGateway";
@@ -137,15 +138,7 @@ export async function POST(request: Request): Promise<Response> {
       });
       if (!run.ok) return run.response;
       const restored = run.value;
-      return jsonResponse({
-        id: restored.providerVmId,
-        provider: restored.provider,
-        image: restored.image,
-        imageVersion: restored.imageVersion,
-        status: restored.status,
-        createdAt: restored.createdAt,
-        capabilities: vmCapabilitiesFor(restored.provider),
-      });
+      return jsonResponse(publicVmRestored(restored));
     },
   );
 }

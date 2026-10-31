@@ -1,3 +1,4 @@
+import { publicVmCreated, publicVmDetail } from "../../../services/vms/publicVm";
 import { parseCreateNetworkPolicy } from "../../../services/vms/networkPolicyRoute";
 import { parseCreateAgentUpdates } from "../../../services/vms/agentUpdatesRoute";
 import { parseCreateIdlePause } from "../../../services/vms/idlePauseRoute";
@@ -60,7 +61,6 @@ import {
   isVmImageKind,
   listVmImageKinds,
   VM_IMAGE_KINDS,
-  vmImageKindFor,
   type VmImageKind,
 } from "../../../services/vms/images/resolver";
 import { reconcileProPlanMetadata } from "../../../services/billing/pro";
@@ -115,14 +115,6 @@ function planBudgetLimits(usage: PlanBudgetUsage | null) {
     computeBudgetResetsAt: usage.periodEnd.toISOString(),
     storageBudgetGb: usage.storageBudgetMb / 1024,
     storageUsedGb: Math.ceil(usage.retainedStorageMb / 1024),
-  };
-}
-
-function createResourceFields(resourceReservation: { readonly vcpus: number; readonly memoryMb: number } | null | undefined) {
-  if (!resourceReservation) return {};
-  return {
-    resources: resourceReservation,
-    resourceReservation,
   };
 }
 
@@ -216,44 +208,9 @@ export async function GET(request: Request): Promise<Response> {
       const legacyPoolShare = legacyPoolReservationForPlan(listEntitlements?.planId ?? null, process.env);
       const poolShare = (entry: (typeof entries)[number]) => entry.resourceReservation ?? legacyPoolShare;
       const vms = entries.map((entry) => ({
-        id: entry.providerVmId,
-        provider: entry.provider,
-        status: entry.status,
-        image: entry.image,
-        imageVersion: entry.imageVersion,
-        kind: vmImageKindFor(entry.provider, entry.image),
-        // Verbs this machine's provider can honor (Checkpoint/Fork are hidden in
-        // the app when false; the CLI errors before calling).
-        capabilities: vmCapabilitiesFor(entry.provider),
-        createdAt: entry.createdAt,
-        displayName: entry.displayName,
-        slug: entry.slug,
-        // The account that made this machine, for display. `displayName` is
-        // null when nothing has recorded a name for that account; clients fall
-        // back to "Unknown", never to the raw id.
-        createdBy: creatorFor(entry, creatorNames),
-        // The machine's address on its owner's private network (reachable over
-        // the WireGuard tunnel); null for machines created before private
-        // networking. Clients surface it as "Copy IP Address".
-        address: { ipv4: entry.addressIpv4, ipv6: entry.addressIpv6 },
-        // Server-authoritative expiry of the free access window for this machine
-        // (epoch ms); null on paid plans or when the window is disabled. Clients
-        // render countdowns from this instead of re-deriving the policy.
+        ...publicVmDetail(entry, creatorFor(entry, creatorNames)),
+        // Entitlement and pool context belongs only to the list response.
         freeAccessExpiresAt: freeAccessExpiresAtMs(entry.createdAt, freeAccessWindowDays),
-        // "image" keeps the baked coding-agent pins; "latest" updates them on attach.
-        agentUpdates: entry.agentUpdates,
-        // Minutes idle before the machine pauses by itself; 0 is Off.
-        idlePauseMinutes: entry.idlePauseMinutes,
-        idlePause: entry.idlePause,
-        // "idle" or "user" on a machine the control plane paused, else null.
-        pauseReason: entry.pauseReason,
-        // Contract recorded when the provider attached cmux-tui. This is
-        // rollout metadata, not a live daemon probe.
-        cmuxTuiContract: entry.cmuxTuiContract,
-        // `resources` remains the server-authoritative pool claim used by
-        // limits.used*. Legacy rows conservatively claim the provider
-        // maximum until reconciliation. The explicit marker is separate so
-        // clients can use the measured live shape for grow-only checks.
         resources: poolShare(entry),
         ...(entry.resourceReservation ? { resourceReservation: entry.resourceReservation } : {}),
       }));
@@ -462,32 +419,8 @@ export async function POST(request: Request): Promise<Response> {
         manifestEntry: findVmImageManifestEntry(created.provider, created.image, imageSelection.kind),
       });
       return jsonResponse({
-        id: created.providerVmId,
-        provider: created.provider,
-        image: created.image,
-        imageVersion: created.imageVersion,
-        kind: vmImageKindFor(created.provider, created.image),
+        ...publicVmCreated(created, creatorFor(created, withCallerName(new Map(), user))),
         ...(imageSelection.size ? { size: imageSelection.size } : {}),
-        createdAt: created.createdAt,
-        capabilities: vmCapabilitiesFor(created.provider),
-        displayName: created.displayName,
-        slug: created.slug,
-        // Same field the list carries. A client that appends this response to
-        // its list instead of re-reading would otherwise show one row with no
-        // author sitting among rows that have one.
-        createdBy: creatorFor(created, withCallerName(new Map(), user)),
-        // The private address and attach contract let the app dial the new
-        // machine's baked daemon directly. Without them, New Machine pays a
-        // fleet list re-read plus a whole POST /attach-endpoint round trip
-        // (~2 s measured) for data this response already had.
-        address: { ipv4: created.addressIpv4, ipv6: created.addressIpv6 },
-        cmuxTuiContract: created.cmuxTuiContract,
-        agentUpdates: created.agentUpdates,
-        idlePauseMinutes: created.idlePauseMinutes,
-        // Keep the create response self-contained for clients that append it
-        // directly to their fleet model. Pool accounting and the per-machine
-        // resize shape are separate contracts even when they currently match.
-        ...createResourceFields(created.resourceReservation),
         ...(attach ? { attach } : {}),
       });
     },

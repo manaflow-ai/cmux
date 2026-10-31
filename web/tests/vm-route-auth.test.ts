@@ -3,6 +3,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, mock, tes
 import manifestJson from "../services/vms/images/manifest.json";
 import { pickVmImageSizeForMemory } from "../services/vms/images/sizes";
 import { vmCapabilitiesFor } from "../services/vms/drivers";
+import type { VmEntry } from "../services/vms/workflows";
 
 // The manifest is the only source of truth for images: the desktop default at
 // the plan's memory is what a create with no image (and no kind) resolves to,
@@ -308,6 +309,92 @@ afterEach(() => {
 });
 
 describe("VM REST auth", () => {
+  test("machine response variants preserve the shared REST contract and intentional omissions", async () => {
+    process.env.CMUX_VM_CREATE_ENABLED = "1";
+    process.env.CMUX_VM_FREESTYLE_ENABLED = "1";
+    getUser.mockResolvedValue({ ...authedStackUser(), displayName: "Ada" });
+    const machine: VmEntry = {
+      providerVmId: "contract-machine",
+      provider: "freestyle",
+      image: MANIFEST_DESKTOP_DEFAULT.imageId,
+      imageVersion: "contract-version",
+      status: "running",
+      createdAt: 1_777_000_000_000,
+      updatedAt: 1_777_000_000_001,
+      displayName: "Contract machine",
+      slug: "calm-blue-cloud",
+      createdByUserId: "user-1",
+      ownerTeamId: "team-1",
+      addressIpv4: "100.96.0.5",
+      addressIpv6: null,
+      cmuxTuiContract: "snapshot-v2",
+      agentUpdates: "image",
+      idlePauseMinutes: 0,
+      idlePause: {
+        minutes: 0, lastCheckedAt: null, idleSince: null,
+        lastApiActivityAt: null, privateAddressKnown: true, lastDecision: null,
+      },
+      pauseReason: null,
+      resourceReservation: { vcpus: 2, memoryMb: 8192 },
+    };
+    const request = (path: string, body: unknown = {}) => new Request(`https://cmux.test/api/vm${path}`, {
+      method: "POST", headers: { origin: "https://cmux.test" }, body: JSON.stringify(body),
+    });
+    const base = { ...machine, baseId: "base-1", baseName: "Base", generation: 2, retainedProviderVmId: null };
+    const producers = [
+      { name: "list", result: [machine], invoke: () => GET(new Request("https://cmux.test/api/vm")) },
+      { name: "detail", result: machine, invoke: () => vmIdRoute.GET(new Request("https://cmux.test/api/vm/contract-machine"), { params: Promise.resolve({ id: machine.providerVmId }) }) },
+      { name: "create", result: machine, invoke: () => POST(request("", { provider: "freestyle", image: machine.image })) },
+      { name: "restore", result: machine, invoke: () => restoreRoute.POST(request("/restore", { provider: "freestyle", snapshotId: "snapshot-1" })) },
+      { name: "fork", result: { snapshot: { id: "snapshot-1" }, fork: machine }, invoke: () => forkRoute.POST(request("/contract-machine/fork"), { params: Promise.resolve({ id: machine.providerVmId }) }) },
+      { name: "base-open", result: base, invoke: () => baseOpenRoute.POST(request("/base/open", { provider: "freestyle", image: machine.image })) },
+      { name: "base-reset", result: base, invoke: () => baseResetRoute.POST(request("/base/reset", { provider: "freestyle", image: machine.image })) },
+    ];
+    const payloads = new Map<string, Record<string, unknown>>();
+    const core = {
+      id: machine.providerVmId, provider: machine.provider, image: machine.image,
+      imageVersion: machine.imageVersion, createdAt: machine.createdAt,
+      capabilities: vmCapabilitiesFor(machine.provider),
+    };
+    for (const producer of producers) {
+      runVmWorkflow.mockResolvedValue(producer.result);
+      const response = await producer.invoke();
+      expect(response.status).toBe(200);
+      const body = await response.json();
+      const payload = producer.name === "list" ? body.vms[0] : body;
+      expect(payload).toMatchObject(core);
+      payloads.set(producer.name, payload);
+    }
+    const metadata = {
+      kind: "desktop", displayName: machine.displayName, slug: machine.slug,
+      createdBy: { userId: "user-1", displayName: "Ada" },
+      address: { ipv4: machine.addressIpv4, ipv6: null },
+      cmuxTuiContract: "snapshot-v2", agentUpdates: "image", idlePauseMinutes: 0,
+    };
+    for (const name of ["list", "detail", "create"]) expect(payloads.get(name)).toMatchObject(metadata);
+    // A detail merge and a newly appended create keep the author/address/attach contract.
+    expect({ ...payloads.get("list"), ...payloads.get("detail") }).toMatchObject(metadata);
+    expect(payloads.get("list")).toMatchObject({ freeAccessExpiresAt: null, resources: machine.resourceReservation });
+    for (const name of ["detail", "create", "restore", "fork", "base-open", "base-reset"]) {
+      expect(payloads.get(name)).not.toHaveProperty("freeAccessExpiresAt");
+    }
+    expect(payloads.get("create")).not.toHaveProperty("status");
+    expect(payloads.get("create")).toMatchObject({ resources: machine.resourceReservation, resourceReservation: machine.resourceReservation });
+    for (const name of ["restore", "fork"]) {
+      expect(payloads.get(name)).toMatchObject({ status: "running" });
+      for (const field of Object.keys(metadata)) expect(payloads.get(name)).not.toHaveProperty(field);
+    }
+    expect(payloads.get("fork")).toHaveProperty("snapshotId", "snapshot-1");
+    for (const name of ["base-open", "base-reset"]) {
+      expect(payloads.get(name)).toMatchObject({ kind: "desktop", base: { id: "base-1", name: "Base", generation: 2, retainedProviderVmId: null } });
+    }
+    const { publicVmDashboard } = await import("../services/vms/publicVm");
+    const { cloudMachinesSchema } = await import("../orpc/server/dashboard/schemas/cloud");
+    const dashboard = publicVmDashboard(machine, "team-1");
+    expect(dashboard).toEqual({ id: machine.providerVmId, name: machine.displayName, status: "running", teamId: "team-1" });
+    expect(cloudMachinesSchema.parse({ machines: [dashboard] })).toEqual({ machines: [dashboard] });
+  });
+
   test("rejects unauthenticated Cloud VM lease revocation before the workflow", async () => {
     const response = await revokeAccessRoute.POST(
       new Request("https://cmux.test/api/vm/leases/revoke", { method: "POST" }),
