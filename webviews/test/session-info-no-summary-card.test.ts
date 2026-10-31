@@ -14,11 +14,10 @@ import { deriveTokens, GHOSTTY_DEFAULT, rgbHex } from "../src/gallery/theme/toke
 import { papercutPane } from "./support/papercutChat";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
-/// Everything the summary card draws at the top of the pane.
-const SUMMARY = ".acpmux-summary-button, .acpmux-summary-card, .acpmux-summary-agents, .acpmux-summary-autoopen";
-
 await requireBrowserLane("session-info-no-summary-card.test.ts", async () => {
   setDefaultTimeout(180_000);
+  /// Everything the summary card draws at the top of the pane.
+  const SUMMARY = ".acpmux-summary-button, .acpmux-summary-card, .acpmux-summary-agents, .acpmux-summary-autoopen";
   let browser: Browser;
   let pane: Awaited<ReturnType<typeof papercutPane>>;
   beforeAll(async () => {
@@ -124,7 +123,10 @@ await requireBrowserLane("session-info-no-summary-card.test.ts", async () => {
             });
             const name = `${inspector ? "after-session-info" : "before-summary-card"}-${dark ? "dark" : "light"}.png`;
             // The pane's top right: the header's tools and the panel under them, with some transcript.
-            await page.screenshot({ path: path.join(out, "stills", name), clip: { x: 380, y: 0, width: 520, height: 240 } });
+            await page.screenshot({
+              path: path.join(out, "stills", name),
+              clip: { x: 380, y: 0, width: 520, height: 240 },
+            });
           } finally {
             await page.close();
           }
