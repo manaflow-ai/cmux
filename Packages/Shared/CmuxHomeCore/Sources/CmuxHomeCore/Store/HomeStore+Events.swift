@@ -121,6 +121,8 @@ extension HomeStore {
                 // owner's live runs (`typists(in:)`), read again for every conversation on screen or
                 // with a run this client kept (a run that ended meanwhile leaves the snapshot).
                 for id in Set(pager.viewers.keys).union(live.keys).sorted(by: { $0.rawValue < $1.rawValue }) { requestLive(id) }
+                // Completed report records do not advance the conversation revision or live snapshot.
+                for id in pager.viewers.keys { requestAgentMessages(id) }
                 enqueueResends(log.takeResends())
                 resumeInterruptedUploads()
                 for stream in mirror.stale { scheduleRefetch(stream) }
@@ -129,6 +131,7 @@ extension HomeStore {
         case .ownerRecovered:
             // Offline intents wait for the reconnect, which resends them anyway.
             guard isOnline else { return }
+            for id in pager.viewers.keys { requestAgentMessages(id) }
             enqueueResends(log.takeResends())
             resumeInterruptedUploads()
             for stream in mirror.stale { scheduleRefetch(stream) }
@@ -195,6 +198,10 @@ extension HomeStore {
             case .conversationPage(let page):
                 bumpTranscript(page.conversation.id)
                 settleLive(page.conversation.id) // a reply a page brought ends its run
+                // A page can arrive after the initial transcript read (for example
+                // while paging older history). Hydrate the agent-message projection
+                // for the expanded window just as a snapshot read does.
+                requestAgentMessages(page.conversation.id)
             default:
                 break
             }

@@ -194,16 +194,37 @@ impl Hub {
         name.filter(|n| !n.trim().is_empty()).unwrap_or_else(|| id.to_owned())
     }
 
-    /// After a completed turn: the agent messages a failed turn held run again, in place.
-    pub(super) fn release_held_agent_messages(&self, session: &Arc<Session>) {
-        let ids: Vec<String> = session
-            .queue()
-            .iter()
-            .filter(|q| q.held && q.run.agent.is_some())
-            .map(|q| q.prompt_id.clone())
-            .collect();
+    /// After a completed turn: the agent messages a failed turn held run again, in place. It ends
+    /// a person's Stop's hold too (`cancel.rs`), but only `hold`, the one the caller saw (0: none):
+    /// a Stop since then keeps them held. The hold is checked and ended under the queue lock,
+    /// where `hold_agent_messages` begins it, so a Stop is never lost between the two.
+    pub(super) fn release_held_agent_messages(&self, session: &Arc<Session>, hold: u64) {
+        let ids: Vec<String> = {
+            let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            if session
+                .stop_hold
+                .compare_exchange(hold, 0, Ordering::SeqCst, Ordering::SeqCst)
+                .is_err()
+            {
+                return;
+            }
+            queue
+                .iter_mut()
+                .filter(|q| q.held && q.run.agent.is_some())
+                .map(|q| {
+                    q.held = false;
+                    q.prompt_id.clone()
+                })
+                .collect()
+        };
         if !ids.is_empty() {
-            self.resume_held(session, &ids);
+            session.queue_moved.notify_waiters();
+            self.append(
+                session,
+                "mux",
+                "queue_resumed",
+                json!({"queued": session.queued(), "promptIds": ids}),
+            );
         }
     }
 
@@ -287,9 +308,11 @@ impl Hub {
         if inbox_digest::is_digest(head.provenance.as_ref()) {
             return Vec::new();
         }
+        // A review box runs each agent message as its own prompt behind the review (`inbox.rs`).
         if head.agent.is_none()
             || super::forum::slash_command(&head.blocks).is_some()
             || crate::prompt_uploads::any(&head.blocks)
+            || super::inbox::review_box(session)
         {
             return Vec::new();
         }
@@ -379,6 +402,10 @@ impl Hub {
         if taken.is_empty() || session.meta().status == SessionStatus::Closed {
             return;
         }
+        // A person's Stop holds every other agent's message (`cancel.rs`): these come back held
+        // by it, so they never start a turn the moment the stopped one ended.
+        let by_stop = session.stop_hold.load(Ordering::SeqCst) != 0;
+        let hold = hold || by_stop;
         let order: Vec<String> = {
             let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             for (i, mut q) in taken.iter().cloned().enumerate() {
@@ -414,7 +441,11 @@ impl Hub {
         let held: Vec<&String> =
             taken.iter().filter(|q| q.held || hold).map(|q| &q.prompt_id).collect();
         if !held.is_empty() {
-            self.append(session, "mux", "queue_paused", json!({"held": held, "requeued": true}));
+            let mut msg = json!({"held": held, "requeued": true});
+            if by_stop {
+                msg.set("reason", json!("stop"));
+            }
+            self.append(session, "mux", "queue_paused", msg);
         }
         self.append(session, "mux", "queue_order", json!({"order": order}));
         session.queue_moved.notify_waiters();
@@ -463,6 +494,8 @@ mod tests {
             class: None,
             supersede: None,
             full_access_device: None,
+            message_id: None,
+            message_sender: None,
         })
     }
 

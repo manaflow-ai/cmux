@@ -40,9 +40,13 @@ let root: Root | undefined;
 let host: HTMLElement;
 /// How often the picker asked the host to read the machines again (`onRefreshMachines`).
 let refreshes = 0;
+let updateProps: (extra: Record<string, unknown>) => Promise<void>;
 
 beforeAll(() => {
-  dom = new JSDOM("<!doctype html><div id=root></div>", { pretendToBeVisual: true, url: "https://cmux.test/" });
+  dom = new JSDOM("<!doctype html><div id=root></div>", {
+    pretendToBeVisual: true,
+    url: "https://cmux.test/",
+  });
   Object.assign(scope, {
     window: dom.window,
     document: dom.window.document,
@@ -114,7 +118,13 @@ async function mount(environments: boolean, extra: Record<string, unknown> = {})
     summary: { sessionId: "", harness: "claude", host: "This Mac", hostKind: "local" },
     sessions: [
       { sessionId: "a", cwd: "/home/dev/model", host: "gpu-box", peer: "gpu-box", updatedAt: 0 },
-      { sessionId: "b", cwd: "/home/you/cache", host: "build-cloud", hostKind: "cloud", updatedAt: 0 },
+      {
+        sessionId: "b",
+        cwd: "/home/you/cache",
+        host: "build-cloud",
+        hostKind: "cloud",
+        updatedAt: 0,
+      },
     ],
     peers: status.peers.map((peer) => peer.name),
     peerKinds: peerKindsFromStatus(relayedStatus),
@@ -128,14 +138,18 @@ async function mount(environments: boolean, extra: Record<string, unknown> = {})
   } as unknown as Parameters<typeof ComposerContext>[0];
   root = createRoot(host);
   // The composer this row heads: ⌥⌘1–9 work while its field has focus.
-  await act(async () =>
-    root!.render(
-      <form className="acpmux-composer">
-        <ComposerContext {...props} />
-        <textarea aria-label="Prompt" />
-      </form>,
-    ),
-  );
+  updateProps = async (extra) => {
+    Object.assign(props, extra);
+    await act(async () =>
+      root!.render(
+        <form className="acpmux-composer">
+          <ComposerContext {...props} />
+          <textarea aria-label="Prompt" />
+        </form>,
+      ),
+    );
+  };
+  await updateProps({});
   return calls;
 }
 
@@ -189,6 +203,9 @@ async function press(target: Element, init: KeyboardEventInit) {
   });
 }
 
+/// A connect choice's name, without the one-line description New Cloud Machine carries.
+const choiceLabel = (button: Element) => button.querySelector(".acpmux-menu-label")?.textContent ?? button.textContent;
+
 test("a peer's transport reads the same from the relayed reply and the daemon's own", async () => {
   const { peerKindsFromStatus } = await import("../src/agent-session/acpmux/environments");
   const kinds: Record<string, "ssh" | "cloud"> = { "gpu-box": "ssh", "cloud-1": "cloud" };
@@ -202,7 +219,9 @@ test("a peer's connected flag reads the same from the relayed reply and the daem
   const connected = { "gpu-box": true, "cloud-1": false };
   expect(peerConnectedFromStatus(relayedStatus)).toEqual(connected);
   expect(
-    peerConnectedFromStatus({ peers: [...status.peers.slice(0, 1), { ...status.peers[1], connected: false }] }),
+    peerConnectedFromStatus({
+      peers: [...status.peers.slice(0, 1), { ...status.peers[1], connected: false }],
+    }),
   ).toEqual(connected);
   // An older acpmux or relay that sends no flag (or not a boolean) says nothing about the machine.
   expect(peerConnectedFromStatus({ peers: [{ name: "bare" }, { name: "odd", connected: 1 }] })).toEqual({});
@@ -235,6 +254,63 @@ test("previews off: the row keeps its plain Computer menu", async () => {
   expect(doc().querySelector(".acpmux-env-popover")).toBeNull();
 });
 
+for (const environments of [false, true]) {
+  // Base UI retains a closed popup during its exit transition; only an open popup can cover the ask.
+  const menu = () =>
+    doc().querySelector(
+      environments ? ".acpmux-env-popover:not([data-closed])" : ".acpmux-location-menu:not([data-closed])",
+    );
+  test(`trust question closes an open destination picker (previews ${environments})`, async () => {
+    await mount(environments);
+    await openPicker();
+    expect(menu()).not.toBeNull();
+    await updateProps({ closeOnTrustAsk: true });
+    expect(menu()).toBeNull();
+    expect(computerButton()?.getAttribute("aria-expanded")).toBe("false");
+    await openPicker();
+    expect(menu()).toBeNull();
+    await updateProps({ closeOnTrustAsk: false });
+    await openPicker();
+    expect(menu()).not.toBeNull();
+  });
+  for (const via of ["trigger", "opener"] as const) {
+    test(`trust question prevents destination picker mounting via ${via} (previews ${environments})`, async () => {
+      await mount(environments, { closeOnTrustAsk: true });
+      const { flushSync } = await import("react-dom");
+      const { openPicker: openRegisteredPicker } = await import("../src/agent-session/acpmux/pickerOpeners");
+      const selector = environments ? ".acpmux-env-popover" : ".acpmux-location-menu";
+      // Record even a node inserted and removed in the same commit/effect flush. Checking only
+      // the final open state misses the popup stealing focus and refreshing before it closes.
+      const observer = new dom.window.MutationObserver(() => {});
+      observer.observe(doc().body, { childList: true, subtree: true });
+      try {
+        await act(async () => {
+          flushSync(() => {
+            if (via === "trigger") computerButton()!.click();
+            else expect(openRegisteredPicker("Computer")).toBe(true);
+          });
+          // Assert before the outer act flush; mutation records also catch anything flushSync flushed.
+          expect(Boolean(doc().querySelector(selector))).toBe(false);
+          expect(refreshes).toBe(0);
+          const insertedPopup = observer
+            .takeRecords()
+            .some((record) =>
+              [...record.addedNodes].some(
+                (node) =>
+                  node instanceof dom.window.Element && (node.matches(selector) || node.querySelector(selector)),
+              ),
+            );
+          expect(insertedPopup).toBe(false);
+        });
+        expect(Boolean(doc().querySelector(selector))).toBe(false);
+        expect(refreshes).toBe(0);
+      } finally {
+        observer.disconnect();
+      }
+    });
+  }
+}
+
 // A fresh home must offer setup without enabling the environments preview. The same
 // plain Computer menu is usable from an existing local chat; its machine stays fixed.
 for (const started of [false, true]) {
@@ -248,10 +324,7 @@ for (const started of [false, true]) {
     });
     await openPicker();
     const actions = () => [...doc().querySelectorAll<HTMLButtonElement>(".acpmux-location-choose")];
-    expect(actions().map((button) => button.textContent)).toEqual([
-      t("composer.addComputer"),
-      t("composer.newCloudMachine"),
-    ]);
+    expect(actions().map(choiceLabel)).toEqual([t("composer.addComputer"), t("composer.newCloudMachine")]);
     await act(async () => actions()[0]!.click());
     expect(calls).toEqual([["connect", "addMachine"]]);
     await openPicker();
@@ -273,7 +346,7 @@ test("previews off: New Tab does not add setup beside existing computers", async
 test("previews off: an existing remote computer keeps the current connection footer", async () => {
   await mount(false);
   await openPicker();
-  expect([...doc().querySelectorAll(".acpmux-location-choose")].map((button) => button.textContent)).toEqual([
+  expect([...doc().querySelectorAll(".acpmux-location-choose")].map(choiceLabel)).toEqual([
     t("composer.connectSSH"),
     t("composer.newCloudMachine"),
   ]);
@@ -412,9 +485,21 @@ const startedOn = (hostKind: "local" | "cloud" | "ssh") => ({
   offloads: (hostKind === "local" ? ["move"] : hostKind === "cloud" ? ["bringBack"] : []) as unknown,
   summary:
     hostKind === "local"
-      ? { sessionId: "s", harness: "claude", host: "This Mac", hostKind: "local", cwd: "/Users/you/src/cmux" }
+      ? {
+          sessionId: "s",
+          harness: "claude",
+          host: "This Mac",
+          hostKind: "local",
+          cwd: "/Users/you/src/cmux",
+        }
       : hostKind === "cloud"
-        ? { sessionId: "s", harness: "claude", host: "build-cloud", hostKind: "cloud", cwd: "/home/you/cache" }
+        ? {
+            sessionId: "s",
+            harness: "claude",
+            host: "build-cloud",
+            hostKind: "cloud",
+            cwd: "/home/you/cache",
+          }
         : {
             sessionId: "s",
             harness: "claude",
@@ -538,7 +623,13 @@ test("⌥⌘1 on the environment already chosen stays the app's", async () => {
 
 // hq#2569 #9: a new chat chooses a worktree beside its folder, as Codex's Worktree and Claude's chips do.
 const inFolder = {
-  summary: { sessionId: "", harness: "claude", host: "This Mac", hostKind: "local", cwd: "/Users/you/src/cmux" },
+  summary: {
+    sessionId: "",
+    harness: "claude",
+    host: "This Mac",
+    hostKind: "local",
+    cwd: "/Users/you/src/cmux",
+  },
 };
 const worktreeButton = () =>
   [...host.querySelectorAll<HTMLButtonElement>(".acpmux-location-button")].find(
@@ -631,7 +722,11 @@ test("New Tab, previews on: a slower worktree reply doesn't replace a newer choi
 
 test("New Tab, previews on: a worktree reply after a machine pick doesn't take the chat back here", async () => {
   const replies: ((folder: string) => void)[] = [];
-  const snapshot = noChat([], { peers: ["devbox"], peerKinds: { devbox: "ssh" }, peerConnected: { devbox: true } });
+  const snapshot = noChat([], {
+    peers: ["devbox"],
+    peerKinds: { devbox: "ssh" },
+    peerConnected: { devbox: true },
+  });
   await mountNewTab(() => new Promise<string | undefined>((resolve) => replies.push(resolve)), snapshot);
   await act(async () => worktreeButton()!.click());
   await openPicker();
@@ -732,9 +827,11 @@ test("a peer's link state reads the same from the relayed reply and the daemon's
   expect(peerStatesFromStatus({ peers: [{ name: "a", url: "ssh://a", state: "reconnecting" }] })).toEqual({
     a: "reconnecting",
   });
-  expect(peerStatesFromStatus({ peers: [{ name: "a", transport: "ssh", state: "connected" }, { name: "b" }] })).toEqual(
-    { a: "connected" },
-  );
+  expect(
+    peerStatesFromStatus({
+      peers: [{ name: "a", transport: "ssh", state: "connected" }, { name: "b" }],
+    }),
+  ).toEqual({ a: "connected" });
   // No state: the connected flag decides; nothing known counts as a place to start.
   expect(environmentReady({ id: "a", label: "a", kind: "ssh", connected: false })).toBe(false);
   expect(environmentReady({ id: "a", label: "a", kind: "ssh" })).toBe(true);
@@ -830,6 +927,103 @@ test("previews off: the plain Computer menu lists the same machines, in the same
   expect(computers).toEqual(["desk-mac"]);
 });
 
+test("the plain Computer menu warns when a remote machine reaches its CPU budget", async () => {
+  await mount(false, {
+    peerResources: {
+      "gpu-box": { ramFreeGB: 8, coresBusy: 14, cores: 10, busy: true, lowMemory: false },
+    },
+  });
+  await openPicker();
+  const row = [...doc().querySelectorAll<HTMLElement>(".acpmux-location-menu .acpmux-menu-item")].find(
+    (item) => item.querySelector(".acpmux-menu-label")?.textContent === "gpu-box",
+  )!;
+  expect(row.querySelector(".acpmux-location-name")?.getAttribute("data-warning")).toBe("true");
+  expect(row.querySelector(".acpmux-menu-description")?.textContent).toBe(
+    t("composer.machineHighLoad", { busy: 14, cores: 10 }),
+  );
+});
+
+test("the plain Computer menu warns with free memory when CPU is fine", async () => {
+  await mount(false, {
+    peerResources: {
+      "gpu-box": { ramFreeGB: 1.2, coresBusy: 2, cores: 10, busy: false, lowMemory: true },
+    },
+  });
+  await openPicker();
+  const row = [...doc().querySelectorAll<HTMLElement>(".acpmux-location-menu .acpmux-menu-item")].find(
+    (item) => item.querySelector(".acpmux-menu-label")?.textContent === "gpu-box",
+  )!;
+  expect(row.querySelector(".acpmux-location-name")?.getAttribute("data-warning")).toBe("true");
+  expect(row.querySelector(".acpmux-menu-description")?.textContent).toBe(
+    t("composer.machineLowMemory", { free: "1.2" }),
+  );
+});
+
+test("a healthy machine stays quiet and the warning setting can hide a warning", async () => {
+  await mount(false, {
+    peerResources: {
+      "gpu-box": { ramFreeGB: 8, coresBusy: 2, cores: 10, busy: false, lowMemory: false },
+    },
+  });
+  await openPicker();
+  let row = [...doc().querySelectorAll<HTMLElement>(".acpmux-location-menu .acpmux-menu-item")].find(
+    (item) => item.querySelector(".acpmux-menu-label")?.textContent === "gpu-box",
+  )!;
+  expect(row.querySelector(".acpmux-location-name")?.getAttribute("data-warning")).toBeNull();
+  expect(row.querySelector(".acpmux-menu-description")).toBeNull();
+
+  act(() => root?.unmount());
+  root = undefined;
+  host.replaceChildren();
+  await mount(false, {
+    showMachineLoadWarnings: false,
+    peerResources: {
+      "gpu-box": { ramFreeGB: 1.2, coresBusy: 14, cores: 10, busy: true, lowMemory: true },
+    },
+  });
+  await openPicker();
+  row = [...doc().querySelectorAll<HTMLElement>(".acpmux-location-menu .acpmux-menu-item")].find(
+    (item) => item.querySelector(".acpmux-menu-label")?.textContent === "gpu-box",
+  )!;
+  expect(row.querySelector(".acpmux-location-name")?.getAttribute("data-warning")).toBeNull();
+  expect(row.querySelector(".acpmux-menu-description")).toBeNull();
+});
+
+test("a warning is withheld while a machine is not ready", async () => {
+  await mount(false, {
+    peerConnected: { "gpu-box": false },
+    peerResources: {
+      "gpu-box": { ramFreeGB: 1.2, coresBusy: 14, cores: 10, busy: true, lowMemory: true },
+    },
+  });
+  await openPicker();
+  const row = [...doc().querySelectorAll<HTMLElement>(".acpmux-location-menu .acpmux-menu-item")].find(
+    (item) => item.querySelector(".acpmux-menu-label")?.textContent === "gpu-box",
+  )!;
+  expect(row.querySelector(".acpmux-location-name")?.getAttribute("data-warning")).toBeNull();
+  expect(row.querySelector(".acpmux-menu-description")?.textContent).toBe(t("composer.envNotConnected"));
+});
+
+test("turning the warning setting off updates an already-open menu", async () => {
+  const { setComposerSettings, DEFAULT_COMPOSER } = await import("../src/agent-session/acpmux/composerSettings");
+  setComposerSettings(DEFAULT_COMPOSER);
+  await mount(false, {
+    peerResources: {
+      "gpu-box": { ramFreeGB: 1.2, coresBusy: 14, cores: 10, busy: true, lowMemory: true },
+    },
+  });
+  await openPicker();
+  const row = () =>
+    [...doc().querySelectorAll<HTMLElement>(".acpmux-location-menu .acpmux-menu-item")].find(
+      (item) => item.querySelector(".acpmux-menu-label")?.textContent === "gpu-box",
+    )!;
+  expect(row().querySelector(".acpmux-location-name")?.getAttribute("data-warning")).toBe("true");
+  await act(async () => setComposerSettings({ showMachineLoadWarnings: false }));
+  expect(row().querySelector(".acpmux-location-name")?.getAttribute("data-warning")).toBeNull();
+  expect(row().querySelector(".acpmux-menu-description")).toBeNull();
+  setComposerSettings(DEFAULT_COMPOSER);
+});
+
 test("an open machine list reads the machines again until it closes", async () => {
   const { MACHINES_REFRESH_MS } = await import("../src/agent-session/acpmux/EnvironmentPicker");
   expect(MACHINES_REFRESH_MS).toBeLessThanOrEqual(5_000);
@@ -867,7 +1061,13 @@ test("an open machine list reads the machines again until it closes", async () =
 
 test("a numbered pair is the person's own; three or more of one stem are a pool", async () => {
   const { environmentSections } = await import("../src/agent-session/acpmux/environments");
-  const ssh = (name: string) => ({ id: name, label: name, kind: "ssh" as const, connected: true, state: "connected" });
+  const ssh = (name: string) => ({
+    id: name,
+    label: name,
+    kind: "ssh" as const,
+    connected: true,
+    state: "connected",
+  });
   const sections = environmentSections(
     ["build-mini-1", "build-mini-2", "cmux16", "lane-1", "lane-2", "lane-3"].map(ssh),
   );

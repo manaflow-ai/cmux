@@ -63,6 +63,8 @@ fn the_tools_say_they_message_other_sessions_instead_of_the_shell() {
         names,
         [
             "send",
+            "inbox_read",
+            "inbox_reply",
             "ls",
             "last",
             "info",
@@ -79,8 +81,8 @@ fn the_tools_say_they_message_other_sessions_instead_of_the_shell() {
     assert!(send.contains("Message another agent session"), "{send}");
     assert!(send.contains("instead of running `acpmux send` in a shell"), "{send}");
     assert_eq!(tools[0]["inputSchema"]["required"], json!(["to", "text"]));
-    assert_eq!(tools[4]["inputSchema"]["required"], json!(["to", "body"]));
-    assert_eq!(tools[6]["inputSchema"]["required"], json!(["id"]));
+    assert_eq!(tools[6]["inputSchema"]["required"], json!(["to", "body"]));
+    assert_eq!(tools[8]["inputSchema"]["required"], json!(["id"]));
 }
 
 #[tokio::test]
@@ -145,7 +147,7 @@ async fn send_carries_its_class_and_refuses_any_other() {
     assert_eq!(send_class(&json!({})), Ok(None));
     assert!(send_class(&json!({"class": 2})).is_err());
     let schema = &tools()[0]["inputSchema"]["properties"]["class"]["enum"];
-    assert_eq!(schema, &json!(["block", "question", "result", "fyi"]));
+    assert_eq!(schema, &json!(["block", "question", "result", "fyi", "blocker", "action"]));
 }
 
 #[tokio::test]

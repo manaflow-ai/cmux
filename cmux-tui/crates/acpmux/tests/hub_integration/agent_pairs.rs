@@ -31,6 +31,8 @@ fn config(dir: Option<&Path>) -> Config {
     }))
     .unwrap();
     cfg.store.mode = if dir.is_some() { StoreMode::Local } else { StoreMode::Memory };
+    // The queue path before the inbox (`hub/inbox.rs`), which these tests cover.
+    cfg.agent_inbox = Some(false);
     cfg
 }
 

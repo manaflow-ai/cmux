@@ -21,6 +21,10 @@ SCRIPT="$REPO/scripts/cmux-next/build-web-bundles.sh"
 mkdir -p "$REPO/webviews"
 cp "$ROOT/webviews/package.json" "$REPO/webviews/package.json"
 git -C "$REPO" init -q
+# web-bundle-key.py reads the declared bun version from webviews/package.json.
+mkdir -p "$REPO/webviews"
+cp "$ROOT/webviews/package.json" "$REPO/webviews/"
+git -C "$REPO" add webviews/package.json
 
 PANE="Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane"
 PAGES="Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages"
@@ -67,6 +71,23 @@ for path in "$PANE" "$PAGES" "$ACTIVITY"; do
   grep -qx "generated: $path" "$REPO/$path/GENERATED.md" || { echo "FAIL: --from must keep the committed $path/GENERATED.md"; exit 1; }
   [ ! -e "$REPO/$path/stale.js" ] || { echo "FAIL: --from must drop build output the prebuilt tree does not hold ($path/stale.js)"; exit 1; }
 done
+
+# Exercise the nightly producer and the real installer together: a handoff must
+# include every file --from needs, including the checked-in inspector page.
+mkdir -p "$REPO/scripts/ci"
+cp "$ROOT/scripts/ci/nightly_inputs.py" "$REPO/scripts/ci/"
+git -C "$REPO" add scripts "$INSPECTOR/index.html"
+git -C "$REPO" -c core.hooksPath=/dev/null -c user.name=Test -c user.email=test@example.invalid commit -qm fixture
+key="$(python3 "$REPO/scripts/cmux-next/web-bundle-key.py" "$REPO" --source)"
+python3 "$REPO/scripts/ci/nightly_inputs.py" pack-web "$WORK/handoff" --source-key "$key"
+python3 "$REPO/scripts/ci/nightly_inputs.py" install-web "$WORK/handoff"
+"$SCRIPT" --verify
+# A changed source must miss instead of installing yesterday's bundles.
+printf '\n# changed input\n' >> "$REPO/scripts/cmux-next/build-web-bundles.sh"
+status=0
+python3 "$REPO/scripts/ci/nightly_inputs.py" install-web "$WORK/handoff" || status=$?
+[ "$status" = 3 ] || { echo "FAIL: changed inputs must refuse a handoff"; exit 1; }
+git -C "$REPO" checkout -- scripts/cmux-next/build-web-bundles.sh
 
 # A committed inspector page that differs from the one generated for this source key is stale:
 # an in-tree build refuses it (build-optchat-inspector-web.sh --check), and so must --from.

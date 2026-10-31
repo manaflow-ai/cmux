@@ -17,6 +17,7 @@ import {
   withHeader,
 } from "../src/agent-session/acpmux/inspector/changesStatus";
 import { rowState } from "../src/agent-session/acpmux/inspector/ChangesSection";
+import { pageClocks } from "../src/ui/pageClock";
 
 afterEach(() => {
   jest.useRealTimers();
@@ -224,6 +225,49 @@ test("an open list registers again each minute while the chat is quiet, and stop
   jest.advanceTimersByTime(2 * REGISTER_EVERY_MS);
   await Promise.resolve();
   expect(registers).toEqual([urls, urls]);
+});
+
+test("freshness releases its hidden timer and showing the page does not refresh", async () => {
+  jest.useFakeTimers();
+  setSystemTime(new Date(1_000_000));
+  const original = Object.getOwnPropertyDescriptor(globalThis, "document");
+  const doc = new EventTarget() as Document;
+  const visibility = (value: DocumentVisibilityState) => {
+    Object.defineProperty(doc, "visibilityState", { configurable: true, value });
+    doc.dispatchEvent(new Event("visibilitychange"));
+  };
+  visibility("visible");
+  Object.defineProperty(globalThis, "document", { configurable: true, value: doc });
+  const calls: string[] = [];
+  setChipHost(async (method) => {
+    calls.push(method);
+    return method === "pr.inspect" ? { pullRequest: null, reading: false } : {};
+  });
+  const stop = keepChangesFresh(["https://github.com/acme/a/pull/1"]);
+  try {
+    expect(pageClocks(doc).running).toBe(1);
+    visibility("hidden");
+    expect(pageClocks(doc).running).toBe(0);
+    jest.advanceTimersByTime(2 * REGISTER_EVERY_MS);
+    expect(calls).toEqual([]);
+    visibility("visible");
+    expect(pageClocks(doc).running).toBe(1);
+    await Promise.resolve();
+    expect(calls).toEqual([]);
+    jest.advanceTimersByTime(REGISTER_EVERY_MS - 1);
+    expect(calls).toEqual([]);
+    jest.advanceTimersByTime(1);
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(calls).toEqual(["link.inspect", "pr.inspect"]);
+    stop();
+    expect(pageClocks(doc).running).toBe(0);
+    jest.advanceTimersByTime(REGISTER_EVERY_MS);
+    expect(calls).toEqual(["link.inspect", "pr.inspect"]);
+  } finally {
+    stop();
+    if (original) Object.defineProperty(globalThis, "document", original);
+    else delete (globalThis as { document?: unknown }).document;
+  }
 });
 
 test("a transcript update that names the same pull requests keeps the list the page registered, with no new array", () => {

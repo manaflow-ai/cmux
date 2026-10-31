@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { codexEventsForTest } from "../adapters/codex";
+import { codexEventsForTest, codexRoutingForTest } from "../adapters/codex";
 
 const threadId = "thread-parity";
 const turnId = "turn-parity";
@@ -57,4 +57,127 @@ test("Codex app-server failures stay visible as error then done", () => {
     { kind: "error", message: "provider unavailable" },
     { kind: "done" },
   ]);
+});
+
+test("Codex request_user_input reaches the person as a question instead of being declined", () => {
+  const events = codexEventsForTest([{
+    id: 7,
+    method: "item/tool/requestUserInput",
+    params: {
+      threadId,
+      turnId,
+      itemId: "item-1",
+      isBlocking: true,
+      questions: [{ id: "region", header: "Region", question: "Which region?", options: [{ label: "us", description: "" }] }],
+    },
+  }]);
+
+  expect(events.map((evt) => evt.kind)).toEqual(["question"]);
+});
+
+test("Codex turn plan updates become plan entries", () => {
+  const events = codexEventsForTest([
+    notification("turn/plan/updated", {
+      explanation: "Start with the adapter",
+      plan: [
+        { step: "Read the adapter", status: "completed" },
+        { step: "Map the notifications", status: "inProgress" },
+        { step: "Add tests", status: "pending" },
+      ],
+    }),
+    // An empty plan carries nothing to show and must not blank the last one.
+    notification("turn/plan/updated", { plan: [] }),
+  ]);
+
+  expect(events).toEqual([
+    {
+      kind: "plan",
+      entries: [
+        { text: "Read the adapter", status: "completed" },
+        { text: "Map the notifications", status: "in_progress" },
+        { text: "Add tests", status: "pending" },
+      ],
+    },
+  ]);
+});
+
+test("Codex compaction shows one marker whether the item, the legacy notification or both arrive", () => {
+  const compactionItem = (id: string) => notification("item/completed", { item: { type: "contextCompaction", id } });
+  const events = codexEventsForTest([
+    notification("turn/started", { turn: { id: turnId } }),
+    // A current app-server reports each compaction as an item and as the
+    // deprecated thread/compacted notification, in either order.
+    notification("item/started", { item: { type: "contextCompaction", id: "compact-1" } }),
+    compactionItem("compact-1"),
+    notification("thread/compacted"),
+    notification("thread/compacted"),
+    compactionItem("compact-2"),
+    // An older app-server sends only the legacy notification.
+    notification("thread/compacted", { turnId: "turn-legacy" }),
+  ]);
+
+  expect(events).toEqual([
+    { kind: "status", text: "Conversation compacted" },
+    { kind: "status", text: "Conversation compacted" },
+    { kind: "status", text: "Conversation compacted" },
+  ]);
+});
+
+test("Codex goal updates show once per objective and status", () => {
+  const goal = (objective: string, status: string, tokensUsed: number) => notification("thread/goal/updated", {
+    goal: { threadId, objective, status, tokensUsed, timeUsedSeconds: tokensUsed, createdAt: 1, updatedAt: tokensUsed },
+  });
+  const events = codexEventsForTest([
+    goal("Ship the adapter", "active", 10),
+    // Usage ticks re-send the same goal; they are not new transcript rows.
+    goal("Ship the adapter", "active", 20),
+    goal("Ship the adapter", "budgetLimited", 30),
+    goal("Ship the adapter", "complete", 40),
+    notification("thread/goal/cleared"),
+    notification("thread/goal/cleared"),
+  ]);
+
+  expect(events).toEqual([
+    { kind: "status", text: "Goal: Ship the adapter" },
+    { kind: "status", text: "Goal reached its token budget: Ship the adapter" },
+    { kind: "status", text: "Goal complete: Ship the adapter" },
+    { kind: "status", text: "Goal cleared" },
+  ]);
+});
+
+test("Codex thread status and archive notifications surface what the agent pane can act on", () => {
+  const events = codexEventsForTest([
+    // Approvals and input requests are answered at once by the adapter, so
+    // the waiting flags would only leave stale rows behind.
+    notification("thread/status/changed", { status: { type: "active", activeFlags: ["waitingOnApproval"] } }),
+    notification("thread/status/changed", { status: { type: "systemError" } }),
+    notification("thread/status/changed", { status: { type: "systemError" } }),
+    notification("thread/status/changed", { status: { type: "idle" } }),
+    notification("thread/status/changed", { status: { type: "systemError" } }),
+    notification("thread/archived"),
+    notification("thread/unarchived"),
+  ]);
+
+  expect(events).toEqual([
+    { kind: "status", text: "Codex reported a system error on this thread" },
+    { kind: "status", text: "Codex reported a system error on this thread" },
+    { kind: "status", text: "Thread archived in Codex" },
+    { kind: "status", text: "Thread unarchived in Codex" },
+  ]);
+});
+
+test("Codex closing the thread ends a running turn and unroutes it so the next send resumes", () => {
+  const routing = codexRoutingForTest([
+    notification("turn/started", { turn: { id: turnId } }),
+    notification("thread/closed"),
+    // Nothing routes to the session once the server has unloaded the thread.
+    notification("item/agentMessage/delta", { itemId: "late", delta: "late" }),
+  ]);
+
+  expect(routing.events).toEqual([
+    { kind: "error", message: "Codex closed the thread mid-turn" },
+    { kind: "done" },
+  ]);
+  expect(routing.routed).toBe(false);
+  expect(routing.status).toBe("idle");
 });

@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1224,
+    "entries": 1229,
     "shortcuts": 189
   },
   "sections": [
@@ -68,6 +68,12 @@
           "title": "Close All Windows",
           "shortcut": null,
           "command": "cmux app close-all-windows"
+        },
+        {
+          "id": "home.closeNewMessage",
+          "title": "Close New Message",
+          "shortcut": null,
+          "command": "cmux home close-new-message"
         },
         {
           "id": "window.closeOthers",
@@ -170,6 +176,12 @@
           "title": "Invite to cmux-next…",
           "shortcut": null,
           "command": "cmux home invite"
+        },
+        {
+          "id": "home.inviteToTeam",
+          "title": "Invite to Team…",
+          "shortcut": null,
+          "command": "cmux home invite-to-team"
         },
         {
           "id": "keepMacAwake",
@@ -1982,6 +1994,12 @@
           "title": "Open Find as Pane",
           "shortcut": null,
           "command": "cmux pane open-find-as"
+        },
+        {
+          "id": "file.openRecoveredDraft",
+          "title": "Open Recovered Draft…",
+          "shortcut": null,
+          "command": null
         },
         {
           "id": "palette.openVaultPane",
@@ -5650,6 +5668,12 @@
           "command": null
         },
         {
+          "id": "agentPane.continueAfterError",
+          "title": "Continue After Error",
+          "shortcut": null,
+          "command": "cmux agent continue-after-error"
+        },
+        {
           "id": "agentPane.continueIn",
           "title": "Continue In…",
           "shortcut": null,
@@ -6044,6 +6068,12 @@
           "title": "Stop Computer Use",
           "shortcut": null,
           "command": "cmux agent stop-computer-use"
+        },
+        {
+          "id": "agentPane.stopReadingAloud",
+          "title": "Stop Reading Aloud",
+          "shortcut": null,
+          "command": "cmux agent stop-reading-aloud"
         },
         {
           "id": "home.stopChief",
@@ -6730,6 +6760,12 @@
           "command": null
         },
         {
+          "id": "settings.customizeMenus",
+          "title": "Customize Right-Click Menus…",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "appearance.uiScale.decrease",
           "title": "Decrease Interface Scale",
           "shortcut": "⌃⇧⌘-",
@@ -6848,12 +6884,6 @@
           "title": "Installed Apps",
           "shortcut": null,
           "command": null
-        },
-        {
-          "id": "team.invite",
-          "title": "Invite to Team…",
-          "shortcut": null,
-          "command": "cmux team invite"
         },
         {
           "id": "help.discord",

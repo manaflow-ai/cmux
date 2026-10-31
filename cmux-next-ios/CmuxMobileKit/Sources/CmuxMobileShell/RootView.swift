@@ -1,5 +1,6 @@
 #if os(iOS)
 import CmuxMobileAuth
+import CmuxMobileArtifacts
 import CmuxMobileBrowserStream
 import CmuxMobileChief
 import CmuxMobileDesign
@@ -9,6 +10,7 @@ import CmuxMobileModel
 import CmuxMobileNotifications
 import CmuxMobileTransport
 import CmuxMobileOnboarding
+import CmuxMobileScreenSharing
 import CmuxMobileSettings
 import CmuxMobileVoice
 import CmuxMobileSupport
@@ -66,6 +68,7 @@ public struct RootView: View {
     /// The app's keyboard notifications, for every keyboard-pinned composer.
     @State private var keyboard = MobileKeyboardFrameTracker()
     @State private var launchFinished = false
+    @State private var previewSweepStarted = false
     /// Live data from sign-in on (setup included); nil in mock mode.
     @State private var live: LiveCoordinator?
     /// Setup's steps, fixed once the team list has loaded so a Mac appearing
@@ -162,6 +165,15 @@ public struct RootView: View {
         .environment(\.mobileKeyboardFrameTracker, keyboard)
         // Settings → Require Face ID (audit B11).
         .cmuxMobileAppLock(enabled: settings.requireFaceID)
+        .task {
+            guard !previewSweepStarted else { return }
+            previewSweepStarted = true
+            // A one-shot launch cleanup; active downloads/viewers are protected by
+            // the store's ownership registry even when startup races a preview.
+            await Task.detached(priority: .utility) {
+                ManagedPreviewFile.removeStaleCopies()
+            }.value
+        }
         .task(id: auth.isResolved) {
             guard auth.isResolved, !launchFinished else { return }
             if !auth.isSignedIn, !auth.isMock { AccountSignOut().settleLaunchSignedOut() }
@@ -340,7 +352,12 @@ public struct RootView: View {
         PushReplies.shared.attach(live: coordinator)
         // Before the session ends: stop pushes to this phone. The Macs keep
         // their approval of it (verify/persistence.md).
-        auth.willSignOut = AccountSignOut().willSignOut { await PushRegistration.shared.unregister() }
+        auth.willSignOut = AccountSignOut().willSignOut {
+            await PushRegistration.shared.unregister()
+            // Screen Sharing: end the session on screen and sign this phone out of the device hub
+            // while the account can still reach it (docs/device-hub/PROTOCOL.md, sign-out).
+            await ScreenSharingService.current?.signOutBeforeSessionEnds()
+        }
         log.info("live data on \(base.host() ?? "", privacy: .public)")
         syncTeams()
         if let invite = heldInvite {
@@ -420,6 +437,17 @@ struct ShellView: View {
     init(store: AppStore, auth: CmuxMobileAuthModel, settings: SettingsStore, sidebar: SidebarModel, live: LiveCoordinator?, options: ShellLaunchOptions) {
         let shell = ShellModel(store: store, auth: auth, settings: settings, sidebar: sidebar)
         shell.attach(live: live)
+        #if DEBUG
+        // Synthetic connection metadata for captures; never reads a real machine.
+        if auth.isMock, UserDefaults.standard.bool(forKey: "cmux-mobile-link-status-demo"),
+           let mac = store.activeTeam?.macs.first {
+            let phase = LinkMachine.Phase.connected(.wireGuard, .direct, rttMillis: 27)
+            let status = phase.statusLine(macName: mac.name, media: .up(.turn, rttMillis: 30))
+            let detail = phase.diagnosticLine(macName: mac.name, media: .up(.turn, rttMillis: 30))
+            if store.macLinkStatus[mac.id] != status { store.macLinkStatus[mac.id] = status }
+            if store.macLinkDiagnostics[mac.id] != detail { store.macLinkDiagnostics[mac.id] = detail }
+        }
+        #endif
         if let tab = options.initialTab.flatMap(RootTab.init(rawValue:)) { shell.tab = tab }
         if let page = options.settingsPage.flatMap(SettingsRoute.init(name:)) {
             shell.tab = .settings
@@ -461,6 +489,7 @@ struct ShellView: View {
                 if let team = shell.invitingTeam { shell.sendInvite(email: inviteEmail, to: team) }
                 inviteEmail = ""
             }
+                .keyboardShortcut(.defaultAction)
         } message: {
             Text("They'll get an email invitation to join.")
         }
@@ -680,6 +709,7 @@ struct ShellTabs: View {
                     directory: shell.deviceDirectory,
                     sizing: shell.sizingService,
                     callChief: { shell.callChief() },
+                    screenSharing: shell.screenSharing,
                     inviteToTeam: { shell.invite(to: $0) },
                     saveAppearance: { shell.saveAppearance($0, for: $1) }
                 ) {
@@ -715,7 +745,9 @@ private struct FeedTabContent: View {
 
     var body: some View {
         @Bindable var shell = shell
-        CmuxMobileFeed.FeedScreen(path: $shell.feedPath) { SidebarToolbarItem(sidebar: shell.sidebar) }
+        CmuxMobileFeed.FeedScreen(path: $shell.feedPath, reconnect: {
+            await shell.live?.reconnectFeeds()
+        }) { SidebarToolbarItem(sidebar: shell.sidebar) }
     }
 }
 
