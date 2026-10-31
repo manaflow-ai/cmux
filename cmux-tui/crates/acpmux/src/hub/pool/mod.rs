@@ -832,6 +832,8 @@ impl Hub {
         }
         let child = p.child.clone();
         *session.child.lock().await = Some(child.clone());
+        self.note_launch(&session, &child);
+        self.save_meta(&session);
         self.wake_idle_reaper();
         if let Some(rx) = session.inbound_rx.lock().await.take() {
             let hub = self.clone();
