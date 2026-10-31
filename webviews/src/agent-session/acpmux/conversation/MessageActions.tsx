@@ -15,6 +15,7 @@ import { AlertCircle, Check, DoubleCheck, Pin, Retry, Speaker, Spinner, StopRead
 import { canReadAloud, readAloud, useReadingAloud } from "./readAloud";
 import { exactTime, relativeTime } from "./relativeTime";
 import { CopyButton } from "./CopyButton";
+import { CardCopyShownContext } from "./CardCopy";
 import { hasMessageMenuHost, openMessageMenu, openForkMenu } from "./messageMenu";
 import { RetryModelMenu } from "./RetryModelMenu";
 import { TurnActionsContext } from "./turnActions";
@@ -308,13 +309,15 @@ export function SentActions({ text }: { text: string }) {
 /// The row at the end of another agent's message line (IncomingMessageCard.tsx IncomingMessageLine):
 /// its age, Copy, Retry and Pin, then `more` (a waiting steer's ⋯, QueuedMessageCard.tsx) in the
 /// same group, never a second one beside it. No read receipt: the message is the agent's to read.
+/// Opened, its card's corner is the message's one Copy (CardCopyShownContext), so the row has none.
 export function ReceivedActions({ row, text, more }: { row: AcpmuxRow; text: string; more?: ReactNode }) {
+  const cardCopies = useContext(CardCopyShownContext);
   return (
     <>
       <span className="cv-received-actions">
         <MessageFooterRow>
           <MessageTime at={row.at} className="cv-user__time" />
-          <MessageCopy text={text} />
+          {!cardCopies && <MessageCopy text={text} />}
           <PromptRetry rowId={row.id} prompt={row.resend ?? row.text ?? ""} />
           <PinButton rowId={row.id} />
           {more}
