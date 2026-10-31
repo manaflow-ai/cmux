@@ -47636,7 +47636,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Colors for terminals, and for cmux while App Theme matches it"
+            "value": "Colors for terminals, and cmux while App Theme matches it"
           }
         },
         "ar": {
@@ -47660,25 +47660,25 @@
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Farben für Terminals und für cmux, solange das App-Theme ihm folgt"
+            "value": "Farben für Terminals und cmux, solange das App-Theme folgt"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Colores de los terminales, y de cmux mientras el tema de la app coincida"
+            "value": "Colores de terminales y cmux si el tema de la app coincide"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Couleurs des terminaux, et de cmux tant que le thème de l’app le suit"
+            "value": "Couleurs des terminaux, et de cmux si le thème de l’app suit"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Colori dei terminali, e di cmux finché il tema dell’app lo segue"
+            "value": "Colori dei terminali, e di cmux se il tema dell’app lo segue"
           }
         },
         "ja": {
@@ -47702,7 +47702,7 @@
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Farger for terminaler, og for cmux så lenge apptemaet følger det"
+            "value": "Farger for terminaler og cmux så lenge apptemaet følger det"
           }
         },
         "pl": {
@@ -47714,13 +47714,13 @@
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cores dos terminais, e do cmux enquanto o tema do app o seguir"
+            "value": "Cores dos terminais e do cmux enquanto o tema do app seguir"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Цвета терминалов и cmux, пока тема приложения совпадает с ней"
+            "value": "Цвета терминалов и cmux, пока тема приложения совпадает"
           }
         },
         "th": {
@@ -47732,19 +47732,19 @@
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Terminallerin renkleri; uygulama teması eşleştiği sürece cmux'un da"
+            "value": "Terminal renkleri; uygulama teması eşleşirse cmux'unkiler de"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Кольори терміналів і cmux, поки тема застосунку збігається з нею"
+            "value": "Кольори терміналів і cmux, поки тема застосунку збігається"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Màu cho terminal, và cho cmux khi chủ đề ứng dụng khớp với nó"
+            "value": "Màu cho terminal, và cho cmux khi chủ đề ứng dụng khớp"
           }
         },
         "zh-Hans": {
