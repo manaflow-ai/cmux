@@ -10,11 +10,14 @@ const rows = [
       tool("Read the second fixture", "read", "completed", { id: "card-height-two" }),
     ],
     1,
-    { id: "card-height-group" },
+    { id: "card-height-group", folded: true },
   ),
 ];
 
 function ToolGroupCardHeightGallery() {
+  // The card arm is intentionally gallery-only; production uses the shipped flat rows. Keep the
+  // fixture's root arm explicit so this test measures the bordered card rather than plain rows.
+  document.documentElement.dataset.toolStepsLook = "card";
   return (
     <div className="acpmux-shell">
       <VirtualTranscript
@@ -34,7 +37,6 @@ export default componentEntry<Record<string, never>>({
   height: 680,
   pane: true,
   covers: ["agent-session/acpmux/conversation/ToolGroupRow.tsx"],
-  documentAttributes: { "data-tool-steps-look": "card" },
   load: async () => ToolGroupCardHeightGallery,
   styles: () => Promise.all([import("../styles.css"), import("./conversation.css")]),
   variants: { default: { props: {} } },

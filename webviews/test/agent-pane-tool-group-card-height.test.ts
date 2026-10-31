@@ -38,10 +38,15 @@ await requireBrowserLane("agent-pane-tool-group-card-height.test.ts", async () =
     await page.goto(
       `http://127.0.0.1:${port}${galleryFrame("agent-pane.tool-group-card-height", { variant: "default" })}`,
     );
+    const toggle = page.locator(".cv-tool[data-tool-group]").first();
+    await toggle.waitFor();
+    await toggle.click();
+    await page.waitForFunction(() => document.querySelector('.cv-steps')?.getAnimations().length === 0);
     const card = page.locator(".cv-steps");
     await card.waitFor();
     const geometry = await card.evaluate((node) => {
       const card = node.getBoundingClientRect();
+      const style = getComputedStyle(node);
       const steps = [...node.querySelectorAll<HTMLElement>(":scope > .cv-step")].map((step) =>
         step.getBoundingClientRect(),
       );
@@ -52,8 +57,10 @@ await requireBrowserLane("agent-pane-tool-group-card-height.test.ts", async () =
         contentHeight: last.bottom - card.top,
         trailing: card.bottom - last.bottom,
         cardBottomFromTranscriptBottom: transcript.bottom - card.bottom,
+        border: style.borderTopWidth,
       };
     });
+    expect(Number.parseFloat(geometry.border)).toBeGreaterThan(0);
     expect(geometry.cardHeight).toBeGreaterThan(0);
     expect(geometry.trailing).toBeLessThanOrEqual(1.5);
     expect(Math.abs(geometry.cardHeight - geometry.contentHeight)).toBeLessThanOrEqual(1.5);
