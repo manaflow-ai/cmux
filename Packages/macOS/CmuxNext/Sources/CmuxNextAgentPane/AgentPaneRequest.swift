@@ -153,6 +153,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `sandbox.state {wait?}`: this pane's Sandboxed send, for a page that reloaded while it ran
     /// (``AgentPaneSandboxRuns/state(wait:)``).
     case sandboxState(wait: Bool)
+    /// `cloud.handoffTurn {sessionId}`: before a prompt that starts a turn of this pane's chat on a
+    /// Cloud machine, the hand-off turn it names (``AgentPaneModel/onCloudHandoffTurn``, ``AgentPaneHandoffPrompt``).
+    case cloudHandoffTurn(sessionId: String)
     /// `cloudMachine.list|open|resume`: the account's Cloud machines in the environment picker (``AgentPaneCloudMachineRequest``).
     case cloudMachine(AgentPaneCloudMachineRequest)
     /// A user-confirmed provider credential transfer for one Cloud chat.

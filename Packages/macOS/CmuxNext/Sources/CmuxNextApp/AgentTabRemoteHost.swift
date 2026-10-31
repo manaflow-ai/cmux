@@ -26,6 +26,8 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
     var cloudMachineID: String?
     var cloudAccount: [String?]?
     var cloudCredentialRecoveryAvailable = false
+    /// The App opens this Cloud chat's hand-off turns (``CloudHandoffTurnOpener``).
+    var cloudHandoffs = false
     /// The machine's daemon answers the folder trust question (`agent-session-trust-v1`).
     var servesTrust = false
     /// The machine's daemon says whether a keyed acpmux restart loses nothing
@@ -115,6 +117,7 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
         handshake.cloudMachineID = cloudMachineID
         handshake.cloudAccount = cloudAccount
         handshake.cloudCredentialRecoveryAvailable = cloudCredentialRecoveryAvailable
+        if cloudHandoffs { handshake.cloudHandoffs = true }
         return handshake
     }
 
