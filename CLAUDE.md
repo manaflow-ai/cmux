@@ -255,6 +255,17 @@ Release gates do not share it. Signing, notarization and GUI steps that truly
 require macOS run on owned Macs first and Blacksmith macOS last, in parallel
 with the fast checks. Keep the target at zero queue.
 
+**Nightlies never use Blacksmith, ever** (Lawrence, 2026-10-30). Every job of
+every nightly workflow (`.github/workflows/*nightly*.yml`,
+`*notarization*.yml`, the nightly appcast repair) runs only on our own Mac
+minis, for cmux-next and classic alike. This covers every path: the primary
+label, fallbacks, re-runs and rescue attempts, twin/backup signing jobs, the
+cloud overflow switch, and any input or repository variable a nightly
+`runs-on` reads. Never add a Blacksmith label (or a variable that may hold one,
+such as `LINUX_RUNNER` or `MACOS_RUNNER_*`) to a nightly job; when owned
+capacity is short, fix the owned pool. `tests/test_ci_nightly_off_blacksmith.py`
+enforces this.
+
 - Commit the failing behavioral regression before its fix; record the same
   focused command's red and green results ([testing policy](skills/cmux-testing/SKILL.md#reproduce-and-repair)).
   A bug-fix PR body names that command, its failure on the base and its pass on the head,

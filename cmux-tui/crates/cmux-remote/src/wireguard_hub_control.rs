@@ -647,6 +647,7 @@ pub fn kind_name(kind: PathKind) -> &'static str {
         PathKind::DirectWan => "direct-wan",
         PathKind::ViaCloudRegion => "via-cloud-region",
         PathKind::DoRelay => "do-relay",
+        PathKind::TurnRelay => "turn-relay",
     }
 }
 
