@@ -32,6 +32,7 @@ Exit 0 with a report; exit 1 only when no run reached main_start.
 """
 import argparse
 import datetime
+import select
 import importlib.util
 import json
 import os
@@ -263,16 +264,6 @@ def exec_floor(runs=5, limits=True):
 
 
 NIGHTLY_FEED = "https://files-next.cmux.com/nightly-next/next/appcast-arm64.xml"
-PROC_PIDTASKINFO = 4
-
-
-def task_counters(libc, pid):
-    """(resident bytes, user+system CPU ticks) of a process of this user (proc_pidinfo PROC_PIDTASKINFO), or None."""
-    import ctypes
-    buf = (ctypes.c_uint64 * 12)()  # struct proc_taskinfo is 96 bytes: 6 uint64 then 12 int32
-    if libc.proc_pidinfo(pid, PROC_PIDTASKINFO, ctypes.c_uint64(0), buf, 96) != 96:
-        return None
-    return buf[1], buf[2] + buf[3]
 
 
 def checker_cpu():
@@ -285,71 +276,89 @@ def checker_cpu():
     return {name: by_pid.get(pid) for name, pid in pids.items()}
 
 
-def exec_wait_ms(binary, limit_s=40.0):
-    """How long one exec of `binary` waits before its own code starts, with no app code reaching main():
-    posix_spawn (no fork, so the child starts as the new image at about 32 KB), then proc_pidinfo every 1 ms; the first
-    sample with CPU time or 1 MB more memory is dyld starting, after the kernel's and syspolicyd's checks. The child is
-    killed by its pid at that sample (dyld alone takes 47-91 ms to reach main on these minis, App Launch trace)."""
-    import ctypes
-    import signal as _signal
-    libc = ctypes.CDLL("/usr/lib/libSystem.B.dylib", use_errno=True)
-    pid = ctypes.c_int()
-    argv = (ctypes.c_char_p * 2)(binary.encode(), None)
-    envp = (ctypes.c_char_p * 2)(b"PATH=/usr/bin:/bin", None)
+def launch_release(app, label):
+    """One full launch of a release bundle (the notarized nightly) to main_start and its first frame, with its own
+    scratch home (HOME and CFFIXED_USER_HOME, as capture-host launches do), so it reads no account state; its marks
+    come on the same pipe as a bench build's (LaunchMarkSink is in every build). Quit, then its processes are ended
+    by TagTeardown (bundle path and id)."""
+    import plistlib
+    with open(os.path.join(app, "Contents/Info.plist"), "rb") as info:
+        binary = os.path.join(app, "Contents/MacOS", plistlib.load(info)["CFBundleExecutable"])
+    home = tempfile.mkdtemp(prefix="premain-home-")
+    with open(os.path.join(home, "cmux.json"), "w") as out:
+        out.write("{}\n")
+    teardown = teardown_for(app)
+    teardown.remember()
+    read_fd, write_fd = os.pipe()
+    env = {"HOME": home, "CFFIXED_USER_HOME": home, "USER": os.environ.get("USER", ""),
+           "TMPDIR": os.environ.get("TMPDIR", "/tmp"), "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+           "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_TEST_WINDOW_SCREEN": "last",
+           "CMUX_NEXT_CONFIG_FILE": os.path.join(home, "cmux.json"), "CMUX_NEXT_LAUNCH_MARKS_FD": str(write_fd)}
     before = checker_cpu()
-    start = time.monotonic()
-    code = libc.posix_spawn(ctypes.byref(pid), binary.encode(), None, None, argv, envp)
-    if code != 0:
-        return {"ms": None, "error": f"posix_spawn: {os.strerror(code)}"}
-    base, ms, error = None, None, None
+    t0, spawn_t = time.time(), time.monotonic()
+    with bs.finder_limits():
+        proc = subprocess.Popen([binary], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                start_new_session=True, pass_fds=(write_fd,))
+    os.close(write_fd)
+    marks, buffer, main_seen, after = {}, b"", None, None
+    deadline = spawn_t + TIMEOUT
     try:
-        while True:
-            now = time.monotonic()
-            counters = task_counters(libc, pid.value)
-            if counters is None:
-                error = "the process ended or could not be read before its code started"
+        while not ({bs.FINAL_MARK, bs.AGENT_MARK} & marks.keys()) and time.monotonic() < deadline:
+            ready, _, _ = select.select([read_fd], [], [], max(0.0, deadline - time.monotonic()))
+            if not ready:
                 break
-            if base is None:
-                base = counters
-            elif counters[1] > base[1] or counters[0] > base[0] + (1 << 20):
-                ms = round((now - start) * 1000, 1)
+            chunk = os.read(read_fd, 65536)
+            if not chunk:
                 break
-            if now - start > limit_s:
-                error = f"no start within {limit_s:.0f} s"
-                break
-            time.sleep(0.001)
+            buffer += chunk
+            *lines, buffer = buffer.split(b"\n")
+            for line in lines:
+                name, _, ms = line.decode(errors="replace").partition(" ")
+                if name and ms:
+                    marks.setdefault(name, float(ms))
+            if "main_start" in marks and main_seen is None:
+                main_seen = time.monotonic()
+                after = checker_cpu()
+        teardown.remember()
     finally:
-        os.kill(pid.value, _signal.SIGKILL)  # the process this function started
-        deadline = time.monotonic() + 10
-        while os.waitpid(pid.value, os.WNOHANG) == (0, 0) and time.monotonic() < deadline:
-            time.sleep(0.01)
-    after = checker_cpu()
-    return {"ms": ms, "error": error, "start_rss_kb": base[0] // 1024 if base else None,
-            "checker_cpu_s": {k: round(after[k] - before[k], 2) for k in after if k in before and after[k] is not None
-                              and before[k] is not None}}
+        os.close(read_fd)
+        bs.stop([proc.pid], timeout=20)
+        proc.wait()
+        teardown.end()
+        shutil.rmtree(home, ignore_errors=True)
+    main_ms = marks.get("main_start")
+    observed = round((main_seen - spawn_t) * 1000, 1) if main_seen else None
+    record = {"label": label, "path": app, "main_start_ms": main_ms, "spawn_to_main_observed_ms": observed,
+              "first_terminal_frame_ms": marks.get(bs.FINAL_MARK), "agent_handshake_ms": marks.get(bs.AGENT_MARK),
+              # a checker that started during the launch (XprotectService on a first exec) counts from 0 s
+              "checker_cpu_s": {k: round(v - (before.get(k) or 0.0), 2) for k, v in (after or {}).items() if v is not None},
+              "exit_status": proc.returncode}
+    if main_ms is not None:
+        end = t0 + min(main_ms, observed if observed is not None else main_ms) / 1000
+        lg = scan_log(t0, end, LOG_PREDICATE, app, limit=12)
+        record["log"] = {k: lg[k] for k in ("lines", "app_lines", "assessment_lines", "app_assessment_lines", "by_process",
+                                            "network_lines", "app_excerpt")}
+    log(f"{label}: main_start {fmt(main_ms)} (observed {fmt(observed)}), checkers {record['checker_cpu_s']}, "
+        f"log {record.get('log', {}).get('lines')} lines, {record.get('log', {}).get('app_lines')} naming the app")
+    return record
 
 
-def exec_series(binary, app, runs=3):
-    out = []
-    for _ in range(runs):
-        t0 = time.time()
-        record = exec_wait_ms(binary)
-        if record["ms"] is not None:
-            lg = scan_log(t0, t0 + record["ms"] / 1000, LOG_PREDICATE, app, limit=12)
-            record["log"] = {k: lg[k] for k in ("lines", "app_lines", "assessment_lines", "by_process", "app_excerpt")}
-        out.append(record)
-        log(f"exec {os.path.basename(os.path.dirname(app))}: {record['ms']} ms, checkers {record['checker_cpu_s']}, {record['error'] or ''}")
-    return out
+def bench_launch(path, label):
+    """launch_once (cold, empty state) without its ps samples; checker_cpu_s_delta holds the checkers' CPU to main."""
+    record = launch_once(path, label)
+    record.pop("ps_samples", None)
+    return record
 
 
 def notarized_probe(root, adhoc_app):
-    """The pre-main wait of the newest notarized Developer ID nightly-next (what a person runs) against the ad-hoc bench
-    app and against the same nightly re-signed ad hoc (same bytes, only the signature differs). Each series is 3 execs
-    of ONE new copy: exec 1 is the copy's first, 2 and 3 repeat it. No app code reaches main(), and the staged copy A
-    is never exec'd here."""
-    result = {"method": "posix_spawn, killed when its own code starts (proc_pidinfo, 1 ms)",
-              "limits": "no copy has a quarantine attribute, so a downloaded app's first Gatekeeper prompt path is "
-                        "not measured; an exec killed at dyld start is not a whole launch"}
+    """Full launches to main_start: the newest notarized Developer ID nightly-next (what a person runs), without and
+    with a user-approved quarantine attribute, the same nightly re-signed ad hoc (same bytes, only the signature
+    differs), and a new copy of the ad-hoc bench app. Each series is 3 launches of ONE new copy: launch 1 is the copy's
+    first exec, 2 and 3 repeat it. The staged copy A is never launched here."""
+    result = {"method": "full launches to main_start (launch marks), 3 per new copy",
+              "limits": "the quarantined copy carries the flag a download has AFTER the person clicked Open (01c1): the "
+                        "first launch of an unapproved download waits for that click in a Gatekeeper dialog, which "
+                        "cannot be timed and would block the mini"}
     try:
         notarized_probe_body(root, adhoc_app, result)
     except Exception as error:  # noqa: BLE001 - the probe must never lose the report; SystemExit (a cancel) passes
@@ -368,7 +377,7 @@ def probe_copy(source, root, name):
 
 def notarized_probe_body(root, adhoc_app, result):
     adhoc_fresh = probe_copy(adhoc_app, root, "F")
-    result["adhoc_new_copy"] = exec_series(bs.app_binary(use_copy(adhoc_fresh)), adhoc_fresh)
+    result["adhoc_new_copy"] = [bench_launch(adhoc_fresh, f"bench ad hoc (new copy) run {i}") for i in (1, 2, 3)]
     shutil.rmtree(os.path.dirname(adhoc_fresh), ignore_errors=True)
     work = os.path.join(root, "N")
     os.makedirs(work, exist_ok=True)
@@ -407,20 +416,25 @@ def notarized_probe_body(root, adhoc_app, result):
     with open(os.path.join(app, "Contents/Info.plist"), "rb") as info:
         import plistlib
         plist = plistlib.load(info)
-    binary = os.path.join(app, "Contents/MacOS", plist["CFBundleExecutable"])
     result["notarized_version"] = plist.get("CFBundleVersion")
-    executable = plist["CFBundleExecutable"]
-    result["notarized_new_copy"] = exec_series(binary, app)
-    second = probe_copy(app, root, "N2")
-    result["notarized_second_copy"] = exec_series(os.path.join(second, "Contents/MacOS", executable), second)
-    shutil.rmtree(os.path.dirname(second), ignore_errors=True)
+    result["notarized_new_copy"] = [launch_release(app, f"notarized (new copy) run {i}") for i in (1, 2, 3)]
+    quarantined = probe_copy(app, root, "Q")
+    flag = f"01c1;{int(time.time()):x};Safari;"
+    code, _, err = run(["xattr", "-w", "com.apple.quarantine", flag, quarantined])
+    result["quarantine"] = {"flag": flag, "set": code == 0, "error": err.strip()[:200] or None,
+                            "spctl": " ".join(run(["spctl", "-a", "-vv", "-t", "exec", quarantined])[2].split())[:300]}
+    if code == 0:
+        result["notarized_quarantined_approved"] = [launch_release(quarantined, f"notarized quarantined (approved) run {i}")
+                                                    for i in (1, 2, 3)]
+    shutil.rmtree(os.path.dirname(quarantined), ignore_errors=True)
     # The same bytes signed ad hoc (as reload.sh and the fleet build sign): only the signature differs from N.
     resigned = probe_copy(app, root, "R")
-    code, _, err = run(["codesign", "--force", "--deep", "--sign", "-", "--preserve-metadata=entitlements,flags", resigned], timeout=900)
+    # As reload.sh and the fleet build sign: ad hoc, no entitlements (restricted ones would make AMFI kill it at exec).
+    code, _, err = run(["codesign", "--force", "--deep", "--sign", "-", resigned], timeout=900)
     if code != 0:
         result["resigned_error"] = err.strip()[:300]
     else:
-        result["nightly_resigned_adhoc"] = exec_series(os.path.join(resigned, "Contents/MacOS", executable), resigned)
+        result["nightly_resigned_adhoc"] = [launch_release(resigned, f"nightly re-signed ad hoc run {i}") for i in (1, 2, 3)]
     shutil.rmtree(os.path.dirname(resigned), ignore_errors=True)
     shutil.rmtree(work, ignore_errors=True)
 
@@ -562,7 +576,7 @@ def summarize_table(xml):
 
 def run_exec_probe(report, root, app, save):
     report["exec_probe"] = notarized_probe(root, app)
-    log("exec probe: " + "; ".join(f"{k} {[r.get('ms') for r in v]}" for k, v in report["exec_probe"].items()
+    log("exec probe: " + "; ".join(f"{k} {[r.get('main_start_ms') for r in v]}" for k, v in report["exec_probe"].items()
                                      if isinstance(v, list) and v and isinstance(v[0], dict)))
     save()
 
