@@ -1,12 +1,14 @@
 import CmuxNextActions
 import CmuxNextApps
 import CmuxNextDaemon
+import CmuxNextPages
 import CmuxNextPalette
 import CmuxNextSettings
+import Foundation
 
 /// App Store actions (plans/cmux-next/app-platform.md section 3). Opening
-/// the window from automation never installs anything; installs are the
-/// window's buttons.
+/// the window from automation never installs anything; installs and removals
+/// pass the App Store's native consent card (`app.install`, `app.remove`).
 enum AppStoreHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let previewTitle = SettingsSchema.descriptor(for: CmuxConfigSnapshot.previewFeaturesPath)?.title
@@ -84,6 +86,44 @@ enum AppStoreHandlers {
         })
         bindHidden("app.hide", true)
         bindHidden("app.unhide", false)
+        // Install and remove (CLI `cmux apps install|remove`, palette, MCP): the App Store's own
+        // consent card, then the supervisor op as the user's only after the person's click. An
+        // agent or script that runs them only asks; it never installs (app-platform.md 8, P13).
+        func bindStoreChange(_ id: ActionID, op: String, extra: [String: JSONValue]) {
+            registry.bindEffect(id, requires: nil, effect: { invocation in
+                let appID = invocation["app"]?.stringValue?.trimmingCharacters(in: .whitespaces) ?? ""
+                let apps = services.apps
+                if let reason = apps.client.unavailableReason { throw Self.unavailable(reason) }
+                // No app named: the App Store, where the person picks one.
+                guard !appID.isEmpty else {
+                    apps.showStore(tab: op == "cmux.apps.install" ? .discover : .installed, focus: invocation.allowsViewChange)
+                    return .done
+                }
+                let provider = PageFactory(services: services).appsStoreProvider()
+                provider.anchor = { [weak services] in services?.windows.active?.window?.contentView }
+                var params = extra
+                params["app"] = .string(appID)
+                params["idempotency_key"] = .string("\(id.rawValue).\(UUID().uuidString)")
+                let context = PageCallContext(page: PageDescriptor.apps.id)
+                // action-wait-allow: the consent card shows at once; the change exists only after the person confirms and the supervisor commits it
+                return .waiting(.daemonEcho) {
+                    do {
+                        _ = try await provider.call(op, params: .object(params), context: context)
+                        return nil
+                    } catch let error as PageError where error == .cancelled {
+                        return ActionWorkFailure(RefusalStrings.text("refusal.app.declined", "Nothing changed: the request was declined on the confirmation card."))
+                    } catch let error as PageError where error.code == "apps.unknown" {
+                        return ActionWorkFailure(RefusalStrings.text("refusal.app.notListed", "No app with that id in the App Store."))
+                    } catch let error as PageError {
+                        return ActionWorkFailure("\(error.code): \(error.message)")
+                    } catch {
+                        return ActionWorkFailure(String(describing: error))
+                    }
+                }
+            })
+        }
+        bindStoreChange("app.install", op: "cmux.apps.install", extra: ["grant_optional": .bool(false)])
+        bindStoreChange("app.remove", op: "cmux.apps.uninstall", extra: [:])
     }
 
     /// Why an app action cannot run while the supervisor is unreachable.
