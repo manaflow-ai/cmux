@@ -22,6 +22,7 @@
 //! feat-cmux-next-apps-store; they move to the IR crate (with schemars) when
 //! it lands.
 
+use cmux_json::JsonSet as _;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -107,12 +108,40 @@ enum IconRef {
     Symbol(String),
 }
 
-/// `catalog.get`: the listing plus the scopes the app asks for.
+/// `catalog.get`: the listing plus the scopes the app asks for and, for an
+/// app with a `deploy` block, where it runs.
 #[derive(Debug, Serialize)]
 pub(crate) struct AppDetail {
     #[serde(flatten)]
     listing: Listing,
     scopes: Vec<ScopeRow>,
+    /// Absent for an app with no `deploy` block.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    deploy: Option<DeployFacts>,
+}
+
+/// What a listing says about an app's server (`deploy`, deploy.rs): the
+/// machine kinds it may run on (`self-hosted`, `cloud-vm`, ...) and whose
+/// instance it is (`user`, `team`). The image and port stay out of the
+/// listing; the consent card names the one machine an install uses.
+#[derive(Debug, Serialize)]
+struct DeployFacts {
+    targets: Vec<String>,
+    tenancy: Vec<String>,
+}
+
+fn deploy_facts(manifest: &Value) -> Option<DeployFacts> {
+    let deploy = manifest["deploy"].as_object()?;
+    let strings = |field: &str| -> Vec<String> {
+        deploy
+            .get(field)
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(|value| value.as_str().map(str::to_string))
+            .collect()
+    };
+    Some(DeployFacts { targets: strings("targets"), tenancy: strings("tenancy") })
 }
 
 #[derive(Debug, Serialize)]
@@ -363,7 +392,11 @@ impl Supervisor {
                 });
             }
         }
-        Ok(AppDetail { listing: listing(package, inner.mirror.apps.get(&p.app)), scopes })
+        Ok(AppDetail {
+            listing: listing(package, inner.mirror.apps.get(&p.app)),
+            scopes,
+            deploy: deploy_facts(&package.manifest),
+        })
     }
 
     fn installed_list(&self) -> InstalledListResult {
@@ -470,7 +503,7 @@ impl Supervisor {
             true,
         )?;
         if let Some((target, spec)) = checked {
-            result["instance"] = self.deploy_start(&p.app, &key, target, spec);
+            result.set("instance", self.deploy_start(&p.app, &key, target, spec));
         }
         Ok(result)
     }
