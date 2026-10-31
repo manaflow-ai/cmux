@@ -18,17 +18,9 @@ import Foundation
 struct AgentChatUploads {
     private struct Stage { var folder: URL; var file: URL; var name: String; var size: Int; var received: Int; var owner: Owner; var expires: Date }
     private struct Batch { var owner: Owner; var remaining: [AgentPaneUploadBatchEntry]; var expires: Date }
-    /// The chat an upload is for: its session, or, for one begun before the chat had a session
-    /// ("new"), its tab. That one goes on once the chat starts (the person sent the prompt while it
-    /// streamed, #28647), and only in that tab: another chat's page never feeds it.
-    private struct Owner {
-        var session: String
-        var tab: String
-
-        func holds(_ session: String, tab: String) -> Bool {
-            self.session == session || (self.session == "new" && self.tab == tab)
-        }
-    }
+    /// An upload's chat: its session, or for one begun with none ("new") its tab, where it goes on once the chat
+    /// starts (the prompt was sent while it streamed, #28647); another chat's page never feeds it.
+    private struct Owner { var session: String; var tab: String; func holds(_ session: String, tab: String) -> Bool { self.session == session || (self.session == "new" && self.tab == tab) } }
     private static var stages: [String: Stage] = [:]
     private static var batches: [String: Batch] = [:]
     /// How long an upload is kept: acpmux's `uploadsMaxAgeDays` default for its own (`config.rs`).
@@ -77,13 +69,7 @@ struct AgentChatUploads {
                 let token = UUID().uuidString.lowercased(), folder = root.appending(path: "staged-" + token, directoryHint: .isDirectory), file = folder.appending(path: name)
                 do { try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700]); guard FileManager.default.createFile(atPath: file.path, contents: nil, attributes: [.posixPermissions: 0o600]) else { throw CocoaError(.fileWriteUnknown) } } catch { return AgentPaneReply.failure(code: "upload_failed", message: AgentChatUploadStrings.failed) }
                 stages[token] = Stage(folder: folder, file: file, name: name, size: size, received: 0, owner: Owner(session: session, tab: tab), expires: Date().addingTimeInterval(10 * 60))
-                Task { @MainActor in
-                    // wakeup-allow: one-shot stage expiry; a later chunk refreshes the expiry date.
-                    try? await Task.sleep(for: .seconds(10 * 60))
-                    if let expired = stages[token], expired.expires <= Date() {
-                        stages.removeValue(forKey: token); try? FileManager.default.removeItem(at: expired.folder)
-                    }
-                }
+                expire(token)
                 var reply: [String: Any] = ["token": token, "size": size, "chunkSize": 512 * 1024]
                 if let manifest, batchToken == nil, manifest.count > 1 {
                     let id = UUID().uuidString.lowercased()
@@ -100,13 +86,7 @@ struct AgentChatUploads {
                 guard var stage = stages[token], stage.owner.holds(session, tab: tab), stage.received == offset, data.count <= stage.size - offset, data.count <= 512 * 1024 else { return AgentPaneReply.failure(code: "upload_failed", message: AgentChatUploadStrings.failed) }
                 do { let handle = try FileHandle(forWritingTo: stage.file); try handle.seekToEnd(); try handle.write(contentsOf: data); try handle.close() } catch { return AgentPaneReply.failure(code: "upload_failed", message: AgentChatUploadStrings.failed) }
                 stage.received += data.count; stage.expires = Date().addingTimeInterval(10 * 60); stages[token] = stage
-                Task { @MainActor in
-                    // wakeup-allow: one-shot stage expiry; a later chunk refreshes the expiry date.
-                    try? await Task.sleep(for: .seconds(10 * 60))
-                    if let expired = stages[token], expired.expires <= Date() {
-                        stages.removeValue(forKey: token); try? FileManager.default.removeItem(at: expired.folder)
-                    }
-                }
+                expire(token)
                 return AgentPaneReply.success(["offset": stage.received])
             case .finish(let token):
                 guard let stage = stages[token], stage.owner.holds(session, tab: tab), stage.received == stage.size else { return AgentPaneReply.failure(code: "upload_failed", message: AgentChatUploadStrings.failed) }
@@ -126,6 +106,15 @@ struct AgentChatUploads {
                 }
                 return AgentPaneReply.success()
             }
+        }
+    }
+
+    /// Drops stage `token` and its file once it has had no chunk for ten minutes.
+    private static func expire(_ token: String) {
+        Task { @MainActor in
+            // wakeup-allow: one-shot stage expiry; a later chunk refreshes the expiry date.
+            try? await Task.sleep(for: .seconds(10 * 60))
+            if let expired = stages[token], expired.expires <= Date() { stages.removeValue(forKey: token); try? FileManager.default.removeItem(at: expired.folder) }
         }
     }
 
