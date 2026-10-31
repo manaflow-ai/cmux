@@ -154,6 +154,9 @@ struct CloudStartChat {
         report(.init(name: "machine"))
         let machine = try await self.machine(for: start, account: account, invocation: invocation) { await CloudChatPick(services: services).read(folder: nil, tab: tab) }
         try Self.checkAccount(account, now: services.cloud.account, listCurrent: services.cloud.hasLoadedCurrentMachines)
+        // The harness login before the first prompt, as for a chat with a project (+Login).
+        _ = await passHarnessLogin(start, machine: machine)
+        try Self.checkAccount(account, now: services.cloud.account, listCurrent: services.cloud.hasLoadedCurrentMachines)
         report(.init(name: "opening", machine: machine.machine.title, size: AgentPaneCloudStart.sizeText(machine.machine.size)))
         return try await open(start, tab: tab, on: machine, cwd: nil)
     }
