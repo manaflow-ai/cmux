@@ -266,9 +266,9 @@ final class FilePageService: InternalPageProvider {
         }
         let key = LocalPageTab.makeKey(kind.page)
         tabs[key] = tab
-        // A store tab only on this Mac's daemon that keeps the route: a file path of this Mac never
-        // goes to another machine's daemon, and a tab without its route could not come back.
-        if let window, pane.daemon.isLocal, services.pages.keepsRoutes(pane.daemon),
+        // Only local files persist on this Mac's daemon: a bare remote path would restore as a
+        // local file after relaunch, even when its destination pane happens to be local.
+        if let window, tab.files.isLocal, pane.daemon.isLocal, services.pages.keepsRoutes(pane.daemon),
            services.pages.openStoreTab(kind.page, in: pane, window: window, focus: focus, key: key, created: placed) != nil {
             return key
         }
