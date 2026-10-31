@@ -35,6 +35,7 @@ jobs:
           cargo build -p cmux-cloud-cli --release --locked --target x86_64-unknown-linux-musl
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
+          retention-days: 7
           name: cmux-cloud-cli-${{ github.event.pull_request.head.sha || github.sha }}
           path: cmux-tui/target/x86_64-unknown-linux-musl/release/cmux-cloud-cli
           if-no-files-found: error
