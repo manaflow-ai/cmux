@@ -7,6 +7,31 @@
  "budget_seconds": 255,
  "steps": [
   {
+   "do": "smoke_remember_workspaces"
+  },
+  {
+   "do": "key",
+   "title": "Cmd-N: a new workspace",
+   "key": "n",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "ws0"
+  },
+  {
+   "do": "expect",
+   "title": "the new workspace shows",
+   "since": "ws0",
+   "timeout": 20,
+   "all": [
+    {
+     "smoke_workspaces": {
+      "new": 1
+     }
+    }
+   ]
+  },
+  {
    "do": "new_terminal",
    "via": "key",
    "name": "jr-r3-reattach"
