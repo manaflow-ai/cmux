@@ -150,6 +150,16 @@ export class UserDO extends OwnerDO<UserState> {
     this.closeRetryAt = failed ? now + CLOSE_RETRY_MS : null
   }
 
+  /** Stamp accepted install sockets with the current UserDO authority incarnation and grant expiry. */
+  protected override acceptOwnerSocket(entity: string, attachment: Attachment): Response {
+    const principal = attachment.principal
+    if (principal.kind !== "install" || !this.isBound(entity)) return super.acceptOwnerSocket(entity, attachment)
+    const state = this.bind(entity).currentState, grant = liveInstallGrant(state, principal, Date.now())
+    if (!grant || !principal.install) return new Response("forbidden", { status: 403 })
+    const expires_at = Math.min(principal.expires_at ?? Infinity, grant.expires_at ?? Infinity)
+    return super.acceptOwnerSocket(entity, { ...attachment, principal: { ...principal, install_authority: installAuthorityVersion(state, principal.install), ...(Number.isFinite(expires_at) ? { expires_at } : {}) } })
+  }
+
   /**
    * RPC from an owner that accepted a socket of one of this user's installs (socket-gate.ts).
    * False when the install (with this grant) is not active: the owner closes the socket at once,
