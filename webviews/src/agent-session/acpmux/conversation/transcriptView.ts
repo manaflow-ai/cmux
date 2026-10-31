@@ -97,6 +97,10 @@ const subscribe = (listener: () => void) => {
 export const transcriptViewOf = (sessionId: string | undefined): TranscriptView =>
   (sessionId ? load().get(sessionId) : undefined) ?? defaultTranscriptView();
 
+/// Whether the chat has a view of its own (picked in its menu), even one equal to the default.
+export const hasOwnTranscriptView = (sessionId: string | undefined): boolean =>
+  sessionId !== undefined && load().has(sessionId);
+
 /// The chat's view as a hook (the disclosure provider reads it once for its rows).
 export function useTranscriptView(sessionId: string | undefined): TranscriptView {
   const fallback = useDefaultTranscriptView();

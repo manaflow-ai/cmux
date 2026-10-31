@@ -5,6 +5,7 @@
 import type { StringKey, Translate } from "../i18n";
 import {
   TRANSCRIPT_VIEWS,
+  hasOwnTranscriptView,
   makeTranscriptViewDefault,
   setTranscriptView,
   transcriptViewOf,
@@ -40,8 +41,9 @@ export function transcriptViewRow(
         key: "transcriptView.default",
         separatorBefore: true,
         label: t("chatMenu.transcriptView.makeDefault", { view: t(TRANSCRIPT_VIEW_NAMES[view]) }),
-        // The chat already shows the default.
-        disabled: view === defaultTranscriptView(),
+        // Nothing to do only when the chat follows the default with no view of its own. A view of
+        // its own that equals the default stays clearable here, so later defaults reach the chat.
+        disabled: view === defaultTranscriptView() && !hasOwnTranscriptView(sessionId),
         onSelect: () => makeTranscriptViewDefault(sessionId, view),
       },
     ],

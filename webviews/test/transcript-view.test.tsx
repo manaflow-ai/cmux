@@ -150,6 +150,22 @@ test("the menu row checks the chat's view and offers Make … the default only o
   expect(transcriptViewRow(undefined, translate)).toBeUndefined();
 });
 
+test("a chat's own view that equals the default can still be cleared, so it follows later defaults", () => {
+  // Picking Normal (the default) by hand makes it the chat's own view.
+  act(() => setTranscriptView("chat-a", "normal"));
+  const make = transcriptViewRow("chat-a", translate)!.children!.at(-1)!;
+  expect(make.label).toBe("Make Normal the default");
+  // Enabled: it is the only way to drop the chat's own view and follow the setting again.
+  expect(make.disabled).toBe(false);
+  act(() => make.onSelect());
+  expect(JSON.parse(dom!.window.localStorage.getItem("cmux.acpmux.transcriptView") ?? "{}")).toEqual({});
+  // The chat now follows a later default.
+  act(() => setChatDisplay({ [TRANSCRIPT_VIEW_KEY]: "verbose" }));
+  expect(transcriptViewOf("chat-a")).toBe("verbose");
+  // Following the default with no view of its own, there is nothing to make or clear.
+  expect(transcriptViewRow("chat-a", translate)!.children!.at(-1)!.disabled).toBe(true);
+});
+
 test("a streamed update renders a row once, as before; only a switch adds a render", () => {
   const Row = memo(Command);
   function Rows({ tokens }: { tokens: number }) {
