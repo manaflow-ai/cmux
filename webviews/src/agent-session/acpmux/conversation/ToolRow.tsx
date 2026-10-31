@@ -104,14 +104,16 @@ export const ToolRow = memo(function ToolRow({ item }: { item: AcpmuxActivity })
   // the call is open: a closed row parses nothing.
   // A finished call's envelope images show in its strip instead of its text (toolImages.ts).
   const strip = stripsEnvelopeImages(tool);
+  // A hook's block shows the hook's words, without the harness's "PreToolUse:… hook error:" envelope.
+  const source = failure?.kind === "hook" ? failure.output : tool.output;
   const result = useMemo(() => {
-    if (shell || !tool.output || !fold.present) return undefined;
-    return toolResult(tool.output, cleanText, strip, {
+    if (shell || !source || !fold.present) return undefined;
+    return toolResult(source, cleanText, strip, {
       kind: tool.kind,
       title: tool.title,
       description: tool.description,
     });
-  }, [shell, tool.description, tool.kind, tool.output, tool.title, fold.present, strip]);
+  }, [shell, tool.description, tool.kind, source, tool.title, fold.present, strip]);
   const body = shell ? tool.output?.replace(/\n$/, "") : result?.text;
   // Whether a closed call has anything to open, read once per output, not on every render.
   const hasOutput = useMemo(() => Boolean(tool.output && cleanText(tool.output).trim()), [tool.output]);
