@@ -346,7 +346,7 @@ await requireBrowserLane("agent-pane-harness-catalog.test.ts", async () => {
       expect(await field.isVisible()).toBe(false);
       await page.locator(".acpmux-harnesses-close").click();
       await field.waitFor();
-      expect(await field.inputValue()).toBe(draft);
+      expect(await field.innerText()).toBe(draft);
     } finally {
       await page.close();
     }
@@ -365,7 +365,7 @@ await requireBrowserLane("agent-pane-harness-catalog.test.ts", async () => {
       expect(await page.evaluate(() => (window as unknown as FirstRunWindow).cmuxWebSwap.hold())).toMatch(/^newtab\./);
       await page.locator(".acpmux-harnesses-close").click();
       await field.waitFor();
-      expect(await field.inputValue()).toBe(DRAFT);
+      expect(await field.innerText()).toBe(DRAFT);
       expect(await image.isVisible()).toBe(true);
       expect(await image.getAttribute("src")).toBe(source);
       expect(await page.locator('.nt-env .nt-stage-row[aria-pressed="true"]').count()).toBe(1);
