@@ -236,6 +236,34 @@ pub struct Peer {
     /// held (`watch_delta.rs`).
     watch_delta: AtomicBool,
     known: StdMutex<crate::watch_delta::Known>,
+    /// This link's messages from the peer so far: the bytes of their frames, and of their JSON
+    /// text (more when the peer compresses them, `frame_compress.rs`).
+    received: ReceivedBytes,
+}
+
+/// What a link received: frame bytes and JSON text bytes, from its open.
+#[derive(Debug, Default)]
+pub struct ReceivedBytes {
+    frames: AtomicU64,
+    text: AtomicU64,
+}
+
+impl ReceivedBytes {
+    fn reset(&self) {
+        self.frames.store(0, Ordering::SeqCst);
+        self.text.store(0, Ordering::SeqCst);
+    }
+
+    fn add(&self, frame: usize, text: usize) {
+        let n = |b: usize| u64::try_from(b).unwrap_or(u64::MAX);
+        self.frames.fetch_add(n(frame), Ordering::SeqCst);
+        self.text.fetch_add(n(text), Ordering::SeqCst);
+    }
+
+    /// (frame bytes, text bytes) since the link opened.
+    pub fn read(&self) -> (u64, u64) {
+        (self.frames.load(Ordering::SeqCst), self.text.load(Ordering::SeqCst))
+    }
 }
 
 impl Peer {
@@ -307,6 +335,7 @@ impl Peer {
             watch_key: StdMutex::new(None),
             watch_delta: AtomicBool::new(false),
             known: StdMutex::new(crate::watch_delta::Known::default()),
+            received: ReceivedBytes::default(),
         })
     }
 
@@ -316,6 +345,11 @@ impl Peer {
         address: std::net::SocketAddr,
     ) {
         let _ = self.wireguard.set((transport, address));
+    }
+
+    /// What the current (or last) link received (`ReceivedBytes`).
+    pub fn received(&self) -> &ReceivedBytes {
+        &self.received
     }
 
     pub fn link(&self) -> Link {
@@ -1174,6 +1208,7 @@ impl Peer {
         self.admitting.store(true, Ordering::SeqCst);
         self.open.store(true, Ordering::SeqCst);
         *self.last_error.lock_or_recover() = None;
+        self.received.reset();
         self.with_link(|l| l.opened(crate::store::now_ms()));
         tracing::info!(peer = %self.name, "link open to {}; handshaking", self.url);
 
@@ -1181,10 +1216,12 @@ impl Peer {
         let me = self.clone();
         let (stale_tx, mut stale_rx) = oneshot::channel::<String>();
         let mut handshake = tokio::spawn(async move {
-            let mut hello = json!({"protocolVersion": 1, "clientCapabilities": {}, "clientInfo": {"name": CLIENT_NAME, "version": crate::hub::VERSION}});
+            let mut hello = json!({"protocolVersion": 1, "clientCapabilities": {}, "clientInfo": {"name": CLIENT_NAME, "version": crate::hub::VERSION},
+                // Large replies (the session list) may come compressed (`frame_compress.rs`).
+                "_meta": {"acpmux": {"compression": crate::frame_compress::offer()}}});
             // This Mac lends the peer its GitHub login (`hub/github_owner.rs` on the peer).
             if me.github_broker() {
-                hello.set("_meta", json!({"acpmux": {"githubBroker": true}}));
+                hello.set_path(&["_meta", "acpmux", "githubBroker"], json!(true));
             }
             let init = me.link_request_on(method::INITIALIZE, hello, Some(link)).await?;
             let v = init
@@ -1254,7 +1291,8 @@ impl Peer {
                 let delta = me.watch_delta.load(Ordering::SeqCst)
                     && me.served_as().as_deref() == Some("peer");
                 let known = delta.then(|| me.known.lock_or_recover().to_param());
-                if let Some(known) = known.filter(|k| k.as_object().is_some_and(|k| !k.is_empty())) {
+                if let Some(known) = known.filter(|k| k.as_object().is_some_and(|k| !k.is_empty()))
+                {
                     asked.set("known", known);
                 }
                 match me.watch_paced(method::MUX_WATCH, asked, link).await {
@@ -1303,7 +1341,8 @@ impl Peer {
                 me.connected.store(false, Ordering::SeqCst);
                 return Ok(());
             }
-            tracing::info!(peer = %me.name, "connected to {}", me.url);
+            let (frames, text) = me.received.read();
+            tracing::info!(peer = %me.name, frame_bytes = frames, text_bytes = text, "connected to {}", me.url);
             let _ = me.notices.send((me.name.clone(), me.generation, PeerNotice::Connected)).await;
             let attached: Vec<String> = me.attached.lock_or_recover().iter().cloned().collect();
             for sid in attached {
@@ -1435,15 +1474,34 @@ impl Peer {
                     last_frame = tokio::time::Instant::now();
                     wake_probe = None;
                     self.with_link(|l| l.heard(crate::store::now_ms()));
-                    let text = match frame {
-                        tokio_tungstenite::tungstenite::Message::Text(t) => t.to_string(),
+                    let (text, compressed) = match frame {
+                        tokio_tungstenite::tungstenite::Message::Text(t) => {
+                            self.received.add(t.len(), t.len());
+                            (t.to_string(), false)
+                        }
+                        // Asked for in `initialize` (`frame_compress.rs`). One that does not
+                        // inflate would lose a reply its caller waits on: the link starts over.
+                        Frame::Binary(b) => match crate::frame_compress::inflate(&b, crate::server::WS_MAX_MESSAGE_BYTES) {
+                            Ok(text) => {
+                                self.received.add(b.len(), text.len());
+                                (text, true)
+                            }
+                            Err(e) => break Err(e),
+                        },
                         Frame::Close(Some(close)) if close.code == tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode::Restart => {
                             break Ok(LinkEnd::Restarting);
                         }
                         Frame::Close(_) => break Err("peer closed the connection".to_owned()),
                         _ => continue,
                     };
-                    let Ok(msg) = Message::parse(&text) else { continue };
+                    let msg = match Message::parse(&text) {
+                        Ok(msg) => msg,
+                        // Only large messages are compressed, and a reply among them would be
+                        // lost while its caller waits: the link starts over, as for a frame
+                        // that does not inflate.
+                        Err(e) if compressed => break Err(format!("a compressed frame is not a JSON-RPC message: {e}")),
+                        Err(_) => continue,
+                    };
                     match msg {
                         Message::Response { id, result, error } => {
                             let key = id.to_string();

@@ -125,9 +125,10 @@ pub fn read_delta(reply: &Value) -> Option<(Vec<Value>, Vec<String>)> {
         return None;
     }
     let rows = reply.get("sessions").and_then(Value::as_array).cloned().unwrap_or_default();
-    let removed = reply.get("removed").and_then(Value::as_array).map(|ids| {
-        ids.iter().filter_map(Value::as_str).map(str::to_owned).collect::<Vec<_>>()
-    });
+    let removed = reply
+        .get("removed")
+        .and_then(Value::as_array)
+        .map(|ids| ids.iter().filter_map(Value::as_str).map(str::to_owned).collect::<Vec<_>>());
     Some((rows, removed.unwrap_or_default()))
 }
 

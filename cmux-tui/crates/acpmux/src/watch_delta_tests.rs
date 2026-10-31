@@ -59,10 +59,10 @@ fn a_row_changed_back_is_made_whole_from_the_kept_row() {
 
 #[test]
 fn equal_rows_have_equal_digests_whatever_their_key_order() {
-    let a: Value = serde_json::from_str(r#"{"b": 1, "a": [1, 2], "c": {"y": null, "x": "t"}}"#)
-        .unwrap();
-    let b: Value = serde_json::from_str(r#"{"c": {"x": "t", "y": null}, "a": [1, 2], "b": 1}"#)
-        .unwrap();
+    let a: Value =
+        serde_json::from_str(r#"{"b": 1, "a": [1, 2], "c": {"y": null, "x": "t"}}"#).unwrap();
+    let b: Value =
+        serde_json::from_str(r#"{"c": {"x": "t", "y": null}, "a": [1, 2], "b": 1}"#).unwrap();
     assert_eq!(digest(&a), digest(&b));
     assert_ne!(digest(&a), digest(&json!({"b": 2, "a": [1, 2], "c": {"y": null, "x": "t"}})));
     assert_eq!(digest(&a).len(), 16);
