@@ -37,11 +37,15 @@ public struct CloudLinkSocket: Equatable, Sendable {
     /// This connect's answer said the signed-in caller owns the machine (`vm_kind: "owner"`, the
     /// classic attach answer's value; cmux-platform#89). Only for this connect, never saved.
     public let callerOwnsVM: Bool
+    /// This connect's answer said the machine is a teammate's (`vm_kind: "team"`): a chat start
+    /// there is refused as a teammate's machine, never sent. Grants nothing.
+    public let callerIsTeammate: Bool
 
-    public init(key: CloudLinkKey, path: String, generation: UInt64?, callerOwnsVM: Bool = false) {
+    public init(key: CloudLinkKey, path: String, generation: UInt64?, callerOwnsVM: Bool = false, callerIsTeammate: Bool = false) {
         self.key = key
         self.path = path
         self.generation = generation
         self.callerOwnsVM = callerOwnsVM
+        self.callerIsTeammate = callerIsTeammate && !callerOwnsVM
     }
 }

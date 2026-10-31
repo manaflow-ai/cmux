@@ -38,6 +38,10 @@ pub struct PoolKey {
     pub auth: String,
     /// Fingerprint of the logged-in account, where a login file names one.
     pub account: Option<String>,
+    /// The delivered machine files' metadata stamp (`login_env::machine_stamp`,
+    /// never a value) when the key was made: a claim checks it again, so a
+    /// host from before a delivery or revocation never reaches a chat.
+    pub machine: Option<String>,
 }
 
 impl PoolKey {
