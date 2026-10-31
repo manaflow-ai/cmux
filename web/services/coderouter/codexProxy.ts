@@ -848,7 +848,7 @@ async function probeCodexCapacity(
     await reader.cancel().catch(() => undefined);
     throw error;
   }
-  let buffered = chunks.slice();
+  const buffered = chunks.slice();
   let upstreamDone = false;
   const stream = new ReadableStream<Uint8Array>({
     async pull(controller) {
