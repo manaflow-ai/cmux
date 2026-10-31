@@ -341,6 +341,9 @@ public final class MessagesLabHomeView: NSView {
         set { projection.initialsOverride = newValue }
     }
 
+    /// The letters the header's monogram shows: ``avatarText``, else the monogram of the header's name.
+    public var shownInitials: String { controller.host.paneHeader.initials }
+
     /// The header's name; nil shows the conversation's title.
     public var headerTitle: String? {
         get { projection.titleOverride }

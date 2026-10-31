@@ -29,8 +29,6 @@
           {
             "key" : "settings.group.tabs",
             "rows" : [
-              "tabs.newTabTemplate",
-              "tabs.nativeNewTabPage",
               "tabs.terminalFirst",
               "tabs.newTabPosition",
               "tabs.plusButton",
@@ -38,31 +36,60 @@
               "browser.toolbarPosition",
               "tabs.barOrder",
               "tabs.overflow",
-              "appearance.metrics.tabMaxWidth",
-              "appearance.metrics.tabMinActiveWidth",
-              "appearance.metrics.tabMinInactiveWidth",
-              "appearance.metrics.tabPinnedWidth",
               "tabs.cmdWClosesPinnedTabs",
-              "tabs.swapCmdTAndCmdN",
-              "tabs.newTabNowPlaying",
-              "tabs.newTabWidgets.greeting",
-              "tabs.newTabWidgets.projects",
-              "tabs.newTabWidgets.actions",
-              "tabs.newTabWidgets.chats",
-              "tabs.newTabWidgets.styleDots",
-              "tabs.newTabWidgets.weather",
-              "tabs.newTabWidgets.weatherCity",
-              "tabs.newTabWidgets.machines",
-              "tabs.newTabWidgets.clock",
-              "tabs.newTabWidgets.timer",
-              "tabs.newTabWidgets.warmGreeting",
-              "tabs.newTabWidgets.quote",
-              "tabs.newTabWidgets.order",
-              "sidebar.showChats"
+              "tabs.swapCmdTAndCmdN"
             ],
             "title" : {
               "key" : "settings.group.tabs",
               "text" : "Tabs"
+            }
+          },
+          {
+            "key" : "general.2",
+            "rows" : [
+              "appearance.metrics.tabMaxWidth",
+              "appearance.metrics.tabMinActiveWidth",
+              "appearance.metrics.tabMinInactiveWidth",
+              "appearance.metrics.tabPinnedWidth"
+            ],
+            "title" : {
+              "key" : "settings.pageGroup.tabWidths",
+              "text" : "Tab Widths"
+            }
+          },
+          {
+            "key" : "general.3",
+            "rows" : [
+              "tabs.newTabTemplate",
+              "tabs.nativeNewTabPage",
+              "sidebar.showChats",
+              "tabs.newTabNowPlaying",
+              "tabs.newTabWidgets.greeting",
+              "tabs.newTabWidgets.warmGreeting",
+              "tabs.newTabWidgets.styleDots",
+              "tabs.newTabWidgets.order"
+            ],
+            "title" : {
+              "key" : "settings.pageGroup.newTabPage",
+              "text" : "New Tab Page"
+            }
+          },
+          {
+            "key" : "general.4",
+            "rows" : [
+              "tabs.newTabWidgets.projects",
+              "tabs.newTabWidgets.actions",
+              "tabs.newTabWidgets.chats",
+              "tabs.newTabWidgets.machines",
+              "tabs.newTabWidgets.weather",
+              "tabs.newTabWidgets.weatherCity",
+              "tabs.newTabWidgets.clock",
+              "tabs.newTabWidgets.timer",
+              "tabs.newTabWidgets.quote"
+            ],
+            "title" : {
+              "key" : "settings.pageGroup.newTabWidgets",
+              "text" : "New Tab Widgets"
             }
           },
           {
@@ -74,24 +101,51 @@
               "layout.closeFocus",
               "layout.splitSizing",
               "layout.newColumnWidth",
-              "layout.dockColumnEdge",
-              "layout.dockColumnMode",
-              "layout.frameOrientation",
               "layout.rows",
-              "layout.focusFollowsMouse",
-              "layout.scrollAreas",
-              "layout.scrollModifier",
-              "layout.pagesHandleCommandScroll",
               "layout.minimumPaneWidth",
               "layout.minimumPaneHeight",
-              "layout.newPanePlacement",
-              "layout.tileBrowsers",
-              "layout.linkPlacement",
               "layout.mainPane"
             ],
             "title" : {
               "key" : "settings.group.columns",
               "text" : "Columns"
+            }
+          },
+          {
+            "key" : "general.6",
+            "rows" : [
+              "layout.newPanePlacement",
+              "layout.tileBrowsers",
+              "layout.linkPlacement"
+            ],
+            "title" : {
+              "key" : "settings.pageGroup.newPanes",
+              "text" : "New Panes"
+            }
+          },
+          {
+            "key" : "general.7",
+            "rows" : [
+              "layout.dockColumnEdge",
+              "layout.dockColumnMode",
+              "layout.frameOrientation"
+            ],
+            "title" : {
+              "key" : "settings.pageGroup.dockedColumns",
+              "text" : "Docked Columns"
+            }
+          },
+          {
+            "key" : "general.8",
+            "rows" : [
+              "layout.focusFollowsMouse",
+              "layout.scrollAreas",
+              "layout.scrollModifier",
+              "layout.pagesHandleCommandScroll"
+            ],
+            "title" : {
+              "key" : "settings.pageGroup.scrollFocus",
+              "text" : "Scrolling and Focus"
             }
           },
           {
@@ -372,13 +426,6 @@
               "appearance.density",
               "appearance.customDensity",
               "appearance.customDensities",
-              "app.uiScale",
-              "appearance.metrics.chromeFontSize",
-              "appearance.metrics.sidebarWidth",
-              "appearance.metrics.columnGap",
-              "appearance.metrics.dividerThickness",
-              "appearance.metrics.dividerHitWidth",
-              "appearance.metrics.titlebarHeight",
               "appearance.borders",
               "appearance.focusIndicator",
               "focus.inactiveTabStyle",
@@ -391,6 +438,22 @@
             "title" : {
               "key" : "settings.group.densityMotion",
               "text" : "Density and Motion"
+            }
+          },
+          {
+            "key" : "appearance.2",
+            "rows" : [
+              "app.uiScale",
+              "appearance.metrics.chromeFontSize",
+              "appearance.metrics.sidebarWidth",
+              "appearance.metrics.columnGap",
+              "appearance.metrics.dividerThickness",
+              "appearance.metrics.dividerHitWidth",
+              "appearance.metrics.titlebarHeight"
+            ],
+            "title" : {
+              "key" : "settings.pageGroup.sizes",
+              "text" : "Sizes"
             }
           },
           {
@@ -486,9 +549,6 @@
             "key" : "settings.group.sidebar",
             "rows" : [
               "sidebar.showWorkspaceTabs",
-              "workspaces.newPlacement",
-              "sidebar.groupByComputer",
-              "workspaces.autoName",
               "appearance.sidebarSurface",
               "sidebar.border",
               "sidebar.borderWidth",
@@ -496,30 +556,64 @@
               "sidebar.topBandMaxShare",
               "sidebar.bottomBandMaxShare",
               "sidebar.pinnedBandsScroll",
-              "sidebar.sessionTree",
-              "sidebar.showProjects",
-              "sidebar.groupBy",
-              "sidebar.showSpaces",
-              "sidebar.showProfileControl",
-              "sidebar.showSearchButton",
               "sidebar.noFade",
               "sidebar.controlsOnHover",
               "sidebar.minimal",
               "sidebar.style",
               "sidebar.density",
+              "sidebar.textSize",
+              "sidebar.minimalMode",
+              "sidebar.side"
+            ],
+            "title" : {
+              "key" : "settings.group.sidebar",
+              "text" : "Sidebar"
+            }
+          },
+          {
+            "key" : "appearance.9",
+            "rows" : [
+              "workspaces.newPlacement",
+              "workspaces.autoName",
+              "sidebar.groupByComputer",
+              "sidebar.sessionTree",
+              "sidebar.showProjects",
+              "sidebar.groupBy",
               "sidebar.detailedStatusIcons",
               "sidebar.showTimestamps",
               "sidebar.showColors",
               "sidebar.showLocalMachine",
               "sidebar.groupHeader.memberCount",
               "sidebar.groupHeader.unreadCount",
-              "sidebar.minimalMode",
-              "sidebar.cards.tips",
               "sidebar.priorityView.enabled",
-              "sidebar.priorityView.shown",
-              "sidebar.side",
+              "sidebar.priorityView.shown"
+            ],
+            "title" : {
+              "key" : "settings.pageGroup.sidebarWorkspaces",
+              "text" : "Sidebar Workspaces"
+            }
+          },
+          {
+            "key" : "appearance.10",
+            "rows" : [
+              "sidebar.showSpaces",
               "sidebar.spacesPosition",
               "sidebar.spacesVisibility",
+              "sidebar.showProfileControl",
+              "sidebar.showSearchButton",
+              "sidebar.cards.tips",
+              "sidebar.nowPlaying.enabled",
+              "sidebar.nowPlaying.otherApps",
+              "home.channelsEnabled"
+            ],
+            "title" : {
+              "key" : "settings.pageGroup.sidebarExtras",
+              "text" : "Sidebar Buttons and Spaces"
+            }
+          },
+          {
+            "key" : "appearance.11",
+            "rows" : [
               "sidebar.hoverCards.enabled",
               "sidebar.hoverCards.delay",
               "sidebar.hoverCards.layout",
@@ -528,7 +622,16 @@
               "sidebar.hoverCards.sections.waiting",
               "sidebar.hoverCards.sections.git",
               "sidebar.hoverCards.sections.ports",
-              "sidebar.hoverCards.maxRows",
+              "sidebar.hoverCards.maxRows"
+            ],
+            "title" : {
+              "key" : "settings.pageGroup.workspaceCards",
+              "text" : "Workspace Hover Cards"
+            }
+          },
+          {
+            "key" : "appearance.12",
+            "rows" : [
               "sidebar.hoverCards.groups.workspaceGroups",
               "sidebar.hoverCards.groups.tabGroups",
               "sidebar.hoverCards.groups.delay",
@@ -538,14 +641,11 @@
               "sidebar.hoverCards.groups.sections.members",
               "sidebar.hoverCards.groups.sections.activity",
               "sidebar.hoverCards.groups.sections.git",
-              "sidebar.hoverCards.groups.sections.ports",
-              "sidebar.nowPlaying.enabled",
-              "sidebar.nowPlaying.otherApps",
-              "home.channelsEnabled"
+              "sidebar.hoverCards.groups.sections.ports"
             ],
             "title" : {
-              "key" : "settings.group.sidebar",
-              "text" : "Sidebar"
+              "key" : "settings.pageGroup.groupCards",
+              "text" : "Group Hover Cards"
             }
           },
           {
@@ -593,10 +693,6 @@
           {
             "key" : "settings.group.surfaces",
             "rows" : [
-              "appearance.surfaces.sidebar.color",
-              "appearance.surfaces.sidebar.opacity",
-              "appearance.surfaces.tabBar.color",
-              "appearance.surfaces.tabBar.opacity",
               "appearance.surfaces.terminal.color",
               "appearance.surfaces.terminal.opacity",
               "appearance.surfaces.agentPane.color",
@@ -607,14 +703,36 @@
               "appearance.surfaces.newTabPage.opacity",
               "appearance.surfaces.home.color",
               "appearance.surfaces.home.opacity",
+              "appearance.surfaces.internalPage.color",
+              "appearance.surfaces.internalPage.opacity"
+            ],
+            "title" : {
+              "key" : "settings.group.surfaces",
+              "text" : "Surfaces"
+            }
+          },
+          {
+            "key" : "appearance.16",
+            "rows" : [
+              "appearance.surfaces.sidebar.color",
+              "appearance.surfaces.sidebar.opacity",
+              "appearance.surfaces.tabBar.color",
+              "appearance.surfaces.tabBar.opacity",
               "appearance.surfaces.browserChrome.color",
               "appearance.surfaces.browserChrome.opacity",
-              "appearance.surfaces.internalPage.color",
-              "appearance.surfaces.internalPage.opacity",
               "appearance.surfaces.splitDivider.color",
               "appearance.surfaces.splitDivider.opacity",
               "appearance.surfaces.docks.color",
-              "appearance.surfaces.docks.opacity",
+              "appearance.surfaces.docks.opacity"
+            ],
+            "title" : {
+              "key" : "settings.pageGroup.windowSurfaces",
+              "text" : "Surfaces: Window"
+            }
+          },
+          {
+            "key" : "appearance.17",
+            "rows" : [
               "appearance.surfaces.diff.color",
               "appearance.surfaces.diff.opacity",
               "appearance.surfaces.markdown.color",
@@ -623,8 +741,8 @@
               "appearance.surfaces.editor.opacity"
             ],
             "title" : {
-              "key" : "settings.group.surfaces",
-              "text" : "Surfaces"
+              "key" : "settings.pageGroup.viewerSurfaces",
+              "text" : "Surfaces: Viewers"
             }
           }
         ],
@@ -800,319 +918,6 @@
         "title" : {
           "key" : "settings.section.editor",
           "text" : "Code Editor"
-        },
-        "trail" : [
-
-        ]
-      },
-      {
-        "actions" : [
-
-        ],
-        "aliases" : [
-
-        ],
-        "groups" : [
-          {
-            "key" : "settings.group.agentChat",
-            "rows" : [
-              "agentPane.display.width",
-              "agentPane.display.fullWidth",
-              "agentPane.display.vscodeMinimap",
-              "agentPane.display.font.preset",
-              "agentPane.display.font.size",
-              "agentPane.display.font.lineHeight",
-              "agentPane.display.code.family",
-              "agentPane.display.code.scale",
-              "agentPane.display.inspector.placement",
-              "agentPane.display.environment.placement",
-              "agentPane.display.minimap",
-              "agentPane.display.rail.side",
-              "agentPane.links.outsideRoots",
-              "agentPane.images.remote",
-              "agentPane.needsYou.enabled",
-              "agentPane.editedFiles.show",
-              "agentPane.editedFiles.maxRows",
-              "agentPane.editedFiles.scope",
-              "agentPane.showContextUsage",
-              "agentPane.showDictation",
-              "agentPane.spellChecking",
-              "agentPane.attachmentView",
-              "agentPane.scrollToBottomOnSend",
-              "agentPane.showMachineLoadWarnings",
-              "agentPane.zoom",
-              "agents.defaultPermissionMode",
-              "agents.modelRouter.model",
-              "app.warnBeforeClosingAgentSession"
-            ],
-            "title" : {
-              "key" : "settings.group.agentChat",
-              "text" : "Agent Chat"
-            }
-          },
-          {
-            "key" : "settings.group.computerUse",
-            "rows" : [
-              "computerUse.enabled",
-              "computerUse.driver",
-              "computerUse.livePreview"
-            ],
-            "title" : {
-              "key" : "settings.group.computerUse",
-              "text" : "Computer Use"
-            }
-          },
-          {
-            "key" : "settings.group.freeModel",
-            "rows" : [
-              "freeModel.enabled"
-            ],
-            "title" : {
-              "key" : "settings.group.freeModel",
-              "text" : "AI Models"
-            }
-          },
-          {
-            "key" : "settings.group.sessions",
-            "rows" : [
-              "sessions.keepAwake",
-              "sessions.resumeAgents",
-              "sessions.allowFullAccess",
-              "sessions.promptSuggestions"
-            ],
-            "title" : {
-              "key" : "settings.group.sessions",
-              "text" : "Agent Sessions"
-            }
-          },
-          {
-            "key" : "settings.group.subsessions",
-            "rows" : [
-              "agents.subsessions.enabled",
-              "agents.subsessions.answerQuestions",
-              "agents.subsessions.maxChildren",
-              "agents.subsessions.maxRunning",
-              "agents.subsessions.maxDepth"
-            ],
-            "title" : {
-              "key" : "settings.group.subsessions",
-              "text" : "Sub-sessions"
-            }
-          },
-          {
-            "key" : "settings.group.folderTrust",
-            "rows" : [
-              "agents.trust.autoTrust",
-              "agents.trust.projectRoots",
-              "agents.trust.ownOrgs"
-            ],
-            "title" : {
-              "key" : "settings.group.folderTrust",
-              "text" : "Folder Trust"
-            }
-          }
-        ],
-        "id" : "agents",
-        "lead" : [
-
-        ],
-        "symbol" : "sparkles",
-        "title" : {
-          "key" : "settings.category.agents",
-          "text" : "Agents"
-        },
-        "trail" : [
-          "harnesses",
-          "agentHarnesses",
-          "computerUse",
-          "agentIntegrations"
-        ]
-      },
-      {
-        "actions" : [
-
-        ],
-        "aliases" : [
-
-        ],
-        "groups" : [
-          {
-            "key" : "settings.group.chiefChat",
-            "rows" : [
-              "home.chiefBubbleStyle",
-              "home.bubbleColors.sent",
-              "home.bubbleColors.sentText",
-              "home.bubbleColors.received",
-              "home.bubbleColors.receivedText"
-            ],
-            "title" : {
-              "key" : "settings.group.chiefChat",
-              "text" : "Chief Chat"
-            }
-          },
-          {
-            "key" : "settings.group.chiefPet",
-            "rows" : [
-              "home.chiefPetEnabled",
-              "home.chiefPetMascot"
-            ],
-            "title" : {
-              "key" : "settings.group.chiefPet",
-              "text" : "Chief Pet"
-            }
-          },
-          {
-            "key" : "settings.group.chiefEngine",
-            "rows" : [
-              "home.chiefEngine"
-            ],
-            "title" : {
-              "key" : "settings.group.chiefEngine",
-              "text" : "Engine"
-            }
-          },
-          {
-            "key" : "settings.group.chiefReactions",
-            "rows" : [
-              "chief.reactionsCanWake",
-              "chief.reactionClassifier.harness",
-              "chief.reactionClassifier.model",
-              "chief.reactionClassifier.prompt"
-            ],
-            "title" : {
-              "key" : "settings.group.chiefReactions",
-              "text" : "Reactions"
-            }
-          }
-        ],
-        "id" : "chief",
-        "lead" : [
-          "chiefs",
-          "chiefPet",
-          "voiceInput"
-        ],
-        "symbol" : "crown",
-        "title" : {
-          "key" : "settings.category.chief",
-          "text" : "Chief"
-        },
-        "trail" : [
-          "credentialVault",
-          "notices"
-        ]
-      },
-      {
-        "actions" : [
-          "notifications"
-        ],
-        "aliases" : [
-          "notifications"
-        ],
-        "groups" : [
-          {
-            "key" : "settings.group.banners",
-            "rows" : [
-              "notifications.desktop",
-              "notifications.sound",
-              "notifications.quietHours",
-              "notifications.suppressWhileTypingSeconds",
-              "status.runNotifyMinimumSeconds",
-              "status.runNotifyWhenVisible",
-              "notifications.dockBadge",
-              "notifications.dockBounce",
-              "notifications.showPreviews"
-            ],
-            "title" : {
-              "key" : "settings.group.banners",
-              "text" : "Banners and Sound"
-            }
-          },
-          {
-            "key" : "settings.group.sounds",
-            "rows" : [
-              "notifications.sounds.events.finished",
-              "notifications.sounds.events.needsInput",
-              "notifications.sounds.events.error",
-              "notifications.sounds.events.bell",
-              "notifications.sounds.events.message",
-              "notifications.sounds.volume",
-              "notifications.sounds.when",
-              "notifications.sounds.cooldownSeconds"
-            ],
-            "title" : {
-              "key" : "settings.group.sounds",
-              "text" : "Sounds"
-            }
-          },
-          {
-            "key" : "settings.group.dismissal",
-            "rows" : [
-              "notifications.dismissal",
-              "notifications.timeoutSeconds",
-              "notifications.sources.agent.dismissal",
-              "notifications.sources.terminal.dismissal",
-              "notifications.sources.cli.dismissal"
-            ],
-            "title" : {
-              "key" : "settings.group.dismissal",
-              "text" : "Dismissal"
-            }
-          },
-          {
-            "key" : "settings.group.attention",
-            "rows" : [
-              "notifications.attention.style",
-              "notifications.attention.color",
-              "notifications.attention.terminals",
-              "notifications.attention.agentChats",
-              "notifications.attention.agentChatBlinkCount",
-              "notifications.attention.width",
-              "notifications.attention.blinkCount",
-              "notifications.attention.duration",
-              "notifications.attention.persist",
-              "notifications.attention.flash",
-              "notifications.attention.flashOnTyping",
-              "notifications.attention.showOnTab",
-              "notifications.attention.showOnSidebar",
-              "notifications.attention.moveToTop"
-            ],
-            "title" : {
-              "key" : "settings.group.attention",
-              "text" : "Attention Ring"
-            }
-          },
-          {
-            "key" : "settings.group.feedMirror",
-            "rows" : [
-              "feed.mirrorNotifications.agents",
-              "feed.mirrorNotifications.terminal",
-              "feed.agentPermissionPrompts"
-            ],
-            "title" : {
-              "key" : "settings.group.feedMirror",
-              "text" : "Feed"
-            }
-          },
-          {
-            "key" : "settings.group.githubInbox",
-            "rows" : [
-              "feed.github.enabled",
-              "feed.github.pollIntervalSeconds"
-            ],
-            "title" : {
-              "key" : "settings.group.githubInbox",
-              "text" : "GitHub Inbox"
-            }
-          }
-        ],
-        "id" : "notifications",
-        "lead" : [
-
-        ],
-        "symbol" : "bell",
-        "title" : {
-          "key" : "settings.section.notifications",
-          "text" : "Notifications"
         },
         "trail" : [
 
@@ -1311,16 +1116,341 @@
 
         ],
         "groups" : [
+          {
+            "key" : "settings.group.agentChat",
+            "rows" : [
+              "agentPane.needsYou.enabled",
+              "agentPane.showMachineLoadWarnings",
+              "agents.defaultPermissionMode",
+              "agents.modelRouter.model",
+              "app.warnBeforeClosingAgentSession"
+            ],
+            "title" : {
+              "key" : "settings.group.agentChat",
+              "text" : "Agent Chat"
+            }
+          },
+          {
+            "key" : "agents.1",
+            "rows" : [
+              "agentPane.display.width",
+              "agentPane.display.fullWidth",
+              "agentPane.zoom",
+              "agentPane.display.minimap",
+              "agentPane.display.vscodeMinimap",
+              "agentPane.display.rail.side",
+              "agentPane.display.inspector.placement",
+              "agentPane.display.environment.placement"
+            ],
+            "title" : {
+              "key" : "settings.pageGroup.chatLayout",
+              "text" : "Chat Layout"
+            }
+          },
+          {
+            "key" : "agents.2",
+            "rows" : [
+              "agentPane.display.font.preset",
+              "agentPane.display.font.size",
+              "agentPane.display.font.lineHeight",
+              "agentPane.display.code.family",
+              "agentPane.display.code.scale"
+            ],
+            "title" : {
+              "key" : "settings.pageGroup.chatText",
+              "text" : "Chat Text"
+            }
+          },
+          {
+            "key" : "agents.3",
+            "rows" : [
+              "agentPane.showContextUsage",
+              "agentPane.showDictation",
+              "agentPane.spellChecking",
+              "agentPane.attachmentView",
+              "agentPane.scrollToBottomOnSend"
+            ],
+            "title" : {
+              "key" : "settings.pageGroup.messageBox",
+              "text" : "Message Box"
+            }
+          },
+          {
+            "key" : "agents.4",
+            "rows" : [
+              "agentPane.links.outsideRoots",
+              "agentPane.images.remote",
+              "agentPane.editedFiles.show",
+              "agentPane.editedFiles.maxRows",
+              "agentPane.editedFiles.scope"
+            ],
+            "title" : {
+              "key" : "settings.pageGroup.filesLinks",
+              "text" : "Files and Links"
+            }
+          },
+          {
+            "key" : "settings.group.computerUse",
+            "rows" : [
+              "computerUse.enabled",
+              "computerUse.driver",
+              "computerUse.livePreview"
+            ],
+            "title" : {
+              "key" : "settings.group.computerUse",
+              "text" : "Computer Use"
+            }
+          },
+          {
+            "key" : "settings.group.freeModel",
+            "rows" : [
+              "freeModel.enabled"
+            ],
+            "title" : {
+              "key" : "settings.group.freeModel",
+              "text" : "AI Models"
+            }
+          },
+          {
+            "key" : "settings.group.sessions",
+            "rows" : [
+              "sessions.keepAwake",
+              "sessions.resumeAgents",
+              "sessions.allowFullAccess",
+              "sessions.promptSuggestions"
+            ],
+            "title" : {
+              "key" : "settings.group.sessions",
+              "text" : "Agent Sessions"
+            }
+          },
+          {
+            "key" : "settings.group.subsessions",
+            "rows" : [
+              "agents.subsessions.enabled",
+              "agents.subsessions.answerQuestions",
+              "agents.subsessions.maxChildren",
+              "agents.subsessions.maxRunning",
+              "agents.subsessions.maxDepth"
+            ],
+            "title" : {
+              "key" : "settings.group.subsessions",
+              "text" : "Sub-sessions"
+            }
+          },
+          {
+            "key" : "settings.group.folderTrust",
+            "rows" : [
+              "agents.trust.autoTrust",
+              "agents.trust.projectRoots",
+              "agents.trust.ownOrgs"
+            ],
+            "title" : {
+              "key" : "settings.group.folderTrust",
+              "text" : "Folder Trust"
+            }
+          }
+        ],
+        "id" : "agents",
+        "lead" : [
 
         ],
-        "id" : "import",
-        "lead" : [
-          "importSuggestions"
-        ],
-        "symbol" : "square.and.arrow.down",
+        "symbol" : "sparkles",
         "title" : {
-          "key" : "settings.category.import",
-          "text" : "Import"
+          "key" : "settings.category.agents",
+          "text" : "Agents"
+        },
+        "trail" : [
+          "harnesses",
+          "agentHarnesses",
+          "computerUse",
+          "agentIntegrations"
+        ]
+      },
+      {
+        "actions" : [
+
+        ],
+        "aliases" : [
+
+        ],
+        "groups" : [
+          {
+            "key" : "settings.group.chiefChat",
+            "rows" : [
+              "home.chiefBubbleStyle",
+              "home.bubbleColors.sent",
+              "home.bubbleColors.sentText",
+              "home.bubbleColors.received",
+              "home.bubbleColors.receivedText"
+            ],
+            "title" : {
+              "key" : "settings.group.chiefChat",
+              "text" : "Chief Chat"
+            }
+          },
+          {
+            "key" : "settings.group.chiefPet",
+            "rows" : [
+              "home.chiefPetEnabled",
+              "home.chiefPetMascot"
+            ],
+            "title" : {
+              "key" : "settings.group.chiefPet",
+              "text" : "Chief Pet"
+            }
+          },
+          {
+            "key" : "settings.group.chiefEngine",
+            "rows" : [
+              "home.chiefEngine"
+            ],
+            "title" : {
+              "key" : "settings.group.chiefEngine",
+              "text" : "Engine"
+            }
+          },
+          {
+            "key" : "settings.group.chiefReactions",
+            "rows" : [
+              "chief.reactionsCanWake",
+              "chief.reactionClassifier.harness",
+              "chief.reactionClassifier.model",
+              "chief.reactionClassifier.prompt"
+            ],
+            "title" : {
+              "key" : "settings.group.chiefReactions",
+              "text" : "Reactions"
+            }
+          }
+        ],
+        "id" : "chief",
+        "lead" : [
+          "chiefs",
+          "chiefPet",
+          "voiceInput"
+        ],
+        "symbol" : "crown",
+        "title" : {
+          "key" : "settings.category.chief",
+          "text" : "Chief"
+        },
+        "trail" : [
+          "notices"
+        ]
+      },
+      {
+        "actions" : [
+          "notifications"
+        ],
+        "aliases" : [
+          "notifications"
+        ],
+        "groups" : [
+          {
+            "key" : "settings.group.banners",
+            "rows" : [
+              "notifications.desktop",
+              "notifications.sound",
+              "notifications.quietHours",
+              "notifications.suppressWhileTypingSeconds",
+              "status.runNotifyMinimumSeconds",
+              "status.runNotifyWhenVisible",
+              "notifications.dockBadge",
+              "notifications.dockBounce",
+              "notifications.showPreviews"
+            ],
+            "title" : {
+              "key" : "settings.group.banners",
+              "text" : "Banners and Sound"
+            }
+          },
+          {
+            "key" : "settings.group.sounds",
+            "rows" : [
+              "notifications.sounds.events.finished",
+              "notifications.sounds.events.needsInput",
+              "notifications.sounds.events.error",
+              "notifications.sounds.events.bell",
+              "notifications.sounds.events.message",
+              "notifications.sounds.volume",
+              "notifications.sounds.when",
+              "notifications.sounds.cooldownSeconds"
+            ],
+            "title" : {
+              "key" : "settings.group.sounds",
+              "text" : "Sounds"
+            }
+          },
+          {
+            "key" : "settings.group.dismissal",
+            "rows" : [
+              "notifications.dismissal",
+              "notifications.timeoutSeconds",
+              "notifications.sources.agent.dismissal",
+              "notifications.sources.terminal.dismissal",
+              "notifications.sources.cli.dismissal"
+            ],
+            "title" : {
+              "key" : "settings.group.dismissal",
+              "text" : "Dismissal"
+            }
+          },
+          {
+            "key" : "settings.group.attention",
+            "rows" : [
+              "notifications.attention.style",
+              "notifications.attention.color",
+              "notifications.attention.terminals",
+              "notifications.attention.agentChats",
+              "notifications.attention.agentChatBlinkCount",
+              "notifications.attention.width",
+              "notifications.attention.blinkCount",
+              "notifications.attention.duration",
+              "notifications.attention.persist",
+              "notifications.attention.flash",
+              "notifications.attention.flashOnTyping",
+              "notifications.attention.showOnTab",
+              "notifications.attention.showOnSidebar",
+              "notifications.attention.moveToTop"
+            ],
+            "title" : {
+              "key" : "settings.group.attention",
+              "text" : "Attention Ring"
+            }
+          },
+          {
+            "key" : "settings.group.feedMirror",
+            "rows" : [
+              "feed.mirrorNotifications.agents",
+              "feed.mirrorNotifications.terminal",
+              "feed.agentPermissionPrompts"
+            ],
+            "title" : {
+              "key" : "settings.group.feedMirror",
+              "text" : "Feed"
+            }
+          },
+          {
+            "key" : "settings.group.githubInbox",
+            "rows" : [
+              "feed.github.enabled",
+              "feed.github.pollIntervalSeconds"
+            ],
+            "title" : {
+              "key" : "settings.group.githubInbox",
+              "text" : "GitHub Inbox"
+            }
+          }
+        ],
+        "id" : "notifications",
+        "lead" : [
+
+        ],
+        "symbol" : "bell",
+        "title" : {
+          "key" : "settings.section.notifications",
+          "text" : "Notifications"
         },
         "trail" : [
 
@@ -1414,70 +1544,6 @@
         "title" : {
           "key" : "settings.category.menus",
           "text" : "Menus"
-        },
-        "trail" : [
-
-        ]
-      },
-      {
-        "actions" : [
-          "home"
-        ],
-        "aliases" : [
-          "home"
-        ],
-        "groups" : [
-          {
-            "key" : "privacy.0",
-            "rows" : [
-              "history.terminalCommands",
-              "home.attachments.keepLocation"
-            ],
-            "title" : {
-              "key" : "settings.pageGroup.localData",
-              "text" : "Data on This Mac"
-            }
-          },
-          {
-            "key" : "privacy.1",
-            "rows" : [
-              "browser.omnibar.remoteSuggestions",
-              "announcements.fetch"
-            ],
-            "title" : {
-              "key" : "settings.pageGroup.network",
-              "text" : "Network Requests"
-            }
-          },
-          {
-            "key" : "settings.group.hangReports",
-            "rows" : [
-              "diagnostics.hangReports"
-            ],
-            "title" : {
-              "key" : "settings.group.hangReports",
-              "text" : "Hang Reports"
-            }
-          },
-          {
-            "key" : "settings.group.sshLinks",
-            "rows" : [
-              "ssh.linkAllowedHosts"
-            ],
-            "title" : {
-              "key" : "settings.group.sshLinks",
-              "text" : "SSH Links"
-            }
-          }
-        ],
-        "id" : "privacy",
-        "lead" : [
-
-        ],
-        "symbol" : "hand.raised",
-        "title" : {
-          "key" : "settings.category.privacy",
-          "text" : "Privacy and Security"
         },
         "trail" : [
 
@@ -1585,6 +1651,29 @@
         "groups" : [
 
         ],
+        "id" : "devices",
+        "lead" : [
+          "devices"
+        ],
+        "symbol" : "laptopcomputer",
+        "title" : {
+          "key" : "settings.category.devices",
+          "text" : "Devices"
+        },
+        "trail" : [
+
+        ]
+      },
+      {
+        "actions" : [
+
+        ],
+        "aliases" : [
+
+        ],
+        "groups" : [
+
+        ],
         "id" : "server",
         "lead" : [
           "server"
@@ -1608,14 +1697,78 @@
         "groups" : [
 
         ],
-        "id" : "devices",
+        "id" : "import",
         "lead" : [
-          "devices"
+          "importSuggestions"
         ],
-        "symbol" : "laptopcomputer",
+        "symbol" : "square.and.arrow.down",
         "title" : {
-          "key" : "settings.category.devices",
-          "text" : "Devices"
+          "key" : "settings.category.import",
+          "text" : "Import"
+        },
+        "trail" : [
+
+        ]
+      },
+      {
+        "actions" : [
+          "home"
+        ],
+        "aliases" : [
+          "home"
+        ],
+        "groups" : [
+          {
+            "key" : "privacy.0",
+            "rows" : [
+              "history.terminalCommands",
+              "home.attachments.keepLocation"
+            ],
+            "title" : {
+              "key" : "settings.pageGroup.localData",
+              "text" : "Data on This Mac"
+            }
+          },
+          {
+            "key" : "privacy.1",
+            "rows" : [
+              "browser.omnibar.remoteSuggestions",
+              "announcements.fetch"
+            ],
+            "title" : {
+              "key" : "settings.pageGroup.network",
+              "text" : "Network Requests"
+            }
+          },
+          {
+            "key" : "settings.group.hangReports",
+            "rows" : [
+              "diagnostics.hangReports"
+            ],
+            "title" : {
+              "key" : "settings.group.hangReports",
+              "text" : "Hang Reports"
+            }
+          },
+          {
+            "key" : "settings.group.sshLinks",
+            "rows" : [
+              "ssh.linkAllowedHosts"
+            ],
+            "title" : {
+              "key" : "settings.group.sshLinks",
+              "text" : "SSH Links"
+            }
+          }
+        ],
+        "id" : "privacy",
+        "lead" : [
+
+        ],
+        "symbol" : "hand.raised",
+        "title" : {
+          "key" : "settings.category.privacy",
+          "text" : "Privacy and Security"
         },
         "trail" : [
 
@@ -1736,7 +1889,90 @@
         ]
       }
     ],
-    "default_category" : "general"
+    "default_category" : "general",
+    "sidebar_sections" : [
+      {
+        "categories" : [
+          "general",
+          "updates"
+        ],
+        "id" : "app",
+        "title" : null
+      },
+      {
+        "categories" : [
+          "theme",
+          "appearance"
+        ],
+        "id" : "look",
+        "title" : {
+          "key" : "settings.sidebarSection.look",
+          "text" : "Look and Feel"
+        }
+      },
+      {
+        "categories" : [
+          "terminal",
+          "editor",
+          "browser"
+        ],
+        "id" : "tools",
+        "title" : {
+          "key" : "settings.sidebarSection.tools",
+          "text" : "Tools"
+        }
+      },
+      {
+        "categories" : [
+          "agents",
+          "chief"
+        ],
+        "id" : "ai",
+        "title" : {
+          "key" : "settings.sidebarSection.ai",
+          "text" : "AI"
+        }
+      },
+      {
+        "categories" : [
+          "notifications",
+          "keyboard",
+          "menus"
+        ],
+        "id" : "interaction",
+        "title" : {
+          "key" : "settings.sidebarSection.interaction",
+          "text" : "Interaction"
+        }
+      },
+      {
+        "categories" : [
+          "accounts",
+          "mobile",
+          "devices",
+          "server"
+        ],
+        "id" : "devices",
+        "title" : {
+          "key" : "settings.sidebarSection.devices",
+          "text" : "Accounts and Devices"
+        }
+      },
+      {
+        "categories" : [
+          "import",
+          "privacy",
+          "advanced",
+          "experimental",
+          "development"
+        ],
+        "id" : "system",
+        "title" : {
+          "key" : "settings.sidebarSection.system",
+          "text" : "Data and System"
+        }
+      }
+    ]
   },
   "rows" : [
     {
@@ -3458,7 +3694,6 @@
         "minimal",
         "cards",
         "default",
-        "composer",
         "threads",
         "console",
         "classic",
@@ -3487,13 +3722,6 @@
             "text" : "Default"
           },
           "value" : "default"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.newTabTemplateComposer",
-            "text" : "Composer"
-          },
-          "value" : "composer"
         },
         {
           "title" : {
@@ -3548,7 +3776,6 @@
         "greeting",
         "terminal",
         "classic",
-        "composer",
         "threads",
         "console",
         "cards",
@@ -3665,7 +3892,7 @@
         false
       ],
       "agent_refusal" : null,
-      "agent_settable" : false,
+      "agent_settable" : true,
       "consumers" : [
         "cmux-next"
       ],
@@ -3730,7 +3957,7 @@
         },
         "mcp" : {
           "aliases" : [
-
+            "settings.unset"
           ],
           "app_aliases" : [
 
@@ -3742,9 +3969,11 @@
           "offered" : true,
           "operations" : [
             "settings.list",
-            "settings.get"
+            "settings.get",
+            "settings.set",
+            "settings.reset"
           ],
-          "reason" : "agent_settable_false",
+          "reason" : null,
           "row" : null
         },
         "palette" : {
@@ -50638,6 +50867,170 @@
       "title" : {
         "key" : "settings.sidebar.density",
         "text" : "Sidebar Density"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "default",
+        "large",
+        "larger"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.default",
+            "text" : "Default"
+          },
+          "value" : "default"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.sidebarTextLarge",
+            "text" : "Large"
+          },
+          "value" : "large"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.sidebarTextLarger",
+            "text" : "Larger"
+          },
+          "value" : "larger"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "default",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.textSize.help",
+        "text" : "Makes the sidebar's names, headers, icons and rows larger together. Larger matches the ChatGPT app's sidebar."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.textSize",
+      "keywords" : [
+        "sidebar",
+        "text",
+        "size",
+        "font",
+        "bigger",
+        "larger",
+        "large",
+        "zoom",
+        "readable",
+        "accessibility",
+        "chatgpt",
+        "rows"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "textSize"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:sidebar.textSize"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.sidebar.textSize",
+        "text" : "Sidebar Text Size"
       },
       "validation" : "portable"
     },

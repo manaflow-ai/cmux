@@ -268,7 +268,7 @@ public final class HomeNativeTranscriptView: NSView {
     /// The header views that run ``onNamePill`` (the pill and the avatar).
     public var namePillToggles: [NSView] { transcript.namePillToggles }
 
-    /// The header avatar's text; nil shows the conversation's initials.
+    /// The header avatar's text; nil shows the monogram of the header's name (`MonogramAvatar`).
     public var avatarText: String? {
         get { transcript.avatarText }
         set { transcript.avatarText = newValue }
@@ -277,7 +277,10 @@ public final class HomeNativeTranscriptView: NSView {
     /// The header's name (a Chief's own name, its record's); nil shows the conversation's title.
     public var headerTitle: String? {
         get { transcript.headerTitle }
-        set { transcript.headerTitle = newValue }
+        set {
+            transcript.headerTitle = newValue
+            applyHeroFace()  // the hero's monogram follows a rename
+        }
     }
 
     /// The header avatar's picture, over its text; nil shows the text.
