@@ -29,13 +29,19 @@ struct SimulatedServiceExtension {
               let data = FileManager.default.contents(atPath: path),
               let body = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
         let content = UNMutableNotificationContent()
-        if let alert = (body["aps"] as? [String: Any])?["alert"] as? [String: Any] {
+        let aps = body["aps"] as? [String: Any]
+        if let alert = aps?["alert"] as? [String: Any] {
             content.title = alert["title"] as? String ?? ""
             content.body = alert["body"] as? String ?? ""
         }
+        content.categoryIdentifier = aps?["category"] as? String ?? ""
+        content.threadIdentifier = aps?["thread-id"] as? String ?? ""
         content.userInfo = body.filter { $0.key != "aps" }
         let keys = PushKeys.current()
-        let opened = ServicePush().opened(content, keys: keys) ?? ServicePush().inert(content, trust: keys?.trust()) ?? content
+        // The extension's own chain (NotificationService).
+        let service = ServicePush()
+        let opened = service.opened(content, keys: keys) ?? service.inert(content, trust: keys?.trust())
+            ?? service.categorized(content) ?? content
         let request = UNNotificationRequest(identifier: "dev-service-push-\(UUID().uuidString)", content: opened, trigger: nil)
         UNUserNotificationCenter.current().add(request) { error in
             if let error { Logger(subsystem: "dev.cmux.mobile", category: "push").error("simulated service push: \(String(describing: error), privacy: .public)") }
