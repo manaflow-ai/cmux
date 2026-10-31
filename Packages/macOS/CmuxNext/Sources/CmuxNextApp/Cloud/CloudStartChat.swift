@@ -87,30 +87,33 @@ struct CloudStartChat {
         // pane's roots (``AgentPaneHandOff``). A `.git` found above it since then is refused.
         guard Self.uploads(folder, as: start) else { throw CloudMove.Failure(message: CloudMoveStrings.noFolder) }
         guard let binary = services.cloud.move.cli else { throw ActionFailure(message: CloudStrings.noClient) }
-        let move = CloudMove(services: services)
+        let cli = CloudMoveCLI(binary: binary, timeout: services.cloud.move.timeout)
         let invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab.id), origin: .user)
-        // This person's free machine (or one for chats), else a new one; a retry stays on its first try's (+Machine).
-        let machine = try await self.machine(for: start, invocation: invocation) { await CloudChatPick(services: services).read(folder: chat, tab: tab) }
+        // The machine, the pin and the keys are cmux-tui's (`cmux link start-chat`, +Machine).
+        let (machine, plan) = try await self.machine(for: start, cli: cli, invocation: invocation) {
+            await CloudChatPick(services: services).read(folder: chat, tab: tab)
+        }
         let name = machine.machine.title, again = CloudMoveRetries.Retry.move(machineID: machine.machineID)
         guard let socket = await machine.daemon.connection?.endpoint?.socketPath else {
             throw CloudMove.Failure(message: CloudMoveStrings.notConnected(name))
         }
-        let cli = CloudMoveCLI(binary: binary, timeout: services.cloud.move.timeout)
-        // A retry whose copy finished opens its chat (by its tab key) without copying again: a
-        // second push would overwrite what the chat already changed there.
-        let destinations = services.cloud.startChatDestinations
-        let remoteChat: String
-        if let copied = destinations.copiedChat(for: start.key, on: machine.machineID) {
-            remoteChat = copied
-        } else {
-            remoteChat = try await move.sync(folder, to: socket, machine: name, cli: cli, retry: again, place: start.remotePlace).chat
-            destinations.recordCopy(remoteChat, for: start.key, on: machine.machineID)
+        // The copy goes to the send's own place; a retry whose copy finished opens its chat
+        // without copying again, which would overwrite what the chat already changed there.
+        let copy: (CloudMoveCLI.Answer, (chat: String, copied: Bool))
+        do {
+            copy = try await cli.startChatCopy(key: start.key, machine: machine.machineID, socket: socket, local: folder.root,
+                                               subpath: folder.subpath, workRoots: services.cloud.move.workRoots)
+        } catch {
+            // Timed out or didn't launch: nothing moved yet, so Retry runs the start again on this machine.
+            throw CloudMove.Failure(message: CloudMoveStrings.syncFailed(name, CloudStrings.errorText(error)), retry: again)
         }
+        guard copy.0.ok else { throw CloudMove.failure(syncing: copy.0, machine: name, retry: again) }
+        let remoteChat = copy.1.chat
         let context = AppActionContext(services: services)
         let anchor = try await CloudHandlers.terminalAnchor(on: machine, context)
         let seed = start.seed(cwd: remoteChat)
         let pending = try services.agentTabs.open(in: anchor.pane.handle, of: machine.daemon, seed: AgentPaneSeedSource(seed),
-                                                 idempotencyKey: start.tabKey)
+                                                 idempotencyKey: plan.tabKey)
         let opened = try await pending.value()
         CloudHandlers.show(anchor.id, context)
         if let pane = await machine.daemon.store.firstPane(mirroring: anchor.key) {

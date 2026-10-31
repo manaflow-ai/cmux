@@ -75,17 +75,6 @@ struct AgentPaneCloudStartTests {
         #expect(unnamed.seed(cwd: "/w").harness == nil)
     }
 
-    @Test func aRetryOfTheSameSendOpensTheSameTabOnTheMachine() throws {
-        let key = UUID().uuidString
-        let first = try #require(AgentPaneCloudStart(params: Self.good.merging(["key": key]) { $1 }))
-        let retry = try #require(AgentPaneCloudStart(params: Self.good.merging(["key": key.lowercased()]) { $1 }))
-        let other = try #require(AgentPaneCloudStart(params: Self.good.merging(["key": UUID().uuidString]) { $1 }))
-        // The tab's creation key is the send's: the daemon answers a retry with the tab it made.
-        #expect(first.tabKey == retry.tabKey)
-        #expect(first.tabKey.hasSuffix(key.lowercased()))
-        #expect(first.tabKey != other.tabKey)
-    }
-
     @Test func aRefusedStartReleasesTheHoldSoTheSendMayBeTriedAgain() async throws {
         let (root, folder) = try Self.project()
         defer { try? FileManager.default.removeItem(atPath: root) }
@@ -185,29 +174,6 @@ struct AgentPaneCloudStartTests {
         #expect(starts.seen.first?.uploadRoot == Self.canonical(repo))
         let canonicalFolder = try #require(Self.canonical(folder))
         #expect(AgentPaneCloudStart.uploadRoot(of: canonicalFolder) == Self.canonical(repo))
-    }
-
-    /// The create's key is the send's: a retry after a lost create answer gets the same machine.
-    @Test func aRetryOfTheSameSendCreatesUnderTheSameKey() throws {
-        let key = UUID().uuidString
-        let first = try #require(AgentPaneCloudStart(params: Self.good.merging(["key": key]) { $1 }))
-        let retry = try #require(AgentPaneCloudStart(params: Self.good.merging(["key": key.lowercased()]) { $1 }))
-        let other = try #require(AgentPaneCloudStart(params: Self.good.merging(["key": UUID().uuidString]) { $1 }))
-        #expect(first.createKey == retry.createKey)
-        #expect(first.createKey != other.createKey)
-        #expect(first.createKey.count <= 128)
-    }
-
-    @Test func eachSendCopiesTheFolderToItsOwnPlaceOnTheMachine() throws {
-        let key = UUID().uuidString
-        let first = try #require(AgentPaneCloudStart(params: Self.good.merging(["key": key]) { $1 }))
-        let retry = try #require(AgentPaneCloudStart(params: Self.good.merging(["key": key.lowercased()]) { $1 }))
-        let other = try #require(AgentPaneCloudStart(params: Self.good.merging(["key": UUID().uuidString]) { $1 }))
-        // A second Cloud chat from the same folder never syncs over the first one's copy; a retry
-        // of the same send lands in the same copy.
-        #expect(first.remotePlace == retry.remotePlace)
-        #expect(first.remotePlace != other.remotePlace)
-        #expect(first.remotePlace == "chats/" + key.lowercased())
     }
 
     @Test func withoutARunnerTheMethodIsUnsupported() async {

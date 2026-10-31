@@ -261,7 +261,7 @@ fn parse(args: &[String]) -> Option<(Action, PathBuf, PathBuf, String)> {
     Some((action, socket?, PathBuf::from(local), remote.trim_end_matches('/').to_string()))
 }
 
-fn push(socket: &Path, local: &Path, remote_root: &str) -> anyhow::Result<Summary> {
+pub(super) fn push(socket: &Path, local: &Path, remote_root: &str) -> anyhow::Result<Summary> {
     push_inner(socket, local, remote_root, &|_, _| true, false)
 }
 

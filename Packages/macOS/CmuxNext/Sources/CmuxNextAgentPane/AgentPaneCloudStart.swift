@@ -38,19 +38,8 @@ public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
         self.init(task: task, cwd: cwd as? String, harness: harness, model: model, key: key)
     }
 
-    /// The machine's chat tab's creation key: a retry of the same send (its answer was lost after
-    /// the machine's daemon made the tab) gets that tab back, never a second chat with the prompt again.
-    public var tabKey: String { "cloud-start-chat-" + key.lowercased() }
-
-    /// The folder under the machine's work root this send's copy goes to: its own, so a second
-    /// Cloud chat from the same folder never writes over the first one's changes on a reused
-    /// machine (Move to Cloud's sync overwrites every file the machine changed), and a retry of
-    /// the same send lands in the same copy.
-    public var remotePlace: String { "chats/" + key.lowercased() }
-
-    /// The idempotency key of the Cloud machine a send creates: a retry of the same send whose
-    /// create reached the server but lost its answer gets that machine back, never a second VM.
-    public var createKey: String { "cloud-start-chat-" + key.lowercased() }
+    // The send's machine, its create, tab and copy keys and its pin are cmux-tui's
+    // (`cmux link start-chat`, cmux-tui `link/start_chat_cli.rs`), keyed by ``key``.
 
     /// The folder `cmux link sync push` copies for a chat in `folder`: the nearest folder at or
     /// above it holding `.git` (a Git working copy's top), else `folder` itself (as
