@@ -80,17 +80,22 @@ refuse_or_fallback() {  # code reason
 
 settings_helper="$fleet_root/bin/fleet-cas-settings.sh"
 socket="$fleet_root/fleet-cas.sock"
-plugin_settings=""
-if [[ -x "$settings_helper" ]]; then
-  plugin_settings="$("$settings_helper" "$socket" 2>/dev/null | head -n 8)" || plugin_settings=""
+helper_output=""
+if [[ -x "$settings_helper" && -S "$socket" ]]; then
+  helper_output="$("$settings_helper" "$socket" 2>/dev/null | head -n 8)" || helper_output=""
 fi
-plugin_ok=0 remote_ok=0
+# Only the plugin and its socket come from the helper (as compile-app-host-test-product.sh takes
+# them); the CAS path is the fleet root's fixed one below, whatever the helper prints.
+plugin_settings="" plugin_ok=0 remote_ok=0
 while IFS= read -r setting; do
   case "$setting" in
     COMPILATION_CACHE_ENABLE_PLUGIN=YES) plugin_ok=1 ;;
     COMPILATION_CACHE_REMOTE_SERVICE_PATH=/*) remote_ok=1 ;;
+    *) continue ;;
   esac
-done <<< "$plugin_settings"
+  plugin_settings+="$setting"$'\n'
+done <<< "$helper_output"
+plugin_settings="${plugin_settings%$'\n'}"
 (( plugin_ok && remote_ok )) || refuse_or_fallback 3 "the fleet-cas node does not answer on $socket"
 
 # The lock, without waiting: busy means another Release compile owns the root right now.

@@ -7,7 +7,8 @@
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../../.." && pwd)
 TMP=$(mktemp -d "${TMPDIR:-/tmp}/cmux-release-fleet-cas-test.XXXXXX")
-trap 'rm -rf "$TMP"' EXIT
+SOCKDIR=$(mktemp -d /tmp/rcfc.XXXXXX)  # short: a Unix socket path has a length limit
+trap 'rm -rf "$TMP" "$SOCKDIR"' EXIT
 fail() { printf 'FAIL: %s\n' "$1"; cat "$TMP/out" 2>/dev/null || true; exit 1; }
 
 # A workspace with the wrapper and its helpers, and a stub check-release-compile.sh.
@@ -29,9 +30,13 @@ mkdir -p "$FLEET/bin"
 cat > "$FLEET/bin/fleet-cas-settings.sh" <<'EOF'
 #!/bin/bash
 [[ "${STUB_NODE:-up}" == up ]] || { echo "node down" >&2; exit 1; }
-printf '%s\n' COMPILATION_CACHE_ENABLE_PLUGIN=YES "COMPILATION_CACHE_REMOTE_SERVICE_PATH=$1"
+printf '%s\n' COMPILATION_CACHE_ENABLE_PLUGIN=YES "COMPILATION_CACHE_REMOTE_SERVICE_PATH=$1" \
+  COMPILATION_CACHE_CAS_PATH=/helper/cas
 EOF
 chmod +x "$FLEET/bin/fleet-cas-settings.sh"
+# The node's socket: a bound Unix socket (nothing listens; the stub helper answers for the node).
+python3 -c 'import socket, sys; socket.socket(socket.AF_UNIX).bind(sys.argv[1])' "$SOCKDIR/s"
+ln -s "$SOCKDIR/s" "$FLEET/fleet-cas.sock"
 CROOT="$FLEET/next-release"
 
 run() {  # MODE [VAR=VALUE...]
@@ -60,6 +65,7 @@ for want in COMPILATION_CACHE_ENABLE_CACHING=YES "COMPILATION_CACHE_CAS_PATH=$FL
   COMPILATION_CACHE_ENABLE_PLUGIN=YES "COMPILATION_CACHE_REMOTE_SERVICE_PATH=$FLEET/fleet-cas.sock"; do
   settings | grep -qxF -- "$want" || fail "read did not pass $want"
 done
+! settings | grep -qxF COMPILATION_CACHE_CAS_PATH=/helper/cas || fail "read passed the helper's own CAS path"
 grep -q "CMUX_NEXT_RELEASE_DERIVED_DATA=$CROOT/DerivedData" "$TMP/genv" || fail "read did not export the canonical DerivedData"
 [[ "$(called fsmode)" == checksum-only ]] || fail "read did not judge changes by content"
 
@@ -79,6 +85,11 @@ run read STUB_NODE=down || fail "read (node down) exited $?"
 settings | grep -q UNSET || fail "read with the node down passed cache settings"
 status=0; run write STUB_NODE=down || status=$?
 [[ $status -eq 3 && ! -e "$TMP/called" ]] || fail "write with the node down exited $status or built"
+# No socket (a helper that still answers): the node is not there, so read falls back at once.
+mv "$FLEET/fleet-cas.sock" "$TMP/sock.away"
+run read || fail "read (no socket) exited $?"
+[[ "$(called dd)" == "$TMP/fallback-dd" ]] || fail "read with no socket built into $(called dd)"
+mv "$TMP/sock.away" "$FLEET/fleet-cas.sock"
 
 # 5. Another build holds the root: read builds the old way at once, write refuses with 75.
 exec 8>>"$CROOT/lock"
@@ -139,7 +150,7 @@ crc STUB_FAIL_ALWAYS=1 STUB_FAIL_WITH="error: CAS error encountered during compi
 
 # 9. The stale-module clear accepts the canonical root's DerivedData only when that root is exported.
 #    Under /var/tmp: the guard accepts anything under /tmp already.
-VT=$(mktemp -d /var/tmp/cmux-release-cas-root.XXXXXX); trap 'rm -rf "$TMP" "$VT"' EXIT
+VT=$(mktemp -d /var/tmp/cmux-release-cas-root.XXXXXX); trap 'rm -rf "$TMP" "$SOCKDIR" "$VT"' EXIT
 mkdir -p "$VT/DerivedData/Build" "$VT/DerivedData/SourcePackages" "$VT/other/Build"
 touch "$VT/DerivedData/SourcePackages/pkg"
 clear_dd() { env -i PATH=/usr/bin:/bin "$@" /bin/bash "$ROOT/scripts/cmux-next/clear-stale-scheme-build-state.sh" "$dd" >"$TMP/out" 2>&1; }
