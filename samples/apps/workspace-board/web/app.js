@@ -33,12 +33,16 @@ async function send(workspace, terminal, input) {
   }
 }
 
-function terminalRow(workspace, terminal) {
+function terminalRow(workspace, terminal, drafts, inputs) {
   const row = el("div", "terminal")
   row.append(el("div", "title", terminal.title || terminal.id))
   if (terminal.cwd) row.append(el("div", "cwd", terminal.cwd))
   const form = el("form")
   const input = el("input")
+  const key = JSON.stringify([workspace, terminal.id])
+  input.dataset.draftKey = key
+  input.value = drafts.get(key) ?? ""
+  inputs.set(key, input)
   input.placeholder = "Send a line"
   input.setAttribute("aria-label", `Send a line to ${terminal.title || terminal.id}`)
   form.append(input, el("button", null, "Send"))
@@ -53,17 +57,31 @@ function terminalRow(workspace, terminal) {
 async function load() {
   try {
     const workspaces = (await cmux.call("workspace.list", {})).value ?? []
-    const cards = await Promise.all(
+    const rows = await Promise.all(
       workspaces.map(async (workspace) => {
         const terminals = (await cmux.call("terminal.list", { workspace: workspace.id })).value ?? []
-        const card = el("section", workspace.focused ? "card focused" : "card")
-        card.append(el("h2", null, workspace.name || workspace.id))
-        if (terminals.length === 0) card.append(el("div", "empty", "No terminals"))
-        for (const terminal of terminals) card.append(terminalRow(workspace.id, terminal))
-        return card
+        return { workspace, terminals }
       }),
     )
+    // Read drafts after the requests finish: the person may have kept typing while refreshing.
+    const drafts = new Map([...board.querySelectorAll("input")].map((input) => [input.dataset.draftKey, input.value]))
+    const active = document.activeElement
+    const activeKey = active?.dataset.draftKey
+    const selection = activeKey ? [active.selectionStart, active.selectionEnd, active.selectionDirection] : null
+    const inputs = new Map()
+    const cards = rows.map(({ workspace, terminals }) => {
+      const card = el("section", workspace.focused ? "card focused" : "card")
+      card.append(el("h2", null, workspace.name || workspace.id))
+      if (terminals.length === 0) card.append(el("div", "empty", "No terminals"))
+      for (const terminal of terminals) card.append(terminalRow(workspace.id, terminal, drafts, inputs))
+      return card
+    })
     board.replaceChildren(...cards)
+    const replacement = activeKey ? inputs.get(activeKey) : null
+    if (replacement && selection) {
+      replacement.focus({ preventScroll: true })
+      replacement.setSelectionRange(...selection)
+    }
     say(`${workspaces.length} workspaces`)
   } catch (error) {
     say(`${error.code ?? "error"}: ${error.message}`, true)
@@ -73,5 +91,3 @@ async function load() {
 
 document.getElementById("refresh").addEventListener("click", load)
 load()
-// No event stream reaches web panes yet; read again every few seconds.
-setInterval(load, 5000)
