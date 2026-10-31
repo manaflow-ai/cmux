@@ -263,6 +263,12 @@ extension AgentTabStore {
                   let found = source.workspace?.paneController(key: key) else { return nil }
             return (pane: found.pane.handle, daemon: found.daemon)
         }
+        // Fork to New Column Right / Left / New Row (u18673): the fork's tab moves beside the chat.
+        tabs.placeFork = { [weak services] key, chat, left in
+            guard let services, let (_, pane) = services.locateTabOnAnyMachine(chat), let (tab, _) = services.locateTabOnAnyMachine(key) else { return }
+            let height = services.paneController(for: pane).flatMap { $0.workspace?.layoutModel.newRowHeight(below: $0.layoutPaneID) } ?? 1000
+            services.daemon(for: pane).placeFork(tab.surface, beside: pane, left: left, rowHeight: height) { TabMoves.toNewColumn(tab, anchor: pane, afterColumn: $0, services: services, completion: $1) }
+        }
         tabs.selectInPane = { [weak services] key in
             guard let services, let (tab, pane) = services.locateTabOnAnyMachine(key) else { return }
             // Shown, and no keyboard focus moved: the chat keeps it (an unfocused subagent's tab, AgentBesidePlacement).
