@@ -164,15 +164,24 @@ public final class TerminalHostView: NSView {
         needsLayout = true
     }
 
-    /// Builds the restart button once the shell has ended and the App gave an action.
+    /// Builds the restart button once the shell has ended, or cmux lost its
+    /// link to it (Recover), and the App gave an action.
     private func syncRestartButton() {
-        if restartButton == nil, shownStatus == .exited, restartAction != nil {
+        let offered = shownStatus == .exited || shellStall == .linkLost
+        if restartButton == nil, offered, restartAction != nil {
             let button = TerminalRestartButton()
             addOverlay(button)
             restartButton = button
         }
         restartButton?.onRestart = restartAction
-        restartButton?.show(shownStatus)
+        restartButton?.show(shownStatus, stall: shellStall)
+    }
+
+    /// The restart button's title while shown ("Restart Shell Here" or
+    /// "Recover"), nil while hidden (diagnostics and tests).
+    var restartButtonTitle: String? {
+        guard let restartButton, !restartButton.isHidden else { return nil }
+        return restartButton.shownTitle
     }
 
     /// Above the status banner, as the find bar is.
@@ -208,6 +217,7 @@ public final class TerminalHostView: NSView {
     func showShellStall(_ stall: TerminalShellStall?) {
         shellStall = stall
         banner.show(shownStatus, hostLoss: hostLoss, cause: hostLossCause, stall: stall)
+        syncRestartButton()
         needsLayout = true
     }
 

@@ -245,6 +245,7 @@ impl Mux {
 
     /// Notifications, presentation, and tab directories for serializing the
     /// whole tree. Git HEAD lookups run after the state lock is released.
+    #[track_caller]
     pub fn tree_decorations(&self) -> TreeDecorations {
         let presentation = self.presentation_snapshot();
         let (notifications, directories) = {

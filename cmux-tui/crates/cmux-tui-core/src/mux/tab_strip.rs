@@ -84,6 +84,7 @@ pub(crate) struct StripEdit {
 impl Mux {
     /// Commit a tab strip change. Returns `mutate`'s output (`None` on a
     /// replay, which runs nothing) and the commit.
+    #[track_caller]
     pub(crate) fn commit_tab_strip_change<R>(
         self: &Arc<Self>,
         request: StripRequest,
