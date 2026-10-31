@@ -1,0 +1,14 @@
+{
+  "title": "Share Screen with Chief: the Chief chat header's sharing toggle, off and on, in dark and light (user 2026-10-30: \"share screen with chief and have it incorporated into memories\")",
+  "steps": [
+    {"title": "Launch", "wait": 2, "shot": false},
+    {"title": "Go to Home", "cmux": ["action", "run", "home.show"], "wait": 3, "shot": false, "optional": "Home needs its page in this build"},
+    {"title": "Dark", "rpc": {"method": "debug.appearance", "params": {"mode": "dark"}}, "wait": 1.5, "shot": false},
+    {"title": "Dark: the Chief chat header with Share Screen with Chief off (top right)", "wait": 1.5},
+    {"title": "Dark: sharing started (lit while the Chief can see the screen)", "cmux": ["action", "run", "chief.screenShare.start"], "wait": 3, "optional": "Share is person-only: the socket refuses a scripted start, and a host without Screen Recording shares nothing"},
+    {"title": "Dark: the menu bar indicator, Chief can see your screen", "display": true, "wait": 1, "optional": "a display shot needs a whole capture host"},
+    {"title": "Light", "rpc": {"method": "debug.appearance", "params": {"mode": "light"}}, "wait": 1.5},
+    {"title": "Light: stopped, the toggle is off again", "cmux": ["action", "run", "chief.screenShare.stop"], "wait": 2, "optional": "nothing to stop when the start was refused"},
+    {"title": "Back to the system appearance", "rpc": {"method": "debug.appearance", "params": {"mode": "system"}}, "wait": 1, "shot": false}
+  ]
+}
