@@ -477,10 +477,8 @@ enum AgentHandlers {
         // an in-app caller that passes another place is refused, not ignored.
         let place = invocation["where"]?.stringValue ?? AgentPaneFileTarget.tab.rawValue
         guard let target = AgentPaneFileTarget(rawValue: place) else { throw ActionFailure(message: MiscHandlerStrings.invalidPlace(place)) }
-        // A path named in a Cloud pane belongs to that machine, including an absolute path
-        // that also exists here. Refuse local editor apps before resolving anything on this Mac.
-        // The editor needs no pane: with no window open (`cmux file open --where editor`), and no
-        // pane named, the file is this Mac's and opens in its editor.
+        // A path named in a Cloud pane belongs to that machine, so a local editor is refused there. The
+        // editor needs no pane: with none named or focused (no window open), the file is this Mac's.
         let paneless = target == .editor && !context.namesPane(invocation) && context.services.windows.active?.focusedPane == nil
         let pane = paneless ? nil : context.paneController(invocation)
         guard paneless || pane != nil else { return }
@@ -489,7 +487,7 @@ enum AgentHandlers {
         if let pane, !pane.daemon.isLocal {
             guard path.hasPrefix("/"), !path.contains("\u{0}") else { throw ActionFailure(message: MiscHandlerStrings.pathNotAbsolute(path)) }
             let url = URL(fileURLWithPath: path)
-            guard target == .tab else { throw ActionFailure(message: FilePageStrings.remotePreview(url.lastPathComponent)) }
+            guard target == .tab else { throw ActionFailure(message: RemoteFilePageFiles.remotePreview(url.lastPathComponent)) }
             if let reason = context.services.viewers.openFile(url, on: pane.daemon, in: pane, userChose: invocation.origin == .user, asText: asText) {
                 throw ActionFailure(message: reason)
             }

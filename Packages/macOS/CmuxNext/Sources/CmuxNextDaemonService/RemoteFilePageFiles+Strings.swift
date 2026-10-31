@@ -23,6 +23,13 @@ extension RemoteFilePageFiles {
                               table: "RemoteFiles", bundle: .module), machine)
     }
 
+    /// An image, PDF or media file of another machine: this Mac previews only its own files.
+    public static func remotePreview(_ name: String) -> String {
+        String(format: String(localized: "filePages.remote.preview",
+                              defaultValue: "“%@” is on another machine. cmux opens text files from there.",
+                              table: "RemoteFiles", bundle: .module), name)
+    }
+
     /// A path the machine refuses: outside its home folder, or not readable there.
     public static func remoteDenied(_ machine: String) -> String {
         String(format: String(localized: "filePages.remote.denied",

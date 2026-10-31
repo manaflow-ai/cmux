@@ -98,7 +98,7 @@ final class FilePageOpener: FileOpening {
             services.viewers.editorPages.open(url, in: pane, focus: placed == nil, userChose: userChose, at: position, on: machine,
                                               placed: placed, shownInPlace: shownInPlace)
         case .preview:
-            return FilePageStrings.remotePreview(url.lastPathComponent)
+            return RemoteFilePageFiles.remotePreview(url.lastPathComponent)
         }
         return nil
     }
