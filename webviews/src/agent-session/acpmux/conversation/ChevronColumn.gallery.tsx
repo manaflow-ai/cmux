@@ -9,7 +9,7 @@ import { ThoughtRow } from "./ThoughtRow";
 import { CommandRow } from "./CommandRow";
 import { SessionStartNote } from "./SessionStartNote";
 import type { AcpmuxActivity } from "../model";
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { AgentMessageRow } from "./AgentMessageRow";
 import { TerminalSquare } from "./icons";
 
@@ -41,6 +41,7 @@ function Row({ children, label }: { children: ReactNode; label: string }) {
 }
 
 function ChevronColumnGallery() {
+  const [messageOpen, setMessageOpen] = useState(false);
   useEffect(() => resetTranscriptDisclosure("gallery-chevron-column"), []);
   return (
     <TranscriptDisclosureProvider sessionId="gallery-chevron-column">
@@ -64,7 +65,12 @@ function ChevronColumnGallery() {
           </ToolRun>
         </Row>
         <Row label="command">
-          <CommandRow item={{ ...commandItems[0]!, tool: { ...commandItems[0]!.tool!, id: "chevron-lone-command" } }} />
+          <CommandRow
+            item={{
+              ...commandItems[0]!,
+              tool: { ...commandItems[0]!.tool!, id: "chevron-lone-command" },
+            }}
+          />
         </Row>
         <Row label="group">
           <ToolGroupRow kind="commands" items={commandItems} disclosureKey="group" folded />
@@ -86,8 +92,8 @@ function ChevronColumnGallery() {
             name="claude-code"
             preview="Finished 4 background tasks, ran 5 commands (2 failed)"
             label="Expand agent message"
-            open={false}
-            onToggle={() => {}}
+            open={messageOpen}
+            onToggle={() => setMessageOpen((open) => !open)}
             body="Full agent message"
           />
         </Row>

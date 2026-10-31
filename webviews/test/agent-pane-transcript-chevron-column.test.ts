@@ -1,8 +1,5 @@
-// The real transcript controls share a trailing chevron column through hover, keyboard focus,
-// nested expansion and a Shell block's own Copy. The obsolete floating row Copy is not a fixture.
-// The steps of an opened run inside its card (`.cv-steps`, #27896) are the exception: each step's
-// caret sits inline right after its label, as Leo asked of the transcript's carets ("we can fit
-// stuff closer", #28018), within the same 4.5px #28018 checks.
+// Transcript carets follow their labels through hover, focus and nested expansion.
+// Durations remain trailing and the message toggle still covers the blank part of its row.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { mkdir, writeFile } from "node:fs/promises";
@@ -30,7 +27,10 @@ await requireBrowserLane("agent-pane-transcript-chevron-column.test.ts", async (
     });
     await vite.listen();
     browser = await chromium.launch({ headless: true });
-    await warmGalleryFrame(vite, "agent-pane.transcript-chevron-column", { browser, params: { variant: "light" } });
+    await warmGalleryFrame(vite, "agent-pane.transcript-chevron-column", {
+      browser,
+      params: { variant: "light", colorScheme: "light" },
+    });
   });
   afterAll(async () => {
     await browser?.close();
@@ -41,8 +41,14 @@ await requireBrowserLane("agent-pane-transcript-chevron-column.test.ts", async (
     for (const variant of ["light", "dark"] as const)
       test(`keeps chevrons inline in ${variant} at ${width}px`, async () => {
         const port = (vite!.httpServer!.address() as { port: number }).port;
-        const page = await browser!.newPage({ viewport: { width, height: 640 }, reducedMotion: "reduce" });
-        await page.goto(`http://127.0.0.1:${port}${galleryFrame("agent-pane.transcript-chevron-column", { variant })}`);
+        const page = await browser!.newPage({
+          viewport: { width, height: 640 },
+          deviceScaleFactor: 2,
+          reducedMotion: "reduce",
+        });
+        await page.goto(
+          `http://127.0.0.1:${port}${galleryFrame("agent-pane.transcript-chevron-column", { variant, colorScheme: variant })}`,
+        );
         await page.locator("[data-chevron-column]").waitFor({ state: "attached" });
         const before = await page
           .locator("[data-chevron-column] .cv-tool__chevron")
@@ -65,16 +71,36 @@ await requireBrowserLane("agent-pane-transcript-chevron-column.test.ts", async (
                   ".cv-tool__text, .cv-command__text, .cv-thought__label, .cv-agentmsg__preview",
                 )!
                 .getBoundingClientRect();
-              return caret.left - label.right;
+              return {
+                gap: caret.left - label.right,
+                token: Number.parseFloat(getComputedStyle(row).getPropertyValue("--cv-disclosure-gap")),
+              };
             }),
           );
-        expect(inlineGaps.every((gap) => gap >= -0.5 && gap <= 4.5)).toBe(true);
+        expect(inlineGaps.every(({ gap, token }) => Number.isFinite(token) && gap >= -0.5 && gap <= token + 0.5)).toBe(
+          true,
+        );
         const action = await command.evaluate((row) => {
           const meta = row.querySelector(".cv-command__meta")!.getBoundingClientRect();
           const chevron = row.querySelector(".cv-tool__chevron")!.getBoundingClientRect();
           return { meta: meta.toJSON(), chevron: chevron.toJSON() };
         });
         expect(action.chevron.left).toBeLessThan(action.meta.left);
+        if (process.env.CMUX_CHEVRON_ARTIFACT_DIR) {
+          await mkdir(process.env.CMUX_CHEVRON_ARTIFACT_DIR, { recursive: true });
+          await page.locator("[data-chevron-column]").screenshot({
+            path: path.join(process.env.CMUX_CHEVRON_ARTIFACT_DIR, `collapsed-${variant}-${width}.png`),
+          });
+        }
+        if (width === 760) {
+          const toggle = page.locator(".cv-agentmsg__toggle");
+          const size = await toggle.boundingBox();
+          const caret = await toggle.locator(".cv-tool__chevron").boundingBox();
+          expect(size!.x + size!.width - caret!.x - caret!.width).toBeGreaterThan(10);
+          await toggle.click({ position: { x: size!.width - 2, y: size!.height / 2 } });
+          expect(await toggle.getAttribute("aria-expanded")).toBe("true");
+          await toggle.click();
+        }
         await command.click();
         const copy = page.locator('[data-label="command"] .cv-shell__actions button[aria-label="Copy"]');
         await copy.waitFor();
@@ -86,6 +112,18 @@ await requireBrowserLane("agent-pane-transcript-chevron-column.test.ts", async (
         const expanded = await page
           .locator("[data-chevron-column] .cv-tool__chevron")
           .evaluateAll((nodes) => nodes.map((node) => Math.round(node.getBoundingClientRect().right * 10) / 10));
+        const stepGaps = await page.locator(".cv-steps .cv-tool").evaluateAll((rows) =>
+          rows.map((row) => {
+            const caret = row.querySelector(".cv-tool__chevron")!.getBoundingClientRect();
+            const label = row.querySelector(".cv-command__text, .cv-tool__text")!.getBoundingClientRect();
+            return {
+              gap: caret.left - label.right,
+              token: Number.parseFloat(getComputedStyle(row).getPropertyValue("--cv-disclosure-gap")),
+            };
+          }),
+        );
+        expect(stepGaps).toHaveLength(2);
+        expect(stepGaps.every(({ gap, token }) => gap >= -0.5 && gap <= token + 0.5)).toBe(true);
         expect(expanded).toHaveLength(10);
         expect(expanded.length).toBeGreaterThan(before.length);
         expect(await page.locator("[data-chevron-column] .acpmux-row__copy").count()).toBe(0);
@@ -93,10 +131,13 @@ await requireBrowserLane("agent-pane-transcript-chevron-column.test.ts", async (
           const directory = process.env.CMUX_CHEVRON_ARTIFACT_DIR;
           await mkdir(directory, { recursive: true });
           await writeFile(
-            path.join(directory, `rects-${width}.json`),
+            path.join(directory, `rects-${variant}-${width}.json`),
             JSON.stringify({ width, before, after, expanded, action }, null, 2),
           );
-          await page.screenshot({ path: path.join(directory, `chevrons-${width}.png`), fullPage: true });
+          await page.screenshot({
+            path: path.join(directory, `chevrons-${variant}-${width}.png`),
+            fullPage: true,
+          });
         }
         await page.close();
       });

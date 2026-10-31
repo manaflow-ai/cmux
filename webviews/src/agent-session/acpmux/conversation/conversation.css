@@ -447,7 +447,7 @@
 .cv-user__status {
   display: flex;
   align-items: baseline;
-  gap: var(--cv-tool-gap);
+  gap: 8px;
   margin-top: 4px;
   padding-right: 4px;
   font-family: var(--cv-font);
@@ -511,7 +511,7 @@
   flex-wrap: wrap;
   justify-content: flex-end;
   align-items: baseline;
-  gap: var(--cv-tool-gap);
+  gap: 8px;
 }
 .cv-user__delivery-details {
   display: flex;
@@ -829,7 +829,7 @@
   width: min(100%, 560px);
   display: flex;
   flex-direction: column;
-  gap: var(--cv-tool-gap);
+  gap: 8px;
   padding: 10px 12px 8px;
   border-radius: 16px;
   background: var(--cv-bubble);
@@ -1656,7 +1656,7 @@ pre.cv-math-source {
   background: var(--cv-rule);
 }
 .cv-worked__chevron {
-  margin-top: 3px;
+  margin-top: 0;
   margin-inline-start: calc(var(--cv-disclosure-gap) - var(--cv-worked-gap, 2px));
 }
 /* The running line's counts (WorkingFor.tsx), after its label on the same 20px line. They keep
@@ -1855,7 +1855,7 @@ pre.cv-math-source {
   box-sizing: border-box;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--cv-tool-gap);
   width: 100%;
   min-height: var(--cv-tool-row-height);
   line-height: 20px;
@@ -1929,7 +1929,7 @@ pre.cv-math-source {
   }
 }
 .cv-tool__icon {
-  display: flex;
+  display: inline-flex;
   flex: none;
   align-items: center;
   justify-content: center;
@@ -1974,29 +1974,21 @@ pre.cv-math-source {
 /* Quiet and always there. On hover a row adds only a finished call's check and time (above). */
 .cv-tool__chevron {
   order: 3;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: flex-end;
+  width: var(--cv-disclosure-slot);
+  height: var(--cv-disclosure-slot);
   /* The row's shared 8px gap also applies here; subtract it so the caret's visible gap is the
      disclosure token rather than an icon-to-label spacing. */
   margin-inline-start: calc(var(--cv-disclosure-gap) - var(--cv-tool-gap));
   color: var(--cv-text-dim);
 }
-.cv-tool > .cv-command__meta,
-.cv-tool > .cv-tool__meta {
+.cv-tool:not(.cv-agentmsg__line) > .cv-command__meta,
+.cv-tool:not(.cv-agentmsg__line) > .cv-tool__meta {
   order: 4;
   margin-inline-start: auto;
-}
-/* A transcript row's Copy is an absolute sibling of its tool button. Reserve one
-   action slot before the chevron so the hover actions read duration, Copy, expand
-   at every width; the Shell card has its own in-flow actions and is unaffected. */
-.acpmux-row[data-floating-copy="true"] > .cv-tools > .cv-tool,
-.acpmux-row[data-floating-copy="true"] > .cv-tools > .cv-tool-run > .cv-tool {
-  padding-right: 8px;
-}
-.acpmux-row[data-floating-copy="true"] > .cv-tools > .cv-tool > .cv-tool__chevron,
-.acpmux-row[data-floating-copy="true"] > .cv-tools > .cv-tool-run > .cv-tool > .cv-tool__chevron {
-  margin-inline-start: 0;
-}
-.acpmux-row[data-floating-copy="true"] > .acpmux-row__copy {
-  right: 24px;
 }
 /* A thought in full (while it streams, or with a Debug choice that folds only long ones): a muted
    "Thinking" (or "Thought for 12s" once done) on its own line, then its text under the opened
@@ -2317,8 +2309,9 @@ pre.cv-math-source {
   border-top: var(--cmux-hairline, .5px) solid var(--cv-rule);
 }
 .cv-step > .cv-tool {
+  display: grid;
   grid-template-columns: minmax(0, max-content) var(--cv-disclosure-slot) minmax(0, 1fr) auto;
-  gap: 4px;
+  gap: var(--cv-disclosure-gap);
 }
 .cv-step > .cv-tool > .cv-tool__icon {
   display: none;
@@ -2333,6 +2326,7 @@ pre.cv-math-source {
 }
 .cv-step > .cv-tool > .cv-tool__chevron {
   grid-column: 2;
+  margin-inline-start: 0;
   justify-self: start;
   justify-content: flex-start;
 }
@@ -2535,6 +2529,9 @@ pre.cv-math-source {
 }
 .cv-tool > .cv-command__meta {
   margin-left: auto;
+  min-width: var(--cv-glyph-slot);
+  min-height: var(--cv-glyph-line);
+  justify-content: center;
 }
 .cv-tool:is(:hover, :focus-visible) :is(.cv-command__ok, .cv-command__time) {
   opacity: 1;

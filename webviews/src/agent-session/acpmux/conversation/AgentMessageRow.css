@@ -15,7 +15,7 @@
 }
 .cv-agentmsg__line {
   /* The message line has extra inline words, a sender chip and actions; keep its bespoke
-     sentence layout while the shared tool rows use fixed grid columns. */
+     sentence layout while the shared tool rows place the disclosure after their label. */
   display: flex;
   white-space: nowrap;
   user-select: none;

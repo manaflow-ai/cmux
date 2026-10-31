@@ -1,4 +1,4 @@
-// Collapsed tool-group rows use one inset and a trailing chevron across summaries, failure counts,
+// Collapsed tool-group rows use one inset and an inline chevron across summaries, failure counts,
 // group kinds and nested placement (Leo: "this space between command and chevron often gets
 // misalinged it seems like there's sometimes an indent?"). The gallery matrix is the fixture and
 // this test measures the rendered geometry in Chromium.
@@ -28,7 +28,10 @@ await requireBrowserLane("agent-pane-tool-group-alignment.test.ts", async () => 
     });
     await vite.listen();
     browser = await chromium.launch({ headless: true });
-    await warmGalleryFrame(vite, "agent-pane.tool-group-alignment", { browser, params: { variant: "dark" } });
+    await warmGalleryFrame(vite, "agent-pane.tool-group-alignment", {
+      browser,
+      params: { variant: "dark" },
+    });
   });
   afterAll(async () => {
     await browser?.close();
@@ -57,6 +60,7 @@ await requireBrowserLane("agent-pane-tool-group-alignment.test.ts", async () => 
             iconInset: i.left - b.left,
             textInset: t.left - b.left,
             caretGap: c.left - t.right,
+            gapToken: Number.parseFloat(getComputedStyle(button).getPropertyValue("--cv-disclosure-gap")),
           };
         }),
       );
@@ -67,7 +71,7 @@ await requireBrowserLane("agent-pane-tool-group-alignment.test.ts", async () => 
     expect(metrics).toHaveLength(6);
     expect(spread("iconInset")).toBeLessThanOrEqual(0.5);
     expect(spread("textInset")).toBeLessThanOrEqual(0.5);
-    expect(metrics.every((metric) => metric.caretGap >= -0.5 && metric.caretGap <= 4.5)).toBe(true);
+    expect(metrics.every((metric) => metric.caretGap >= -0.5 && metric.caretGap <= metric.gapToken + 0.5)).toBe(true);
     await page.close();
   });
 });
