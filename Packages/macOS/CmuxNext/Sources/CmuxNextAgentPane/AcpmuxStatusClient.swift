@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 import Network
 
@@ -15,6 +16,16 @@ nonisolated enum AcpmuxStatusClient {
         case unsupportedFeature(String)
         /// The daemon on the socket runs from another acpmux home (another app's or tag's).
         case otherHome(String)
+        /// The socket path does not fit a Unix socket address (`sun_path`): no daemon can listen
+        /// there, and `NWEndpoint.unix` traps on it.
+        case socketPathTooLong(String)
+    }
+
+    /// The Network endpoint of the Unix socket `path` (``NWEndpoint/unixSocket(path:)``), or
+    /// ``Failure/socketPathTooLong(_:)`` for a path that does not fit one, where `NWEndpoint.unix`
+    /// traps (the page's `_acpmux/status` read with a long TMPDIR crashed the process, #28492).
+    static func unixEndpoint(_ path: String) throws -> NWEndpoint {
+        do { return try NWEndpoint.unixSocket(path: path) } catch { throw Failure.socketPathTooLong(error.path) }
     }
 
     /// The endpoint of the daemon listening on `socketPath`. Throws
@@ -225,7 +236,7 @@ nonisolated enum AcpmuxStatusClient {
     static func call(socketPath: String, method: String, params: [String: any Sendable] = [:],
                      deadline: Duration?, detailed: Bool = false, limit: Int = 1 << 20,
                      requiredFeature: String? = nil, requiredCapability: String? = nil) async throws -> [String: Any] {
-        let connection = NWConnection(to: .unix(path: socketPath), using: .tcp)
+        let connection = NWConnection(to: try unixEndpoint(socketPath), using: .tcp)
         defer { connection.cancel() }
         let operation: @Sendable () async throws -> ResultBox = {
             ResultBox(try await exchange(method, params: params, transport: AcpmuxSocketTransport(connection: connection),
