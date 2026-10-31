@@ -79,10 +79,10 @@ extension ControlMethod {
             "expires_at": .null,
             "expires_in": .null,
         ]
-        if let expiry = grant.expiresAt {
+        if let expiry = grant.expiresAt, expiry.timeIntervalSince(now).isFinite {
             fields["expires_at"] = .string(ISO8601DateFormatter().string(from: expiry))
-            // Clamped, so a garbled `exp` reads as at most a day.
-            fields["expires_in"] = .number(min(max(0, expiry.timeIntervalSince(now)), 86_400).rounded(.down))
+            // Whole seconds, clamped, so a garbled `exp` reads as at most a day (never a trapping conversion).
+            fields["expires_in"] = JSONValue(Int(min(max(0, expiry.timeIntervalSince(now)), 86_400)))
         }
         return .object(fields)
     }
