@@ -482,6 +482,9 @@ impl Hub {
         turn_id: &str,
         cut: Option<CutTurn<'_>>,
     ) {
+        // Once a shutdown began none waits here to fire: a cut it hands on is the next daemon's
+        // to continue (`restart_resume.rs`), and Quit Everything continues nothing.
+        let cut = cut.filter(|_| !self.shutting_down());
         let mut pending = session.auto_resume.lock();
         let ending = match pending.as_ref() {
             Some(Mark::Ending(t)) if t == turn_id => Some(true),
@@ -552,7 +555,24 @@ impl Hub {
             };
             let mut msg = serde_json::to_value(&retry).unwrap_or_else(|_| json!({}));
             msg.set("delayMs", json!(delay));
-            if hub.set_retry(&session, &turn_id, retry, msg) {
+            // Tests only: pause a retry before its wait is set.
+            #[cfg(test)]
+            {
+                let seam = hub.retry_seam.lock().unwrap_or_else(|e| e.into_inner()).take();
+                if let Some((arrived, release)) = seam {
+                    let _ = arrived.send(());
+                    let _ = release.await;
+                }
+            }
+            // None once a shutdown began, whenever it began (router review of #28503): a cut it
+            // hands on is the next daemon's to continue, and Quit Everything continues nothing.
+            // The wait is the record the next daemon restores (`restore.rs`).
+            let set = hub.before_shutdown(|| hub.set_retry(&session, &turn_id, retry, msg));
+            let Some(set) = set else {
+                hub.take_pending(&session, &turn_id);
+                return;
+            };
+            if set {
                 // Its delay, or its mark going (`Wake`): Stop, close, a turn that took the chat.
                 tokio::select! {
                     () = tokio::time::sleep(Duration::from_millis(delay)) => {}

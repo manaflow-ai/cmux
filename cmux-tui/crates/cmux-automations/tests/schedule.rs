@@ -29,6 +29,7 @@ fn cron_parses_lists_ranges_steps_and_names() {
     for bad in [
         "",
         "* * * *",
+        "* * * * * *",
         "60 * * * *",
         "* 24 * * *",
         "* * 0 * *",
