@@ -1537,3 +1537,52 @@ fn open_link_refuses_files_workspaces_and_stray_flags_without_echoing_urls() {
         );
     }
 }
+
+/// `cmux workspace group create --remote HOST` is the app's New Remote Group
+/// (plans/cmux-next/remote-groups-DESIGN.md): the sidebar document holds remote
+/// groups, so the app makes it, with the group's name when one is given.
+#[test]
+fn workspace_group_create_remote_runs_new_remote_group() {
+    let (method, params) = call(
+        parse(&args(&["workspace", "group", "create", "--remote", "mini", "--name", "Mini"]))
+            .unwrap()
+            .expect("an app command"),
+    );
+    assert_eq!(method, "action.run");
+    assert_eq!(params["action"], "remote.newGroup");
+    assert_eq!(params["args"], json!({ "destination": "mini", "name": "Mini" }));
+    assert_eq!(params["wait"], true);
+    let (_, params) =
+        call(parse(&args(&["workspace", "group", "create", "--remote=box"])).unwrap().unwrap());
+    assert_eq!(params["args"], json!({ "destination": "box" }));
+}
+
+/// `--parent GROUP` makes a nested group (New Subgroup) inside GROUP, named.
+#[test]
+fn workspace_group_create_parent_runs_new_subgroup() {
+    let (method, params) = call(
+        parse(&args(&["workspace", "group", "create", "--parent", "grp_1", "--name", "API"]))
+            .unwrap()
+            .expect("an app command"),
+    );
+    assert_eq!(method, "action.run");
+    assert_eq!(params["action"], "workspaceGroup.newSubgroup");
+    assert_eq!(params["args"], json!({ "group": "grp_1", "name": "API" }));
+}
+
+/// A plain group stays the daemon's (`workspace_group.create`); a flag with no
+/// value, or a remote group inside a parent, is a usage error.
+#[test]
+fn workspace_group_create_without_remote_or_parent_stays_with_the_daemon() {
+    assert_eq!(parse(&args(&["workspace", "group", "create", "--name", "Work"])).unwrap(), None);
+    assert_eq!(parse(&args(&["workspace", "group", "list"])).unwrap(), None);
+    assert!(parse(&args(&["workspace", "group", "create", "--remote"])).is_err());
+    assert!(parse(&args(&["workspace", "group", "create", "--parent", "grp_1"])).is_err());
+    assert!(
+        parse(&args(&["workspace", "group", "create", "--remote", "a", "--parent", "grp_1"]))
+            .is_err()
+    );
+    assert!(
+        parse(&args(&["workspace", "group", "create", "--remote", "a", "--color", "red"])).is_err()
+    );
+}
