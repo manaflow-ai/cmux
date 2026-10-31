@@ -72,16 +72,12 @@ export function compactBreakdownRows(breakdown: Breakdown): CompactBreakdownRow[
 export function ContextCardBody({
   used,
   size,
-  working,
-  onCompact,
   onOpenDetails,
   breakdown: reported,
 }: {
   used: number;
   size: number;
   setup?: number;
-  working: boolean;
-  onCompact?(): void;
   onOpenDetails?(): void;
   breakdown?: unknown;
 }) {
@@ -127,19 +123,12 @@ export function ContextCardBody({
           ))}
         </ul>
       )}
-      {(onCompact || onOpenDetails) && (
+      {onOpenDetails && (
         <div className="acpmux-context-card-foot">
-          {onCompact && (
-            <button type="button" className="acpmux-context-card-compact" disabled={working} onClick={onCompact}>
-              {t("context.compact")}
-            </button>
-          )}
-          {onOpenDetails && (
-            <button type="button" className="acpmux-context-card-details" onClick={onOpenDetails}>
-              {t("context.details")}
-              <span aria-hidden="true">›</span>
-            </button>
-          )}
+          <button type="button" className="acpmux-context-card-details" onClick={onOpenDetails}>
+            {t("context.details")}
+            <span aria-hidden="true">›</span>
+          </button>
         </div>
       )}
     </>

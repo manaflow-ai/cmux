@@ -364,7 +364,7 @@ export const SubagentTray = memo(function SubagentTray({
                 ? toolDetail(t, item.agent.action, true)
                 : (item.agent.action ?? item.agent.kind)
           }
-          progress={subagentProgress(t, language, item.agent).join(" · ")}
+          progress={subagentProgress(t, language, item.agent, { usage: false }).join(" · ") || undefined}
           mark={item.agent.harness}
           tone={agentTone(item.agent.id)}
           status={subagentStatus(item.agent, waiting)}
@@ -374,8 +374,6 @@ export const SubagentTray = memo(function SubagentTray({
           depth={item.depth}
           title={item.agent.task}
           label={t("subagents.open", { name: item.agent.name })}
-          kind={t("tray.kind.subagent")}
-          kindIcon={SUBAGENT_ICON}
           chevron
           trayColumns
           onOpen={() => onOpen(item.agent.id)}
@@ -453,8 +451,6 @@ export const SubagentTray = memo(function SubagentTray({
         title={item.session.doing}
         mark={item.session.harness}
         tone={agentTone(item.session.sessionId)}
-        kind={t("tray.kind.subagent")}
-        kindIcon={SUBAGENT_ICON}
         chevron
         icon="agent.chat"
         status={sessionRetrying ? "running" : SESSION_STATUS[item.session.state]}
@@ -467,9 +463,6 @@ export const SubagentTray = memo(function SubagentTray({
   }
 });
 
-/// A subagent's mark before its name, in place of the word: a branch off this chat, never the
-/// chat bubble a session's own icon is (Leo, 2026-10-28: "Shouldn't the subagent icon be different?").
-const SUBAGENT_ICON = "agent.fork";
 /// The header's fixed mark for background work (trayHead.experiment.ts): a running ring, never the
 /// chat bubble, which reads as a message, and never the spinner, which each working line keeps.
 const HEAD_ICON = "app.sample.runningagents";

@@ -75,6 +75,16 @@ struct AgentPaneCloudStartTests {
         #expect(unnamed.seed(cwd: "/w").harness == nil)
     }
 
+    @Test func aChatWithNoProjectStartsInTheMachinesOwnFolder() throws {
+        let home = try #require(AgentPaneCloudStart(params: ["task": "t", "key": UUID().uuidString, "home": true]))
+        #expect(home.home && home.cwd == nil)
+        #expect(home.seed(cwd: nil).cwd == nil)
+        // Home names no folder: with a folder, or not a flag, it is refused.
+        #expect(AgentPaneCloudStart(params: ["task": "t", "key": UUID().uuidString, "home": true, "cwd": "/w"]) == nil)
+        #expect(AgentPaneCloudStart(params: ["task": "t", "key": UUID().uuidString, "home": "yes"]) == nil)
+        #expect(try #require(AgentPaneCloudStart(params: Self.good)).home == false)
+    }
+
     @Test func aRefusedStartReleasesTheHoldSoTheSendMayBeTriedAgain() async throws {
         let (root, folder) = try Self.project()
         defer { try? FileManager.default.removeItem(atPath: root) }
