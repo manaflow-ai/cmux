@@ -46,7 +46,7 @@ pub(super) fn stopped_before_prompt() -> RpcError {
 
 /// Whether `e` is [`stopped_before_prompt`]: the turn it ends is the Stop's, cancelled, not failed.
 fn is_stopped_before_prompt(e: &RpcError) -> bool {
-    e.data.as_ref().is_some_and(|d| d["reason"] == "stopped")
+    e.data.as_ref().is_some_and(|d| d.get("reason").and_then(Value::as_str) == Some("stopped"))
 }
 
 /// What a turn a Stop ended before its prompt reached the agent answers in its `turn_result`.
@@ -156,6 +156,11 @@ impl Hub {
         self.session_log(session).await;
         self.wait_adopted(session).await;
         self.pair_logs(opts.provenance.as_ref()).await;
+        // A person's own prompt is the person asking for the chat: what a daemon start held in
+        // its protected folder goes on, ahead of this prompt (`protected_hold.rs`).
+        if opts.agent.is_none() && opts.provenance.is_none() && opts.after_turn.is_none() {
+            self.release_protected_hold(session);
+        }
         let Some(prompt_id) = opts.prompt_id.clone() else {
             // `session/prompt` accepts prompts without a client id.  They still need a
             // durable message id when they came from another session, so wrap the
@@ -307,7 +312,7 @@ impl Hub {
         blocks: Vec<Value>,
         client: &str,
         steer: bool,
-        opts: PromptOptions,
+        mut opts: PromptOptions,
         joined: &super::digest::DigestTurn,
     ) -> Result<Value, RpcError> {
         // Stop can arrive during dispatch setup, before session.turn is installed. Keep
@@ -359,8 +364,9 @@ impl Hub {
             && self.turn_cap_holds(session, opts.provenance.as_ref(), opts.agent.as_deref());
         // Another agent's message goes into the chat's inbox, never a turn or a steer of its own
         // (`inbox.rs`). Boxed, out of this future.
-        if let Some(inbox) = self.inbox_route(
+        let route = self.inbox_route(
             session,
+            &prompt_id,
             &blocks,
             control,
             opts.send_now,
@@ -368,20 +374,40 @@ impl Hub {
             opts.provenance.as_ref(),
             opts.agent.as_deref(),
             opts.inbox,
-        ) {
-            let (agent, class) = inbox;
-            return Box::pin(self.inbox_accept(
-                session,
-                &blocks,
-                client,
-                &prompt_id,
-                &agent,
-                class,
-                opts.thread.as_deref(),
-                opts.provenance.as_ref(),
-                &mut accept,
-            ))
-            .await;
+        );
+        // Held until this prompt ends: its turn, or its refusal (`inbox.rs`).
+        let first_work = match route {
+            super::inbox::Route::First(first) => Some(first),
+            super::inbox::Route::Plain => None,
+            super::inbox::Route::Inbox(agent, class) => {
+                return Box::pin(self.inbox_accept(
+                    session,
+                    &blocks,
+                    client,
+                    &prompt_id,
+                    &agent,
+                    class,
+                    opts.thread.as_deref(),
+                    opts.provenance.as_ref(),
+                    &mut accept,
+                ))
+                .await;
+            }
+        };
+        // A first work says so in its provenance, which its queue entry keeps across a restart
+        // (`queue.rs`): its sender is the delegator whichever turn it runs as.
+        if first_work.is_some()
+            && let Some(p) = opts.provenance.as_mut().and_then(Value::as_object_mut)
+        {
+            p.insert(super::inbox::FIRST_WORK.to_owned(), Value::Bool(true));
+        }
+        #[cfg(test)]
+        if first_work.is_some() {
+            let seam = self.first_work_seam.lock().unwrap_or_else(|e| e.into_inner()).take();
+            if let Some((arrived, release)) = seam {
+                let _ = arrived.send(());
+                let _ = release.await;
+            }
         }
         // An inbox notice steers in only while the turn is under its cap and no prompt waits
         // (`inbox.rs`), checked again here at dispatch.
@@ -389,12 +415,21 @@ impl Hub {
             && running.is_some()
             && super::inbox::is_notice(opts.provenance.as_ref())
             && super::inbox::notice_held(session);
+        // A review box's turn takes no other agent's steer: its message waits behind the review,
+        // as the inbox leaves it (`inbox.rs`). The person's own steer and Send now still go in.
+        // Read with or without a running turn: one that starts before this reaches the queue is
+        // stopped by no agent's interrupt either.
+        let review_held = from_agent && super::inbox::review_box(session);
         let steer_now = steer
             && session.steering.load(Ordering::SeqCst)
             && running.is_some()
             && !capped
-            && !notice_held;
+            && !notice_held
+            && !review_held;
         if steer && opts.steer_only && !steer_now {
+            if review_held && running.is_some() {
+                return Err(super::inbox::review_box_steer_refused());
+            }
             return Err(super::turn_cap::steer_unavailable(capped));
         }
         if !live {
@@ -428,8 +463,9 @@ impl Hub {
             prompt_id: &prompt_id,
             control,
             trust_gate,
-            // Held past the cap, it waits: it stops no turn (`turn_cap.rs`).
-            interrupt: opts.interrupt && !capped,
+            // Held past the cap, it waits: it stops no turn (`turn_cap.rs`); nor does another
+            // agent's message stop a review box's review (`inbox.rs`).
+            interrupt: opts.interrupt && !capped && !review_held,
             interrupt_turn: opts.interrupt_turn.as_deref(),
             provenance: opts.provenance.as_ref(),
             agent: agent.as_deref(),
@@ -577,6 +613,17 @@ impl Hub {
             drafts::clear_sent_draft(&mut m, &text);
             super::titles::set_fallback_title(&mut m, &text);
             m.preview = Some(String::new());
+            // The sender of a chat's first turn is its delegator (`inbox.rs`): named once the
+            // turn starts, so a prompt refused before it names none, and over one a message the
+            // inbox took while this first work waited to start named. Its own sender, not a
+            // digest's: messages that joined its turn (`digest.rs`) name none. A first work a
+            // person's prompt went ahead of still names it.
+            if (m.turn_count == 0 || super::inbox::is_first_work(run.provenance.as_ref()))
+                && let Some(from) = super::inbox::sender_session(run.provenance.as_ref())
+                && from != m.id
+            {
+                m.delegator = Some(from);
+            }
             m.turn_count += 1;
         }
         // A turn on lane reports only reports nothing (`lane_reports.rs`).
@@ -1050,8 +1097,6 @@ impl Hub {
         // This turn's number, before taking it lets the next one start (`lane_reports.rs`).
         let turn = session.meta().turn_count;
         // A model switch (`detach_child`) ended this turn already: its failure is not the queue's.
-        // A turn its agent runs on with steers it read after this one ended takes its place
-        // (`carried_turn.rs`).
         let in_place = next.map(|n| n.next.clone());
         let detached =
             self.take_turn(session, turn_id, in_place).is_none_or(|t| t.turn_id != turn_id);
@@ -1064,13 +1109,10 @@ impl Hub {
             *session.stopping.lock().unwrap_or_else(|e| e.into_inner()) =
                 Some(n.next.turn_id.clone());
         }
-        // A Stop ended the process of an agent that worked on through it (`cancel.rs`): the
-        // prompt that failed as that process ended answers as the forced cancel.
         if take_if_turn(&session.stop_restart, turn_id) && result.is_err() {
             result = Ok(super::cancel::forced_answer(true));
         }
         let carries_on = carried_next.is_some();
-        // Read as the turn result is written: a Web steer may raise the next turn meanwhile.
         let carried_to = || {
             carried_next.map(|n| {
                 let live = session.turn().filter(|t| t.turn_id == n.next.turn_id);
@@ -1113,7 +1155,7 @@ impl Hub {
         {
             let tail: Vec<String> = session.stderr_tail.lock().unwrap().iter().cloned().collect();
             // The last stderr line that says why: not a stack frame, a wrapper tag or a wrapper exit line.
-            if let Some(last) = tail.iter().rev().map(|l| l.trim()).find(|l| explains_exit(l)) {
+            if let Some(last) = tail.iter().rev().find(|line| explains_exit(line)).cloned() {
                 let agent = session.meta().harness;
                 e.message = format!("{} ({agent}): {last}", e.message);
             }
@@ -1256,6 +1298,8 @@ impl Hub {
                 self.write_turn_result(session, msg, git);
             }
         }
+        // Its harness wrote the turn's spend: read it (`usage_view.rs`).
+        self.refresh_usage_stats_of(session);
         self.reset_stream(session);
         // Nobody showing it: the sidebar dot and `wait --until done` see it.
         if !self.shown(session) {
@@ -1355,7 +1399,7 @@ impl Hub {
         self.requeue_joined(session, joined, false);
         let stopped_early = is_stopped_before_prompt(e);
         if stopped_early || was_stopping {
-            let stop = stopped_answer()["stopReason"].clone();
+            let stop = stopped_answer().get("stopReason").cloned().unwrap_or_default();
             self.append(
                 session,
                 "mux",
@@ -1513,8 +1557,7 @@ impl Hub {
                 if e.message == "agent process closed" {
                     let tail: Vec<String> =
                         session.stderr_tail.lock().unwrap().iter().cloned().collect();
-                    if let Some(last) =
-                        tail.iter().rev().map(|l| l.trim()).find(|l| explains_exit(l))
+                    if let Some(last) = tail.iter().rev().find(|line| explains_exit(line)).cloned()
                     {
                         e.message =
                             format!("agent process closed ({}): {last}", session.meta().harness);
@@ -1753,6 +1796,7 @@ impl Hub {
             let mut m = session.meta.lock().unwrap();
             // A chat renamed before it was titled asks no model for a title (`titles.rs`).
             super::titles::title_renamed(&mut m);
+            m.name_given = true;
             std::mem::replace(&mut m.name, name.clone())
         };
         self.append(session, "mux", "renamed", json!({"from": old, "to": name}));
@@ -1763,7 +1807,18 @@ impl Hub {
     /// Stop the child. The log stays. `purge` also deletes the log.
     pub async fn kill(&self, session: &Arc<Session>, purge: bool) -> Result<(), RpcError> {
         // An idle pass under way ends first; none starts while this stop runs (`idle.rs`).
-        let _using = session.harness_use.read().await;
+        let using = session.harness_use.read().await;
+        self.kill_held(session, purge, using).await
+    }
+
+    /// `kill`, with `_using`, a lease of `harness_use` (shared, or exclusive for a conditional
+    /// stop, `stop_if_idle.rs`), held until the session is closed.
+    pub(super) async fn kill_held(
+        &self,
+        session: &Arc<Session>,
+        purge: bool,
+        _using: impl Send,
+    ) -> Result<(), RpcError> {
         // Counted first: a start for a request from before this stop ends (`ensure_child`).
         session.stops.fetch_add(1, Ordering::SeqCst);
         session.closing.store(true, Ordering::SeqCst);

@@ -185,15 +185,24 @@ pub enum Command {
     #[command(
         alias = "prompt",
         alias = "send-keys",
-        after_help = "A name several live sessions share is refused with the exact command for each."
+        after_help = "A name several live sessions share is refused with the exact command for each.\n\nFrom an agent session, message other sessions with the `send` tool of the `acpmux` MCP server instead of this command in a shell: one call batches several (`messages: [{to, text}, {to, file}]`) or a tag, with one result row each, and the chat draws it as message cards."
     )]
     Send {
         /// The session: a name, `HOST/NAME`, an id or an id prefix. A bare name or prefix names
         /// the one live session that has it on this host or its peers; several are refused.
-        #[arg(required_unless_present = "status")]
+        #[arg(required_unless_present_any = ["status", "tag"])]
         session: Option<String>,
         /// Prompt text. Reads stdin when omitted or "-".
         prompt: Vec<String>,
+        /// Send to every session, on every host, that carries this tag (`key` or `key=value`)
+        /// and is not closed, as `--no-wait` messages: one delivery each, one line each. The
+        /// sender's own session is skipped. Give the prompt without a SESSION. Exit 1 when any
+        /// send failed, 4 when no live session carries the tag.
+        #[arg(long, value_name = "TAG", conflicts_with_all = ["status", "prompt_id", "timeout", "quiet"])]
+        tag: Option<String>,
+        /// With --tag: print the sessions it would go to and send nothing.
+        #[arg(long, requires = "tag")]
+        dry_run: bool,
         /// Send this message into the running turn when the agent supports steering. On by
         /// default for an agent's send (--from, or one in an acpmux session) and with
         /// --no-wait; the person's send that waits for the reply queues unless given this. A
@@ -442,7 +451,11 @@ pub enum Command {
         refresh: bool,
     },
     #[command(hide = true)]
-    Info { session: String },
+    Info {
+        session: String,
+        #[arg(long, value_name = "FIELD[,FIELD…]")]
+        fields: Option<String>,
+    },
     #[command(hide = true)]
     Cancel { session: String },
     #[command(hide = true, alias = "kill-session")]
@@ -450,6 +463,9 @@ pub enum Command {
         session: String,
         #[arg(long)]
         purge: bool,
+        /// Set from `session stop --if-idle`; the hidden spelling takes no condition.
+        #[arg(skip)]
+        condition: StopIf,
     },
     #[command(hide = true)]
     RestartAgent { session: String },
@@ -777,7 +793,14 @@ pub enum SessionCmd {
     /// Read one mesh lifecycle receipt without waiting.
     Receipt { message_id: String },
     /// Show session details.
-    Info { session: String },
+    Info {
+        session: String,
+        /// Print only these comma-separated fields, one per line as `field<TAB>value` (a single
+        /// field prints its bare value); a dotted path reads a nested one (`turn.activity`).
+        /// With --json, an object of just those fields.
+        #[arg(long, value_name = "FIELD[,FIELD…]")]
+        fields: Option<String>,
+    },
     /// Cancel the running turn.
     Cancel { session: String },
     /// Stop the agent process. The session stays resumable.
@@ -789,6 +812,8 @@ pub enum SessionCmd {
         /// Also delete the log.
         #[arg(long)]
         purge: bool,
+        #[command(flatten)]
+        condition: StopIf,
     },
     /// Restart the agent process in the same conversation: now when the
     /// session is between turns, else when its turn ends (never cancelled).
@@ -798,7 +823,9 @@ pub enum SessionCmd {
     /// Rename a session.
     Rename { session: String, new_name: String },
     /// Run the queued prompts a failed turn held. An agent or a script may resume a
-    /// queue; only answering a permission or a question needs the cmux app.
+    /// queue; only answering a permission or a question needs the cmux app. On a machine a
+    /// person works at, a stopped chat first moves to a fleet host, as `session move --host
+    /// auto` does; when none takes it, it resumes here and says why.
     Resume {
         session: String,
         #[command(flatten)]
@@ -1256,14 +1283,30 @@ pub struct NewArgs {
     pub force_admit: bool,
 }
 
+/// `session stop`'s condition (`hub/stop_if_idle.rs`). Not with `--mesh`: the mesh hub's stop
+/// cannot carry it.
+#[derive(Args, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct StopIf {
+    /// Stop only when the session is idle: no turn (one admitted but not started yet included),
+    /// queued prompt, pending permission, agent request, background subagent or process. Checked
+    /// under the lock that admits turns, so none starts between the check and the stop. Refused:
+    /// exit 6, error `busy`, with `busyWith` and the session's revision.
+    #[arg(long, conflicts_with = "mesh")]
+    pub if_idle: bool,
+    /// With --if-idle: stop only while the session's revision (its `lastSeq` in `acpmux ls
+    /// --json` or `session info --json`) is still REV. Refused: exit 6, error `revision_moved`.
+    #[arg(long, value_name = "REV", requires = "if_idle")]
+    pub expect_revision: Option<u64>,
+}
+
 /// Map the grouped spellings onto the flat handlers.
 pub fn flatten(c: Command) -> Command {
     match c {
         Command::Session(sc) => match sc {
-            SessionCmd::Info { session } => Command::Info { session },
+            SessionCmd::Info { session, fields } => Command::Info { session, fields },
             SessionCmd::Cancel { session } => Command::Cancel { session },
-            SessionCmd::Stop { session, purge, mesh } if !mesh.mesh => {
-                Command::Kill { session, purge }
+            SessionCmd::Stop { session, purge, mesh, condition } if !mesh.mesh => {
+                Command::Kill { session, purge, condition }
             }
             SessionCmd::Restart { session } => Command::RestartAgent { session },
             SessionCmd::Rename { session, new_name } => Command::Rename { session, new_name },

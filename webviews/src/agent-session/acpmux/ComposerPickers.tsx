@@ -1,8 +1,10 @@
+import { composerPickerEntries } from "./composerPickerEntries";
 import React, { useCallback, useContext, useEffect, useId, useRef, useState } from "react";
 import type { SignIn } from "./signIn";
 import { useChatAccounts } from "./chatAccounts";
 import type { QuickMenuExtras } from "./QuickModelMenu";
 import { sessionModels } from "./modelCatalog";
+import { modelChipFallback } from "./agents";
 import {
   isDefaultChoice,
   loadResolvedDefaults,
@@ -20,7 +22,7 @@ import { ModelPicker, pickerFaceHarness } from "./ModelPicker";
 import { AgentOptionsMenu } from "./AgentOptionsMenu";
 import { OnNewTab } from "./newTabComposer";
 import { extraConfigOptions } from "./agentOptions";
-import type { CatalogRefreshState, ModelCombo, ModelPickerProps } from "./modelPickerLayout";
+import type { CatalogRefreshState, ModelCombo } from "./modelPickerLayout";
 import { rememberPick } from "./lastPick";
 import { defaultModel } from "./harnessSwitch";
 import { catalogRow } from "./catalogRow";
@@ -257,26 +259,7 @@ export function ComposerPickers({
   // harnesses Fork to rows. Debug Settings' "Allow switching harness in a started chat"
   // (`harnessSwitch`) keeps the whole rail and its switch.
   const locked = !harnessSwitch && !!summary?.harness && ((summary.turnCount ?? 0) > 0 || snapshot.rows.length > 0);
-  const allEntries: ModelPickerProps["catalog"] = pickerCatalog
-    ? [
-        ...pickerCatalog.harnesses
-          .filter(
-            (entry) =>
-              !entry.unavailable || entry.probeFailed || (entry.acpmuxHarness ?? entry.id) === summary?.harness,
-          )
-          .map((entry) => ({
-            id: entry.acpmuxHarness ?? entry.id,
-            name: entry.name,
-            models: entry.models,
-            ...(entry.family ? { family: entry.family } : {}),
-            ...(entry.unavailable ? { unavailable: entry.unavailable } : {}),
-            pickable: entry.pickable && entry.acpmuxHarness !== null,
-            ...(entry.topModels ? { top: entry.topModels } : {}),
-          })),
-        // The chat folder's own profiles are acpmux's alone; the model catalog never lists them.
-        ...snapshot.catalog.filter((entry) => entry.folder),
-      ]
-    : snapshot.catalog;
+  const allEntries = composerPickerEntries(snapshot, pickerCatalog);
   // A harness acpmux has not listed yet (the first open after launch) keeps the whole list rather
   // than an empty picker. A chat that can fork keeps every harness: the picker offers the others as
   // Fork to, never as a switch in place (Leo 2026-10-22: "can expose as fork").
@@ -671,8 +654,14 @@ export function ComposerPickers({
       modelIdName(shown, t))
     : undefined;
   // Before the session reports, the predicted model's name holds the chip's width (cx-ncc.58).
+  const harnessOnly = modelChipFallback(
+    snapshot.catalog.find((entry) => entry.id === chipHarness),
+    models,
+  );
   const modelName =
-    defaulted || unreported ? (starting ?? resolvedName ?? t(PICKER_LABELS.model)) : (runningName ?? starting);
+    defaulted || unreported
+      ? (starting ?? resolvedName ?? harnessOnly ?? t(PICKER_LABELS.model))
+      : (runningName ?? starting ?? harnessOnly);
   // Until the session reports its options (a new chat, an agent still starting), the effort chip
   // draws what this harness's chats last showed (chipMemory.ts) and the access chip acpmux's
   // start-mode answer (startMode.ts), never grey bars; the session's values then replace them in

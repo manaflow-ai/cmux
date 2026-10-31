@@ -10,6 +10,7 @@ use crate::client::Client;
 use crate::rpc::{Message, method};
 use crate::transcript::Transcript;
 use anyhow::{Result, anyhow};
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use std::io::Write;
 use std::sync::Arc;
@@ -553,7 +554,7 @@ pub(crate) async fn ensure(
         .into());
     }
     let tags = parse_tags(&tags)?;
-    let existing = client.request(method::MUX_SESSIONS, json!({})).await?;
+    let existing = client.whole_list(method::MUX_SESSIONS, json!({})).await?;
     let full = match &host {
         Some(h) => format!("{h}/{name}"),
         None => name.to_owned(),
@@ -587,7 +588,7 @@ pub(crate) async fn ensure(
                 meta["tags"] = tags;
             }
             if let Some(p) = &harness_from {
-                meta[crate::hub::lineage::successor::HARNESS_FROM_FIELD] = json!(p);
+                meta.set(crate::hub::lineage::successor::HARNESS_FROM_FIELD, json!(p));
             }
             meta["argv"] = json!(crate::cli::entry::original_args());
             let mut p = json!({"mcpServers": [], "_meta": {"acpmux": meta}});

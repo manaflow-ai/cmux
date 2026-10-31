@@ -56,6 +56,8 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     var chromiumDragFile: (url: URL, at: Date)?
     /// Shows the Chromium page's context menu at a point of this view (tests capture it).
     var chromiumMenuPresenter: @MainActor (NSMenu, NSPoint, NSView) -> Void = { menu, point, view in
+        // A view in no window cannot anchor a menu (AppKit raises): the page closed meanwhile.
+        guard view.window != nil else { return }
         menu.popUp(positioning: nil, at: point, in: view)
     }
     /// Making the Chromium page (cancelled when the view closes or falls back).
@@ -71,7 +73,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// ``chromiumHosting`` (its composition root). Nil: a file input does nothing (tests).
     public static var openPanel: MadeAheadOpenPanel?
     /// This page's file chooser (its web view holds the UI delegate weakly).
-    private var fileChooser: PageOpenPanel?
+    private(set) var fileChooser: PageOpenPanel?
     var loaded = false
     /// The tab closed (``close()``): its web view is retired and never loads again.
     var isClosed = false
@@ -229,15 +231,15 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     }
 
     /// Whether `descriptor` may be served from `root`: any root for an app page; for a first-party
-    /// page only its bundled root or its DEBUG override.
-    nonisolated static func mayServe(_ descriptor: PageDescriptor, from root: URL) -> Bool {
+    /// page only its bundled root or its DEBUG override, or in DEBUG a `testRoot`.
+    nonisolated static func mayServe(_ descriptor: PageDescriptor, from root: URL, testRoot: Bool = false) -> Bool {
         guard PageID.isReserved(descriptor.id) else { return true }
-        let wanted = root.standardizedFileURL.resolvingSymlinksInPath().path
-        var allowed = [PageSchemeHandler.bundledRoot(for: descriptor), PageID.bundledRoot(for: descriptor.id),
-                       debugRoot(for: descriptor)].compactMap { $0 }
         #if DEBUG
-        allowed += PageID.fixtureRoots(for: descriptor.id)
+        if testRoot { return true }
         #endif
+        let wanted = root.standardizedFileURL.resolvingSymlinksInPath().path
+        let allowed = [PageSchemeHandler.bundledRoot(for: descriptor), PageID.bundledRoot(for: descriptor.id),
+                       debugRoot(for: descriptor)].compactMap { $0 }
         return allowed.contains { $0.standardizedFileURL.resolvingSymlinksInPath().path == wanted }
     }
 
@@ -254,13 +256,17 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// `appearance.surfaces.diff` reaches `--cmux-surface-background`); `dynamicResources` answers
     /// the descriptor's dynamic prefixes (a 404 without one).
     ///
+    /// `testRoot` (DEBUG only; a Release build ignores it): `root` is a test's own fixture, served for a
+    /// reserved page too. `swift test` links every test target into one process, so the page's registered
+    /// root (``PageID/registerBundledRoot(_:for:)``, the first wins) may be another test's.
+    ///
     /// `chromium` makes the page's Chromium view when the policy picks Chromium (the app's
     /// ``chromiumHosting`` by default; tests pass a fake).
-    public convenience init?(descriptor: PageDescriptor, root: URL, routes: [PageRoute], route: String? = nil,
+    public convenience init?(descriptor: PageDescriptor, root: URL, testRoot: Bool = false, routes: [PageRoute], route: String? = nil,
                              documentAttributes: [String: String] = [:], options: PageEngineOptions = .standard,
                              surface: SurfaceKind? = nil, dynamicResources: (any PageDynamicResourceSource)? = nil,
                              chromium: (any PageChromiumHosting)? = PageWebView.chromiumHosting) {
-        guard Self.mayServe(descriptor, from: root) else { return nil }
+        guard Self.mayServe(descriptor, from: root, testRoot: testRoot) else { return nil }
         let host = Self.hostConfiguration(handler: PageSchemeHandler(page: descriptor, root: root,
                                                                        dynamicSource: dynamicResources),
                                           documentAttributes: documentAttributes, options: options)
@@ -416,11 +422,12 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         }
     }
 
-    /// Page zoom follows `uiScale`; the chrome multiplier is only the `--cmux-interface-scale` token.
+    /// Page zoom follows `uiScale` times this page's additional zoom; the chrome multiplier remains
+    /// a separate `--cmux-interface-scale` token.
     func applyUIScale() {
+        evaluateInPage(DesignSettings.shared.interfaceScaleScript(pageZoom: pageZoom))
         webView.pageZoom = pageZoom
         chromiumSession?.page.setZoom(pageZoom)
-        evaluateInPage(DesignSettings.shared.interfaceScaleScript)
         if loaded { glassFeed.refresh() } // the zoom moves the art's rect in CSS px
     }
 
@@ -551,7 +558,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         super.viewDidMoveToWindow()
         // Its tab or window closed: the page's popup ends with it.
         if window == nil { popupHost?.dismiss() }
-        chromiumSession?.page.setVisible(window != nil && !isHiddenOrHasHiddenAncestor)
+        setChromiumVisibility(true)
         applyTheme()
         windowDidChangeChrome()
         if shouldFocusOnAttach, window != nil {
@@ -564,12 +571,12 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public override func viewDidHide() {
         super.viewDidHide()
         popupHost?.dismiss()
-        chromiumSession?.page.setVisible(false)
+        setChromiumVisibility(false)
     }
 
     public override func viewDidUnhide() {
         super.viewDidUnhide()
-        chromiumSession?.page.setVisible(window != nil)
+        setChromiumVisibility(true)
     }
 
     public override func viewDidChangeEffectiveAppearance() {

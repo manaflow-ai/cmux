@@ -164,10 +164,10 @@ impl PromptId {
             mux.set("class", json!(class));
         }
         if let Some(pr) = self.pr {
-            mux["pr"] = json!(pr);
+            mux.set("pr", json!(pr));
         }
         if let Some(thread) = &self.thread {
-            mux["topic"] = json!(thread);
+            mux.set("topic", json!(thread));
         }
         if let Some(host) = &self.cli_host {
             mux["cliHost"] = json!(host);
