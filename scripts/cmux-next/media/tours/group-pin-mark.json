@@ -178,5 +178,10 @@
    ],
    "wait": 2
   }
- ]
+ ],
+ "settings": {
+  "sidebar": {
+   "groupPinMark": "off"
+  }
+ }
 }

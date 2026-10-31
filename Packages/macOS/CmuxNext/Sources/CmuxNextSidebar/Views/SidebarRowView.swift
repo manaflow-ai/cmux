@@ -150,6 +150,8 @@ class SidebarRowView: NSView {
     var debugIcon: String? { nil }
     /// The row draws the archived look (plans/cmux-next/archiving-DESIGN.md).
     var debugArchived: Bool { false }
+    /// A workspace pinned inside its group: the `sidebar.groupPinMark` look it draws (`off` included); nil otherwise.
+    var debugGroupPin: String? { nil }
     /// The address of the favicon the row draws (a link row), for proofs.
     var debugIconAddress: String? { nil }
 

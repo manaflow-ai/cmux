@@ -54,6 +54,8 @@ public struct SidebarDebugRow: Sendable {
     public var showsWorking: Bool = false
     /// The row's view draws the archived look (dimmed, archiving-DESIGN.md).
     public var archived: Bool = false
+    /// The row's view draws a workspace pinned inside its group (`sidebar.groupPinMark`): its look, nil when none.
+    public var groupPin: String? = nil
 
     /// The row with what its view draws now: its fill, hover and disclosure.
     func drawn(by view: SidebarRowView?) -> SidebarDebugRow {
@@ -62,6 +64,7 @@ public struct SidebarDebugRow: Sendable {
         row.fill = view?.debugFill == true
         row.hovered = view?.isHovered == true
         row.archived = view?.debugArchived == true
+        row.groupPin = view?.debugGroupPin
         (row.disclosureIcon, row.disclosureFrame, row.disclosureShown) = (disclosure?.icon, disclosure?.frame, disclosure?.shown == true)
         return row
     }

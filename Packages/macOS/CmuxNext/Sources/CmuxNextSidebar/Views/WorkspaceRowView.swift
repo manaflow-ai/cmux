@@ -192,6 +192,7 @@ final class WorkspaceRowView: SidebarRowView {
 
     override var interactiveSubviews: [NSView] { [closeButton, moreButton, pinButton, disclosureButton, treeFoldButton, audioButton] }
     override var debugArchived: Bool { isArchived }
+    override var debugGroupPin: String? { isPinnedInGroup ? groupPinLook.rawValue : nil }
     override var debugIcon: String? {
         switch iconKind {
         case nil: !agentMark.isHidden && agentMarkVariant == .besideTitle ? "agentMark" : nil
