@@ -14,6 +14,8 @@ impl PromptRun {
             class: self.class,
             supersede: self.supersede.clone(),
             full_access_device: self.full_access_device.clone(),
+            message_id: self.message_id.clone(),
+            message_sender: self.message_sender.clone(),
         }
     }
 }
@@ -117,6 +119,8 @@ fn queued(prompt_id: &str, agent: Option<&str>, class: Option<Class>, text: &str
         class,
         supersede: None,
         full_access_device: None,
+        message_id: None,
+        message_sender: None,
     };
     QueuedPrompt {
         prompt_id: prompt_id.into(),

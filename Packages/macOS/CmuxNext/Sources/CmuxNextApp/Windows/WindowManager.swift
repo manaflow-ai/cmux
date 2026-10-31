@@ -41,13 +41,33 @@ final class WindowManager {
     private var loadObservation: Task<Void, Never>?
     var membershipObservation: Task<Void, Never>?
     /// Records connected sessions in the home session (rooms, data-model.md 1.1).
-    private(set) lazy var sessionRegistrar = SessionRegistrar(machines: services.machines)
+    /// A refused record shows once as a toast on the front window (the machine is not saved for restore).
+    private(set) lazy var sessionRegistrar = SessionRegistrar(machines: services.machines, notice: { [weak self] session, message in
+        guard let window = self?.active?.window ?? NSApp.mainWindow else { return false }
+        // Until closed or taken back: it is the person's only sign that this machine will not be restored.
+        let older = self?.notSavedToasts[session]
+        let handle = CmuxToastCenter.shared.show(CmuxToast(id: "session-registration.not-saved.\(session)", message: message,
+                                                           duration: CmuxToast.untilClosed), in: window)
+        self?.notSavedToasts[session] = handle
+        // A toast with the same id replaces the older one only in the same window.
+        if older !== handle { older?.dismiss() }
+        return true
+    }, withdraw: { [weak self] session in
+        self?.notSavedToasts.removeValue(forKey: session)?.dismiss()
+    })
+    /// The "not saved for restore" toast shown for each session, so it can be taken back.
+    private var notSavedToasts: [String: CmuxToastHandle] = [:]
     /// New workspaces a window asked for before the daemon reported them:
     /// reconcile places each in that window (opening it when it is not
     /// registered yet) and selects it.
     var pendingClaims: [String: String] = [:]
     /// Pending claims not to show on arrival; windows to open behind (automation, Option).
     var quietClaims: Set<String> = [], behindWindows: Set<String> = []
+    /// Pending claims from runs without view-change permission (an agent's or the CLI's create): they
+    /// never open a Cloud machine nobody opened here (#28609); reconcile drops them for its workspaces.
+    var backgroundClaims: Set<String> = []
+    /// While ``fileOpenedMachine(of:into:)`` re-runs reconcile: a window that pass opens files nothing again.
+    var fillingOpenedMachine = false
     /// Restored windows but the front one, not shown yet (`present`); `keepsOrder` while one shows alone.
     private var restacking: Set<String> = [], keepsOrder = false
     /// Frames for windows that open once their claimed workspace arrives.
@@ -57,6 +77,8 @@ final class WindowManager {
     var pendingPlacements: [String: PendingPlacement] = [:]
     /// Registration order survives a daemon snapshot that reports several creates together.
     var pendingPlacementOrder: [String] = []
+    /// Retries the placements whose wait for the window's current row ran out (`applyPendingPlacements`).
+    let anchorRetry = DemandTimer(owner: "WindowManager.anchorRetry")
     /// Windows none of whose workspaces a machine reports yet (just created,
     /// or saved with workspaces that are gone or on a Cloud machine still
     /// connecting): kept off screen until their content is installed, so no
@@ -157,6 +179,8 @@ final class WindowManager {
 
     func didActivate(_ controller: WindowController) {
         lastActive = controller
+        // A "not saved for restore" notice that came while no window could show it shows now.
+        sessionRegistrar.showPendingNotices()
         if keepsOrder { return }
         registry.apply { $0.activate(controller.state.id); return WindowRegistry.Changes() }
     }
@@ -371,7 +395,7 @@ final class WindowManager {
         let controller = WindowController(state: state, services: services, frame: frame)
         controller.sidebar.restore(width: state.sidebarWidth, hidden: state.sidebarHidden)
         if registry.value.isIncognito(window.id) { controller.showIncognitoBadge() }
-        SidebarTabRowHandoff.install(on: controller, session: services.dragSession)
+        services.dragSession.installWorkspaceHandoff(on: controller)
         controllers.append(controller)
         // Its content goes in before it is ordered in (the launch snapshot's workspace, else the
         // connecting state), so its first frame on screen draws it, never the backdrop alone; the

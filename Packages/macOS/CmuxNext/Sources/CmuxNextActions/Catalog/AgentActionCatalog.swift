@@ -197,6 +197,16 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 category: .agents, symbol: "mic", surfaces: [.palette, .keyboard, .menu],
                 targets: [.pane], cliName: "agent toggle-dictation", mainMenu: .edit
             ),
+            // Read aloud's Stop from anywhere (user, 2026-10-29: "I can't stop it"): the speaker under
+            // a message reads through the app's one voice (CmuxNextAgentPane AgentPaneReadAloud).
+            ActionDescriptor(
+                id: "agentPane.stopReadingAloud",
+                title: String(localized: "action.agentPane.stopReadingAloud", defaultValue: "Stop Reading Aloud", bundle: .module),
+                keywords: ["read aloud", "speak", "speech", "voice", "stop", "silence", "mute", "speaker", "tts"],
+                category: .agents, symbol: "speaker.slash", surfaces: [.palette],
+                cliName: "agent stop-reading-aloud",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
+            ),
             ActionDescriptor(
                 id: "agentPane.continueIn",
                 title: String(localized: "action.agentPane.continueIn", defaultValue: "Continue In…", bundle: .module),
@@ -369,6 +379,29 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 keywords: ["agent", "fork"], category: .agents, symbol: "rectangle.bottomhalf.inset.filled",
                 surfaces: [.palette, .contextMenu],
                 cliName: "agent fork-conversation-below"
+            ),
+            // u18673: a fork in a new strip column on either side of the chat's column, or a new row
+            // below it, as New Column Right / New Column Left / New Row open a terminal.
+            ActionDescriptor(
+                id: "palette.forkAgentConversationNewColumnRight",
+                title: String(localized: "action.palette.forkAgentConversationNewColumnRight", defaultValue: "Fork Conversation to New Column Right", bundle: .module),
+                keywords: ["agent", "fork", "column", "right"], category: .agents, symbol: "rectangle.split.3x1",
+                surfaces: [.palette, .contextMenu],
+                cliName: "agent fork-conversation-to-new-column-right"
+            ),
+            ActionDescriptor(
+                id: "palette.forkAgentConversationNewColumnLeft",
+                title: String(localized: "action.palette.forkAgentConversationNewColumnLeft", defaultValue: "Fork Conversation to New Column Left", bundle: .module),
+                keywords: ["agent", "fork", "column", "left"], category: .agents, symbol: "rectangle.split.3x1",
+                surfaces: [.palette, .contextMenu],
+                cliName: "agent fork-conversation-to-new-column-left"
+            ),
+            ActionDescriptor(
+                id: "palette.forkAgentConversationNewRow",
+                title: String(localized: "action.palette.forkAgentConversationNewRow", defaultValue: "Fork Conversation to New Row", bundle: .module),
+                keywords: ["agent", "fork", "row", "below"], category: .agents, symbol: "rectangle.grid.1x2",
+                surfaces: [.palette, .contextMenu],
+                cliName: "agent fork-conversation-to-new-row"
             ),
             ActionDescriptor(
                 id: "palette.forkAgentConversationNewTab",

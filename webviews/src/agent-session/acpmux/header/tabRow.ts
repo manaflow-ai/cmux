@@ -8,6 +8,8 @@ import { useCallback, useEffect, useRef, useSyncExternalStore, type CSSPropertie
 export interface TabRow {
   readonly height: number;
   readonly trailingInset: number;
+  /// Debug chrome.tabs.nativeRowTools; absent/false keeps the existing web buttons.
+  readonly nativeRowTools?: boolean;
 }
 
 /// Space between the last tab and the tools, in the width the page reports: the tools' own pitch, not a gutter.
@@ -23,9 +25,12 @@ const pixels = (value: unknown) => (typeof value === "number" && Number.isFinite
 /// offered row is a new one, even when it equals the last: the App offers it again after it forgot
 /// the tools' width (the page said ready again), and the page reports the width again for it.
 export function setTabRow(value: unknown): void {
-  const raw = (value ?? {}) as { height?: unknown; trailingInset?: unknown };
+  const raw = (value ?? {}) as { height?: unknown; trailingInset?: unknown; nativeRowTools?: unknown };
   const height = pixels(raw.height);
-  current = height > 0 ? { height, trailingInset: pixels(raw.trailingInset) } : NONE;
+  current =
+    height > 0
+      ? { height, trailingInset: pixels(raw.trailingInset), nativeRowTools: raw.nativeRowTools === true }
+      : NONE;
   for (const listener of listeners) listener();
 }
 

@@ -20,7 +20,7 @@ use std::sync::Arc;
 #[path = "host_auto_update.rs"]
 mod host_auto_update;
 #[path = "host_hold.rs"]
-mod host_hold;
+pub(crate) mod host_hold;
 #[path = "host_lock.rs"]
 mod host_lock;
 #[path = "host_migrate.rs"]
@@ -35,7 +35,9 @@ pub(crate) use host_hold::hold;
 pub(crate) use host_lock::unfence;
 pub(crate) use host_lock::{LockLost, lock_to_install, lock_updates};
 use host_migrate::{MIGRATING, REFUSED, migrate, migrate_back};
-pub(crate) use host_update::{CLOUD_VM_MARK, Caller, UpdateOptions, self_update, update};
+pub(crate) use host_update::{
+    CLOUD_VM_MARK, Caller, UpdateOptions, cloud_vm_check, self_update, update,
+};
 
 /// Where `host setup` installs acpmux and what its daemon runs.
 pub(crate) const DAEMON_BIN: &str = "~/.local/bin/acpmux";
@@ -113,14 +115,26 @@ impl Remote for SshRemote<'_> {
     fn push(&self, local: &Path, remote: &str) -> Result<()> {
         // scp takes a path without `~/` as one under the remote home.
         let remote = remote.strip_prefix("~/").unwrap_or(remote);
-        let status = Command::new("scp")
+        let out = Command::new("scp")
             .args(scp_push_argv(self.0, &local.to_string_lossy(), remote)?)
-            .status()
+            .stdin(Stdio::null())
+            .output()
             .context("scp")?;
-        if !status.success() {
-            return Err(anyhow!("scp to {} failed", self.0));
+        if !out.status.success() {
+            return Err(scp_failed(self.0, &String::from_utf8_lossy(&out.stderr)));
         }
         Ok(())
+    }
+}
+
+/// A failed push, with scp's own words (ssh's, when the connection failed or dropped): the
+/// app reads them to tell an offline peer from a broken one (`AcpmuxPeerUpdateReply`).
+fn scp_failed(host: &str, stderr: &str) -> anyhow::Error {
+    let why = stderr.split_whitespace().collect::<Vec<_>>().join(" ");
+    if why.is_empty() {
+        anyhow!("scp to {host} failed")
+    } else {
+        anyhow!("scp to {host} failed: {why}")
     }
 }
 
@@ -831,6 +845,17 @@ mod tests {
     fn as_login_shell(shell: &str, argv: &[String]) -> Option<String> {
         let out = std::process::Command::new(shell).arg("-c").arg(argv.last()?).output().ok()?;
         Some(String::from_utf8_lossy(&out.stdout).into_owned())
+    }
+
+    #[test]
+    fn a_failed_push_carries_scps_words_on_one_line() {
+        // The app tells an offline peer from a broken one by them (`AcpmuxPeerUpdateReply`).
+        let e = scp_failed("h", "client_loop: send disconnect: Broken pipe\r\nlost connection\n");
+        assert_eq!(
+            e.to_string(),
+            "scp to h failed: client_loop: send disconnect: Broken pipe lost connection"
+        );
+        assert_eq!(scp_failed("h", " \n").to_string(), "scp to h failed");
     }
 
     #[test]

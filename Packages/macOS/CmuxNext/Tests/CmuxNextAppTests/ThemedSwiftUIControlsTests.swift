@@ -4,6 +4,7 @@ import AppKit
 @testable import CmuxNextBookmarks
 import CmuxNextDesign
 @testable import CmuxNextHistory
+import CmuxNextTestSupport
 import SwiftUI
 import Testing
 
@@ -13,7 +14,7 @@ import Testing
 /// Hosted in a purple room, each draws the scope's tokens: the field's ink and hint, the pop-up's
 /// theme bezel, the spinner's loading ink (Accounts' refresh and an app scene's indeterminate
 /// `ProgressView`).
-@MainActor @Suite(.serialized) struct ThemedSwiftUIControlsTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct ThemedSwiftUIControlsTests {
     /// `view` hosted in a window whose content roots the purple room.
     private static func host(_ view: some View, _ scope: ThemeScope, size: NSSize = NSSize(width: 520, height: 480)) throws -> (NSWindow, NSView) {
         let window = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.titled], backing: .buffered, defer: false)

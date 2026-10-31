@@ -1,8 +1,10 @@
+import { composerPickerEntries } from "./composerPickerEntries";
 import React, { useCallback, useContext, useEffect, useId, useRef, useState } from "react";
 import type { SignIn } from "./signIn";
 import { useChatAccounts } from "./chatAccounts";
 import type { QuickMenuExtras } from "./QuickModelMenu";
 import { sessionModels } from "./modelCatalog";
+import { modelChipFallback } from "./agents";
 import {
   isDefaultChoice,
   loadResolvedDefaults,
@@ -20,7 +22,7 @@ import { ModelPicker, pickerFaceHarness } from "./ModelPicker";
 import { AgentOptionsMenu } from "./AgentOptionsMenu";
 import { OnNewTab } from "./newTabComposer";
 import { extraConfigOptions } from "./agentOptions";
-import type { CatalogRefreshState, ModelCombo, ModelPickerProps } from "./modelPickerLayout";
+import type { CatalogRefreshState, ModelCombo } from "./modelPickerLayout";
 import { rememberPick } from "./lastPick";
 import { defaultModel } from "./harnessSwitch";
 import { catalogRow } from "./catalogRow";
@@ -54,6 +56,7 @@ import { useComposerSettings } from "./composerSettings";
 import { Menu, MenuButton, MenuPopup, MenuRadioGroup, MenuRadioItem } from "../../ui/Menu";
 import { registerPicker } from "./pickerOpeners";
 import { scrollActiveMenuRow } from "./scrollActiveMenuRow";
+import { useScrollEdges } from "./summary/scrollEdges";
 import { UI_ANCHOR_GAP, useUiAnchor } from "../../ui/anchor";
 import { useEscapingPopup } from "../../ui/popupHost";
 import { usePopupHost } from "../../ui/UiProvider";
@@ -196,6 +199,9 @@ type Props = {
   /** A mode pick before the chat has a session is held (a New Tab's start, a harness switch
    * running): only then is a pending chat's start mode a live menu, else an inert chip. */
   holdsModePick?: boolean;
+  /** The chips belong to a page with no chat yet (a New Tab): no prompt has gone, so the harness
+   * is never fixed there, even once the page's deferred chat has started behind it. */
+  startsChat?: boolean;
 };
 
 export type ComposerPermissionGrant = {
@@ -234,6 +240,7 @@ export function ComposerPickers({
   catalogRefresh,
   pickerCatalog,
   holdsModePick = false,
+  startsChat = false,
 }: Props) {
   const t = useT();
   const lastFastValue = useRef<{ scope: string; value: string } | undefined>(undefined);
@@ -255,27 +262,15 @@ export function ComposerPickers({
   // (Leo 2026-10-22: "why did you guys even remove the fucking harness model picker"), its other
   // harnesses Fork to rows. Debug Settings' "Allow switching harness in a started chat"
   // (`harnessSwitch`) keeps the whole rail and its switch.
-  const locked = !harnessSwitch && !!summary?.harness && ((summary.turnCount ?? 0) > 0 || snapshot.rows.length > 0);
-  const allEntries: ModelPickerProps["catalog"] = pickerCatalog
-    ? [
-        ...pickerCatalog.harnesses
-          .filter(
-            (entry) =>
-              !entry.unavailable || entry.probeFailed || (entry.acpmuxHarness ?? entry.id) === summary?.harness,
-          )
-          .map((entry) => ({
-            id: entry.acpmuxHarness ?? entry.id,
-            name: entry.name,
-            models: entry.models,
-            ...(entry.family ? { family: entry.family } : {}),
-            ...(entry.unavailable ? { unavailable: entry.unavailable } : {}),
-            pickable: entry.pickable && entry.acpmuxHarness !== null,
-            ...(entry.topModels ? { top: entry.topModels } : {}),
-          })),
-        // The chat folder's own profiles are acpmux's alone; the model catalog never lists them.
-        ...snapshot.catalog.filter((entry) => entry.folder),
-      ]
-    : snapshot.catalog;
+  // A message, not the session's start row: the deferred chat a New Tab pick or typed prompt starts
+  // behind the page draws its start row before any prompt (Leo 2026-10-31: "IM SAYING I CANT
+  // FUCKING SEE ANY HARNESS"), and a New Tab never fixes the harness.
+  const locked =
+    !startsChat &&
+    !harnessSwitch &&
+    !!summary?.harness &&
+    ((summary.turnCount ?? 0) > 0 || snapshot.rows.some((row) => row.kind !== "sessionStart"));
+  const allEntries = composerPickerEntries(snapshot, pickerCatalog);
   // A harness acpmux has not listed yet (the first open after launch) keeps the whole list rather
   // than an empty picker. A chat that can fork keeps every harness: the picker offers the others as
   // Fork to, never as a switch in place (Leo 2026-10-22: "can expose as fork").
@@ -621,7 +616,20 @@ export function ComposerPickers({
   // A new chat draws its chips for the harness its first prompt starts: the one named, else the
   // picker's first installed, pickable one, the one the model picker's face draws (a bundled
   // harness acpmux does not have can come first in `pickerEntries`); else the catalog's first.
-  const chipHarness = harness ?? pickerFaceHarness(pickerEntries) ?? pickerEntries[0]?.id;
+  // A chat the pane opened that acpmux has not attached yet (its loading state): the chat list's row
+  // names its harness, model and effort. It is no new chat, so the chips never stand in the picker's
+  // first harness or its default model (#28884: a loading Opus 5.5 chat read "Sonnet 4.5 Medium").
+  // A New Tab's chips (newTabStart: a summary with no session id) stay its own while the page waits
+  // for a picked chat to attach; only a pane with no summary for its chat is opening one.
+  const opening =
+    !switching &&
+    snapshot.sessionId !== undefined &&
+    (summary === undefined || (summary.sessionId !== "" && summary.sessionId !== snapshot.sessionId));
+  const openingEntry = opening ? snapshot.sessions.find((entry) => entry.sessionId === snapshot.sessionId) : undefined;
+  const chipHarness =
+    harness ??
+    openingEntry?.harness ??
+    (opening ? undefined : (pickerFaceHarness(pickerEntries) ?? pickerEntries[0]?.id));
   // Preserve an on tier only for this chat and option. ComposerPickers stays mounted when
   // the person switches chats, so a plain/off chat must not inherit another chat's tier.
   const fastScope = `${summary?.sessionId ?? `new:${chipHarness ?? ""}`}\u0000${chipHarness ?? ""}\u0000${fastOption?.id ?? ""}`;
@@ -634,7 +642,17 @@ export function ComposerPickers({
   const unreported = shown === undefined && chipHarness !== undefined && (!summary?.sessionId || switching);
   // A fresh chat on this Mac whose session has not reported its model yet names the one its New Tab
   // started it on (cx-e2aa, cx-21jvw). A resumed or remote chat may run another: it waits.
-  const fresh = (summary?.turnCount ?? 0) === 0 && !summary?.host && summary?.hostKind !== "cloud";
+  // A chat still opening is fresh only when its listed row says nothing was sent in it yet (a New
+  // Tab's chat acpmux started before its first prompt) and it runs on this Mac.
+  const fresh = opening
+    ? openingEntry?.unsent === true && !openingEntry.host && !openingEntry.peer && openingEntry.hostKind !== "cloud"
+    : (summary?.turnCount ?? 0) === 0 && !summary?.host && summary?.hostKind !== "cloud";
+  // An opened chat that ran before draws the model and effort its listed row names, else the
+  // neutral placeholders until its session reports; never a prediction made for a new chat. The
+  // row's model is the truth for an unsent one too (a pick after its New Tab started it).
+  const opensListed = opening && !fresh;
+  const listedModel =
+    opening && openingEntry?.model && !isDefaultChoice({ id: openingEntry.model }) ? openingEntry.model : undefined;
   // Before a fresh chat's session reports, the default this harness last resolved to, else the model
   // catalog's default for it, else the first model it lists (defaultModel: its last session's).
   const predictedId =
@@ -669,9 +687,23 @@ export function ComposerPickers({
       ownName ??
       modelIdName(shown, t))
     : undefined;
+  // Named as a reported model is: only the exact catalog row, else a name read off the id.
+  const listedName =
+    listedModel &&
+    (kinRows(listedModel).find((row) => row?.id === listedModel || row?.release === listedModel)?.name ??
+      modelIdName(listedModel, t));
   // Before the session reports, the predicted model's name holds the chip's width (cx-ncc.58).
+  const harnessOnly = modelChipFallback(
+    snapshot.catalog.find((entry) => entry.id === chipHarness),
+    models,
+  );
   const modelName =
-    defaulted || unreported ? (starting ?? resolvedName ?? t(PICKER_LABELS.model)) : (runningName ?? starting);
+    listedName ??
+    (opensListed
+      ? (harnessOnly ?? t(PICKER_LABELS.model))
+      : defaulted || unreported
+        ? (starting ?? resolvedName ?? harnessOnly ?? t(PICKER_LABELS.model))
+        : (runningName ?? starting ?? harnessOnly));
   // Until the session reports its options (a new chat, an agent still starting), the effort chip
   // draws what this harness's chats last showed (chipMemory.ts) and the access chip acpmux's
   // start-mode answer (startMode.ts), never grey bars; the session's values then replace them in
@@ -684,10 +716,16 @@ export function ComposerPickers({
   const effortValue = effort && (effortDefaulted ? defaultEffort : effort.currentValue);
   const effortChoice = efforts.find((choice) => choice.id === effortValue);
   const ultracodeOn = ultracode !== undefined && ultracode.current === ultracode.on;
-  const lastChips = awaiting && chipHarness ? loadLastChips()[chipHarness] : undefined;
+  // Another chat's chips are no guess for an opened chat that ran before (opensListed).
+  const lastChips = awaiting && chipHarness && !opensListed ? loadLastChips()[chipHarness] : undefined;
   // A harness no chat has shown here yet (a fresh profile, the New Tab's first chat) names the
   // level acpmux starts it on (`_acpmux/harnesses` start).
-  const startEffort = awaiting ? snapshot.catalog.find((entry) => entry.id === chipHarness)?.start?.effort : undefined;
+  // An opened chat that ran before names the level its listed row reports, never a start level.
+  const startEffort = !awaiting
+    ? undefined
+    : opensListed
+      ? openingEntry?.effort
+      : snapshot.catalog.find((entry) => entry.id === chipHarness)?.start?.effort;
   const startEffortKey = startEffort ? LEVEL_KEYS[startEffort] : undefined;
   const pendingEffort = lastChips?.effort ?? (startEffortKey ? t(startEffortKey) : undefined);
   // The button names a level, never the word Reasoning (Leo 2026-10-20): the listed level, else the
@@ -719,7 +757,7 @@ export function ComposerPickers({
       ? (catalogModel ??
         catalogRow(
           pickerCatalog?.harnesses.find((entry) => (entry.acpmuxHarness ?? entry.id) === chipHarness)?.models,
-          shown ?? predictedId,
+          shown ?? listedModel ?? predictedId,
         ))
       : undefined;
   const heldLevels =
@@ -731,11 +769,11 @@ export function ComposerPickers({
   // model, hub/start_defaults.rs), so the chip names it from the first frame and acpmux's answer
   // replaces it only when it differs (Lucas 2026-10-24).
   const heldValue =
-    (heldPick?.harness === chipHarness ? heldPick.value : undefined) ??
+    (heldPick && heldPick.harness === chipHarness ? heldPick.value : undefined) ??
     startEffort ??
     heldLevels.find((choice) => choice.name === lastChips?.effort)?.id ??
-    heldOption?.currentValue ??
-    (snapshot.catalog.length === 0
+    (opensListed ? undefined : heldOption?.currentValue) ??
+    (snapshot.catalog.length === 0 && !opensListed
       ? heldLevels.find((choice) => choice.id === heldModel?.defaultEffort)?.id
       : undefined);
   // The held chip steps down as the reported one does: "Med" in a narrow row (composerRowFit.ts).
@@ -1602,12 +1640,16 @@ export function Picker({
   // No room above or below its button in the pane: past the window's edge (popupHost.ts).
   const host = usePopupHost();
   const [shown, setShown] = useState<HTMLDivElement | null>(null);
+  // Marks the menu's edges that rows scroll past (data-fade-top, data-fade-bottom); the composer's
+  // + styles them as the shared scroll-edge fade (styles.css). It stops when the menu unmounts.
+  const edges = useScrollEdges();
   const attach = useCallback(
     (node: HTMLDivElement | null) => {
       menu.current = node;
+      edges(node);
       if (host) setShown(node);
     },
-    [host],
+    [host, edges],
   );
   useEscapingPopup(host, shown, () => trigger.current, {
     side: "top",

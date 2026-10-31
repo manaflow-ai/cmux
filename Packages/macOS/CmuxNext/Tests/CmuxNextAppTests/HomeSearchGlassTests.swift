@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 @testable import CmuxNextHome
+import CmuxNextTestSupport
 import CmuxTheme
 @testable import MessagesLabSidebar
 import Testing
@@ -10,6 +11,7 @@ import Testing
 /// circles with a white glyph, Search is a full-width glass capsule with a magnifier and a grey
 /// "Search" placeholder). The search field sits on a glass capsule, the Unread filter on a glass
 /// circle (Liquid Glass on macOS 26 and later, the frosted material before it), in light and dark.
+@Suite(.closesItsWindows)
 @MainActor
 struct HomeSearchGlassTests {
     private static func home(width: CGFloat = 320) -> HomeSidebarView {
@@ -131,6 +133,7 @@ struct HomeSearchGlassTests {
     @Test func theTypedTextIsCentredInTheCapsule() throws {
         let home = Self.home()
         let window = NSWindow(contentRect: home.frame, styleMask: [.titled], backing: .buffered, defer: false)
+        defer { window.closeAfterTest() }
         window.contentView = home
         home.layoutSubtreeIfNeeded()
         let field = home.list.searchField
@@ -138,7 +141,36 @@ struct HomeSearchGlassTests {
         let editor = try #require(field.currentEditor() as? NSTextView)
         let box = field.convert(editor.convert(editor.bounds, to: nil), from: nil)
         #expect(abs(box.midY - field.bounds.midY) <= 1, "the field editor is \(box.midY - field.bounds.midY) pt off centre")
-        window.makeFirstResponder(nil)
+    }
+
+    /// https://github.com/manaflow-ai/cmux/issues/27967: once the field took the keyboard, "Search"
+    /// and the caret slid left over the magnifier (AppKit puts an unbezeled field's editor in the
+    /// frame the cell is handed, the field's whole width). The field editor starts where the
+    /// placeholder does at rest, right of the magnifier, at every width.
+    @Test(arguments: [180, 320, 480] as [CGFloat])
+    func theTypedTextStaysRightOfTheMagnifier(_ width: CGFloat) throws {
+        let home = Self.home(width: width)
+        let window = NSWindow(contentRect: home.frame, styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        window.contentView = home
+        home.layoutSubtreeIfNeeded()
+        let field = home.list.searchField
+        let cell = try #require(field.cell as? NSSearchFieldCell)
+        let icon = cell.searchButtonRect(forBounds: field.bounds)
+        let rest = cell.searchTextRect(forBounds: field.bounds)
+        // AppKit's text rect overlaps its magnifier slot by a point, at rest as well (26 and 27 pt).
+        let clear = icon.maxX - 1
+        #expect(window.makeFirstResponder(field))
+        let editor = try #require(field.currentEditor() as? NSTextView)
+        let box = field.convert(editor.convert(editor.bounds, to: nil), from: nil)
+        #expect(box.minX >= clear, "the field editor starts \(clear - box.minX) pt over the magnifier at \(width)")
+        #expect(abs(box.minX - rest.minX) <= 1, "the field editor starts at \(box.minX), the placeholder at rest at \(rest.minX) (\(width))")
+        // Typing shows the cancel button; the editor stays where it started.
+        editor.insertText("chief", replacementRange: NSRange(location: 0, length: 0))
+        field.layoutSubtreeIfNeeded()
+        let typed = field.convert(editor.convert(editor.bounds, to: nil), from: nil)
+        #expect(typed.minX >= clear, "with text typed the field editor starts \(clear - typed.minX) pt over the magnifier at \(width)")
     }
 
     /// The middle (in pixel rows) of the drawn ink between columns `x0` and `x1`; nil when none.
