@@ -112,28 +112,25 @@ public final class CreationInputBuffer {
         return events.filter { $0.creation == lane }.map(\.event)
     }
 
-    /// Ends the hold. Each lane whose terminal is not the focused tab `focused` gets its keys as typed text through
-    /// `writer(tab)` (that terminal's input, by the terminal id its creation chose, nil when no terminal of the window
-    /// shows it), so a key never runs into another terminal than the one it was typed for. Returns the rest in typing
-    /// order, to run again as typed: the focused lane's keys, keys of no lane, and any lane with a key that is not plain
-    /// text (a chord runs only through the app's dispatch) or whose terminal is gone.
-    public func take(focused: String?, writer: (String) -> (@MainActor (Data) -> Void)?) -> [NSEvent] {
-        for (lane, tab) in laneTabs where tab != focused {
-            let keys = events.filter { $0.creation == lane }.map(\.event)
-            let text = keys.map(Self.typedText)
-            guard !keys.isEmpty, !text.contains(nil), let write = writer(tab) else { continue }
-            write(Data(text.compactMap { $0 }.joined().utf8))
-            events.removeAll { $0.creation == lane }
+    /// Ends the hold. A key of a lane whose terminal is not the focused tab `focused` goes to that terminal only, by
+    /// `typer(tab)` (that terminal's own key encoder, nil when no view of it exists any more: its keys go with it, as a
+    /// closed creation's do), never to the focused one: a held Ctrl-C must not reach another terminal's process. A
+    /// Command chord is an app action, not terminal input: it runs again as typed, as before. Returns the keys to run
+    /// again as typed, in typing order (the focused lane's, keys of no lane, Command chords), and how many keys were
+    /// dropped because their terminal is gone.
+    public func take(focused: String?, typer: (String) -> (@MainActor (NSEvent) -> Void)?) -> (replay: [NSEvent], dropped: Int) {
+        var replay: [NSEvent] = [], dropped = 0
+        var typers: [String: (@MainActor (NSEvent) -> Void)?] = [:]
+        for (event, lane) in events {
+            guard let lane, let tab = laneTabs[lane], tab != focused, !event.modifierFlags.contains(.command) else {
+                replay.append(event)
+                continue
+            }
+            if typers[tab] == nil { typers[tab] = .some(typer(tab)) }
+            if let typeKey = typers[tab] ?? nil { typeKey(event) } else { dropped += 1 }
         }
-        return take()
-    }
-
-    /// What plain typing `event` sends to a terminal (its characters), nil for a Command chord or a function key (an
-    /// arrow, F1): those run only through the app's dispatch.
-    public static func typedText(_ event: NSEvent) -> String? {
-        guard event.modifierFlags.isDisjoint(with: [.command, .function]), let text = event.characters, !text.isEmpty,
-              !text.unicodeScalars.contains(where: { (0xF700...0xF8FF).contains($0.value) }) else { return nil }
-        return text
+        events.removeAll()
+        return (replay, dropped)
     }
 
     /// Calls `expired` after `limit` unless a creation of this hold still waits for its reply then

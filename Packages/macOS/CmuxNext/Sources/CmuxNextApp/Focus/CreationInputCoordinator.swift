@@ -232,10 +232,8 @@ final class CreationInputCoordinator {
         }
         buffers[window.windowNumber] = nil
         let end = holdEnds.end(in: window.windowNumber, forced: force ? forcedEnd : nil)
-        let pending = buffer.take(focused: controller.focus.state.terminalTab) { tab in
-            guard case .terminal(let entry)? = controller.content?.panes.values.first(where: { $0.currentTabKey == tab })?.currentContent else { return nil }
-            return entry.session.sendBytes
-        }
+        let (pending, dropped) = buffer.take(focused: controller.focus.state.terminalTab) { router.services?.cache.existingTerminal($0)?.session.surfaceView.typeHeldKey }
+        if dropped > 0 { Self.logger.notice("creation hold of window \(window.windowNumber, privacy: .public): \(dropped, privacy: .public) held key(s) dropped with their closed terminal") }
         if end == .limitReached {
             // The person's keys for a new terminal waited the whole bound and go on now, into whatever has the focus.
             Self.logger.notice("creation hold of window \(window.windowNumber, privacy: .public) ended at its limit, not on focus: \(pending.count, privacy: .public) held key(s) go on now; last action \(router.lastInterception?.action.rawValue ?? "-", privacy: .public)")
