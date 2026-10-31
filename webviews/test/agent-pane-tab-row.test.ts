@@ -234,12 +234,12 @@ await requireBrowserLane("agent-pane-tab-row.test.ts", async () => {
   // session, so the badge (Labs preview only) said the same thing on every tab. The enforcement
   // detail stays in the continuation review (handoff/ReviewMessage.tsx); the row draws no badge.
   test("Labs preview on: the row draws no coverage badge, in a chat or on an empty New Tab", async () => {
-    for (const target of [`session=${CHAT}`, `newtab&cwd=${encodeURIComponent("/home/dev/uploader")}`]) {
+    for (const target of [`session=${CHAT}`, "new&newtab"]) {
       const page = await browser!.newPage({ viewport: { width: 900, height: 700 } });
       await installPaintedFrames(page);
       await page.goto(url(target));
       // The New Tab is its start page (its field), with no session and no summary.
-      if (target.startsWith("newtab")) await page.locator(".nt-field").waitFor();
+      if (target === "new&newtab") await page.waitForSelector(".acpmux-newtab, .nt-location");
       else await page.getByText(REPLY).waitFor();
       await page.waitForFunction(() =>
         Boolean((window as { cmuxAcpmuxBridge?: Bridge }).cmuxAcpmuxBridge?.applyPreview),
@@ -253,6 +253,7 @@ await requireBrowserLane("agent-pane-tab-row.test.ts", async () => {
         const tools = document.querySelector<HTMLElement>(".acpmux-handoff-header-tools")!;
         return { badges: tools.querySelectorAll(".acpmux-session-coverage").length, text: tools.innerText };
       });
+      if (target === "new&newtab") expect(await page.getByText(REPLY).count()).toBe(0);
       expect(tools.badges, target).toBe(0);
       expect(tools.text, target).not.toContain("Coverage unverified");
       expect(tools.text, target).not.toContain("Native policy");
