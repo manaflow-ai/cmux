@@ -3,7 +3,6 @@
 use super::*;
 use crate::no_panic::JsonExt;
 use crate::no_panic::LockExt;
-use cmux_json::JsonSet as _;
 
 mod briefs;
 pub(super) mod cancel_refused;
