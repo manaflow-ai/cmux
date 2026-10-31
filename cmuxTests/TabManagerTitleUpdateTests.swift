@@ -350,6 +350,21 @@ struct TabManagerTitleUpdateTests {
     }
 
     @Test
+    func crossWindowAttachRequestsTerminalPortalReattach() throws {
+        let source = TabManager(autoWelcomeIfNeeded: false)
+        let destination = TabManager(autoWelcomeIfNeeded: false)
+        let workspace = try #require(source.selectedWorkspace)
+        let terminal = try #require(workspace.panels.values.compactMap { $0 as? TerminalPanel }.first)
+        let before = terminal.viewReattachToken
+
+        let detached = try #require(source.detachWorkspace(tabId: workspace.id))
+        destination.attachWorkspace(detached, select: true)
+
+        #expect(workspace.owningTabManager === destination)
+        #expect(terminal.viewReattachToken == before + 1)
+    }
+
+    @Test
     func pendingTitleUpdateFlushesBeforeSessionSnapshot() async throws {
         let suiteName = "TabManagerTitleSessionSnapshot.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
