@@ -12,11 +12,15 @@ import {
   isImageFile,
   pastedImageFiles,
   installFileDropLifecycle,
+  sourceOfFile,
   thumbnail,
+  withSource,
   type AttachmentError,
+  type AttachmentSource,
   type ComposerAttachment,
   type DroppedKind,
   type LinkItem,
+  type SourceKind,
 } from "../attachments";
 import type { UploadResult } from "../cloudUploads";
 import { ImageViewerContext } from "../conversation/imageViewerContext";
@@ -27,6 +31,7 @@ import { pasteLines, pasteName } from "../conversation/promptCollapse";
 import { keptThumb, keepThumb } from "./imagePool";
 import { useStripReorder } from "./stripReorder";
 import { intakeFiles, type IntakeError } from "./intakeFiles";
+import { attachSources } from "./attachmentSources";
 import { type DropOverlayState, HIDDEN_DROP, landDropOverlay, stepDropOverlay } from "./dropOverlayState";
 import { FADE_BAND_PX } from "../MarkdownField";
 import { useScrollEdges } from "../summary/scrollEdges";
@@ -77,6 +82,9 @@ export type AttachmentIntakeOptions = {
   /// The chat column a file drag lifts the drop overlay over (composer/dropOverlayState.ts): over
   /// it a drop attaches; elsewhere in the pane the overlay only arms. Unset: the whole page.
   dropZone?(): Element | null;
+  /// True while the composer takes nothing (a Cloud start is out, App.tsx `cloudStarting`): a paste
+  /// or a file drop stages no attachment then, since the tab closes with only the sent prompt.
+  locked?(): boolean;
   /// The chat the composer shows. A file is the chat's it was pasted or dropped in: its placeholder
   /// shows only there, and a read that ends after the composer moved to another chat hands its
   /// chips to `elsewhere` instead of this chat's strip.
@@ -89,6 +97,8 @@ export type AttachmentIntakeOptions = {
   /// When the composer moves to another chat: whether the files still being read move with it (a
   /// harness switch's new session carries the prompt). A chat that had no id yet always carries.
   carries?(): boolean;
+  /// Overrides the fresh-chat default for a recovery that deliberately carries text only.
+  suppressCarry?(from?: string, to?: string): boolean;
 };
 
 /** Append a batch while replacing the same attachment id and collapsing repeated local path links
@@ -162,7 +172,7 @@ export function chipRemoved(state: {
 }
 
 /// Reads `given` into chips (useAttachmentIntake's `attach`); `again`, a failed chip's Retry.
-type Intake = (given: (File | MadeFile)[], uploads?: boolean, kind?: DroppedKind, again?: string) => Promise<void>;
+type Intake = (given: (File | MadeFile)[], uploads?: boolean, kind?: SourceKind, again?: string) => Promise<void>;
 
 /// How many cancelled loading chips keep their file for an undo (`revive`).
 const PARKED_MAX = 16;
@@ -256,19 +266,26 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   useLayoutEffect(() => {
     const from = lastScope.current;
     lastScope.current = scope;
-    if (from === scope || (from !== undefined && !live.current.options.carries?.())) return;
+    if (
+      from === scope ||
+      live.current.options.suppressCarry?.(from, scope) ||
+      (from !== undefined && !live.current.options.carries?.())
+    )
+      return;
     for (const batch of batches.current) if (batch.scope === from && !batch.bound) batch.scope = scope;
     setPending((chips) => chips.map((chip) => (chip.scope === from && !chip.bound ? { ...chip, scope } : chip)));
   }, [scope]);
   /// `uploads`: the person dropped, pasted or chose these, so the chat's host may save what the
   /// composer can't attach (a moved chat's machine, or this Mac for a local chat) and its chip sends
   /// the saved path (composer/intakeFiles.ts); never a capture. `kind`: the person's own drop or
-  /// paste, whose files the host of a chat on this Mac knows the paths of (`localPaths`). `again`:
-  /// the failed chip whose file `given` is, read again under its id (Retry): it keeps its place in
-  /// the strip and in the text, and its node there draws what the read makes.
+  /// paste, whose files the host of a chat on this Mac knows the paths of (`localPaths`), or pick in
+  /// the file input (`choose`), which the host asks only where its files came from. `again`: the
+  /// failed chip whose file `given` is, read again under its id (Retry): it keeps its place in the
+  /// strip and in the text, and its node there draws what the read makes.
   const [intake] = useState<Intake>(() => async (given, uploads = false, kind, again) => {
     if (given.length === 0) return;
     const files = again === undefined ? given : given.slice(0, 1);
+    const dropped: DroppedKind | undefined = kind === "choose" ? undefined : kind;
     const { options: current } = live.current;
     const batch = { scope: current.scope };
     // In the paste's or drop's own task, so React draws them before the next frame.
@@ -309,6 +326,46 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     const paths = current.localPaths;
     /// The chip each file became, by index, for its original's path arriving later.
     const made: (string | undefined)[] = [];
+    // The app each file came from: one the page made knows it (a capture cmux took); the host says
+    // the rest for the person's drop, paste or pick in the file input (composer/attachmentSources.ts,
+    // which answers within its deadline). A chip never waits for that answer: it goes in the moment
+    // it is ready, with the source known by then, and a later answer is added to it where it is
+    // staged in this chat's strip. A source is a label only, so a ready file never holds a send for
+    // it. One whose source nobody knows has none.
+    const fileSource: (AttachmentSource | undefined)[] = files.map((file) =>
+      isMadeFile(file) ? undefined : sourceOfFile(file),
+    );
+    const asked = kind
+      ? files.flatMap((file, index) => (isMadeFile(file) || fileSource[index] ? [] : [{ file, index }]))
+      : [];
+    if (asked.length > 0)
+      void attachSources(
+        kind!,
+        asked.map(({ file }) => file),
+      ).then((sources) => {
+        const late = new Map<string, AttachmentSource>();
+        sources.forEach((source, at) => {
+          if (!source) return;
+          const { file, index } = asked[at]!;
+          fileSource[index] = source;
+          // A failed chip's Retry reads this same file again: it keeps the answer.
+          withSource(file, source);
+          // A chip already staged here before the answer gets it now.
+          const id = made[index];
+          if (id && staged.has(id)) late.set(id, source);
+        });
+        if (late.size > 0)
+          setAttachments((chips) =>
+            chips.map((chip) => {
+              const source = late.get(chip.id);
+              return source && !chip.source ? { ...chip, source } : chip;
+            }),
+          );
+      });
+    const sourced = (index: number, attachment: ComposerAttachment): ComposerAttachment => {
+      const source = fileSource[index];
+      return source && !attachment.source ? { ...attachment, source } : attachment;
+    };
     /// The chips this batch put in this chat's strip (not handed to another chat).
     const staged = new Set<string>();
     const marked = new Set<number>();
@@ -320,11 +377,11 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
       setPending((chips) => chips.filter((chip) => chip.id !== id));
       return true;
     };
-    const ready = (index: number, attachment: ComposerAttachment) => {
+    const ready = (index: number, read: ComposerAttachment): void => {
       if (!settle(index)) return;
-      const thumb = keptThumb(attachment.id);
+      const thumb = keptThumb(read.id);
       if (thumb) keepThumb(shown[index]!.id, thumb);
-      attachment = { ...attachment, id: shown[index]!.id };
+      const attachment = sourced(index, { ...read, id: shown[index]!.id });
       made[index] = attachment.id;
       // The composer moved to another chat meanwhile: the chip is the chat's it was pasted in.
       const now = live.current.options;
@@ -360,7 +417,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
         settled,
         {
           allowImages: current.allowImages,
-          ...(kind && paths ? { localPaths: (batch: File[]) => paths(kind, batch) } : {}),
+          ...(dropped && paths ? { localPaths: (batch: File[]) => paths(dropped, batch) } : {}),
           ...(uploads && current.upload ? { upload: current.upload } : {}),
           // A file not yet a chip: its tile's x. One already a chip (an image whose original still
           // uploads): the chip is gone from the strip (its x, or it was sent), so its original
@@ -418,7 +475,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   });
   const [attach] = useState(
     () =>
-      (given: (File | MadeFile)[], uploads = false, kind?: DroppedKind) =>
+      (given: (File | MadeFile)[], uploads = false, kind?: SourceKind) =>
         intake(given, uploads, kind),
   );
   /// A chip the host makes from something of its own (a long dictation recording it sends to the
@@ -559,6 +616,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   });
   useEffect(() => {
     const paste = (event: ClipboardEvent) => {
+      if (live.current.options.locked?.()) return;
       const owned = live.current.options.pasteTarget(event.target as Node);
       if (!owned) return;
       const pasted = filesFrom(event.clipboardData);
@@ -573,12 +631,15 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     };
     const removeFileDropLifecycle = installFileDropLifecycle(
       (files) => {
+        if (live.current.options.locked?.()) return showDrop(HIDDEN_DROP);
         showDrop(landDropOverlay(dropRef.current, files));
         void attach(files, true, "drop");
       },
       (active, event) => {
-        setDropping(active);
-        const { allowImages, dropZone } = live.current.options;
+        const { allowImages, dropZone, locked } = live.current.options;
+        const refused = locked?.() === true;
+        setDropping(active && !refused);
+        if (refused) return showDrop(HIDDEN_DROP);
         showDrop(stepDropOverlay(dropRef.current, active, event, allowImages, dropZone?.()));
       },
     );
