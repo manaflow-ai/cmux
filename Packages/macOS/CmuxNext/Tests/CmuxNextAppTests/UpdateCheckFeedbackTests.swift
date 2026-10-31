@@ -6,6 +6,7 @@ import CmuxNextNowPlaying
 @testable import CmuxNextSidebar
 @testable import CmuxNextUpdater
 import CmuxNextTerminal
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -16,7 +17,7 @@ import Testing
 /// within the frame); a second request while checking shows the same
 /// progress and fetches nothing new; and the check's status takes the
 /// bottom-left slot from the Now Playing card instead of waiting behind it.
-@MainActor @Suite(.serialized) struct UpdateCheckFeedbackTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct UpdateCheckFeedbackTests {
     /// A feed that holds every fetch until ``release()`` and counts them.
     actor HeldFeed: AppcastFetching {
         private(set) var fetches = 0
