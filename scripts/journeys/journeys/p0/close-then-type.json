@@ -1,7 +1,7 @@
 {
  "id": "close-then-type",
  "priority": "P0",
- "title": "Cmd-W on the focused right pane, then a line typed at once: the whole line runs in the left pane (8 tries)",
+ "title": "Cmd-W on the focused right pane, a line typed INSIDE the close warning's daemon read (held by debug.close.hold), then the read answers: the whole line runs in the left pane (8 tries)",
  "why": "STATUS 1333/1353: journey r3-after-switch round s3 (cmux19, build a0f707a2) pressed Cmd-W in the right pane and typed at once; the left shell ran 'cho ...'. A person's Cmd-W on a live terminal waits for the daemon's read (TabCloseGuard) and the closing terminal keeps the keyboard meanwhile, so the first key went into it.",
  "source": "P0 close-then-type (cmux-ad, 2026-10-31): a key typed after a close goes to the pane that has the focus after the close, never dropped",
  "budget_seconds": 200,
@@ -54,6 +54,12 @@
    "title": "try 1: click into the right pane"
   },
   {
+   "do": "rpc",
+   "title": "try 1: hold the close warning's daemon read (debug.close.hold, DEBUG builds)",
+   "method": "debug.close.hold",
+   "params": {}
+  },
+  {
    "do": "key",
    "title": "try 1: Cmd-W closes the focused right pane",
    "key": "w",
@@ -72,6 +78,12 @@
    "text": "echo ct1-${nonce}x$((6*7))",
    "enter": true,
    "mark": "t1"
+  },
+  {
+   "do": "rpc",
+   "title": "try 1: release the read (its reply's 'resumed' must be 1: the line was typed inside it)",
+   "method": "debug.close.release",
+   "params": {}
   },
   {
    "do": "expect",
@@ -115,6 +127,12 @@
    "title": "try 2: click into the right pane"
   },
   {
+   "do": "rpc",
+   "title": "try 2: hold the close warning's daemon read (debug.close.hold, DEBUG builds)",
+   "method": "debug.close.hold",
+   "params": {}
+  },
+  {
    "do": "key",
    "title": "try 2: Cmd-W closes the focused right pane",
    "key": "w",
@@ -133,6 +151,12 @@
    "text": "echo ct2-${nonce}x$((6*7))",
    "enter": true,
    "mark": "t2"
+  },
+  {
+   "do": "rpc",
+   "title": "try 2: release the read (its reply's 'resumed' must be 1: the line was typed inside it)",
+   "method": "debug.close.release",
+   "params": {}
   },
   {
    "do": "expect",
@@ -176,6 +200,12 @@
    "title": "try 3: click into the right pane"
   },
   {
+   "do": "rpc",
+   "title": "try 3: hold the close warning's daemon read (debug.close.hold, DEBUG builds)",
+   "method": "debug.close.hold",
+   "params": {}
+  },
+  {
    "do": "key",
    "title": "try 3: Cmd-W closes the focused right pane",
    "key": "w",
@@ -194,6 +224,12 @@
    "text": "echo ct3-${nonce}x$((6*7))",
    "enter": true,
    "mark": "t3"
+  },
+  {
+   "do": "rpc",
+   "title": "try 3: release the read (its reply's 'resumed' must be 1: the line was typed inside it)",
+   "method": "debug.close.release",
+   "params": {}
   },
   {
    "do": "expect",
@@ -237,6 +273,12 @@
    "title": "try 4: click into the right pane"
   },
   {
+   "do": "rpc",
+   "title": "try 4: hold the close warning's daemon read (debug.close.hold, DEBUG builds)",
+   "method": "debug.close.hold",
+   "params": {}
+  },
+  {
    "do": "key",
    "title": "try 4: Cmd-W closes the focused right pane",
    "key": "w",
@@ -255,6 +297,12 @@
    "text": "echo ct4-${nonce}x$((6*7))",
    "enter": true,
    "mark": "t4"
+  },
+  {
+   "do": "rpc",
+   "title": "try 4: release the read (its reply's 'resumed' must be 1: the line was typed inside it)",
+   "method": "debug.close.release",
+   "params": {}
   },
   {
    "do": "expect",
@@ -298,6 +346,12 @@
    "title": "try 5: click into the right pane"
   },
   {
+   "do": "rpc",
+   "title": "try 5: hold the close warning's daemon read (debug.close.hold, DEBUG builds)",
+   "method": "debug.close.hold",
+   "params": {}
+  },
+  {
    "do": "key",
    "title": "try 5: Cmd-W closes the focused right pane",
    "key": "w",
@@ -316,6 +370,12 @@
    "text": "echo ct5-${nonce}x$((6*7))",
    "enter": true,
    "mark": "t5"
+  },
+  {
+   "do": "rpc",
+   "title": "try 5: release the read (its reply's 'resumed' must be 1: the line was typed inside it)",
+   "method": "debug.close.release",
+   "params": {}
   },
   {
    "do": "expect",
@@ -359,6 +419,12 @@
    "title": "try 6: click into the right pane"
   },
   {
+   "do": "rpc",
+   "title": "try 6: hold the close warning's daemon read (debug.close.hold, DEBUG builds)",
+   "method": "debug.close.hold",
+   "params": {}
+  },
+  {
    "do": "key",
    "title": "try 6: Cmd-W closes the focused right pane",
    "key": "w",
@@ -377,6 +443,12 @@
    "text": "echo ct6-${nonce}x$((6*7))",
    "enter": true,
    "mark": "t6"
+  },
+  {
+   "do": "rpc",
+   "title": "try 6: release the read (its reply's 'resumed' must be 1: the line was typed inside it)",
+   "method": "debug.close.release",
+   "params": {}
   },
   {
    "do": "expect",
@@ -420,6 +492,12 @@
    "title": "try 7: click into the right pane"
   },
   {
+   "do": "rpc",
+   "title": "try 7: hold the close warning's daemon read (debug.close.hold, DEBUG builds)",
+   "method": "debug.close.hold",
+   "params": {}
+  },
+  {
    "do": "key",
    "title": "try 7: Cmd-W closes the focused right pane",
    "key": "w",
@@ -438,6 +516,12 @@
    "text": "echo ct7-${nonce}x$((6*7))",
    "enter": true,
    "mark": "t7"
+  },
+  {
+   "do": "rpc",
+   "title": "try 7: release the read (its reply's 'resumed' must be 1: the line was typed inside it)",
+   "method": "debug.close.release",
+   "params": {}
   },
   {
    "do": "expect",
@@ -481,6 +565,12 @@
    "title": "try 8: click into the right pane"
   },
   {
+   "do": "rpc",
+   "title": "try 8: hold the close warning's daemon read (debug.close.hold, DEBUG builds)",
+   "method": "debug.close.hold",
+   "params": {}
+  },
+  {
    "do": "key",
    "title": "try 8: Cmd-W closes the focused right pane",
    "key": "w",
@@ -499,6 +589,12 @@
    "text": "echo ct8-${nonce}x$((6*7))",
    "enter": true,
    "mark": "t8"
+  },
+  {
+   "do": "rpc",
+   "title": "try 8: release the read (its reply's 'resumed' must be 1: the line was typed inside it)",
+   "method": "debug.close.release",
+   "params": {}
   },
   {
    "do": "expect",
