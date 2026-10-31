@@ -16,7 +16,8 @@ final class HomeTopFadeView: NSView {
     private var effect: NSVisualEffectView?
     private let solid = CALayer()
     private let hairline = CALayer()
-    private let gradient = CAGradientLayer()
+    /// The band's gradient (read by tests: its colours are the band as drawn).
+    private(set) var gradient = CAGradientLayer()
     /// progressiveBlur: Gaussian backdrops, weakest to strongest, each masked to end higher up, so the
     /// blur grows toward the top (a variable blur built from the public mask and the backdrops
     /// HeaderBackdropView already uses).
