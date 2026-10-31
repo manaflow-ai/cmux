@@ -26,7 +26,10 @@
         "webviews/src/agent-session/acpmux/composerControls.css",
         "webviews/src/agent-session/acpmux/composerFooterShared.css",
         "webviews/src/agent-session/acpmux/composerLook.css",
-        "webviews/src/agent-session/acpmux/composerStates.css"
+        "webviews/src/agent-session/acpmux/composerStates.css",
+        "webviews/src/agent-session/acpmux/HostError.tsx",
+        "webviews/src/agent-session/acpmux/hostLine.ts",
+        "webviews/src/agent-session/acpmux/hostRetry.ts"
       ]
     },
     "new-tab": {
