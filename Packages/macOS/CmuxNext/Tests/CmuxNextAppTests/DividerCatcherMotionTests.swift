@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextApp
 import CmuxNextDesign
 @testable import CmuxNextLayout
+import CmuxNextTestSupport
 import Testing
 
 /// Lawrence (2026-10-23): splits lag, more with Chromium pages. While a page window shows, every
@@ -11,7 +12,7 @@ import Testing
 /// hover: at 30 panes 64 % of `advanceFrame` (PL-motion-core profile, cmux10s, b553d0648b1). Nobody
 /// grabs a divider on a spring: the window's catcher areas, which every panel follows, change once
 /// when the layout lands and never during the motion.
-@MainActor @Suite(.serialized) struct DividerCatcherMotionTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct DividerCatcherMotionTests {
     final class Panes: LayoutPaneContentProvider {
         func makeContentView(for pane: PaneID) -> NSView { NSView() }
     }

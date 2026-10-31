@@ -49,8 +49,9 @@ fn hostname() -> Option<String> {
     if unsafe { libc::gethostname(buf.as_mut_ptr().cast(), buf.len()) } != 0 {
         return None;
     }
-    let end = buf.iter().position(|&b| b == 0).unwrap_or(buf.len());
-    String::from_utf8(buf[..end].to_vec()).ok()
+    // The name ends at the first NUL, or fills the buffer.
+    let name = buf.split(|&b| b == 0).next()?;
+    String::from_utf8(name.to_vec()).ok()
 }
 
 fn start_run(

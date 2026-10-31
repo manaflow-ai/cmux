@@ -328,4 +328,6 @@ fn run_ids_are_deterministic_per_due_time() {
         run_id("auto_bbbbbbbbbbbbbbbbbbbb", FRI_0900)
     );
     assert!(run_id("auto_aaaaaaaaaaaaaaaaaaaa", 0).starts_with("run_"));
+    // The id is stored and compared across machines: its derivation must never change.
+    assert_eq!(run_id("auto_aaaaaaaaaaaaaaaaaaaa", FRI_0900), "run_d2wwsnkgaqvsacwxjsaj");
 }
