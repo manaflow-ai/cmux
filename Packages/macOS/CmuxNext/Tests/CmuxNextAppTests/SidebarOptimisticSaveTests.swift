@@ -257,12 +257,16 @@ struct SidebarDocOptimisticGroupTests {
         })
         if placement == "pending-pin" {
             try #require(store.handle(.setPinned([first], true), model: SidebarModel(), drag: drag, pinTitle: "Pin", unpinTitle: "Unpin"))
+            try #require(refusals.shown.isEmpty, "the setup pin must apply before testing a drop into its group")
         }
         let created = store.handle(.createGroup(GroupID("g_new"), name: "Fresh", color: .green, workspaces: [first]), model: SidebarModel(),
                                    drag: drag, pinTitle: "Pin", unpinTitle: "Unpin")
         try #require(created)
         let request = SidebarViewRequest(live: Self.live + [SidebarDocWorkspaceRef(sessionID: "s1", workspaceID: "unplaced")])
         let group = try #require(store.rows(request)?.first(where: { $0.item == "g_new" }))
+        if placement == "pending-pin" {
+            try #require(group.section == SidebarDocStore.pinnedSection, "the group must follow its pending-pinned first member")
+        }
         // A drop names a group the list already shows. Use the reducer's actual placement, including a pending pin.
         let nodes: [SidebarNode] = [.group(SidebarGroup(id: GroupID("g_new"), name: "Fresh", workspaces: []))]
         let section = group.section == SidebarDocStore.pinnedSection
