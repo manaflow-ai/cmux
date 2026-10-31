@@ -36,6 +36,10 @@ public final class DaemonService {
     #endif
     /// Set while an administrator turned this machine's feature off: no endpoint, no re-attach.
     public let policyBlock = PolicyBlock()
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// `debug.close.hold` / `debug.close.release`: this daemon's close warning reads that a test holds.
+    public let closeReadHold = DebugCloseReadHold()
+    #endif
     /// Retry Now and Restart cmux-tui while the local daemon cannot be reached (cx-jniyz.1).
     public let recovery = DaemonRecovery()
     public private(set) var connection: DaemonConnection?
