@@ -117,7 +117,10 @@ import Testing
         home.setFrameOrigin(.zero)
         let lights = try lights(window)
         try #require(inWindow(home.searchCapsule).intersects(lights), "the fixture must put the stale Search field under the traffic lights before the callback")
-        try #require(controller.root.onMainPaneMove, "the window controller did not wire the main pane card's move")()
+        // Bind the closure before calling it: calling `#require`'s result inline crashes the
+        // Swift 6.2 type checker (ConstraintSystem recordArgumentList assertion).
+        let mainPaneMoved = try #require(controller.root.onMainPaneMove, "the window controller did not wire the main pane card's move")
+        mainPaneMoved()
         home.layoutSubtreeIfNeeded()
         #expect(!inWindow(home.searchCapsule).intersects(lights), "the main pane card moved and Home's Search field stayed under the lights")
     }
