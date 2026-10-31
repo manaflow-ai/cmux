@@ -136,6 +136,6 @@ for (const navigates of [false, true]) {
     }
     selection.resolve(true);
     await run;
-    expect(folder).toBe(navigates ? "/newer" : undefined);
+    expect(folder).toEqual(navigates ? "/newer" : undefined);
   });
 }
