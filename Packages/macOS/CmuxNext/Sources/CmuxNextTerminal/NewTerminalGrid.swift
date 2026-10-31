@@ -1,5 +1,5 @@
 public import CoreGraphics
-import CmuxNextTerminalGeometry
+public import CmuxNextTerminalGeometry
 
 /// The grid a new terminal tab in a pane spawns at, so its PTY starts at the
 /// grid its view will show and its first frame is already the right size.

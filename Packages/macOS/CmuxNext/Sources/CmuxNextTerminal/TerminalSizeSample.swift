@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+public import CmuxNextTerminalGeometry
 import GhosttyNextKit
 
 /// What a terminal's link to its PTY owner holds (``TerminalIO/linkGrids``).
