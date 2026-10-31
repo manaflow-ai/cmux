@@ -139,6 +139,22 @@ struct AttachmentSourceTests {
         #expect(record.source(.drop, names: ["three.png"], gestureAt: clocks.wall - 0.0009) != nil)
     }
 
+    /// Two gestures of one kind a few milliseconds apart: the older one's late ask is older than the
+    /// newer record by more than the page clock's rounding, so it never takes that record.
+    @Test func anAskAFewMillisecondsOlderThanTheRecordAnswersNothing() {
+        final class Clocks { var uptime: TimeInterval = 100; var wall: TimeInterval = 1_793_000_000 }
+        let clocks = Clocks()
+        let record = AgentPaneDroppedPaths(now: { clocks.uptime }, wall: { clocks.wall })
+        let older = clocks.wall
+        clocks.uptime += 0.01
+        clocks.wall += 0.01
+        record.stashSource([URL(fileURLWithPath: "/tmp/newer/shot.png")], items: 1, claimed: nil, kind: .paste)
+        #expect(record.source(.paste, names: ["shot.png"], gestureAt: older) == nil)
+        // The newer paste's own ask, its clock read in whole milliseconds, still finds it.
+        let own = (clocks.wall * 1000).rounded(.down) / 1000
+        #expect(record.source(.paste, names: ["shot.png"], gestureAt: own) != nil)
+    }
+
     @Test func theAskCarriesTheGesturesTime() {
         let request = AgentPaneRequest(body: ["method": "chat.attach.source",
                                               "params": ["kind": "paste", "names": ["a.png"], "gestureAt": 1_793_000_000_500]])
