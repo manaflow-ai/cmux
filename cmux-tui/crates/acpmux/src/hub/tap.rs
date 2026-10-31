@@ -218,9 +218,11 @@ impl Hub {
                             tap_hub.observe_task_line(&tap_session, line);
                         }
                         // Raw stream-json line; translated messages follow. Claude's echo of a
-                        // prompt (`--replay-user-messages`) carries its model-sized copies.
+                        // prompt (`--replay-user-messages`) carries its model-sized copies, and
+                        // its assistant and user lines the bodies those messages carry.
                         let mut line = params.clone().unwrap_or(Value::Null);
                         crate::model_copies::scrub_logged(&mut line);
+                        crate::claude_stdio::leave_out_bodies(&kind, &mut line);
                         return tap_hub.append_logged(&tap_session, "in", &kind, line, host_seq).1;
                     }
                     if method == crate::rpc::method::SESSION_UPDATE {
@@ -272,7 +274,9 @@ impl Hub {
                 && msg.method() == Some(crate::rpc::method::SESSION_UPDATE)
                 && let Some(params) = value.get_mut("params")
             {
-                // The chat's own thread is never one of its subagents.
+                // The chat's own thread is never one of its subagents. Seed the
+                // native root before handling updates so echoed root activity cannot
+                // create a phantom child; replay keeps live/background semantics.
                 let own = tap_session
                     .meta
                     .lock()
@@ -281,6 +285,9 @@ impl Hub {
                     .clone();
                 let mut tree = tap_session.subagents.lock().unwrap_or_else(|e| e.into_inner());
                 tree.set_own(own.as_deref());
+                if let Some(root) = own.as_deref() {
+                    tree.set_root(root);
+                }
                 subagent = tree.annotate_live(params, !kind.ends_with(".replay"));
             }
             // A live update's workflow changes feed the daemon's index of them.
@@ -351,3 +358,7 @@ fn times_request(params: &Value, awaiting_first_delta: &AtomicBool) -> bool {
         _ => false,
     }
 }
+
+#[cfg(test)]
+#[path = "tap_bodies_tests.rs"]
+mod bodies_tests;
