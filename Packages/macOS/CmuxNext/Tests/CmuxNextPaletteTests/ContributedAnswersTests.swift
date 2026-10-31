@@ -30,6 +30,12 @@ struct ContributedAnswersTests {
             return stream
         }
 
+        /// acpmux has no answer for `query` (disconnected or refused): its stream ends with no rows.
+        func refuse(_ query: String) async {
+            await ContributedAnswersTests.until { self.streams[query] != nil }
+            streams[query]?.finish()
+        }
+
         /// acpmux answers `query` with `rows`, and the query's stream ends (the chats page's one answer).
         /// The palette may ask in a later turn than the key's: this waits for the ask first.
         func answer(_ query: String, _ rows: [PaletteItem]) async {
@@ -47,11 +53,11 @@ struct ContributedAnswersTests {
     @MainActor final class Ran { var ids: [String] = [] }
 
     /// Search with a history page (section order 40, above the chats' 30) and the chats contribution.
-    static func palette(chats: Chats, ran: Ran) -> (PaletteController, ActionRegistry) {
+    static func palette(chats: Chats, ran: Ran, extraHistory: [PaletteItem] = []) -> (PaletteController, ActionRegistry) {
         _ = NSApplication.shared
         var sources = PaletteSources()
         let history = [item("history:quokka", "Quokka notes", ran: ran), item("history:zebra", "Zebra wiki", ran: ran),
-                       item("session:wombat", "Wombat session", ran: ran)]
+                       item("session:wombat", "Wombat session", ran: ran)] + extraHistory
         sources.searchContributions = [
             PaletteSearchContribution(id: "agentChats", title: "Agent Chats", order: 30, searchesChats: true) {
                 PalettePageSpec(id: "agentChats", title: "Agent Chats", placeholder: "", providers: [],
@@ -147,5 +153,81 @@ struct ContributedAnswersTests {
         await chats.answer("wombat", [Self.item("chat:wombat", "Wombat chat", ran: ran)])
         await Self.until { !ran.ids.isEmpty }
         #expect(ran.ids == ["chat:wombat"], "Return ran \(ran.ids)")
+    }
+
+    /// Review 3 F1 ("flak" then "flaw", here words no command or row matches): "zqxjk" lists a chat; "zqxjw"
+    /// matches nothing ranked. The old query's chat stays on screen
+    /// only as a stand-in: a Return before acpmux answers "zqxjw" does not open it, and waits for the answer.
+    @Test func anOldQuerysChatIsNeverTheNewQuerysReturn() async {
+        let chats = Chats(), ran = Ran()
+        let (palette, registry) = Self.palette(chats: chats, ran: ran)
+        defer { palette.closeForTest() }
+        _ = registry.perform("search.chats", invocation: ActionInvocation(arguments: [:], origin: .user))
+        await palette.model.settle()
+        palette.model.send(.setQuery("zqxjk"))
+        await palette.model.settle()
+        await chats.answer("zqxjk", [Self.item("chat:flaky", "Zqxjk flaky test", ran: ran)])
+        await Self.until { palette.model.rows.contains { $0.id == "chat:flaky" } }
+        palette.model.send(.setQuery("zqxjw"))
+        await palette.model.settle()
+        palette.model.send(.activate(nil))
+        await palette.model.settle()
+        await Self.until { chats.streams["zqxjw"] != nil }
+        #expect(ran.ids.isEmpty, "Return ran \(ran.ids) before acpmux answered the new query")
+        await chats.answer("zqxjw", [Self.item("chat:flaw", "Zqxjw parser flaw", ran: ran)])
+        await Self.until { !ran.ids.isEmpty }
+        #expect(ran.ids == ["chat:flaw"], "Return ran \(ran.ids)")
+    }
+
+    /// Review 3 F1: acpmux gives no answer for the new query (disconnected or refused): the old query's chats
+    /// leave the screen, they do not stay under later queries.
+    @Test func noAnswerClearsTheOldQuerysChats() async {
+        let chats = Chats(), ran = Ran()
+        let (palette, registry) = Self.palette(chats: chats, ran: ran)
+        defer { palette.closeForTest() }
+        _ = registry.perform("search.chats", invocation: ActionInvocation(arguments: [:], origin: .user))
+        await palette.model.settle()
+        palette.model.send(.setQuery("zqxjk"))
+        await palette.model.settle()
+        await chats.answer("zqxjk", [Self.item("chat:flaky", "Zqxjk flaky test", ran: ran)])
+        await Self.until { palette.model.rows.contains { $0.id == "chat:flaky" } }
+        palette.model.send(.setQuery("zqxjw"))
+        await palette.model.settle()
+        await chats.refuse("zqxjw")
+        await Self.until { !palette.model.rows.contains { $0.id == "chat:flaky" } }
+        #expect(!palette.model.rows.contains { $0.id == "chat:flaky" }, "rows: \(palette.model.rows.map(\.id))")
+    }
+
+    /// Review 3 F2: a one-letter query whose ranked rows fill the page's 400 still shows the best chats.
+    @Test func aShortQueryThatFillsThePageStillShowsTheBestChats() async {
+        let chats = Chats(), ran = Ran()
+        let many = (0..<450).map { Self.item("history:a\($0)", "a page \($0)", ran: ran) }
+        let (palette, registry) = Self.palette(chats: chats, ran: ran, extraHistory: many)
+        defer { palette.closeForTest() }
+        _ = registry.perform("search.chats", invocation: ActionInvocation(arguments: [:], origin: .user))
+        await palette.model.settle()
+        palette.model.send(.setQuery("a"))
+        await palette.model.settle()
+        await chats.answer("a", (0..<3).map { Self.item("chat:a\($0)", "a chat \($0)", ran: ran) })
+        await Self.until { palette.model.rows.contains { $0.id == "chat:a0" } }
+        let ids = palette.model.rows.map(\.id)
+        #expect(ids.contains("chat:a0") && ids.contains("chat:a2"), "the best chats show: \(ids.filter { $0.hasPrefix("chat:") })")
+        #expect(ids.count <= PaletteContributedAnswers.pageRowLimit, "\(ids.count) rows")
+    }
+
+    /// Review 3 M1: in the Chats & agents scope acpmux gives no answer (disconnected or refused): Return runs the
+    /// best ranked row (the agent session) at once, it does not wait for chats that will not come.
+    @Test func theChatsScopesReturnRunsTheBestSessionWhenAcpmuxDoesNotAnswer() async {
+        let chats = Chats(), ran = Ran()
+        let (palette, _) = Self.palette(chats: chats, ran: ran)
+        defer { palette.closeForTest() }
+        _ = palette.show(scope: PaletteScopeID.chats)
+        await palette.model.settle()
+        palette.model.send(.setQuery("wombat"))
+        palette.model.send(.activate(nil))
+        await palette.model.settle()
+        await chats.refuse("wombat")
+        await Self.until { !ran.ids.isEmpty }
+        #expect(ran.ids == ["session:wombat"], "Return ran \(ran.ids)")
     }
 }

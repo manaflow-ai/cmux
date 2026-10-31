@@ -42,6 +42,26 @@ import Testing
         #expect(!windows.isAnswered(spec), "the old connection's rows do not answer the new connection's request")
         windows.apply(.init(window: spec.window, generation: generation, revision: 1, full: true, keys: [], rows: []))
         #expect(windows.isAnswered(spec))
+        // Review 3 M2: a reconnect, then acpmux refuses the request (busy): still not answered.
+        windows.connected { _, params in sent.append(params) }
+        windows.requestFailed(spec.window)
+        #expect(!windows.isAnswered(spec), "a refused request after a reconnect does not answer with the old rows")
+    }
+
+    /// Review 3 M1: without a connection to acpmux, or when it refuses the query, the page's answer ends at once
+    /// with no rows (the palette does not wait for chats that will not come).
+    @Test(.timeLimit(.minutes(1))) func aQueryEndsAtOnceWithoutAcpmux() async throws {
+        let windows = AcpmuxChatWindows()
+        var none: [[PaletteItem]] = []
+        for await answer in AgentChatsPalettePage.answers("zebra", windows: windows, open: { _ in }) { none.append(answer) }
+        #expect(none.allSatisfy(\.isEmpty), "no connection: no rows")
+        var sent: [[String: any Sendable]] = []
+        windows.connected { _, params in sent.append(params) }
+        let stream = AgentChatsPalettePage.answers("quokka", windows: windows, open: { _ in })
+        windows.requestFailed(AgentChatsPalettePage.window)
+        var refused: [[PaletteItem]] = []
+        for await answer in stream { refused.append(answer) }
+        #expect(refused.allSatisfy(\.isEmpty), "refused: no rows")
     }
 
     /// No regression (review of #28090): acpmux ranks every chat and says how many matched; when
