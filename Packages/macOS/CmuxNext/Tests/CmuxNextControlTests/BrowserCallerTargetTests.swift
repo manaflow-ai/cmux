@@ -161,6 +161,30 @@ import Testing
         #expect(error.code == "not_found")
     }
 
+    @Test(arguments: ["toggleBrowserDeveloperTools", "showBrowserJavaScriptConsole", "inspectBrowserElement"])
+    func inspectorActionsWithoutFocusRequirementsUseTheCallersBrowser(actionID: String) async throws {
+        var snapshot = Self.snapshot()
+        snapshot.topology.workspaces[1].screens[0].panes[1].selectedTabID = "tab-own"
+        // Inspectors also support app web views, so the catalog has no browserFocused requirement.
+        snapshot.catalog = ControlCatalog(actions: [
+            ControlActionInfo(id: actionID, title: actionID, category: "browser", categoryTitle: "Browser",
+                              cliName: nil, symbol: "hammer", keywords: [], shortcut: nil, shortcutConfig: nil,
+                              arguments: [], targets: ["pane"], requiresMask: 0, requires: [],
+                              isBound: true, isDebugOnly: false, mainMenu: nil),
+        ], contextMask: 1 << 1, targetKinds: ["pane", "tab"], debugActionsAvailable: false)
+        let (router, executor) = install(snapshot)
+        _ = try await router.handle(ControlRequest(method: "action.run", params: ["action": .string(actionID), "caller": Self.agent])).get()
+        #expect(executor.last?.target == ControlTargetRef(kind: "pane", id: "pane-beside"))
+
+        var alone = Self.snapshot(ownBrowser: false, neighbors: false)
+        alone.catalog = snapshot.catalog
+        let (refusing, refusingExecutor) = install(alone)
+        let refused = await refusing.handle(ControlRequest(method: "action.run", params: ["action": .string(actionID), "caller": Self.agent]))
+        guard case .failure(let error) = refused else { Issue.record("ran \(refused)"); return }
+        #expect(error.code == "not_found")
+        #expect(refusingExecutor.last == nil)
+    }
+
     /// Page verbs, actions and `identify` pick the same browser: one in another session (a
     /// remote workspace of the group) is passed over for the caller's own session's, since the
     /// CLI and MCP address the daemon of the caller's session.
