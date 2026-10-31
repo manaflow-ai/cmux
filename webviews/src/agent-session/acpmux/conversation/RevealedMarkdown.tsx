@@ -175,15 +175,26 @@ export function RevealedMarkdown({
   streaming,
   githubRepository,
   messageAt,
+  artifactIdentity,
+  artifactRevision,
 }: {
   text: string;
   streaming: boolean;
   githubRepository?: string;
   messageAt?: number;
+  artifactIdentity?: string;
+  artifactRevision?: number;
 }) {
   return (
     <MessageBoundary source={text}>
-      <Revealed text={text} streaming={streaming} githubRepository={githubRepository} messageAt={messageAt} />
+      <Revealed
+        text={text}
+        streaming={streaming}
+        githubRepository={githubRepository}
+        messageAt={messageAt}
+        artifactIdentity={artifactIdentity}
+        artifactRevision={artifactRevision}
+      />
     </MessageBoundary>
   );
 }
@@ -193,11 +204,15 @@ function Revealed({
   streaming,
   githubRepository,
   messageAt,
+  artifactIdentity,
+  artifactRevision,
 }: {
   text: string;
   streaming: boolean;
   githubRepository?: string;
   messageAt?: number;
+  artifactIdentity?: string;
+  artifactRevision?: number;
 }) {
   const { visible, fresh, now } = useStreamReveal(text, streaming);
   const prs = useContext(RowPullRequests);
@@ -211,6 +226,8 @@ function Revealed({
       githubRepository={githubRepository}
       messageAt={messageAt}
       trailing={prs?.length ? <PullRequestDock /> : undefined}
+      artifactIdentity={artifactIdentity}
+      artifactRevision={artifactRevision}
     >
       {visible}
     </Markdown>
