@@ -14,6 +14,12 @@ extension cmuxApp {
         manager.selectWorkspace(workspace)
     }
 
+    func moveSelectedWorkspaceToBottom(in manager: TabManager) {
+        guard let workspace = manager.selectedWorkspace else { return }
+        manager.moveTabsToBottom([workspace.id])
+        manager.selectWorkspace(workspace)
+    }
+
     func moveSelectedWorkspace(in manager: TabManager, toWindow windowId: UUID) {
         guard let workspace = manager.selectedWorkspace else { return }
         _ = AppDelegate.shared?.moveWorkspaceToWindow(workspaceId: workspace.id, windowId: windowId, focus: true)

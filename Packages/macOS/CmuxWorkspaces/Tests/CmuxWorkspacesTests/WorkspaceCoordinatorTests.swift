@@ -189,6 +189,152 @@ struct WorkspaceCoordinatorTests {
     }
 
     @Test
+    func moveTabsToBottomKeepsPinnedTierAboveUnpinned() {
+        let (model, host, _, reorder) = makeWorld()
+        let pinnedA = CoordinatorStubTab(isPinned: true)
+        let pinnedB = CoordinatorStubTab(isPinned: true)
+        let plain1 = CoordinatorStubTab()
+        let plain2 = CoordinatorStubTab()
+        model.tabs = [pinnedA, pinnedB, plain1, plain2]
+        reorder.moveTabsToBottom([plain1.id, pinnedA.id])
+        // Each selection sinks to the end of its own tier; tiers stay separated.
+        #expect(model.tabs.map(\.id) == [pinnedB.id, pinnedA.id, plain2.id, plain1.id])
+        #expect(host.orderChanges.last?.sorted(by: { $0.uuidString < $1.uuidString })
+            == [pinnedA.id, plain1.id].sorted(by: { $0.uuidString < $1.uuidString }))
+    }
+
+    @Test
+    func moveTabToBottomSinksSingleRowWithinItsTier() {
+        let (model, _, _, reorder) = makeWorld()
+        let plain1 = CoordinatorStubTab()
+        let plain2 = CoordinatorStubTab()
+        let plain3 = CoordinatorStubTab()
+        model.tabs = [plain1, plain2, plain3]
+        reorder.moveTabToBottom(plain1.id)
+        #expect(model.tabs.map(\.id) == [plain2.id, plain3.id, plain1.id])
+    }
+
+    @Test
+    func moveTabToBottomOnLastRowPublishesNoOrderChange() {
+        let (model, host, _, reorder) = makeWorld()
+        let plain1 = CoordinatorStubTab()
+        let plain2 = CoordinatorStubTab()
+        model.tabs = [plain1, plain2]
+        let before = host.orderChanges.count
+        reorder.moveTabToBottom(plain2.id)
+        #expect(model.tabs.map(\.id) == [plain1.id, plain2.id])
+        #expect(host.orderChanges.count == before)
+    }
+
+    @Test
+    func moveToBottomSinksGroupedChildrenAndKeepsAnchorFirst() throws {
+        let (model, host, groups, reorder) = makeWorld()
+        let first = CoordinatorStubTab()
+        let middle = CoordinatorStubTab()
+        let last = CoordinatorStubTab()
+        let outside = CoordinatorStubTab()
+        model.tabs = [first, middle, last, outside]
+        let groupId = try #require(groups.createWorkspaceGroup(
+            name: "G", childWorkspaceIds: [first.id, middle.id, last.id]
+        ))
+        // Grouping existing workspaces promotes the first child to anchor, so
+        // `first` is the anchor here and only `middle`/`last` can be sunk.
+        let anchorId = try #require(model.workspaceGroups.first { $0.id == groupId }?.anchorWorkspaceId)
+        #expect(anchorId == first.id)
+
+        reorder.moveTabsToBottom([middle.id])
+
+        #expect(model.tabs.map(\.id) == [outside.id, first.id, last.id, middle.id])
+        #expect([first, middle, last].allSatisfy { $0.groupId == groupId })
+        let changes = host.orderChanges.count
+        reorder.moveTabsToBottom([middle.id])
+        #expect(host.orderChanges.count == changes)
+
+        reorder.moveTabToTop(middle.id)
+        #expect(model.tabs.map(\.id) == [first.id, middle.id, last.id, outside.id])
+    }
+
+    @Test
+    func moveTabsToBottomSinksMembersInsideEachOfTwoGroups() throws {
+        let (model, host, groups, reorder) = makeWorld()
+        _ = host
+        let a1 = CoordinatorStubTab()
+        let a2 = CoordinatorStubTab()
+        let b1 = CoordinatorStubTab()
+        let b2 = CoordinatorStubTab()
+        model.tabs = [a1, a2, b1, b2]
+        let groupA = try #require(groups.createWorkspaceGroup(name: "A", childWorkspaceIds: [a1.id, a2.id]))
+        let groupB = try #require(groups.createWorkspaceGroup(name: "B", childWorkspaceIds: [b1.id, b2.id]))
+        let anchorA = try #require(model.workspaceGroups.first { $0.id == groupA }?.anchorWorkspaceId)
+        let anchorB = try #require(model.workspaceGroups.first { $0.id == groupB }?.anchorWorkspaceId)
+
+        // a1 and b1 became their groups' anchors, so a3/b3 are the sinkable members.
+        #expect(anchorA == a1.id)
+        #expect(anchorB == b1.id)
+        let a3 = CoordinatorStubTab(); let b3 = CoordinatorStubTab()
+        model.tabs.append(contentsOf: [a3, b3])
+        model.assignGroup(workspaceId: a3.id, groupId: groupA)
+        model.assignGroup(workspaceId: b3.id, groupId: groupB)
+
+        // One member from each group sinks within its own run; groups do not interleave.
+        reorder.moveTabsToBottom([a2.id, b2.id])
+
+        let order = model.tabs.map(\.id)
+        #expect(order.firstIndex(of: a2.id)! > order.firstIndex(of: a3.id)!)
+        #expect(order.firstIndex(of: b2.id)! > order.firstIndex(of: b3.id)!)
+        #expect(order.firstIndex(of: anchorA)! < order.firstIndex(of: a2.id)!)
+        #expect(order.firstIndex(of: anchorB)! < order.firstIndex(of: b2.id)!)
+    }
+
+    @Test
+    func moveTabsToBottomKeepsAPinnedGroupMemberInsideItsGroup() throws {
+        let (model, host, groups, reorder) = makeWorld()
+        _ = host
+        let child1 = CoordinatorStubTab(isPinned: true)
+        let child2 = CoordinatorStubTab(isPinned: true)
+        let outside = CoordinatorStubTab()
+        model.tabs = [child1, child2, outside]
+        let groupId = try #require(groups.createWorkspaceGroup(
+            name: "G", childWorkspaceIds: [child1.id, child2.id]
+        ))
+
+        // child1 became the anchor, so child2 is the pinned member that can sink.
+        let child3 = CoordinatorStubTab(isPinned: true)
+        model.tabs.append(child3)
+        model.assignGroup(workspaceId: child3.id, groupId: groupId)
+
+        reorder.moveTabsToBottom([child2.id])
+
+        // The member sinks within its group run and keeps its group and pin state.
+        let order = model.tabs.map(\.id)
+        #expect(order.firstIndex(of: child2.id)! > order.firstIndex(of: child3.id)!)
+        #expect(child2.groupId == groupId)
+        #expect(child2.isPinned)
+    }
+
+    @Test
+    func moveTabsToBottomRelocatesAWholeGroupWithoutReorderingItsMembers() throws {
+        let (model, host, groups, reorder) = makeWorld()
+        _ = host
+        let child1 = CoordinatorStubTab()
+        let child2 = CoordinatorStubTab()
+        let outside = CoordinatorStubTab()
+        model.tabs = [child1, child2, outside]
+        let groupId = try #require(groups.createWorkspaceGroup(
+            name: "G", childWorkspaceIds: [child1.id, child2.id]
+        ))
+        let anchorId = try #require(model.workspaceGroups.first { $0.id == groupId }?.anchorWorkspaceId)
+        let membersBefore = model.tabs.filter { $0.groupId == groupId }.map(\.id)
+
+        // Moving the anchor relocates the whole run; member order inside is untouched.
+        reorder.moveTabsToBottom([anchorId])
+
+        #expect(model.tabs.filter { $0.groupId == groupId }.map(\.id) == membersBefore)
+        let order = model.tabs.map(\.id)
+        #expect(order.firstIndex(of: outside.id)! < order.firstIndex(of: anchorId)!)
+    }
+
+    @Test
     func reorderWorkspaceClampsUnpinnedAbovePinnedBoundary() {
         let (model, host, _, reorder) = makeWorld()
         _ = host

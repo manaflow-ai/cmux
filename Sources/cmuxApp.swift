@@ -1601,6 +1601,11 @@ struct cmuxApp: App {
         }
         .disabled(workspace == nil || workspaceIndex == 0)
 
+        Button(String(localized: "contextMenu.moveToBottom", defaultValue: "Move to Bottom")) {
+            moveSelectedWorkspaceToBottom(in: manager)
+        }
+        .disabled(workspace == nil || workspaceIndex == manager.tabs.count - 1)
+
         Menu(String(localized: "contextMenu.moveWorkspaceToWindow", defaultValue: "Move Workspace to Window")) {
             Button(String(localized: "contextMenu.newWindow", defaultValue: "New Window")) {
                 moveSelectedWorkspaceToNewWindow(in: manager)
