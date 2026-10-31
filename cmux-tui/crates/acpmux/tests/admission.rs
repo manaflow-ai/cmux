@@ -213,20 +213,13 @@ fn text(out: &Output) -> String {
     format!("{} {}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr))
 }
 
-/// The JSON error envelope a refused command printed on stderr.
-fn envelope(out: &Output) -> Value {
-    let err = String::from_utf8_lossy(&out.stderr);
-    err.lines()
-        .rev()
-        .find_map(|l| serde_json::from_str::<Value>(l).ok())
-        .unwrap_or_else(|| panic!("no JSON error envelope: {}", text(out)))
-}
-
 /// Started past the cap: the reply's `admission` warning and the CLI's stderr say `words`.
 fn assert_warned(out: &Output, words: &str) {
     assert!(out.status.success(), "a cap never refuses: {}", text(out));
     let v: Value = serde_json::from_slice(&out.stdout).unwrap_or(Value::Null);
-    let warning = v["admission"]["warning"].as_str().unwrap_or_default();
+    let admission = v.get("admission").or_else(|| v.pointer("/_meta/acpmux/admission"));
+    let warning =
+        admission.and_then(|a| a.get("warning")).and_then(Value::as_str).unwrap_or_default();
     assert!(warning.contains(words), "the warning says {words:?}: {}", text(out));
     assert!(warning.contains("started anyway"), "{warning}");
     let err = String::from_utf8_lossy(&out.stderr);
