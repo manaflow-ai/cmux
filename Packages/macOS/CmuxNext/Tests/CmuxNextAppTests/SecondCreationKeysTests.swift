@@ -441,6 +441,12 @@ struct SecondCreationKeysTests {
                     pane.pane.tabs.first { $0.kind == .pty && !ProvisionalTab.isProvisional(surface: $0.surface) }?.surface
                 }.first
             }
+            // First the held split's pane and the end of its hold, read from the app (no daemon request): a test's wait-for
+            // runs on the app's own daemon connection, whose requests run in order, so a wait-for sent now would hold the
+            // split's request back until it timed out (and the line waits for that split).
+            try await PinnedPageTests.until({ split() != nil && !coordinator.isHolding(in: p.window) }, report: {
+                "waited for the held Cmd-D's pane and the end of its hold; saw refusals \(refusals), \(Self.describe(p.content, p.window, p.services))"
+            })
             let inSecond = try await Self.ran("l2x\(nonce)x42", on: p.second.surface, in: p)
             let made = split()
             let madeScreen = if let made { await Self.screen(made, in: p) } else { "" }
