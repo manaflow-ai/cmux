@@ -98,6 +98,20 @@ struct CloudClassicPageTests {
         #expect(records.first?["revision"]?.stringValue == "1")
     }
 
+    @Test func theListKeepsAnOptimisticPowerChangeUntilItsRecordSettles() async throws {
+        let machines = Machines()
+        var machine = CloudMachine(id: "vm-1", status: .running)
+        machine.pendingChange = .pausing
+        machines.list = [machine]
+        let (provider, _) = Self.provider(machines)
+        let pending = try await provider.call("cmux.cloud.machine.list", params: .object([:]), context: Self.page)
+        #expect(pending["machines"]?.arrayValue?.first?["status"]?.stringValue == "pausing")
+
+        machines.list = [CloudMachine(id: "vm-1", status: .paused)]
+        let settled = try await provider.call("cmux.cloud.machine.list", params: .object([:]), context: Self.page)
+        #expect(settled["machines"]?.arrayValue?.first?["status"]?.stringValue == "paused")
+    }
+
     @Test func signedOutReadsAuthAndRefusesTheList() async throws {
         let machines = Machines()
         machines.signedIn = false
