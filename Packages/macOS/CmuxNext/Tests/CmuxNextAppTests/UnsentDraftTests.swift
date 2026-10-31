@@ -112,6 +112,26 @@ struct UnsentDraftTests {
         #expect(try Data(contentsOf: directory.appending(path: aside)) == corrupt)
     }
 
+    /// A text past the limit is refused, as acpmux refuses one: the saved draft stays, never nil.
+    @Test func aTextPastTheLimitKeepsTheSavedDraft() throws {
+        let directory = try Self.directory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appending(path: AgentUnsentDrafts.fileName)
+        let saved = String(repeating: "s", count: AgentUnsentDrafts.maximumCharacters - 1)
+        AgentUnsentDrafts(file: file).set(saved, for: "tab-1")
+
+        let drafts = AgentUnsentDrafts(file: file)
+        // Typed before the page was handed it: the merge is past the limit, so nothing changes.
+        drafts.typed("x", for: "tab-1")
+        #expect(drafts.draft(for: "tab-1") == saved)
+        drafts.set(saved + "\n\nx", for: "tab-1")
+        #expect(AgentUnsentDrafts(file: file).draft(for: "tab-1") == saved)
+        // At the limit it is kept.
+        let atLimit = String(repeating: "s", count: AgentUnsentDrafts.maximumCharacters)
+        drafts.set(atLimit, for: "tab-1")
+        #expect(AgentUnsentDrafts(file: file).draft(for: "tab-1") == atLimit)
+    }
+
     /// The merge keeps both texts once, and leaves a text that already holds the other as it is.
     @Test func theMergeKeepsBothOnce() {
         #expect(AgentUnsentDrafts.merged(typed: "b", kept: "a") == "a\n\nb")

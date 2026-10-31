@@ -14,8 +14,9 @@ import CmuxNextCompat
 /// set aside, never replaced by an empty or a partial one.
 public final class AgentUnsentDrafts {
     public static let fileName = "agent-unsent-drafts.json"
-    /// A longer text is not kept (acpmux's own draft limit).
-    static let maximumCharacters = 1_000_000
+    /// A longer text is not kept (acpmux's own draft limit, `Hub::MAX_COMPOSER_DRAFT_CHARS`; the web's
+    /// composerDraft.ts `MAX_DRAFT_CHARS`, pinned equal by composer-draft-orderings.test.tsx).
+    public static let maximumCharacters = 1_000_000
 
     nonisolated private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-pane.unsent-drafts")
     let file: URL?
@@ -87,10 +88,15 @@ public final class AgentUnsentDrafts {
     }
 
     /// Keeps `text` as tab `key`'s draft; blank text forgets it (the tab's chat started or closed,
-    /// or its page cleared a draft it had).
+    /// or its page cleared a draft it had). A text past ``maximumCharacters`` is refused, as acpmux
+    /// refuses one: the tab keeps the draft it had. Before (cmux#28204 review at b7cddbbf), it was
+    /// taken as no draft, so a merge past the limit removed the saved draft.
     public func set(_ text: String, for key: String) {
-        let keep = !Self.isBlank(text) && text.count <= Self.maximumCharacters
-        let value = keep ? text : nil
+        guard text.unicodeScalars.count <= Self.maximumCharacters else {
+            Self.logger.error("unsent draft past the limit not kept; the previous one stays")
+            return
+        }
+        let value = Self.isBlank(text) ? nil : text
         guard drafts[key] != value else { return }
         drafts[key] = value
         if value == nil { undelivered.remove(key) }
