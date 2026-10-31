@@ -131,6 +131,24 @@ struct HomeAgentMessagesTests {
         #expect(rows.map(\.plainText) == ["question", "[agent_mux → a1]\nplease check", "[a1 → agent_mux]\nchecked", "done"])
     }
 
+    /// User 2026-10-30: Chief's messages to its agents and their reports fold into one row per
+    /// answer that names the agents; the full messages show only when that row is expanded.
+    @Test func severalAgentMessagesAfterOneAnswerFoldIntoOneRow() throws {
+        var book = HomeAgentMessages()
+        _ = book.apply(run(revision: 1, messages: [
+            .init(id: "tell", sequence: 1, revision: 1, peer: "a1", outgoing: true, text: "please check", date: date),
+            .init(id: "tell2", sequence: 2, revision: 1, peer: "a2", outgoing: true, text: "please build", date: date),
+            .init(id: "report", sequence: 3, revision: 1, peer: "a1", outgoing: false, text: "checked", date: date),
+        ]))
+        let rows = book.inserting(into: [question()], summary: nil)
+        #expect(rows.count == 2)
+        let fold = try #require(rows.last)
+        #expect(fold.isReadOnly)
+        #expect(fold.plainText.contains("a1") && fold.plainText.contains("a2"))
+        #expect(!fold.plainText.contains("please check"))
+        #expect(!fold.plainText.contains("checked"))
+    }
+
     @Test func reportFragmentsWithTheSameTimestampKeepTheirStepSequence() {
         var book = HomeAgentMessages()
         let fragments = (0..<12).reversed().map { index in
