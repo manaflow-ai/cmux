@@ -1,5 +1,6 @@
 import CmuxNextActions
 import CmuxNextAgentPane
+import CmuxNextCloud
 @testable import CmuxNextApp
 import CmuxNextDaemon
 import Darwin
@@ -43,10 +44,36 @@ struct AgentTabRemoteStartTests {
         #expect(folders == ["/srv/app", "/home/cmux/work", "/home/cmux/work/repo"])
     }
 
-    /// Exercise the tab store's first-Send route through the real attach client, including
-    /// capability negotiation, and inspect the frame received by the remote daemon.
-    private func start(harness: String?, model: String?, seedCwd: String? = "/home/dev/project",
-                       expectedCwd: String = "/home/dev/project") async throws -> [String: Any] {
+    /// A teammate's Cloud machine (its link's `vm_kind: "team"`): the start is refused as a
+    /// teammate's machine, so the card offers New Cloud Machine, and nothing reaches the machine
+    /// (cmux#29214). The endpoint would fail the test if it were ever asked.
+    @Test func aTeammatesMachineRefusesAsATeamMachineAndSendsNothing() async throws {
+        let (tabs, key) = try makeTabs(seedCwd: "/home/dev/project")
+        await #expect(throws: AgentRemoteStartRefusal.teamMachine(machine: "Team fixture")) {
+            _ = try await tabs.startRemoteChat(key, machine: "Team fixture", ownerLink: { nil }, teammate: { true },
+                                               endpoint: { Issue.record("a teammate's machine was dialed"); throw CancellationError() })
+        }
+        #expect(tabs.sessions[key] == nil)
+    }
+
+    /// Only an owner check's refusal becomes the teammate one, and only on a teammate's link; the
+    /// owner check itself is never skipped (`host_unverified` stays for a machine of no known kind).
+    @Test func onlyAnUnverifiedOwnerOnATeammatesLinkIsATeamRefusal() {
+        #expect(AgentRemoteStartRefusal.classified("agent_session.host_unverified", teammate: true) == "agent_session.team_vm_blocked")
+        #expect(AgentRemoteStartRefusal.classified("agent_session.host_unverified", teammate: false) == "agent_session.host_unverified")
+        #expect(AgentRemoteStartRefusal.classified("agent_session.timeout", teammate: true) == "agent_session.timeout")
+        #expect(AgentRemoteStartRefusal.teamMachine(machine: "vm").userMessage.contains("teammate"))
+    }
+
+    /// A link's `vm_kind: "team"` answer names the machine a teammate's; an owner answer never does.
+    @Test func aTeamAnswerIsATeammatesLinkAndAnOwnerAnswerIsNot() {
+        let key = CloudLinkKey(machine: "vm")
+        #expect(CloudLinkSocket(key: key, path: "/tmp/s", generation: nil, callerIsTeammate: true).callerIsTeammate)
+        #expect(!CloudLinkSocket(key: key, path: "/tmp/s", generation: nil, callerOwnsVM: true, callerIsTeammate: true).callerIsTeammate)
+        #expect(!CloudLinkSocket(key: key, path: "/tmp/s", generation: nil).callerIsTeammate)
+    }
+
+    private func makeTabs(seedCwd: String?) throws -> (AgentTabStore, String) {
         let store = DaemonStore()
         var tab = TabSnapshot(surface: 7, kind: .conversation, title: "New chat")
         tab.conversation = ConversationTabRef(agentSession: AgentSessionRef(host: "registry:cloud-fixture", harness: "claude"))
@@ -59,7 +86,14 @@ struct AgentTabRemoteStartTests {
         ], showcase: true)
         tabs.lookup = { key in store.tab(id: key)?.agentSession.map { ($0, store) } }
         tabs.remoteSeeds[key] = AgentPaneSeedSource(AgentPaneSeed(cwd: seedCwd, harness: "claude", model: "claude-seed-model"))
+        return (tabs, key)
+    }
 
+    /// Exercise the tab store's first-Send route through the real attach client, including
+    /// capability negotiation, and inspect the frame received by the remote daemon.
+    private func start(harness: String?, model: String?, seedCwd: String? = "/home/dev/project",
+                       expectedCwd: String = "/home/dev/project") async throws -> [String: Any] {
+        let (tabs, key) = try makeTabs(seedCwd: seedCwd)
         let daemon = try RemoteStartDaemon()
         async let received = daemon.firstStart()
         let started = try await tabs.startRemoteChat(key, machine: "Cloud fixture", harness: harness, model: model,

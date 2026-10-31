@@ -77,7 +77,7 @@ extension CEFRuntime {
     /// every call keeps its browser's order. Nil when the browser is gone.
     private func sendDevTools(_ browser: Int32, method: String, encodedParams: String) -> CEFDevToolsSend? {
         guard let shim else { return nil }
-        // Chromium answers some methods inside ExecuteDevToolsMethod, before a
+        // Chromium answers some methods inside the shim call (SendDevToolsMessage), before a
         // waiter exists; without this the result was dropped and the call
         // timed out after `timeout` (every device emulation lost 5 s on
         // Emulation.setEmitTouchEventsForMouse).
