@@ -16,6 +16,7 @@ extension SidebarListViewComponents {
         // A group's one row (`SidebarLayout+SoleMember`) is in its header's place and drags as its header did: the
         // whole group moves. A multi-selection holding it still drags its workspaces.
         var key = press.key
+        var standing: WorkspaceID?
         if let header = pressed.standingHeader, case let .workspace(id) = press.key,
            !(model.selection.contains(id) && model.selection.count > 1 && press.switchedOnPress == nil) {
             if let before = press.switchedOnPress {
@@ -24,6 +25,7 @@ extension SidebarListViewComponents {
                 if !patchSelection(from: .workspace(id), oldSelection: [id]) { reload(animated: false) }
             }
             key = header.key
+            standing = id
         }
         switch key {
         case let .workspace(id):
@@ -77,6 +79,7 @@ extension SidebarListViewComponents {
             target: origin
         )
         drag.grabOffsetX = press.point.x - rowFrame.minX
+        drag.standingWorkspace = standing
         drag.lastY = press.point.y
         drag.restFrame = rowFrame
         // A grouped row lifts at the list's inset; its indent comes back only for a drop into a group (morphLift).
