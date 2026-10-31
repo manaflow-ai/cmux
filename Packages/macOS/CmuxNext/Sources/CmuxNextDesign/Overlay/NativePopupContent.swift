@@ -299,9 +299,11 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
         let enabled = enabledRows
         if key == 53 { dismiss(); return true }
         if key == 125 || key == 126 {
-            guard !enabled.isEmpty else { return true }
-            let index = enabled.firstIndex(where: { $0.0.id == selected }) ?? (key == 125 ? -1 : 0)
-            selected = enabled[(index + (key == 125 ? 1 : -1) + enabled.count) % enabled.count].0.id
+            // Up and Down stay in the list; the rail has its own keys (Left and Right).
+            let list = bodyRows.isEmpty ? enabled : bodyRows
+            guard !list.isEmpty else { return true }
+            let index = list.firstIndex(where: { $0.0.id == selected }) ?? (key == 125 ? -1 : 0)
+            selected = list[(index + (key == 125 ? 1 : -1) + list.count) % list.count].0.id
             paintSelection()
             emit(.highlight, selected, nil)
             return true
@@ -310,7 +312,20 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
             if key == 124, row.kind == .action, row.opensSide { openSubmenu(row, view); return true }
             if key != 124 || row.kind == .submenu { activate(row, view: view); return true }
         }
+        if key == 123 || key == 124 { return stepRail(key == 124 ? 1 : -1) }
         return false
+    }
+
+    /// Left and Right move along the rail: the next tab that stays open (a harness or Starred) is
+    /// picked, as the web menus' arrows switch tabs. Tabs that close the menu (a launch) are skipped.
+    @discardableResult
+    func stepRail(_ step: Int) -> Bool {
+        let rail = Set((model?.rail ?? []).map(\.id))
+        let tabs = enabledRows.filter { rail.contains($0.0.id) && $0.0.kind == .action && $0.0.keepOpen == true }
+        guard !tabs.isEmpty else { return false }
+        let at = tabs.firstIndex(where: { $0.0.checked == true }) ?? (step > 0 ? -1 : 0)
+        emit(.pick, tabs[(at + step + tabs.count) % tabs.count].0.id, nil)
+        return true
     }
 
     /// The enabled row whose shortcut is this key, if any.
@@ -336,6 +351,9 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
     func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
         if textView.hasMarkedText() { return false }
         switch commandSelector {
+        // On an empty field Left and Right move along the rail; with text they move the caret.
+        case #selector(NSResponder.moveLeft(_:)) where textView.string.isEmpty: return stepRail(-1)
+        case #selector(NSResponder.moveRight(_:)) where textView.string.isEmpty: return stepRail(1)
         case #selector(NSResponder.moveDown(_:)): return handleKey(125)
         case #selector(NSResponder.moveUp(_:)): return handleKey(126)
         case #selector(NSResponder.insertNewline(_:)): return handleKey(36)

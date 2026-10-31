@@ -511,3 +511,10 @@ test("a digit typed into the full picker's empty search picks that numbered row"
   await f.emit("query", "2", "search");
   expect(f.picked).toEqual(["beta"]);
 });
+
+test("a native menu whose web look hides the field until typing still offers its search", async () => {
+  const f = await mount({ ...base(), searchField: "typed", search: { find: () => [], pick() {} } });
+  expect(f.latest().search?.id).toBe("query");
+  await f.emit("query", "al", "search");
+  expect(f.latest().search?.value).toBe("al");
+});

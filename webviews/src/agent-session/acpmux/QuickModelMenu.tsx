@@ -32,7 +32,6 @@ export type {
   QuickSearchGroup,
 } from "./QuickModelMenuFallback";
 
-const LONG_LIST = 8;
 const FILTER_ROWS = 9;
 const rowValue = (model: Pick<QuickModel, "family" | "id">) => JSON.stringify([model.family, model.id]);
 const runsOffers = (model: Pick<QuickModel, "id" | "offers">, current: string | undefined) =>
@@ -85,16 +84,9 @@ function NativeQuickModelMenu(props: QuickProps) {
   const forkTab = !query && shown?.fork ? shown : undefined;
   const inlineMore = newTab && families !== undefined;
   const moreShown = inlineMore && !query && moreFor !== undefined && moreFor === tab;
-  const look = menu.searchField ?? "always";
-  const listed =
-    look !== "long"
-      ? 0
-      : families
-        ? shown
-          ? shown.models.length + shown.more.length
-          : 0
-        : (search?.find("").length ?? 0);
-  const showField = !!search && (look === "always" || query !== "" || (look === "long" && listed > LONG_LIST));
+  // The native menu keeps its field whenever it can search: typing on a hidden field has no
+  // native path into the search. The `typed` and `long` looks are the web menu's (the gallery).
+  const showField = !!search;
   const found = useMemo(() => (query && search ? search.find(query) : undefined), [query, search]);
   const groupLook = menu.searchGroups ?? "harness";
   const groups = useMemo(

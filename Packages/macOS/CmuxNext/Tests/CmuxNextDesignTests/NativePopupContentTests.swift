@@ -71,6 +71,37 @@ import Testing
         #expect(picked == ["beta"])
     }
 
+    @Test func upAndDownStayInTheListAndLeftRightStepTheRail() throws {
+        let content = NativePopupContent()
+        var picked: [String?] = []
+        var highlighted: [String?] = []
+        content.emit = { type, id, _ in
+            if type == .pick { picked.append(id) }
+            if type == .highlight { highlighted.append(id) }
+        }
+        var model = Self.model()
+        model.search = NativePopupField(id: "query", value: "", placeholder: "Search")
+        model.rail = [NativePopupRow(id: "starred", kind: .action, label: "Starred", keepOpen: true),
+                      NativePopupRow(id: "claude", kind: .action, label: "Claude", checked: true, keepOpen: true),
+                      NativePopupRow(id: "launch", kind: .action, label: "Work"),
+                      NativePopupRow(id: "codex", kind: .action, label: "Codex", keepOpen: true)]
+        model.railWidth = 44
+        model.rows = [NativePopupRow(id: "alpha", kind: .action, label: "Alpha"),
+                      NativePopupRow(id: "beta", kind: .action, label: "Beta")]
+        content.update(model)
+        let field = try #require(content.subviews.compactMap { $0 as? NSSearchField }.first)
+        let editor = NSTextView()
+        #expect(content.control(field, textView: editor, doCommandBy: #selector(NSResponder.moveUp(_:))))
+        #expect(highlighted.last == "beta")
+        #expect(content.control(field, textView: editor, doCommandBy: #selector(NSResponder.moveDown(_:))))
+        #expect(highlighted.last == "alpha")
+        #expect(content.control(field, textView: editor, doCommandBy: #selector(NSResponder.moveRight(_:))))
+        #expect(content.control(field, textView: editor, doCommandBy: #selector(NSResponder.moveLeft(_:))))
+        #expect(picked == ["codex", "starred"])
+        editor.string = "al"
+        #expect(!content.control(field, textView: editor, doCommandBy: #selector(NSResponder.moveRight(_:))))
+    }
+
     private static func key(_ characters: String, code: UInt16) throws -> NSEvent {
         try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
                                       windowNumber: 0, context: nil, characters: characters,
