@@ -4,6 +4,7 @@
 import type { Page } from "playwright";
 import type { Instrumentation, LatencyAction, LatencyPageSpec } from "./measure";
 import { measureRailFlow, RAIL_DRAG_CASE } from "./rail-flow";
+import { measureRailSweep } from "./rail-sweep";
 
 /** After a run (not measured): resolves once the page holds still, 10 painted frames with no DOM
  *  change and nothing animating (a new session streaming its patch, a slide, a menu closing), so
@@ -1069,6 +1070,26 @@ export const RAIL_POINTER_PAGE: LatencyPageSpec = {
   ],
 };
 
+// The rail hover sweep (rail-sweep.ts): the pointer crosses up to 120 ticks of the rail's view and
+// back, one move per painted frame, on the 3,000-prompt chat and a typical 100-prompt one. Each move
+// is timed to the frame that shows its tick lit and the card previewing its prompt.
+const RAIL_SWEEP_TICKS = 120;
+export const RAIL_SWEEP_PAGES: LatencyPageSpec[] = [3000, 100].map((turns) => ({
+  name: `chat rail sweep ${turns}`,
+  path: `/test/latency/flows.html?mock&turns=${turns}&resident`,
+  ready: `document.documentElement.dataset.latencyFlowsReady === "true"`,
+  actions: [
+    {
+      id: `chat.rail.hover.sweep.${turns}`,
+      name: `rail hover sweep (${turns} prompts)`,
+      metricType: "target_painted",
+      requiredInstrumentation: requiredProfiled,
+      measureRun: measureRailSweep(RAIL_SWEEP_TICKS),
+      settle: railAway,
+    },
+  ],
+}));
+
 // Settings (test/latency/settings.html, host delay 40 ms): a sidebar section switch, from the input
 // to the first painted frame that shows the new section complete (its title and the host-read
 // buttons at its end). Two sections with host reads alternate. "click" is a pointer that lands and
@@ -1137,4 +1158,5 @@ export const PAGES: LatencyPageSpec[] = [
   SETTINGS_PAGE,
   RAIL_DRAG_PAGE,
   RAIL_POINTER_PAGE,
+  ...RAIL_SWEEP_PAGES,
 ];
