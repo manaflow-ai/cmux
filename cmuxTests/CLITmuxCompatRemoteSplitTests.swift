@@ -248,19 +248,19 @@ import Testing
     /// expression like `cd … && … claude` makes it try to exec the `cd` builtin as a
     /// binary, the pane exits immediately, and the teammate never gets a visible pane
     /// (it falls back to in-process). The fix runs every tmux respawn shell-command
-    /// through a POSIX login shell (/bin/sh -lc) so profile/path_helper runs
+    /// through a POSIX login shell (/bin/sh -l -c) so profile/path_helper runs
     /// before Ghostty execs the shell, not the expression.
     /// `tmux_start_command` stays the raw command so `#{pane_start_command}` / OMX-HUD
     /// detection keep reporting it.
     @Test func respawnPaneRunsShellExpressionsThroughLoginShell() throws {
-        let shellPrefix = "/bin/sh -lc "
+        let shellPrefix = "/bin/sh -l -c "
 
         // Claude Code teammate command: spaced `cd … && … claude` shell expression.
         let teammate = "cd /tmp/work && env CLAUDECODE=1 /opt/claude --agent-id alice@team --agent-name alice"
         let teammateResult = try respawnPaneForwardedCommand(teammate)
         #expect(
             teammateResult.command.hasPrefix(shellPrefix),
-            "teammate command must run through /bin/sh -lc, got: \(teammateResult.command)"
+            "teammate command must run through /bin/sh -l -c, got: \(teammateResult.command)"
         )
         #expect(
             teammateResult.command.contains(teammate),
@@ -370,8 +370,8 @@ import Testing
             extraEnvironment: ["CMUX_CLAUDE_TEAMS_SANDBOXED": "1"]
         )
         #expect(
-            inTeams.command.hasPrefix("/bin/sh -lc "),
-            "claude-teams respawn must still run through /bin/sh -lc, got: \(inTeams.command)"
+            inTeams.command.hasPrefix("/bin/sh -l -c "),
+            "claude-teams respawn must still run through /bin/sh -l -c, got: \(inTeams.command)"
         )
         #expect(
             inTeams.command.contains("export CLAUDE_CODE_SANDBOXED="),
@@ -449,7 +449,7 @@ import Testing
         )
         #expect(inTeams.startCommand == teammate)
 
-        let unchangedCommand = "/bin/sh -lc '\(teammate)'"
+        let unchangedCommand = "/bin/sh -l -c '\(teammate)'"
         let inOMO = try respawnPaneForwardedCommand(teammate)
         #expect(
             inOMO.command == unchangedCommand,
