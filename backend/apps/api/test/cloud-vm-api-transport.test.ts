@@ -186,6 +186,44 @@ describe("Cloud transport ownership", () => {
     expect(rows.get(TABLE_SNAPSHOT, snapshot)).toBeUndefined();
   });
 
+  // SW-00 / cmux-platform#187: listing a fleet must recover after one
+  // transient VM API failure, while pages 2+ share the report's first snapshot.
+  it("retries a failed VM API report and refreshes the next report without mixing pages", async () => {
+    let calls = 0
+    const listed = [
+      { id: `vm_${"a".repeat(26)}`, labels: { role: "cloud", cmux_next_team: team, "cmux/name": "machine-a" } },
+    ]
+    const fetchFn: typeof fetch = async (input, init) => {
+      const url = new URL(new Request(input, init).url)
+      expect(url.pathname).toBe("/v1/vms")
+      expect(url.searchParams.getAll("label")).toContain(`cmux_next_team=${team}`)
+      calls += 1
+      if (calls === 1) return Response.json({ error: "temporarily unavailable" }, { status: 503 })
+      return Response.json({ items: listed, nextCursor: null })
+    }
+    const driver = new VmApiCloudDriver(
+      { origin: "https://vm.test", key: "test-only-key", image: { id: "cloud-agent", revision: "v1" } },
+      "stack-team", team, fetchFn,
+    )
+    const selector = `cmux_next_team:${team}`
+
+    await expect(driver.list(selector, 0)).rejects.toMatchObject({ code: "cloud.provider.unavailable", final: false })
+    expect(calls).toBe(1)
+    const recovered = await driver.list(selector, 0)
+    expect(recovered).toMatchObject({ total: 1, vms: [{ id: listed[0]!.id, name: "machine-a" }] })
+    expect(calls).toBe(2)
+
+    // The next page is part of the same report and should never make another request.
+    expect(await driver.list(selector, 100)).toMatchObject({ total: 1, vms: [] })
+    expect(calls).toBe(2)
+
+    // The next offset-zero scan is a new report. A forever-cached success lies about new VMs.
+    listed.push({ id: `vm_${"b".repeat(26)}`, labels: { role: "cloud", cmux_next_team: team, "cmux/name": "machine-b" } })
+    const updated = await driver.list(selector, 0)
+    expect(updated).toMatchObject({ total: 2, vms: [{ name: "machine-a" }, { name: "machine-b" }] })
+    expect(calls).toBe(3)
+  })
+
   it("keeps private transport fields out of public machine and snapshot projections", () => {
     const { rows } = created()
     expect(publicMachine(rows.get<MachineRow>(TABLE_MACHINE, machine)!.row)).not.toHaveProperty("transport")
