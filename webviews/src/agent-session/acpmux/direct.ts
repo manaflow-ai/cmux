@@ -1,6 +1,6 @@
 import { UNKNOWN_AUTH, type SessionAuthQuery } from "./sessionAuth";
 import { parseJsonObjectFrame } from "../../protocol/jsonFrame";
-import { isRetryContinuation } from "./subagents/retryState";
+import { isRetryContinuation, subagentRetryNotice, type SubagentRetryNotice } from "./subagents/retryState";
 import { isModelRouterKind } from "./routerKinds";
 import type { SwitchPort } from "./harnessSwitch";
 import { answeredBy, participant, promptAuthor, type Participant } from "./multiplayer/participants";
@@ -568,6 +568,8 @@ export function permissionFromMessage(message: any, selectedSessionId: string): 
   };
 }
 
+/// A queue row's entry. acpmux's ask to resume a failed subagent (`retry`) comes from its `queued`
+/// record (`subagentRetryNotice`) or a listing (`listedRetry`); every rebuild of the entry passes it on.
 function queuedEntry(
   id: string,
   prompt: string,
@@ -577,6 +579,7 @@ function queuedEntry(
   message?: IncomingMessage,
   author?: Participant,
   inlineParts?: PromptContentPart[],
+  retry?: SubagentRetryNotice,
 ): QueuedPrompt {
   return {
     id,
@@ -587,6 +590,7 @@ function queuedEntry(
     ...(message ? { message } : {}),
     ...(author ? { author } : {}),
     ...(inlineParts?.length ? { inlineParts } : {}),
+    ...(retry && !message && !author ? { retry } : {}),
   };
 }
 
@@ -692,10 +696,34 @@ const oneLine = (text: string) => text.split(/\s+/).filter(Boolean).join(" ");
 /// one acpmux lists, else the one its newest `queued` or `queue_updated` record named (`authors`, by
 /// prompt id: null when that record named none), else the one the pane had: an attach's page can
 /// hold a teammate's edit without the `queued` record before it.
+/// A queue list's `subagentRetry` (acpmux `QueuedSubagentRetry`) as a row's resume.
+function listedRetry(raw: unknown): SubagentRetryNotice | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const { agentId, name, error } = raw as Record<string, unknown>;
+  const text = (value: unknown) => (typeof value === "string" && value.trim() ? value.trim() : undefined);
+  const [a, n, e] = [text(agentId), text(name), text(error)];
+  if (!a && !n) return undefined;
+  return { ...(n ? { name: n } : {}), ...(a ? { agentId: a } : {}), ...(e ? { error: e } : {}) };
+}
+
+/// The listing's resume, keeping the name and error the pane recovered for the same agent (from the
+/// `queued` record's words) where the listing names none: a resume queued before acpmux put them
+/// in its provenance lists only the agent id.
+function withRecovered(
+  listed: SubagentRetryNotice | undefined,
+  had: SubagentRetryNotice | undefined,
+): SubagentRetryNotice | undefined {
+  if (!listed || !had || !listed.agentId || listed.agentId !== had.agentId) return listed;
+  const name = listed.name ?? had.name;
+  const error = listed.error ?? had.error;
+  return { ...listed, ...(name ? { name } : {}), ...(error ? { error } : {}) };
+}
+
 export function mergeQueue(
   current: readonly QueuedPrompt[],
   listed: readonly any[],
   authors?: ReadonlyMap<string, Participant | null>,
+  edited?: ReadonlySet<string>,
 ): QueuedPrompt[] {
   const known = new Map(current.map((entry) => [entry.id, entry]));
   const merged = listed.map((entry) => {
@@ -745,6 +773,17 @@ export function mergeQueue(
       message,
       author,
       recordedPromptParts(entry, had?.inlineParts) ?? had?.inlineParts,
+      // A resume comes from acpmux's word only: the listing's `subagentRetry` (from the prompt's
+      // `subagent_retry` provenance, which an edit drops), else, from an acpmux that lists none,
+      // the one its `queued` record gave while the text is the same (the preview that text or cut
+      // from it). An edit, seen or missed, drops it; a null listing removes it.
+      message || author || edited?.has(id)
+        ? undefined
+        : "subagentRetry" in (entry ?? {})
+          ? withRecovered(listedRetry(entry.subagentRetry), had?.retry)
+          : whole && (preview.endsWith("…") || oneLine(had.prompt) === preview)
+            ? had.retry
+            : undefined,
     );
     // Whether a person's Stop holds it, as acpmux lists it (`heldByStop`); listed unheld, it was
     // let go. A list without the field (an older acpmux) keeps what the records said.
@@ -777,7 +816,8 @@ function sameQueuedEntry(a: QueuedPrompt, b: QueuedPrompt): boolean {
     JSON.stringify(a.images) === JSON.stringify(b.images) &&
     JSON.stringify(a.message) === JSON.stringify(b.message) &&
     JSON.stringify(a.author) === JSON.stringify(b.author) &&
-    JSON.stringify(a.inlineParts) === JSON.stringify(b.inlineParts)
+    JSON.stringify(a.inlineParts) === JSON.stringify(b.inlineParts) &&
+    JSON.stringify(a.retry) === JSON.stringify(b.retry)
   );
 }
 
@@ -1390,6 +1430,9 @@ export class AcpmuxDirectClient {
   /// Each waiting prompt's author as its newest `queued` or `queue_updated` record named it (null:
   /// none), kept while it waits, so acpmux's list (which names none) keeps it (mergeQueue).
   private queueAuthors = new Map<string, Participant | null>();
+  /// The waiting prompts edited since they were queued (`queue_updated`): the person's words now,
+  /// never acpmux's resume, whatever their text or client says (mergeQueue).
+  private queueEdited = new Set<string>();
   /// The session list a page at a time: the newest page opens the chat, the rest follow (cx-2lv1k).
   private readonly sessionPages = new SessionPager<Session>((method, params) => this.request(method, params));
   private sessionReread: ReturnType<typeof setTimeout> | undefined;
@@ -2243,6 +2286,7 @@ export class AcpmuxDirectClient {
     this.loadingOlder = undefined;
     this.rows.clear();
     this.queueAuthors.clear();
+    this.queueEdited.clear();
     this.forkedAtSeq = undefined;
     for (const id of this.failedPrompts.keys()) this.clearedBySwitch.add(id);
     for (const id of this.clearedBySwitch) {
@@ -2647,7 +2691,7 @@ export class AcpmuxDirectClient {
       if (author && !this.queueAuthors.has(entry.id)) this.queueAuthors.set(entry.id, author);
     }
     // The replayed `queued` records carry each prompt's whole text; acpmux's list gives the order.
-    this.queue = mergeQueue(this.queue, listed?.queue ?? kept.queue, this.queueAuthors);
+    this.queue = mergeQueue(this.queue, listed?.queue ?? kept.queue, this.queueAuthors, this.queueEdited);
     // From the frame the rows are drawn, not from the attach: a live record of the chat that comes
     // before it is asked (while the chat left detaches) is held too (`copyLive`).
     if (this.lastSeq > 0) this.copyLive = new Map();
@@ -3856,7 +3900,12 @@ export class AcpmuxDirectClient {
       latest !== undefined &&
       (latest.seq === undefined || typeof detail.lastSeq !== "number" || latest.seq >= detail.lastSeq);
     if (latestIsNew) this.summary = { ...this.summary, ...latest.session };
-    this.queue = mergeQueue(this.queue, (latestIsNew ? latest?.session.queue : detail.queue) ?? [], this.queueAuthors);
+    this.queue = mergeQueue(
+      this.queue,
+      (latestIsNew ? latest?.session.queue : detail.queue) ?? [],
+      this.queueAuthors,
+      this.queueEdited,
+    );
     // acpmux holds nothing older than the page: the pane offers no more history.
     if (result?.hasMore === false) this.historyExhausted = true;
     this.attachedGeneration = generation;
@@ -3967,7 +4016,7 @@ export class AcpmuxDirectClient {
       // A change that doesn't carry the queue keeps the one already mapped.
       if (session.queue) {
         if (watch) watch.latestSummary = { session, seq: typeof params?.seq === "number" ? params.seq : undefined };
-        this.queue = mergeQueue(this.queue, session.queue, this.queueAuthors);
+        this.queue = mergeQueue(this.queue, session.queue, this.queueAuthors, this.queueEdited);
       }
       // The machine of a chat shown from the Mac's copy is back: read the chat from it now (an
       // attach of a recreated session replaces the copy). A row naming another session while the
@@ -4310,6 +4359,7 @@ export class AcpmuxDirectClient {
       const id = String(msg.promptId ?? "");
       // Kept also when the row is not in yet: an attach's page may begin after its `queued` record.
       if (id) this.queueAuthors.set(id, promptAuthor(msg) ?? null);
+      if (id) this.queueEdited.add(id);
       const parts = recordedPromptParts(
         msg,
         this.optimisticPromptParts.get(id) ?? this.queue.find((entry) => entry.id === id)?.inlineParts,
@@ -4358,6 +4408,7 @@ export class AcpmuxDirectClient {
                   entry.message,
                   entry.author,
                   entry.inlineParts,
+                  entry.retry,
                 ),
                 // Sent now, it is no longer held (hub/queue.rs `put_next`).
                 entry.id === next ? undefined : entry,
@@ -4406,6 +4457,7 @@ export class AcpmuxDirectClient {
               msg,
               this.optimisticPromptParts.get(id) ?? this.queue.find((entry) => entry.id === id)?.inlineParts,
             ) ?? this.optimisticPromptParts.get(id),
+            subagentRetryNotice(String(msg.text ?? ""), msg),
           ),
         ];
       }
@@ -4421,6 +4473,7 @@ export class AcpmuxDirectClient {
       const id = String(msg.promptId ?? "");
       this.queue = this.queue.filter((entry) => entry.id !== id);
       this.queueAuthors.delete(id);
+      this.queueEdited.delete(id);
       if (event.kind === "queue_removed" && id)
         this.queueWithdrawn = [...this.queueWithdrawn.filter((each) => each !== id), id].slice(-QUEUE_WITHDRAWN_KEPT);
       // A prompt sent now that will never run: the turn it stopped ends as it did.
@@ -6303,6 +6356,7 @@ export class AcpmuxDirectClient {
               queued.message,
               queued.author,
               queued.inlineParts,
+              queued.retry,
             )
           : queued,
       );

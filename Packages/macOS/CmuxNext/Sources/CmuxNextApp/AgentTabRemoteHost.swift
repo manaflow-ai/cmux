@@ -1,5 +1,4 @@
 import CmuxNextAgentPane
-import CmuxNextCloud
 import CmuxNextDaemon
 import Foundation
 
@@ -31,18 +30,12 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
     /// The machine's daemon says whether a keyed acpmux restart loses nothing
     /// (`agent-session-start-keyed-reason-v1`, cx-0w0jj).
     var servesKeyedReason = false
-    /// A Cloud machine's link owner answer (``CloudLinkSession/ownerAnswer(appLink:link:)``), read at each trust call
+    /// A Cloud machine's link owner answer (``CloudMachineLinks/ownerLink``), read at each trust call
     /// and never kept. Nil for a machine that is not a Cloud machine.
     var ownerLink: AgentSessionAttachClient.OwnerLink?
     /// The chat runs on the person's own Cloud VM (``RemoteAcpmuxWire/ownerCloud(_:served:)``).
     var ownerCloud: RemoteAcpmuxWire.OwnerCloud?
 
-    /// Whether the link a Cloud machine's calls go over says the machine is a teammate's (the app
-    /// link's own answer, or the legacy link's): only names a refused start, never grants one.
-    static func teammate(appLink: CloudLinkSession?, link: CloudMachineLink?) -> AgentTabRemoteStart.Teammate {
-        if let appLink { return { await appLink.callerIsTeammate } }
-        return { await link?.callerIsTeammate ?? false }
-    }
     /// The keyed restart of the machine's acpmux (an SSH machine, or a paired server on the ssh
     /// route); nil where the app has no exec channel of its own (cx-0q7o).
     var approvals: AgentPaneRemoteApprovals?
