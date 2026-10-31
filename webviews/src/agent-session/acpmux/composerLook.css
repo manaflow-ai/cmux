@@ -63,6 +63,10 @@
   width: calc(var(--acpmux-context-glyph-size) + 2 * var(--acpmux-row-inset));
   height: calc(var(--acpmux-context-glyph-size) + 2 * var(--acpmux-row-inset));
 }
+/* The chips lay out as the row's own items, so none adds the chips' group padding of its own. */
+:is(.acpmux-composer, .nt-composer)[data-composer-look="codex"] :is(.acpmux-composer-bar, .nt-pickers) .acpmux-chips > * {
+  padding-inline-start: 0;
+}
 /* Every chip, the mode's capsule included, takes the row's inset: its pill shows only on hover. */
 :is(.acpmux-composer, .nt-composer)[data-composer-look="codex"] :is(.acpmux-composer-bar, .nt-pickers) .acpmux-chips .acpmux-picker-button {
   padding-inline: var(--acpmux-row-inset);
