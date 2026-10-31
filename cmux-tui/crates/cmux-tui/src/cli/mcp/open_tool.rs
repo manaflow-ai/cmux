@@ -71,15 +71,16 @@ impl<B: Backend> Server<B> {
         }
         let place = text(arguments, "where").unwrap_or("right");
         let focus = arguments.get("focus").and_then(Value::as_bool).unwrap_or(false);
-        let target = match self.open_target(place, arguments) {
-            Ok(target) => target,
-            Err(answer) => return answer,
-        };
+        // The app first: with no app to show the viewer, no split is left behind.
         let Some(tool) = self.actions.iter().find(|tool| tool.cli_name == action) else {
             return invalid(
                 "open needs the cmux app, and no cmux app answers in this session; say so to \
                  the person, or show the text in a terminal",
             );
+        };
+        let target = match self.open_target(place, arguments) {
+            Ok(target) => target,
+            Err(answer) => return answer,
         };
         let mut run = Map::new();
         if let Some(value) = value {
@@ -196,7 +197,7 @@ impl<B: Backend> Server<B> {
         let pane = self.split_pane(&split)?;
         let screen = self.read(
             v2_tools::find("screen_get"),
-            &with_session(Map::from_iter([("screen".into(), json!(screen_id.clone()))])),
+            &with_session(Map::from_iter([("screen".into(), json!(&screen_id))])),
         )?;
         let column = column_of(screen.get("layout"), &pane)
             .ok_or_else(|| invalid("open: the new column is not in the screen's layout"))?;
