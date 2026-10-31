@@ -5801,6 +5801,20 @@ class NightlyCompileRed(unittest.TestCase):
                 self.assertEqual(mutations(api)[0], "cancel", summary)
                 self.assertNotIn(rescue.COMPILE_RED, summary)
 
+    def test_a_compile_red_nightly_whose_head_moved_is_not_cancelled_either(self):
+        # rescue() cancels an unfinished nightly whose branch moved on (or that a newer run replaces); a compile-red
+        # one is left alone before that branch.
+        for overrides in ({"head": "b" * 40}, {"newer": [RUN_ID + 1]}):
+            with self.subTest(overrides=list(overrides)):
+                clock = Clock()
+                api = CompileRedAPI(clock, broken_signing_run(failed_build()), notes={2: COMPILE_ANNOTATIONS},
+                                    **overrides)
+                result = rescue.rescue(api, self.target(), now=clock.now, sleep=clock.sleep, log=lambda text: None,
+                                       failed_only=True)
+                self.assertTrue(result.startswith(rescue.COMPILE_RED), result)
+                self.assertEqual(mutations(api), [])
+                self.assertFalse(any(call.startswith(("newer:", "branch:")) for call in api.calls), api.calls)
+
     def target(self, attempt=1, **overrides):
         return rescue.Target(RUN_ID, attempt, HEAD, 0, side=True, path=rescue.NIGHTLY_WORKFLOW_PATH, nightly=True,
                              push_branch="nightly-next", **overrides)

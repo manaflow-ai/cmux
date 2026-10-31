@@ -3941,6 +3941,11 @@ def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep
     # refusal is the fleet's, and a red run would open main's red-CI issue.
     # A stuck later attempt re-runs its failed jobs too, but is no refusal.
     keep_main = target.main and refusal
+    # Before anything that cancels or re-runs (the moved-head cancel below included): a nightly whose build failed
+    # to compile is left as GitHub has it (nightly_compile_red()).
+    red = nightly_compile_red(api, target, sleep, log)
+    if red:
+        return compile_red_answer(red)
     moved = "" if keep_main else pull_moved(api, target, sleep, log)
     if moved and target.push_branch and target.path == CMUX_NEXT_WORKFLOW_PATH:
         # cmux-next.yml queues each push Mac job in a group per branch (one
@@ -3971,10 +3976,6 @@ def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep
         return f"cancelled run {target.run_id}, not re-run: {moved}"
     if moved:
         return f"not rescued: {moved}"
-    # Before any cancel or re-run: a nightly whose build failed to compile is never cancelled or re-run for it.
-    red = nightly_compile_red(api, target, sleep, log)
-    if red:
-        return compile_red_answer(red)
     run = read(lambda: api.run(target.run_id), sleep, log)
     if int(run.get("run_attempt") or 0) != target.attempt:
         return "not rescued: someone else already re-ran the run"
