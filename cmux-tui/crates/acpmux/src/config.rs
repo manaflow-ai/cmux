@@ -678,13 +678,14 @@ impl DeclaredModel {
 }
 
 impl HarnessProfile {
-    /// The hex SHA-256 of what starts the harness: its kind, argv and env, never its name,
-    /// models or defaults. A session keeps the digest its agent started from
-    /// (`SessionMeta::launch_digest`), and a profile reload that changes it respawns the agent
-    /// at its turn end (`hub/profile_respawn.rs`). A hash, so the env's values are not kept.
+    /// The hex SHA-256 of what starts the harness: its argv and env, never its name, models,
+    /// defaults or kind (how acpmux speaks to it, which an adopted agent's host answers for
+    /// itself). A session keeps the digest its agent started from (`SessionMeta::launch_digest`),
+    /// and a profile reload that changes it respawns the agent at its turn end
+    /// (`hub/profile_respawn.rs`). A hash, so the env's values are not kept.
     pub fn launch_digest(&self) -> String {
-        // Strings, a list and a BTreeMap: the JSON is stable.
-        let launch = serde_json::json!({"kind": self.kind, "argv": self.argv, "env": self.env});
+        // A list and a BTreeMap of strings: the JSON is stable.
+        let launch = serde_json::json!({"argv": self.argv, "env": self.env});
         crate::sha256::sha256_hex(launch.to_string().as_bytes())
     }
 }

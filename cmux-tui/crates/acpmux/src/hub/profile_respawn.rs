@@ -1,5 +1,5 @@
-//! Part of `Hub`; see `hub/mod.rs`. A live agent whose harness profile's launch (its kind, argv
-//! and env, `HarnessProfile::launch_digest`) changed since it started restarts on the new profile
+//! Part of `Hub`; see `hub/mod.rs`. A live agent whose harness profile's launch (its argv and
+//! env, `HarnessProfile::launch_digest`) changed since it started restarts on the new profile
 //! and resumes the same conversation (`claude --resume`, ACP `session/load`), the way an update's
 //! restart does (`route_switch.rs` `restart_harnesses`): between turns now, in a turn when the
 //! turn ends, never cancelled. Checked when the catalog reloads (a profile file changed,
@@ -20,7 +20,8 @@ pub(crate) const PROFILE_CHANGED: &str = "profile changed";
 
 impl Hub {
     /// Restarts every live local agent whose profile's launch differs from the one it started
-    /// from. A session whose harness is no longer in the catalog is left as it is; one with no
+    /// from. A Home Chief session, or one whose harness is no longer in the catalog, is left as it
+    /// is; one with no
     /// recorded digest (started by an older build) is judged by its argv (`legacy_stale`).
     pub(crate) async fn respawn_changed_profiles(self: &Arc<Self>) -> HarnessRestarts {
         let profiles: BTreeMap<String, (String, HarnessProfile)> = {
@@ -33,6 +34,10 @@ impl Hub {
         let mut stale = BTreeSet::new();
         for session in self.sessions() {
             let meta = session.meta();
+            // A Home Chief session is never swept, as Update Everything never sweeps one.
+            if super::route_switch::is_chief(&meta) {
+                continue;
+            }
             let Some((now, profile)) = profiles.get(&meta.harness) else { continue };
             let changed = match meta.launch_digest.as_deref() {
                 Some(started) => started != now,
