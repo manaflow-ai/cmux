@@ -30,6 +30,24 @@ extension ControlRouter {
         }
     }
 
+    /// Claims the original request before deriving a topology-dependent action. Only a new run
+    /// calls `preparing`; execution keeps the original key through settlement and caches the mapped
+    /// reply, so a retry neither changes target nor needs the original objects to still exist.
+    func runAction(_ call: ControlCall, fingerprint: ControlIdempotencyCache.Fingerprint,
+                   preparing: () throws -> (ControlCall, @Sendable (JSONValue) -> JSONValue)) async throws -> JSONValue {
+        do {
+            let key = try Self.idempotencyKey(call.params)
+            return try await keyed(key, fingerprint: fingerprint, call: call) {
+                let (derived, mapReply) = try preparing()
+                let action = try Self.resolveAction(derived.params, in: derived.snapshot.catalog)
+                let given = try Self.validated(action, params: derived.params, call: derived, caller: try ControlCaller(derived.params))
+                return try await self.execute(action, given, key: key, call: derived, mapReply: mapReply)
+            }
+        } catch let error as ControlError where !call.progress.hasStarted && error.code != "timeout" {
+            throw error.notRun()
+        }
+    }
+
     private func startAction(_ call: ControlCall) async throws -> JSONValue {
         let action = try Self.resolveAction(call.params, in: call.snapshot.catalog)
         let given = try Self.validated(action, params: call.params, call: call, caller: try ControlCaller(call.params))
@@ -112,6 +130,7 @@ extension ControlRouter {
     func prepared(_ action: ControlActionInfo, _ given: ControlActionRequest, call: ControlCall) async throws -> ControlActionRequest {
         var placed = given
         Self.placeBesideCaller(&placed, action: action, topology: call.snapshot.topology)
+        try Self.aimBrowserActionAtCaller(&placed, action: action, topology: call.snapshot.topology)
         let request = try await resolvedTargets(placed, snapshot: call.snapshot, deadline: call.deadline)
         guard call.snapshot.catalog.isAvailable(action, target: request.target) || action.unavailableReason != nil else {
             throw ControlError(code: "unavailable", message: ControlStrings.format("control.error.actionNotAvailableInContext", "%@ is not available in the current context", action.id), data: [
@@ -124,7 +143,8 @@ extension ControlRouter {
         return request
     }
 
-    private func execute(_ action: ControlActionInfo, _ given: ControlActionRequest, key: String?, call: ControlCall) async throws -> JSONValue {
+    private func execute(_ action: ControlActionInfo, _ given: ControlActionRequest, key: String?, call: ControlCall,
+                         mapReply: @escaping @Sendable (JSONValue) -> JSONValue = { $0 }) async throws -> JSONValue {
         let request = try await prepared(action, given, call: call)
         let executor = self.executor
         let progress = call.progress
@@ -172,7 +192,7 @@ extension ControlRouter {
                 reply["created"] = .array(scope.created.compactMap { PublicIDTargetResolver.publicID(of: $0, in: snapshot.topology) }.map(JSONValue.string))
                 reply["sequence"] = JSONValue.number(Double(snapshot.topology.daemonSequence))
                 if let value { reply["result"] = value }
-                return .object(reply)
+                return mapReply(.object(reply))
             }
             if let key { idempotency.finish(key, with: result) }
             return result
@@ -183,7 +203,7 @@ extension ControlRouter {
             if let target = request.target { immediate["resolved"] = resolvedJSON(target, in: call.snapshot.topology) }
             immediate["created"] = []
             immediate["sequence"] = JSONValue.number(Double(snapshots.current.topology.daemonSequence))
-            return .object(immediate)
+            return mapReply(.object(immediate))
         }
         return try await settling.value.get()
     }

@@ -280,3 +280,43 @@ fn a_named_place_or_an_unplaced_client_keeps_its_target() {
     call(&mut server, "workspace_open_url", json!({"url": "https://example.com"}));
     assert!(sent_params(&server).get("workspace").is_none());
 }
+
+/// #26648: an agent's `current` browser is the one nearest its chat, which
+/// the app reports, not the daemon's active tab, which follows the person's
+/// focus into another window.
+#[test]
+fn a_current_browser_is_the_one_nearest_the_caller() {
+    let near = "tab_99999999999999999999999999999999";
+    let fake = Fake {
+        browser: Some(
+            json!({"tab": near, "pane": OTHER_PANE, "screen": OWN_SCREEN, "workspace": OWN_WS,
+                   "session": null}),
+        ),
+        ..placed()
+    };
+    let mut server = Server::new(fake, None);
+    let result = call(
+        &mut server,
+        "browser_back",
+        json!({"workspace": "current", "tab": "current", "browser": "current"}),
+    );
+    assert_ne!(result["isError"], true, "{result}");
+    let params = sent_params(&server);
+    assert_eq!(params["tab"], near);
+    assert_eq!(params["browser"], "current");
+    // The daemon reads a `current` browser only below a full chain of ids.
+    assert_eq!(params["pane"], OTHER_PANE);
+    assert_eq!(params["screen"], OWN_SCREEN);
+    assert_eq!(params["workspace"], OWN_WS);
+}
+
+/// With no browser near the chat the call is refused: it never falls through
+/// to the person's focused browser in another window.
+#[test]
+fn a_caller_with_no_browser_near_it_is_refused() {
+    let fake = Fake { browser: Some(Value::Null), ..placed() };
+    let mut server = Server::new(fake, None);
+    let result = call(&mut server, "browser_back", json!({"browser": "current"}));
+    assert_eq!(result["isError"], true, "{result}");
+    assert!(server.backend.sent.borrow().iter().all(|sent| sent["kind"] != "resource"));
+}

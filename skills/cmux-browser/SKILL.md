@@ -73,12 +73,16 @@ There are two kinds of browser in cmux, with different ids:
 
 | Id | Owner | Commands |
 | --- | --- | --- |
-| `tab_…` (or `page` for the focused tab) | the cmux app shows the page | `cmux browser tab_… navigate URL`, `snapshot`, `click`, `fill`, `eval`, … |
+| `tab_…` (or `page` for the browser nearest you) | the cmux app shows the page | `cmux browser tab_… navigate URL`, `snapshot`, `click`, `fill`, `eval`, … |
 | `browser_…` | the cmux-tui daemon | `cmux browser browser_… navigate --url URL`, `key`, `text`, `show`, `close` |
 
 In the app, use the `tab_…` form. Page commands accept a tab id or any unique
-prefix of one. `page` means the focused browser tab; use it only when the user
-asked about the tab they are looking at.
+prefix of one. `page` means the browser nearest you: one in your own workspace,
+then one in your sidebar group, then one in your window, never the person's
+focused tab in another window, and never one in another session. With none near
+you it fails (`page new-tab URL` opens your first one instead); list every tab
+with `cmux browser page tabs --all` and name one. `cmux --json identify` reports it
+as `browser`.
 
 ## Open a browser tab
 
@@ -161,7 +165,9 @@ device emulation is a tab verb (`cmux tab <tab_…> emulate`; see `cmux tab --he
 Network routing, geolocation and offline emulation and `identify` have no agent
 surface yet.
 
-Some have UI actions that act on the focused browser and return no data:
+Some have UI actions that act on the browser nearest you (the focused one
+when run outside cmux; they still need some browser to have focus) and return
+no data:
 `cmux browser screenshot-page`, `browser screenshot-section`,
 `browser toggle-developer-tools`, `browser show-javascript-console`,
 `browser delete-site-data`,
