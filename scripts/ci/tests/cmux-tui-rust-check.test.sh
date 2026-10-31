@@ -9,6 +9,10 @@ mkdir -p "$TMP/bin" "$TMP/work/cmux-tui"
 cat > "$TMP/bin/cargo" <<STUB
 #!/bin/bash
 echo "\$(umask) \${CARGO_TARGET_DIR:-unset} \$*" >> "$TMP/calls"
+if [[ -n "\${CLIPPY_FAIL:-}" && "\$1" == clippy ]]; then
+  echo '{"reason":"compiler-message","message":{"level":"error","rendered":"error[E0425]: cannot find value x (stub)\\n"}}'
+  exit 101
+fi
 echo "\${GOFLAGS:-unset} \${GOMODCACHE:-unset} \${GOCACHE:-unset}" >> "$TMP/goenv"
 [[ "\$*" != "nextest --version" ]] || echo "cargo-nextest 0.9.148 (stub)"
 STUB
@@ -107,6 +111,47 @@ rm -f "$TMP/calls"
 ARGS=(api-compat 'cmux_link::')
 run CMUX_CI_STEP_KEY=k >/dev/null && fail "api-compat accepted a filter"
 [[ ! -e "$TMP/calls" ]] || fail "cargo ran for an api-compat filter"
+# panic: cmux-tui.yml's "Rust panic ratchet" step, the same two commands from cmux-tui/: clippy on the
+# production targets with the ratchet's own flags into a JSON file, then the ratchet on that file. No fmt,
+# tests or -D warnings; no filter; the ratchet's exit code is the step's.
+mkdir -p "$TMP/work/scripts/cmux-next"
+cat > "$TMP/work/scripts/cmux-next/rust_panic_ratchet.py" <<STUB
+import os, sys
+open("$TMP/ratchet-calls", "a").write(os.getcwd() + " " + " ".join(sys.argv[1:]) + "\n")
+if sys.argv[1:] == ["--flags"]:
+    print("-W clippy::unwrap_used -W clippy::indexing_slicing")
+else:
+    sys.exit(int(os.environ.get("PANIC_RC", "0")))
+STUB
+cat > "$TMP/bin/uname" <<'STUB'
+#!/bin/bash
+echo "${FAKE_UNAME:-Linux}"
+STUB
+chmod +x "$TMP/bin/uname"
+rm -f "$TMP/calls" "$TMP/ratchet-calls"
+ARGS=(panic)
+out=$(run CMUX_CI_STEP_KEY=k FAKE_UNAME=Darwin) && fail "panic mode ran off Linux: $out"
+grep -q 'runs only on Linux' <<<"$out" || fail "panic off-Linux refusal: $out"
+[[ ! -e "$TMP/calls" ]] || fail "cargo ran for panic off Linux: $(cat "$TMP/calls")"
+out=$(run CMUX_CI_STEP_KEY=k) || fail "panic mode refused or red: $out"
+[[ "$(cat "$TMP/calls")" == *"/.build/cmux-tui-rust-target clippy --workspace --lib --bins --locked --message-format=json -- -W clippy::unwrap_used -W clippy::indexing_slicing" ]] || fail "panic clippy: $(cat "$TMP/calls")"
+! grep -q -E ' fmt | nextest |-D warnings|--all-targets' "$TMP/calls" || fail "panic mode ran more than the ratchet's clippy: $(cat "$TMP/calls")"
+grep -q '/work/cmux-tui --flags$' "$TMP/ratchet-calls" || fail "panic flags: $(cat "$TMP/ratchet-calls")"
+grep -q '/work/cmux-tui --clippy-json .*/work/.build/artifacts/panic-clippy.jsonl$' "$TMP/ratchet-calls" || fail "panic ratchet: $(cat "$TMP/ratchet-calls")"
+grep -q 'cmux-tui-rust-check: green' <<<"$out" || fail "panic summary: $out"
+out=$(run CMUX_CI_STEP_KEY=k PANIC_RC=1) && fail "a ratchet over its baseline was green: $out"
+grep -q 'panic ratchet *FAIL (exit 1)' <<<"$out" || fail "panic red summary: $out"
+# A clippy that fails (a compile error) prints its errors, never runs the ratchet, and keeps cargo's exit code.
+rm -f "$TMP/ratchet-calls"
+out=$(run CMUX_CI_STEP_KEY=k CLIPPY_FAIL=1) && fail "a failed clippy was green: $out"
+grep -q 'panic ratchet *FAIL (exit 101)' <<<"$out" || fail "failed clippy summary: $out"
+grep -q 'cannot find value x (stub)' <<<"$out" || fail "failed clippy printed no compiler error: $out"
+! grep -q -- '--clippy-json' "$TMP/ratchet-calls" || fail "the ratchet ran after a failed clippy: $(cat "$TMP/ratchet-calls")"
+rm -f "$TMP/calls"
+ARGS=(panic 'cmux_link::')
+run CMUX_CI_STEP_KEY=k >/dev/null && fail "panic accepted a filter"
+[[ ! -e "$TMP/calls" ]] || fail "cargo ran for a panic filter"
+rm -rf "$TMP/work/scripts" "$TMP/ratchet-calls"
 # One Go pin: the screen mode's checksummed download covers the version the macOS
 # job of cmux-tui.yml installs (crates/cmux-tailnet/go-version).
 go_version=$(tr -d '[:space:]' <"$ROOT/cmux-tui/crates/cmux-tailnet/go-version")

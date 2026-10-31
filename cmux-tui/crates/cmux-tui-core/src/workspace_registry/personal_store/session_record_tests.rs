@@ -122,6 +122,7 @@ fn a_session_capability_list_holds_only_unique_capability_tokens() {
         (json!(["profiles-v1", 1]), "must be an array of strings"),
         (json!(["Profiles-v1"]), "must be 1-64"),
         (json!(["profiles v1"]), "must be 1-64"),
+        (json!(["1profiles"]), "must be 1-64"),
         (json!([""]), "must be 1-64"),
         (json!(["a".repeat(65)]), "must be 1-64"),
         (json!(["profiles-v1", "profiles-v1"]), "listed twice"),
