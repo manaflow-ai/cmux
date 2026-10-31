@@ -275,14 +275,21 @@ async fn a_message_can_be_a_file_of_yours() {
 }
 
 /// `supersede`: a second message under the same key replaces the first while it still waits.
+/// A gated turn holds the queue (no timing): it ends only when the test opens its FIFO.
+#[cfg(unix)]
 #[tokio::test]
 async fn supersede_replaces_your_queued_message() {
     let (hub, client, _dir) = daemon().await;
     let lane = session(&client, "sup-lane").await;
-    // "slow" streams for about a second, so the two after it queue.
-    let r = call(&client, &tool("send", json!({"to": "sup-lane", "text": "slow", "steer": false})))
-        .await;
-    assert_eq!(r["isError"], false, "{r}");
+    let dir = tempfile::tempdir().unwrap();
+    let fifo = dir.path().join("gate");
+    let c = std::ffi::CString::new(fifo.to_str().unwrap()).unwrap();
+    // SAFETY: c is a valid NUL-terminated path.
+    assert_eq!(unsafe { libc::mkfifo(c.as_ptr(), 0o600) }, 0);
+    let gate =
+        json!({"to": "sup-lane", "text": format!("gate: {}", fifo.display()), "steer": false});
+    let r = call(&client, &tool("send", gate)).await;
+    assert_eq!(r["structuredContent"]["delivery"], "started", "{r}");
     let order = json!({"to": "sup-lane", "text": "order", "steer": false, "supersede": "cause-1"});
     let first = call(&client, &tool("send", order)).await;
     assert_eq!(first["structuredContent"]["delivery"], "queued", "{first}");
@@ -290,6 +297,7 @@ async fn supersede_replaces_your_queued_message() {
     let fix = json!({"messages": [{"to": "sup-lane", "text": "correction", "steer": false, "supersede": "cause-1"}]});
     let second = call(&client, &tool("send", fix)).await;
     let row = &second["structuredContent"]["results"][0];
+    assert_eq!(row["delivery"], "queued", "{second}");
     assert_eq!(row["replaced"], 1, "{second}");
     assert_eq!(
         row["replacedPromptIds"],
@@ -305,6 +313,97 @@ async fn supersede_replaces_your_queued_message() {
         .collect();
     assert_eq!(removed.len(), 1, "{removed:?}");
     assert_eq!(removed[0]["reason"], "superseded");
+    // The gated turn ends; the correction runs, the order never does.
+    tokio::task::spawn_blocking(move || std::fs::write(fifo, b"go")).await.unwrap().unwrap();
+    assert!(received(&hub, &lane, "correction").await, "the correction never ran");
+}
+
+fn target(index: usize, to: &str, key: &str) -> send::Target {
+    send::Target {
+        index,
+        to: to.to_owned(),
+        key: key.to_owned(),
+        tag: None,
+        text: "x".to_owned(),
+        item: send::Item::default(),
+    }
+}
+
+/// A batch's messages to one session form one chain, by name or by key; others their own.
+#[test]
+fn messages_to_one_session_form_one_chain() {
+    let targets = [
+        target(0, "lane-a", "lane-a"),
+        target(1, "lane-b", "lane-b"),
+        // A tag's expansion of lane-a: keyed by its id, named lane-a.
+        target(2, "lane-a", "id-a"),
+        target(3, "id-a", "id-a"),
+        target(4, "huge-blue/lane-c", "huge-blue/id-c"),
+    ];
+    assert_eq!(send::same_session(&targets), vec![vec![0, 2, 3], vec![1], vec![4]]);
+}
+
+/// Codex review: the outbox runs every delivery on its own and retries it, so a message queued
+/// while the one before it to the same session is still on its way could arrive first. The next
+/// is sent only once the one before it settled; one still on its way at the deadline stops the
+/// rest of its chain, each row saying why, and nothing after it is queued.
+#[tokio::test]
+async fn a_message_waits_for_the_one_before_it_to_the_same_session() {
+    let targets = [
+        target(0, "lane-a", "lane-a"),
+        target(1, "lane-a", "lane-a"),
+        target(2, "lane-a", "lane-a"),
+    ];
+    let calls = std::sync::Mutex::new(Vec::new());
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    // The first is delivered, the second stays on its way (a peer that is down).
+    let rows = send::in_order(&targets, vec![0, 1, 2], deadline, |t, wait| {
+        calls.lock().unwrap().push((t.index, wait));
+        let status = if t.index == 0 { "delivered" } else { "queued" };
+        let row = json!({"index": t.index, "to": t.to, "ok": true, "status": status,
+            "deliveryId": format!("d{}", t.index)});
+        async move { row }
+    })
+    .await;
+    let called: Vec<usize> = calls.lock().unwrap().iter().map(|(i, _)| *i).collect();
+    assert_eq!(called, [0, 1], "the third was queued behind one still on its way");
+    assert!(calls.lock().unwrap().iter().all(|(_, w)| *w <= Duration::from_secs(5)));
+    assert_eq!(rows.len(), 3);
+    assert_eq!(rows[2].0, 2);
+    assert_eq!(rows[2].1["ok"], false, "{:?}", rows[2]);
+    let why = rows[2].1["error"].as_str().unwrap();
+    assert!(why.contains("delivery d1") && why.contains("still on its way"), "{why}");
+    // A refusal settles too: the next one still goes.
+    let refused = send::in_order(&targets, vec![0, 1], deadline, |t, _| {
+        let status = if t.index == 0 { "failed" } else { "delivered" };
+        let row = json!({"index": t.index, "ok": t.index != 0, "status": status});
+        async move { row }
+    })
+    .await;
+    assert_eq!(refused[1].1["status"], "delivered");
+}
+
+/// A batch of two to one live session: both arrive, in the order given.
+#[tokio::test]
+async fn two_messages_to_one_session_arrive_in_order() {
+    let (hub, client, _dir) = daemon().await;
+    let lane = session(&client, "order-lane").await;
+    let args = json!({"steer": false, "messages": [
+        {"to": "order-lane", "text": "one-first"}, {"to": "order-lane", "text": "two-second"}
+    ]});
+    let r = call(&client, &tool("send", args)).await;
+    assert_eq!(r["structuredContent"]["sent"], 2, "{r}");
+    assert!(received(&hub, &lane, "two-second").await);
+    let texts: Vec<String> = hub
+        .events(&lane, 0, 1000)
+        .unwrap()
+        .into_iter()
+        .filter(|e| e.kind == "user_message")
+        .map(|e| e.msg.to_string())
+        .collect();
+    let first = texts.iter().position(|t| t.contains("one-first")).unwrap();
+    let second = texts.iter().position(|t| t.contains("two-second")).unwrap();
+    assert!(first < second, "{texts:?}");
 }
 
 /// `tag`: every live session carrying it, expanded into one row each; none is an error row.

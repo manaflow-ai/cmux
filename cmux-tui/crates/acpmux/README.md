@@ -1328,8 +1328,10 @@ so an agent messages another lane or session with a tool call instead of piping 
   to 32 sent in order, with the top-level fields as each item's defaults. With `messages` or
   `tag` the result is `results: [{index, to, target, tag, ok, promptId, deliveryId, status,
   sessionId, delivery, error?}]` plus `sent` and `failed`: one row per recipient, a bad one its
-  own row's error, never the others'. The batch waits for all its deliveries together, so it
-  answers within the one 5 s wait. Use it in place of a shell loop of `acpmux send --no-wait`.
+  own row's error, never the others'. Messages to one session go in turn, each once the one
+  before it was taken, so they arrive in the order given (one still on its way after the 5 s
+  wait holds back the rest to that session, with a row saying why); different sessions go side
+  by side, so a batch answers within the one 5 s wait. Use it in place of a shell loop of `acpmux send --no-wait`.
 - `acpmux_ls {status?}`: one line per session on this machine and its peers.
 - `acpmux_last {name, count?}`: a session's last replies.
 - `acpmux_info {name}`: a session's state, as `acpmux session info`.

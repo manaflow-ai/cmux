@@ -5,15 +5,15 @@
 //! 2026-10-30: "acpmux batch send tools given to you rendered consistently with other stuff").
 //!
 //! Every message goes through this daemon's outbox, as `acpmux send --no-wait` does
-//! (`cli/run/send_async.rs`). A batch queues its messages one after another, in order, so two
-//! messages to one session arrive in the order given, then waits for all their deliveries to
-//! settle at once, inside one [`STATUS_WAIT`]: a batch answers as fast as one message. A bad
-//! recipient is its own row's error; the rest still go.
+//! (`cli/run/send_async.rs`). A batch sends to each session in turn and to different sessions
+//! side by side ([`in_order`]), inside one [`STATUS_WAIT`]: a batch answers as fast as one
+//! message. A bad recipient is its own row's error; the rest still go.
 //!
 //! The call without `messages` and `tag` keeps its first shape: the same result fields and text,
 //! the same errors. A tag or a batch answers with `results`, one row per recipient.
 
 use super::*;
+use cmux_json::JsonSet as _;
 use std::collections::BTreeMap;
 
 /// Most messages one call carries. A batch is a coordinator's round of orders (a handful of
@@ -84,13 +84,27 @@ pub(super) struct Item {
 }
 
 /// One recipient's message, ready to queue.
-struct Target {
-    index: usize,
-    to: String,
-    key: String,
-    tag: Option<String>,
-    text: String,
-    item: Item,
+pub(super) struct Target {
+    pub index: usize,
+    /// The session as the caller named it, or as its tag listed it.
+    pub to: String,
+    /// What the outbox routes it by: the name, an id, or a peer's `peer/id`.
+    pub key: String,
+    pub tag: Option<String>,
+    pub text: String,
+    pub item: Item,
+}
+
+impl Target {
+    /// Its result row, before the outbox answered.
+    pub(super) fn row(&self, ok: bool, status: &str, error: Option<String>) -> Value {
+        let mut row = json!({"index": self.index, "to": self.to, "target": self.key,
+            "tag": self.tag, "ok": ok, "promptId": null, "deliveryId": null, "status": status});
+        if let Some(error) = error {
+            row.set("error", json!(error));
+        }
+        row
+    }
 }
 
 /// `send`'s entry: the first shape when the call names one session, else the batch.
@@ -262,24 +276,26 @@ async fn send_one(daemon: &Arc<Client>, args: &Value) -> Value {
         Ok(sent) => sent,
         Err(e) => return refusal(e),
     };
-    let row = settle(daemon, &target, &prompt, queued).await;
-    let state = row["status"].as_str().unwrap_or("queued").to_owned();
-    let delivery = row["deliveryId"].as_str().unwrap_or_default().to_owned();
-    if row["ok"] == json!(false) {
-        let error = row["error"].as_str().unwrap_or("delivery failed");
+    let row = settle(daemon, &target, &prompt, queued, STATUS_WAIT).await;
+    let field = |k: &str| row.get(k).cloned().unwrap_or(Value::Null);
+    let text_of = |k: &str| row.get(k).and_then(Value::as_str).unwrap_or_default().to_owned();
+    let delivery = text_of("deliveryId");
+    if !row_ok(&row) {
+        let error = row.get("error").and_then(Value::as_str).unwrap_or("delivery failed");
         return error_result(format!("Not sent to {to} (delivery {delivery}): {error}"));
     }
-    let mut structured = json!({"deliveryId": delivery, "target": key, "sessionId": row["sessionId"],
-        "promptId": prompt.id, "status": state, "accepted": row["accepted"], "delivery": row["delivery"]});
+    let mut structured = json!({"deliveryId": delivery, "target": key, "sessionId": field("sessionId"),
+        "promptId": prompt.id, "status": field("status"), "accepted": field("accepted"),
+        "delivery": field("delivery")});
     if target.item.supersede.is_some() {
-        structured["replaced"] = row["replaced"].clone();
-        structured["replacedPromptIds"] = row["replacedPromptIds"].clone();
+        structured.set("replaced", field("replaced"));
+        structured.set("replacedPromptIds", field("replacedPromptIds"));
     }
     ok(sent_line(&row), structured)
 }
 
-/// `send` with `messages` or `tag`: every item's recipients, queued in order, then settled
-/// together. A row per recipient; an item that names no one is one row with its error.
+/// `send` with `messages` or `tag`: every item's recipients, then the messages, a row per
+/// recipient; an item that names no one is one row with its error.
 async fn send_batch(daemon: &Arc<Client>, args: &Value) -> Value {
     let items = match items(args) {
         Ok(items) => items,
@@ -334,30 +350,84 @@ async fn send_batch(daemon: &Arc<Client>, args: &Value) -> Value {
             targets.len()
         ));
     }
-    // Queued one after another, so two messages to one session keep their order.
-    let mut queued = Vec::new();
-    for (seat, target) in targets.iter().enumerate() {
-        match queue(daemon, target).await {
-            Ok((prompt, answer)) => queued.push((seat, target, prompt, answer)),
-            Err(e) => {
-                let row = json!({"index": target.index, "to": target.to, "target": target.key,
-                    "tag": target.tag, "ok": false, "promptId": null, "deliveryId": null,
-                    "status": "failed", "error": format!("{e:#}")});
-                rows.insert((target.index, seat.saturating_add(1)), row);
+    let now = tokio::time::Instant::now();
+    let deadline = now.checked_add(STATUS_WAIT).unwrap_or(now);
+    let chains = same_session(&targets);
+    let sent = futures::future::join_all(chains.into_iter().map(|chain| {
+        in_order(&targets, chain, deadline, move |target, wait| async move {
+            match queue(daemon, target).await {
+                Ok((prompt, queued)) => settle(daemon, target, &prompt, queued, wait).await,
+                Err(e) => target.row(false, "failed", Some(format!("{e:#}"))),
             }
-        }
-    }
-    // Settled together: the whole batch waits one STATUS_WAIT at most.
-    let settled = futures::future::join_all(
-        queued
-            .iter()
-            .map(|(_, target, prompt, answer)| settle(daemon, target, prompt, answer.clone())),
-    )
+        })
+    }))
     .await;
-    for ((seat, target, ..), row) in queued.iter().zip(settled) {
-        rows.insert((target.index, seat.saturating_add(1)), row);
+    for (seat, row) in sent.into_iter().flatten() {
+        let index = targets.get(seat).map_or(0, |t| t.index);
+        rows.insert((index, seat.saturating_add(1)), row);
     }
     batch_result(rows.into_values().collect())
+}
+
+/// The batch's targets in chains, each the seats (indexes into `targets`) of one session in the
+/// order given. Two targets are one session when either's key or name is the other's (a name
+/// and a tag's expansion of the same session, by its id, are one only when the names match).
+pub(super) fn same_session(targets: &[Target]) -> Vec<Vec<usize>> {
+    let mut chains: Vec<Vec<usize>> = Vec::new();
+    for (seat, t) in targets.iter().enumerate() {
+        let names = [t.key.as_str(), t.to.as_str()];
+        let found = chains.iter_mut().find(|chain| {
+            chain
+                .iter()
+                .filter_map(|&s| targets.get(s))
+                .any(|o| names.contains(&o.key.as_str()) || names.contains(&o.to.as_str()))
+        });
+        match found {
+            Some(chain) => chain.push(seat),
+            None => chains.push(vec![seat]),
+        }
+    }
+    chains
+}
+
+/// One session's messages, in order: each is queued only once the one before it settled (the
+/// receiver took it, or refused it). The outbox runs each delivery on its own and retries it, so
+/// two queued at once can arrive swapped, and a `supersede` correction be replaced by the order
+/// it corrects. A message whose predecessor is still on its way at `deadline` is not sent; its
+/// row says so. Chains to different sessions run side by side, so a batch answers inside one
+/// [`STATUS_WAIT`].
+pub(super) async fn in_order<'t, F, Fut>(
+    targets: &'t [Target],
+    chain: Vec<usize>,
+    deadline: tokio::time::Instant,
+    send: F,
+) -> Vec<(usize, Value)>
+where
+    F: Fn(&'t Target, Duration) -> Fut,
+    Fut: std::future::Future<Output = Value>,
+{
+    let mut rows = Vec::new();
+    let mut before: Option<String> = None;
+    for seat in chain {
+        let Some(target) = targets.get(seat) else { continue };
+        if let Some(delivery) = &before {
+            let why = format!(
+                "not sent: the message before it to {} (delivery {delivery}) is still on its way, \
+and this one must not arrive first; send it again once info {} shows that one arrived",
+                target.to, target.to
+            );
+            rows.push((seat, target.row(false, "failed", Some(why))));
+            continue;
+        }
+        let wait = deadline.saturating_duration_since(tokio::time::Instant::now());
+        let row = send(target, wait).await;
+        let status = row.get("status").and_then(Value::as_str).unwrap_or_default();
+        if !matches!(status, "delivered" | "failed" | "held") {
+            before = Some(row.get("deliveryId").and_then(Value::as_str).unwrap_or("?").to_owned());
+        }
+        rows.push((seat, row));
+    }
+    rows
 }
 
 /// A tag's recipients, `(key, name)`, from one session list per call (`fanout::tag_targets`).
@@ -401,27 +471,36 @@ async fn queue(daemon: &Arc<Client>, target: &Target) -> Result<(PromptId, Value
     Ok((prompt, queued))
 }
 
-/// Wait up to [`STATUS_WAIT`] for a queued message's delivery to settle; its row.
-async fn settle(daemon: &Arc<Client>, target: &Target, prompt: &PromptId, queued: Value) -> Value {
+/// Wait up to `wait` for a queued message's delivery to settle; its row.
+async fn settle(
+    daemon: &Arc<Client>,
+    target: &Target,
+    prompt: &PromptId,
+    queued: Value,
+    wait: Duration,
+) -> Value {
     let delivery = queued.get("deliveryId").and_then(Value::as_str).unwrap_or_default().to_owned();
-    let wait_ms = u64::try_from(STATUS_WAIT.as_millis()).unwrap_or(u64::MAX);
-    let wait = json!({"deliveryId": delivery, "waitMs": wait_ms});
-    let status = daemon.request(method::MUX_SEND_STATUS, wait).await.unwrap_or(queued);
+    let wait_ms = u64::try_from(wait.as_millis()).unwrap_or(u64::MAX);
+    let ask = json!({"deliveryId": delivery, "waitMs": wait_ms});
+    let status = daemon.request(method::MUX_SEND_STATUS, ask).await.unwrap_or(queued);
     let state = status.get("status").and_then(Value::as_str).unwrap_or("queued").to_owned();
     let accepted = status.get("accepted").cloned().unwrap_or(Value::Null);
     let session_id = accepted.get("sessionId").cloned().unwrap_or_else(|| json!(target.key));
-    let mut row = json!({"index": target.index, "to": target.to, "target": target.key,
-        "tag": target.tag, "ok": true, "promptId": prompt.id, "deliveryId": delivery,
-        "status": state, "sessionId": session_id, "accepted": accepted});
     // A refusal the target gave at once (its folder's trust, a paused agent pair) is this row's
     // error, as `acpmux send --no-wait` says it.
-    if matches!(state.as_str(), "failed" | "held") {
-        row["ok"] = json!(false);
-        row["error"] =
-            json!(status.get("error").and_then(Value::as_str).unwrap_or("delivery failed"));
+    let refused = matches!(state.as_str(), "failed" | "held");
+    let error = refused.then(|| {
+        status.get("error").and_then(Value::as_str).unwrap_or("delivery failed").to_owned()
+    });
+    let mut row = target.row(!refused, &state, error);
+    row.set("promptId", json!(prompt.id));
+    row.set("deliveryId", json!(delivery));
+    row.set("sessionId", session_id);
+    if refused {
+        row.set("accepted", accepted);
         return row;
     }
-    row["delivery"] = json!(if state != "delivered" {
+    let how = if state != "delivered" {
         "sending"
     } else if accepted.get("steer") == Some(&json!(true)) {
         "next_step"
@@ -429,23 +508,32 @@ async fn settle(daemon: &Arc<Client>, target: &Target, prompt: &PromptId, queued
         "queued"
     } else {
         "started"
-    });
+    };
+    row.set("delivery", json!(how));
     if target.item.supersede.is_some() {
         // null until delivered, or when the target's daemon predates the key.
-        row["replaced"] = accepted.get("replaced").cloned().unwrap_or(Value::Null);
-        row["replacedPromptIds"] =
-            accepted.get("replacedPromptIds").cloned().unwrap_or(Value::Null);
+        row.set("replaced", accepted.get("replaced").cloned().unwrap_or(Value::Null));
+        row.set(
+            "replacedPromptIds",
+            accepted.get("replacedPromptIds").cloned().unwrap_or(Value::Null),
+        );
     }
+    row.set("accepted", accepted);
     row
+}
+
+fn row_ok(row: &Value) -> bool {
+    row.get("ok").and_then(Value::as_bool).unwrap_or(false)
 }
 
 /// One row's line, as the first shape always said it.
 fn sent_line(row: &Value) -> String {
-    let s = |k: &str| row[k].as_str().unwrap_or_default();
+    let s = |k: &str| row.get(k).and_then(Value::as_str).unwrap_or_default();
     let (to, prompt_id, delivery) = (s("to"), s("promptId"), s("deliveryId"));
-    if row["ok"] == json!(false) {
+    if !row_ok(row) {
         if to.is_empty() {
-            return format!("Not sent (messages[{}]): {}", row["index"], s("error"));
+            let index = row.get("index").cloned().unwrap_or(Value::Null);
+            return format!("Not sent (messages[{index}]): {}", s("error"));
         }
         return format!("Not sent to {to}: {}", s("error"));
     }
@@ -466,14 +554,14 @@ delivering it, retrying while the target is slow or its peer is down. Do not sen
 
 /// The batch's result: a line per row and `results`; an error only when nothing went.
 fn batch_result(results: Vec<Value>) -> Value {
-    let sent = results.iter().filter(|r| r["ok"] == json!(true)).count();
+    let sent = results.iter().filter(|r| row_ok(r)).count();
     let failed = results.len().saturating_sub(sent);
     let mut lines: Vec<String> = results.iter().map(sent_line).collect();
     lines.push(format!("{sent} of {} sent.", results.len()));
     let structured = json!({"results": results, "sent": sent, "failed": failed});
     let mut out = ok(lines.join("\n"), structured);
     if sent == 0 {
-        out["isError"] = json!(true);
+        out.set("isError", json!(true));
     }
     out
 }
