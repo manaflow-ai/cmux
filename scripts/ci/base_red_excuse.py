@@ -724,6 +724,8 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
             raise Refused(f"'{name}': no failing test or error line to match; nothing to compare with the base")
         base_log = github.log(repo, base_job)
         base_steps, base_tests, base_errors = signature(base_job, base_log)
+        if chromium_without_diagnostics and (base_tests or base_errors or crash_signals(base_log)):
+            raise Refused(f"'{name}': no failing test or error line to match; nothing to compare with the base")
         verdict = test_reds.classify(head_log, base_log, name, f"{base} run {base_run['id']}")
         if verdict is not None and verdict.own:
             raise Refused(f"'{name}': " + "; ".join(verdict.reasons)[:800])
