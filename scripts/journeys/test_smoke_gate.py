@@ -1257,6 +1257,12 @@ class HoldPath(unittest.TestCase):
         j.smoke_creation["release"] = {"started": 1, "held": [], "released": [1]}  # the second Cmd-D never started
         with self.assertRaises(self.NotRun):
             self.ext.step_smoke_hold_path(j, {"creation_held": 1})
+        # A hook that reports `resumed`: creation 1 released but never waiting is not proven.
+        j.smoke_creation["release"] = {"started": 2, "held": [], "released": [1], "resumed": []}
+        with self.assertRaises(self.NotRun):
+            self.ext.step_smoke_hold_path(j, {"creation_held": 1})
+        j.smoke_creation["release"]["resumed"] = [1]
+        self.assertTrue(self.ext.step_smoke_hold_path(j, {"creation_held": 1})["creation_pending"])
         j.app = App({"debug.creation.hold": self.ext.D.StepError("debug.creation.hold: method_not_found")})
         with self.assertRaises(self.NotRun):
             self.ext.step_smoke_creation(j, {"action": "hold", "n": 1})

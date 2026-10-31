@@ -1188,6 +1188,27 @@ def step_smoke_creation(j, step):
     return {"reply": reply}
 
 
+def step_smoke_wait_new_view(j, step):
+    """After a key that makes a terminal (Cmd-D) while its creation is held (smoke_creation hold): waits, at most
+    TIMEOUT s (default 5), until a pane shows a terminal view the journey has not seen and that pane is the focused
+    one: the new pane's early view has the keyboard. The P0 1193 owner: from then on the keys typed for it, the second
+    Cmd-D too, go straight through while creation 1 is still pending (the race of TIP RED 1193). Never adopts the
+    terminal and never waits for the daemon (its reply is held). Not reached in time: recorded, the journey goes on
+    (smoke_hold_path then judges whether the race happened)."""
+    end, last = D.now() + float(step.get("timeout", 5)), None
+    t0 = D.now()
+    while D.now() < end:
+        views = [v for v in j.app.panes() if v.get("kind", "terminal") == "terminal" and v.get("terminal_id")]
+        new = [v for v in views if v["terminal_id"] not in j.known_views]
+        focused = [v for v in new if v.get("focused")]
+        if focused:
+            return {"reached": True, "after_s": round(D.now() - t0, 3), "pane": focused[0].get("pane"),
+                    "terminal_id": focused[0]["terminal_id"]}
+        last = {"new_views": [(v.get("pane"), v.get("focused")) for v in new][:4]}
+        time.sleep(0.02)
+    return {"reached": False, "after_s": round(D.now() - t0, 3), "last": last}
+
+
 def _creation_proof(j, n):
     """(creation N was pending when it was released, and a later creation had started, the release reply)."""
     seen = getattr(j, "smoke_creation", {})
@@ -1250,7 +1271,7 @@ def step_smoke_burst(j, step):
     return {"steps": len(steps), "reply": reply, "held_keys": held}
 
 
-STEPS = {"smoke_burst": step_smoke_burst, "smoke_creation": step_smoke_creation, "smoke_hold_path": step_smoke_hold_path, "smoke_no_key_gaps": step_smoke_no_key_gaps, "smoke_ready": step_smoke_ready, "smoke_make_key": step_smoke_make_key, "smoke_type_now": step_smoke_type_now,
+STEPS = {"smoke_burst": step_smoke_burst, "smoke_wait_new_view": step_smoke_wait_new_view, "smoke_creation": step_smoke_creation, "smoke_hold_path": step_smoke_hold_path, "smoke_no_key_gaps": step_smoke_no_key_gaps, "smoke_ready": step_smoke_ready, "smoke_make_key": step_smoke_make_key, "smoke_type_now": step_smoke_type_now,
          "smoke_remember_workspaces": step_smoke_remember_workspaces, "smoke_close_all": step_smoke_close_all,
          "smoke_snapshot": step_smoke_snapshot, "smoke_adopt_line": step_smoke_adopt_line,
          "smoke_long_line": step_smoke_long_line, "smoke_widths": step_smoke_widths}
