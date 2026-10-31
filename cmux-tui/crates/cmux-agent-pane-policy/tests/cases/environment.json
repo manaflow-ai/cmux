@@ -291,6 +291,55 @@
    }
   },
   {
+   "name": "a tagged DEV build keeps a home outside the root (a Chief brain's)",
+   "bundle_id": "com.cmuxterm.app.debug.feature-x",
+   "bundled_tag": "Feature X",
+   "bundled": null,
+   "env": {
+    "ACPMUX_HOME": "/Users/me/.cmux/brains/chief/acpmux",
+    "ACPMUX_SOCKET": "/Users/me/.cmux/brains/chief/acpmux/acpmux.sock",
+    "PATH": ""
+   },
+   "user_home": "/Users/me",
+   "uid": 501,
+   "executables": [
+    "/Users/me/.cargo/bin/acpmux"
+   ],
+   "expect": {
+    "executable": "/Users/me/.cargo/bin/acpmux",
+    "home": "/Users/me/.cmux/brains/chief/acpmux",
+    "socket": "/Users/me/.cmux/brains/chief/acpmux/acpmux.sock",
+    "args": [
+     "--listen",
+     "127.0.0.1:0"
+    ]
+   }
+  },
+  {
+   "name": "a tagged DEV build ignores NIGHTLY's home spelled through ..",
+   "bundle_id": "com.cmuxterm.app.debug.feature-x",
+   "bundled_tag": "Feature X",
+   "bundled": null,
+   "env": {
+    "ACPMUX_HOME": "/Users/me/.acpmux/builds/..",
+    "PATH": ""
+   },
+   "user_home": "/Users/me",
+   "uid": 501,
+   "executables": [
+    "/Users/me/.cargo/bin/acpmux"
+   ],
+   "expect": {
+    "executable": "/Users/me/.cargo/bin/acpmux",
+    "home": "/Users/me/.acpmux/builds/com.cmuxterm.app.debug.feature-x",
+    "socket": "/Users/me/.acpmux/builds/com.cmuxterm.app.debug.feature-x/acpmux.sock",
+    "args": [
+     "--listen",
+     "127.0.0.1:0"
+    ]
+   }
+  },
+  {
    "name": "NIGHTLY keeps an ACPMUX_HOME of ~/.acpmux",
    "bundle_id": "com.cmuxterm.app.nightly",
    "bundled_tag": null,

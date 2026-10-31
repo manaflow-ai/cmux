@@ -4,7 +4,9 @@ public import Foundation
 /// Where this app's acpmux daemon lives and how to start it.
 ///
 /// Same rule as `cmux acp` (cmux-tui `acp::build_home`), so the pane and
-/// the CLI in its terminals reach one daemon: `ACPMUX_HOME` wins, else the
+/// the CLI in its terminals reach one daemon: `ACPMUX_HOME` wins (except one naming
+/// `~/.acpmux` or another build's home for a build with a home of its own, as every
+/// agent shell exports it: ``inheritsAnotherBuildsHome(_:ownHome:root:)``, cmux#29050), else the
 /// build's own home (``BuildIdentity/acpmuxHome(userHome:)``, per-build
 /// isolation cx-is1kf): NIGHTLY keeps `~/.acpmux`, shared with a standalone
 /// `acpmux`; every other build has `~/.acpmux/builds/<key>`, so no build
@@ -172,7 +174,8 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
         guard ownPath != rootPath else { return false }
         let path = URL(fileURLWithPath: custom, isDirectory: true).standardizedFileURL.path
         if path == ownPath { return false }
-        return path == rootPath || path.hasPrefix(rootPath + "/builds/")
+        let builds = rootPath + "/builds"
+        return path == rootPath || path == builds || path.hasPrefix(builds + "/")
     }
 
     /// `~/.acpmux` of `userHome`: NIGHTLY's home, and the root of every build home.

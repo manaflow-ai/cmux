@@ -1,6 +1,8 @@
 //! Where the host's acpmux daemon lives (CmuxNextAgentPane
 //! AcpmuxEnvironment.swift; same rule as `cmux acp`, cmux-tui `acp.rs`
-//! `build_home`): `ACPMUX_HOME` wins, else the build's own home
+//! `build_home`): `ACPMUX_HOME` wins (except, for a build with a home of
+//! its own, one naming `~/.acpmux` or another build's home, as every agent
+//! shell exports it: [`inherits_another_builds_home`], cmux#29050), else the build's own home
 //! ([`BuildIdentity::acpmux_home`]: `~/.acpmux` for NIGHTLY and outside any
 //! build, `~/.acpmux/builds/<key>` for every other build). A daemon in a
 //! home other than `~/.acpmux` listens on an ephemeral port. `ACPMUX_SOCKET`
