@@ -76,7 +76,7 @@ extension SidebarListViewComponents {
         // The document's acceptance table: the drag's one reducer call before its drop.
         if let doc = model.docDrag, let items = doc.items(payload) {
             drag.docItems = items
-            drag.docAcceptance = doc.begin(items)
+            drag.docAcceptance = keepingFixed(doc.begin(items))
         }
         // A group drag freezes its base and cuts its card here (`SidebarListView+GroupDrag`).
         if case .group = payload { beginGroupDrag(drag, lifted: rows, card: rowFrame) }
@@ -125,6 +125,9 @@ extension SidebarListViewComponents {
         if let group = drag.group, group.slot == group.plan.origin || group.drops[group.slot] == nil { return cancelDrag() }
         if let items = drag.docItems, let doc = model.docDrag {
             guard let target = drag.docTarget else { return cancelDrag() }
+            // Released where it started: a move there changes nothing the list shows (it may still re-key the items,
+            // a change no reload shows, so no settle would ever end). It goes back as for a cancel, sending nothing.
+            if dropKeepsPlace(items, target) { return cancelDrag() }
             // The list keeps the drop's look until the move lands; the card settles into the slot it shows.
             settling = SidebarSettlingDrop(drag: drag, revision: model.sectionsRevision, blocks: blocks)
             self.drag = nil

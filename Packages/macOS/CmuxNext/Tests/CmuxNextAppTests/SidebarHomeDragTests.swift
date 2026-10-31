@@ -79,7 +79,8 @@ struct SidebarHomeDragTests {
         defer { Motion.reduceMotionOverride = nil }
         let h = Harness()
         defer { h.close() }
-        let chief = try h.item(Harness.pins[2].id)
+        // The middle pinned row: its own slot is between two pinned rows (below the last one, the list's top is the same place).
+        let chief = try h.item(Harness.pins[1].id)
         let start = chief.convert(NSPoint(x: chief.bounds.midX, y: chief.bounds.midY), to: nil)
         chief.mouseDown(with: try h.mouse(.leftMouseDown, at: start))
         for down: CGFloat in [8, 24, 40, 24, 8, 1] {
