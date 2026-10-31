@@ -1978,8 +1978,9 @@ export function Composer({
       {stopping ? <Spinner loading size={14} /> : <StopIcon />}
     </button>
   ) : null;
+  // A draft of attachments alone is still a draft: it gets Send, never Stop alone.
   const sendControl =
-    stop ? (
+    stop && !hasDraft ? (
       stopButton
     ) : remote.canSend && (!quietActions || shell || hasDraft) ? (
       // One send control in both looks (Leo 2026-10-31: "THE F***ING TWO SEND

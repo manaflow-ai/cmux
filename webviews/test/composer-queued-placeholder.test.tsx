@@ -11,6 +11,7 @@ import type { Root } from "react-dom/client";
 import { noChat, summary, user } from "../src/gallery/fixtures/acpmux";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
 import type { ComposerHandle } from "../src/agent-session/acpmux/Composer";
+import type { ComposerAttachment } from "../src/agent-session/acpmux/attachments";
 import type { SendBlock } from "../src/agent-session/acpmux/useFolderTrustAsk";
 
 const scope = globalThis as Record<string, unknown>;
@@ -173,7 +174,11 @@ test("Return steers a steering agent's running turn", async () => {
 
 /** Types `text` and clicks the composer's send control; returns each send's steer flag and the
  * send-like controls drawn (Leo 2026-10-31: "THE F***ING TWO SEND BUTTONS"). */
-async function click(snapshot: AcpmuxSnapshot): Promise<{ steers: (boolean | undefined)[]; sends: number; stops: number }> {
+async function click(
+  snapshot: AcpmuxSnapshot,
+  text = "Use the cache",
+  attachments: ComposerAttachment[] = [],
+): Promise<{ steers: (boolean | undefined)[]; sends: number; stops: number }> {
   const steers: (boolean | undefined)[] = [];
   let handle: ComposerHandle | null = null;
   await render(snapshot, undefined, {
@@ -183,7 +188,7 @@ async function click(snapshot: AcpmuxSnapshot): Promise<{ steers: (boolean | und
       return true;
     },
   });
-  await act(async () => handle!.restore("Use the cache", []));
+  await act(async () => handle!.restore(text, attachments));
   const sends = host.querySelectorAll<HTMLButtonElement>(".acpmux-send:not(.acpmux-cancel)");
   const stops = host.querySelectorAll(".acpmux-cancel").length;
   await act(async () => sends[0]?.click());
@@ -196,6 +201,11 @@ test("mid-turn with a draft, one send control does what Return does: it steers a
 
 test("mid-turn with a draft, the one send control queues for an agent that cannot steer", async () => {
   expect(await click(started({ isWorking: true }))).toEqual({ steers: [false], sends: 1, stops: 0 });
+});
+
+test("mid-turn with only an attachment staged, the slot is Send (it steers), never Stop alone", async () => {
+  const file: ComposerAttachment = { id: "a1", kind: "text", name: "notes.txt", mimeType: "text/plain", size: 5, text: "notes" };
+  expect(await click(steering({ isWorking: true }), "", [file])).toEqual({ steers: [true], sends: 1, stops: 0 });
 });
 
 test("mid-turn with an empty prompt, the send slot is Stop alone", async () => {
