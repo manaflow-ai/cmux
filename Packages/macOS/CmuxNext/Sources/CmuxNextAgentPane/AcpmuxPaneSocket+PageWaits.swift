@@ -17,4 +17,14 @@ extension AcpmuxPaneSocket {
         default: return false
         }
     }
+
+    /// Whether a daemon frame answers a request the page sent (a reply: an `id` and no `method`).
+    /// Its page is awake (it just asked) and waits on it, so a pane nobody can see gets it without
+    /// the hidden interval: a chat opening behind a cover or in a covered window read its attach,
+    /// permission groups and handoff about 280 ms late, and each later page of its history 250 ms
+    /// late (chat-open bench, 2026-10-31). The page's requests bound these calls; the stream it did
+    /// not ask for still waits (``pageWaits(on:)``).
+    nonisolated static func answersPage(_ object: [String: Any]) -> Bool {
+        object["id"] != nil && object["method"] == nil
+    }
 }
