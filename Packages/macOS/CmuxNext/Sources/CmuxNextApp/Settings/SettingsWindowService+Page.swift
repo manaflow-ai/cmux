@@ -45,12 +45,9 @@ extension SettingsWindowService {
                 "current": .object(Dictionary(uniqueKeysWithValues: themeLevels.map { level in
                     (level.rawValue, theme(at: level).map(JSONValue.string) ?? .null)
                 })),
-                // The Ghostty config's own colors (never the app theme's), for "Use Ghostty Config"'s
-                // preview while appearance.theme is unset (null while it names a theme).
+                // "Use Ghostty Config"'s preview (the config's own colors, null while appearance.theme is set); the pair side the terminals use.
                 "config": services.settings?.snapshot.appTheme == nil ? Self.themeJSON(services.themeStore.configInput) : .null,
-                // The Mac's light or dark: the page's own prefers-color-scheme is its window's, which a
-                // light or dark App Theme sets, so it cannot tell which side of a pair the terminals use.
-                "system_scheme": .string(services.themes.resolver.isDark ? "dark" : "light"),
+                "system_scheme": .string(NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? "dark" : "light"),
             ],
             "terminal": ["ghostty_config": .string(ghosttyConfigPath), "shell_integration": shellIntegration.map(JSONValue.string) ?? .null],
             // R92: the Ghostty lines cmux does not apply (the socket's `ghostty.diagnostics` list).

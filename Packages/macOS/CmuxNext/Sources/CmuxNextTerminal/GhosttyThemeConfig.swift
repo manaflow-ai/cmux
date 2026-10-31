@@ -13,6 +13,15 @@ public final class GhosttyThemeConfig {
     public let themeName: String
     /// Colors of this config, for the chrome around the terminal.
     public let colors: GhosttyThemeColors?
+    /// This theme's colors as the App Theme (`appearance.appTheme`) takes them: the theme file with the
+    /// person's edits and highlight color, never the Ghostty config's own color lines (those stay the
+    /// terminals'), with this config's window opacity and blur. Built on first read and dropped with
+    /// this config on the next config change. Nil when libghostty cannot build it.
+    public private(set) lazy var appColors: GhosttyThemeColors? = {
+        guard var app = GhosttyRuntime.appThemeColors(theme: themeName, edits: GhosttyRuntime.themeEdits) else { return nil }
+        if let colors { (app.backgroundOpacity, app.backgroundBlur) = (colors.backgroundOpacity, colors.backgroundBlur) }
+        return app
+    }()
 
     init(config: ghostty_config_t, themeName: String, colors: GhosttyThemeColors?) {
         self.config = config

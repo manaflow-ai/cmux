@@ -81,9 +81,8 @@ final class ThemeCoordinator {
     private var machineColorsObservation: Task<Void, Never>?
 
     /// Follows `appearance.appTheme`: the theme the native chrome (window, sidebar, tab strips, light/dark)
-    /// and the pages (`--cmux-app-*`, `WebTheme`) take: the variant for the system appearance, from its theme
-    /// file and the person's edits; the Ghostty config's own color lines stay the terminals'
-    /// (`ThemeResolver.resolveAppTheme`). `followTerminal` leaves each scope on its own theme.
+    /// and the pages (`--cmux-app-*`, `WebTheme`) take: the system appearance's variant, its file and edits only
+    /// (`GhosttyThemeConfig.appColors`; config color lines stay the terminals'). `followTerminal` leaves each scope on its own theme.
     func followChromeTheme(_ settings: SettingsController) {
         let store = services.themeStore
         // `applied`: a live preview (a theme picker's highlighted row) shows too.
@@ -120,11 +119,10 @@ final class ThemeCoordinator {
 
     private func applyChromeTheme() {
         let store = services.themeStore
-        // The theme file's colors, never the Ghostty config's own color lines (the terminals keep those).
-        let resolved = resolver.resolveAppTheme(chromeTheme.flatMap(ThemeSpec.init))
-        // The chrome and the pages derive from these colors; the terminals keep the terminal theme.
-        store.setAppTheme(from: resolved.map {
-            var input = $0
+        let resolved = chromeTheme.flatMap(ThemeSpec.init).flatMap(resolver.resolve)
+        // The theme file's colors, never the config's own color lines (the terminals keep those).
+        store.setAppTheme(from: resolved.map { theme in
+            var input = theme.config.appColors.map { ThemeBridge.input($0, background: GhosttyRuntime.backgroundOverride, accent: ThemeBridge.accent(theme.config.themeName)) } ?? theme.input
             // Art Color: pages take the app's art hue (a workspace's own art tints its chrome only).
             if store.accentFollowsArt, let hue = ThemeScope.app.backdropArt?.accentHue { input.accentColor = hue }
             return input
