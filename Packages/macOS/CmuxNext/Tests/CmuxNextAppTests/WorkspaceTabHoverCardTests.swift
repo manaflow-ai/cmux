@@ -86,6 +86,28 @@ struct WorkspaceTabHoverCardTests {
         #expect(selected?.1 == TabID("review"))
     }
 
+    /// "Show Workspace Resource Usage" pins the card to show resource usage, which lives in its
+    /// details: that card opens expanded, and a later hover card opens tabs-first again.
+    @Test func showResourceUsageOpensTheCardWithItsDetails() throws {
+        let target = WorkspaceID("busy")
+        var workspace = SidebarWorkspace(id: target, title: "Busy workspace", directory: "~/project", branch: "feature")
+        workspace.tabs = [SidebarTab(id: TabID("shell"), title: "Shell")]
+        let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
+        let model = SidebarModel(sections: [SidebarSection(kind: .machine(machine), nodes: [.workspace(workspace)])],
+                                 activeWorkspaceID: target)
+        let list = SidebarListView(model: model)
+        list.reload(animated: false)
+        let id = WorkspaceHoverCardController.targetID(target)
+
+        list.hoverCard.requestDetails(for: target)
+        let pinned = try #require(list.hoverCard.hoverCardBody(for: id)?.view as? WorkspaceHoverCardView)
+        #expect(pinned.isDetailsExpanded, "Show Resource Usage opened a collapsed card")
+        list.hoverCard.hoverCardDeactivated(id)
+
+        let hovered = try #require(list.hoverCard.hoverCardBody(for: id)?.view as? WorkspaceHoverCardView)
+        #expect(!hovered.isDetailsExpanded, "a plain hover after the action kept the details open")
+    }
+
     @Test func cardStartsWithTabsAndCollapsedDetailsThenToggleRevealsDetails() throws {
         let card = WorkspaceHoverCardView()
         card.configure(WorkspaceHoverCardContent(title: "Project", icon: .terminal,

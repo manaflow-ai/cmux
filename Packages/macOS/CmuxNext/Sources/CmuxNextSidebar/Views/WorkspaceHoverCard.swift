@@ -39,6 +39,9 @@ final class WorkspaceHoverCardController: HoverCardSource {
     /// The group headers' summary card body, reused group to group.
     private var groupBody: GroupHoverCardView?
     private var bodyID: HoverTargetID?
+    /// The card "Show Resource Usage" asked for: it opens with its details (and the resource
+    /// line) expanded, since that is what the action shows. Cleared when that card hides.
+    private var detailsRequested: HoverTargetID?
     /// Ticks the shown card's running times once a second (one-shot, re-armed by each tick);
     /// idle while no live card shows, so a quiet sidebar wakes nothing.
     private let ticker = DemandTimer(owner: "sidebar.hover-card.elapsed")
@@ -138,6 +141,7 @@ final class WorkspaceHoverCardController: HoverCardSource {
         guard let list, let ws = workspaceID(id), let workspace = list.hoverCardRow(ws) else { return nil }
         let body = body ?? WorkspaceHoverCardView()
         if bodyID != id { body.resetDetails() }
+        if detailsRequested == id { body.expandDetails() }
         self.body = body
         let machine = list.sections.values.lazy.compactMap(\.machine).first { $0.id == workspace.machineID }
         let options = DesignSettings.shared.workspaceHoverCard
@@ -204,7 +208,11 @@ final class WorkspaceHoverCardController: HoverCardSource {
         }
     }
 
+    /// Show Resource Usage: the next card shown for `ws` opens with its details expanded.
+    func requestDetails(for ws: WorkspaceID) { detailsRequested = Self.targetID(ws) }
+
     func hoverCardDeactivated(_ id: HoverTargetID) {
+        if detailsRequested == id { detailsRequested = nil }
         resources.close()
         body?.resetResourceHistory()
         body?.tabList.onSelect = nil
@@ -556,6 +564,14 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
     func resetDetails() {
         detailsExpanded = false
         updateDetailsVisibility()
+    }
+
+    /// Opens the details without a click (Show Resource Usage asks for them).
+    func expandDetails() {
+        guard !detailsExpanded else { return }
+        detailsExpanded = true
+        updateDetailsVisibility()
+        needsLayout = true
     }
 
     func acceptsHoverCardMouse(at screenPoint: CGPoint, in panel: NSWindow) -> Bool {
