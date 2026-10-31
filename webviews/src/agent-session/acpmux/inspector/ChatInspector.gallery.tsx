@@ -602,7 +602,7 @@ export default componentEntry<Props>({
       },
     },
     "workflow-finished": {
-      note: "Labs: the same workflow finished. 1 finished; Workflow · Finished · 7 agents · 432k tokens; each phase N/N with its dots, no Stop and no Up next. Critique opened: its agents with a check and how long each took.",
+      note: "Labs: the same workflow finished. 1 finished; Workflow · Finished · 7 agents · 432k tokens; each phase N/N with its dots, no Stop. Critique opened: its agents with a check and how long each took.",
       props: workflowProps("finished"),
       play: openPhase(2),
     },
