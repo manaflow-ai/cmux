@@ -907,10 +907,13 @@ export function NewTabScreen(props: Props) {
   submitNow.current = submit;
   // One create per page: a double click, or a click while the terminal spawns, opens one tab.
   const created = useRef(false);
+  // A delayed Cancel can only unlock the New chat attempt that originally asked for the folder.
+  const createdAttempt = useRef(0);
   const create = (kind: "terminal" | "browser") => {
     touch();
     if (created.current) return;
     created.current = true;
+    createdAttempt.current += 1;
     props.onCreate?.(kind);
   };
   // New chat: Return's chat, with the prompt the field holds (an address or a shell command stays
@@ -927,13 +930,14 @@ export function NewTabScreen(props: Props) {
     const prompt = shell ? "" : text.trim();
     if (command.intercept(prompt, harness, attachments.length)) return;
     created.current = true;
+    const attempt = ++createdAttempt.current;
     const asked = askChat(
       harness,
       prompt && !isAddress(prompt, home) && !pairingLinkRefused(prompt) ? prompt : "",
       project,
       chipModel,
       () => {
-        created.current = false;
+        if (createdAttempt.current === attempt) created.current = false;
       },
     );
     // A Sandboxed New chat that started nothing (no prompt, a refusal) leaves the page's creates open.
@@ -954,6 +958,7 @@ export function NewTabScreen(props: Props) {
       return;
     }
     created.current = true;
+    const attempt = ++createdAttempt.current;
     const prompt = shell ? "" : text.trim();
     const asked = askChat(
       agent,
@@ -961,7 +966,7 @@ export function NewTabScreen(props: Props) {
       project,
       undefined,
       () => {
-        created.current = false;
+        if (createdAttempt.current === attempt) created.current = false;
       },
     );
     if (asked === false) created.current = false;
