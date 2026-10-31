@@ -61,6 +61,17 @@ struct AgentPaneCloudStartTests {
         #expect(unnamed.seed(cwd: "/w").harness == nil)
     }
 
+    @Test func aRetryOfTheSameSendOpensTheSameTabOnTheMachine() throws {
+        let key = UUID().uuidString
+        let first = try #require(AgentPaneCloudStart(params: Self.good.merging(["key": key]) { $1 }))
+        let retry = try #require(AgentPaneCloudStart(params: Self.good.merging(["key": key.lowercased()]) { $1 }))
+        let other = try #require(AgentPaneCloudStart(params: Self.good.merging(["key": UUID().uuidString]) { $1 }))
+        // The tab's creation key is the send's: the daemon answers a retry with the tab it made.
+        #expect(first.tabKey == retry.tabKey)
+        #expect(first.tabKey.hasSuffix(key.lowercased()))
+        #expect(first.tabKey != other.tabKey)
+    }
+
     @Test func aRefusedStartReleasesTheHoldSoTheSendMayBeTriedAgain() async {
         let model = AgentPaneModel(host: NoHost())
         model.onCloudStartChat = { _ in AgentPaneReply.failure(code: "cloud_start_failed", message: "no machine") }
