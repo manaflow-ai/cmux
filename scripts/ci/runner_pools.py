@@ -220,6 +220,8 @@ def label_evidence(health: Mapping[str, Any] | None, snapshot: Mapping[str, Any]
     elif generated is not None and not (dt.timedelta(minutes=-1) <= now - generated <= SNAPSHOT_MAX_AGE):
         notes.append(f"the janitor snapshot is from {iso(generated)}, outside the last {SNAPSHOT_MAX_AGE}; "
                      "no snapshot evidence")
+    elif generated is not None and pr_runner_pool.snapshot_truncated(snapshot):
+        notes.append(f"{pr_runner_pool.snapshot_truncated(snapshot)}; no snapshot evidence")
     elif generated is not None:
         age = max(0.0, (now - generated).total_seconds() / 60)
         for label, load in (snapshot.get("pools") or {}).items():
