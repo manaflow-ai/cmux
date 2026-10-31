@@ -234,8 +234,12 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Decodable {
         status.isLive || (status == .paused && pauseReason == .idle)
     }
 
-    /// Sidebar and menu title: the user's name, else the slug, else the id.
-    public var title: String { displayName?.nonEmpty ?? slug?.nonEmpty ?? id }
+    /// The machine's name wherever cmux shows one (the sidebar, menus, the Cloud page): the
+    /// user's name, else the generated slug (`kind-aqua-sandpiper`); nil when it has neither.
+    public var shownName: String? { displayName?.nonEmpty ?? slug?.nonEmpty }
+
+    /// Sidebar and menu title: ``shownName``, else the id.
+    public var title: String { shownName ?? id }
 
     enum CodingKeys: String, CodingKey {
         case id, provider, status, displayName, slug, kind, image, imageVersion, createdAt, createdBy, createdByUserId, address, size, capabilities
@@ -326,6 +330,9 @@ public struct CloudAttachEndpoint: Sendable, Hashable, Decodable {
     /// boundary (acpmux `hub/vm_boundary.rs`). Missing, null or any other string keeps them
     /// sandboxed; a value of another type fails the attach.
     public var callerOwnsVM: Bool { vmKind == "owner" }
+    /// Only the exact `"team"`: the Cloud API says the machine is a teammate's, so its owner starts
+    /// chats there. Grants nothing; it only names the refusal (``CloudMachineLink/callerIsTeammate``).
+    public var callerIsTeammate: Bool { vmKind == "team" }
 }
 
 public struct CloudEnrollmentApproval: Sendable, Hashable, Decodable {

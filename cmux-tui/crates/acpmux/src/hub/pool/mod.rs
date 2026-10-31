@@ -324,6 +324,7 @@ impl Hub {
             system_prompt_sha256: sha,
             auth: format!("{:016x}", h.finish()),
             account,
+            machine: crate::login_env::machine_stamp(),
         };
         Ok(PoolSpec { key, spawn, draft: draft.clone() })
     }
@@ -698,6 +699,14 @@ impl Hub {
                             waited_ms = asked.elapsed().as_millis() as u64,
                             "a pooled agent host did not answer or is not heard; it ends and the session starts on a fresh host"
                         );
+                        self.pool_discard(vec![p]);
+                        return None;
+                    }
+                    // A delivery or revocation since its key was made (also
+                    // while this claim waited on its start): a cold start
+                    // reads the machine's secrets afresh.
+                    if p.key.machine != crate::login_env::machine_stamp() {
+                        tracing::info!(harness = %spec.key.harness, "pooled session discarded: the machine's delivered secrets changed");
                         self.pool_discard(vec![p]);
                         return None;
                     }

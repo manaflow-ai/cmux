@@ -104,7 +104,7 @@ extension CEFTab {
             emit(.close)
         case .navigationReroute(_, let url, _): if let url = URL(string: url) { emit(.rerouteStore(url)) }
         case .localFileHandoff(_, let url): if let url = URL(string: url) { emit(.openLocalFile(url)) }
-        case .externalURL(_, let url, true): if let url = URL(string: url) { BrowserExternalApps.shared.open(url, from: committedURL, ask: enqueuePrompt) }
+        case .externalURL(_, let url, let userGesture): if let url = URL(string: url) { BrowserExternalApps.shared.open(url, from: committedURL, userGesture: userGesture, ask: enqueuePrompt) }
         case .keyUnhandled(_, let keyCode, let shift):
             if keyCode == 0x1B {
                 emit(.unhandledEscape)
