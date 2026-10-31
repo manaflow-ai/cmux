@@ -230,6 +230,14 @@ impl Client {
     async fn respawn_pending(&mut self, session: &str) -> Value {
         self.ok("_acpmux/info", json!({"sessionId": session})).await["respawnPending"].clone()
     }
+
+    /// `respawnPending` of `session`'s row in the session list (`acpmux ls`, a shared snapshot).
+    async fn listed_respawn(&mut self, session: &str) -> Value {
+        let list = self.ok(method::MUX_SESSIONS, json!({})).await;
+        let rows = list["sessions"].as_array().cloned().unwrap_or_default();
+        let row = rows.into_iter().find(|r| r["sessionId"] == session);
+        row.unwrap_or_else(|| panic!("{session} not listed: {list}"))["respawnPending"].clone()
+    }
 }
 
 /// Leo, 2026-10-31, on a session at 650k of a 1M context: "why were you on high and on 1m
@@ -253,6 +261,8 @@ async fn profile_change_respawns_a_busy_agent_with_the_new_args_after_its_turn()
     let agent = local.agent_session(&chat).await;
     assert!(agent.is_string(), "{agent}");
     assert_eq!(local.respawn_pending(&chat).await, Value::Null, "nothing pending yet");
+    // The list is read once now, so a snapshot it keeps would show the row without the mark.
+    assert_eq!(local.listed_respawn(&chat).await, Value::Null);
 
     // A turn in progress, held on a FIFO, while the profile file changes and the catalog reloads.
     let gate = root.join("gate");
@@ -282,6 +292,12 @@ async fn profile_change_respawns_a_busy_agent_with_the_new_args_after_its_turn()
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
 
+    assert_eq!(
+        local.listed_respawn(&chat).await,
+        json!("profile changed"),
+        "the list shows it too"
+    );
+
     // The turn runs to its end on the agent it started on: never cancelled.
     std::fs::write(&gate, "go").unwrap();
     let reply = loop {
@@ -305,6 +321,7 @@ async fn profile_change_respawns_a_busy_agent_with_the_new_args_after_its_turn()
     assert_ne!(local.harness_pid(&chat).await, pid, "a new harness process");
     assert_eq!(local.agent_session(&chat).await, agent, "the same agent session resumed");
     assert_eq!(local.respawn_pending(&chat).await, Value::Null, "the respawn settled");
+    assert_eq!(local.listed_respawn(&chat).await, Value::Null, "and the list says so");
 
     // A reload that leaves the launch as it is restarts nothing.
     let settled = local.harness_pid(&chat).await;

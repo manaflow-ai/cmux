@@ -711,6 +711,34 @@ mod tests {
         held
     }
 
+    /// A respawn's mark and its end each change a row (`respawnPending`): no list shows the
+    /// row as it was (review 2 of the profile respawn).
+    #[tokio::test]
+    async fn a_profile_respawn_mark_and_its_end_rebuild_the_list() {
+        let hub = Hub::new(Config::default(), Box::new(crate::store::MemoryStore::default()));
+        let meta: crate::store::SessionMeta = serde_json::from_value(json!({
+            "schema": crate::store::META_SCHEMA, "id": "s1", "name": "lane", "harness": "claude",
+            "cwd": "/tmp", "status": "running", "createdAt": 1, "updatedAt": 1
+        }))
+        .unwrap();
+        hub.store.save(&meta).unwrap();
+        let session = hub.make_session(meta);
+        let (guard, minute) = (&hub.list_guard, Duration::from_secs(60));
+        let seq = session.state_seq.load(Ordering::SeqCst);
+        let held = hold(&hub, minute).await;
+        hub.mark_profile_respawn(&session);
+        assert_ne!(guard.snapshot(&hub).await.serial, held.serial, "the mark rebuilds");
+        assert!(session.state_seq.load(Ordering::SeqCst) > seq, "watchers see the mark");
+        let held = hold(&hub, minute).await;
+        hub.mark_profile_respawn(&session);
+        assert!(Arc::ptr_eq(&guard.snapshot(&hub).await, &held), "marked again: no change");
+        hub.settle_profile_respawn(&session);
+        assert_ne!(guard.snapshot(&hub).await.serial, held.serial, "its end rebuilds");
+        let held = hold(&hub, minute).await;
+        hub.settle_profile_respawn(&session);
+        assert!(Arc::ptr_eq(&guard.snapshot(&hub).await, &held), "nothing pending: no change");
+    }
+
     #[tokio::test]
     async fn a_snapshot_is_shared_until_a_change_and_never_while_the_logs_load() {
         let hub = Hub::new(Config::default(), Box::new(crate::store::MemoryStore::default()));

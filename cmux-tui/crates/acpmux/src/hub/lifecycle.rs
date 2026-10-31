@@ -705,7 +705,7 @@ impl Hub {
             m.launch_digest = Some(profile.launch_digest.clone());
             changed
         };
-        session.profile_respawn.store(false, Ordering::SeqCst);
+        self.settle_profile_respawn(session);
         if argv_changed {
             self.save_meta(session);
         }
