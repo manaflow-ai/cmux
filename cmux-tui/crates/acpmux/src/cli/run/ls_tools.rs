@@ -9,12 +9,27 @@
 use std::future::Future;
 
 use anyhow::Result;
+use cmux_json::JsonSet as _;
+use futures::StreamExt as _;
 use serde_json::Value;
+
+/// Rows read at once: each read is one request the daemon forwards to the row's peer.
+const PARALLEL_READS: usize = 8;
 
 /// Whether `row` is a peer's row with no inventory.
 fn lacks_tools(row: &Value) -> bool {
     row.get("peer").and_then(Value::as_str).is_some_and(|p| !p.is_empty())
         && row.get("tools").is_none()
+}
+
+/// The key `_acpmux/info` reads `row` by: its `qualifiedSessionId` (`peer/id`, the key the
+/// daemon keeps a peer's row under), else made from its `peer` and `sessionId`.
+fn key(row: &Value) -> String {
+    let text = |field: &str| row.get(field).and_then(Value::as_str).unwrap_or_default();
+    match text("qualifiedSessionId") {
+        "" => format!("{}/{}", text("peer"), text("sessionId")),
+        qualified => qualified.to_owned(),
+    }
 }
 
 /// Fills in `tools` and `toolsMutable` of every peer row of `rows` that has none, from
@@ -25,8 +40,22 @@ where
     F: Fn(String) -> Fut,
     Fut: Future<Output = Result<Value>>,
 {
-    let _ = (rows, info, lacks_tools);
-    0
+    let reads = rows.iter().enumerate().filter(|(_, row)| lacks_tools(row)).map(|(at, row)| {
+        let read = info(key(row));
+        async move { (at, read.await) }
+    });
+    let read: Vec<(usize, Result<Value>)> =
+        futures::stream::iter(reads).buffer_unordered(PARALLEL_READS).collect().await;
+    let failed = read.iter().filter(|(_, detail)| detail.is_err()).count();
+    for (at, detail) in read {
+        let (Ok(detail), Some(row)) = (detail, rows.get_mut(at)) else { continue };
+        for field in ["tools", "toolsMutable"] {
+            if let Some(value) = detail.get(field) {
+                row.set(field, value.clone());
+            }
+        }
+    }
+    failed
 }
 
 #[cfg(test)]
