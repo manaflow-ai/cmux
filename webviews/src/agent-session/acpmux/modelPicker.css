@@ -459,7 +459,6 @@
   align-items: center;
   gap: var(--acpmux-symbols-gap);
   border-inline-end: 0;
-  border-block-end: var(--cmux-hairline, 0.5px) solid var(--agent-border);
   /* The bottom inset is one gap, so a fourth row starts exactly where three rows end. */
   padding: var(--ds-space-2) var(--ds-space-2) var(--acpmux-symbols-gap);
   max-height: calc(var(--ds-space-2) + 3 * var(--ui-row-height) + 3 * var(--acpmux-symbols-gap));
@@ -501,11 +500,24 @@
   clip-path: inset(50%);
   white-space: nowrap;
 }
-.acpmux-quick-placement-symbols .acpmux-quick-rail-tab:has(> .acpmux-quick-harness-name:not(.sr-only)) {
-  padding-inline: var(--ui-row-padding-inline);
-  white-space: nowrap;
+/* A harness with no symbol: its name's initial, as one-colour as the symbols and their size. */
+.acpmux-quick-rail-initial {
+  display: grid;
+  place-items: center;
+  width: 16px;
+  aspect-ratio: 1;
+  border: var(--cmux-hairline, 0.5px) solid currentColor;
+  border-radius: 4px;
+  font-size: var(--text-caption);
+  font-weight: 600;
+  line-height: 1;
 }
-.acpmux-quick-placement-symbols .acpmux-quick-body { flex-basis: auto; }
+/* The hairline between the symbols and the list is the list's: a row of icon tabs never sits on a
+   plate of its own (gallery-control-surfaces). */
+.acpmux-quick-placement-symbols .acpmux-quick-body {
+  flex-basis: auto;
+  border-block-start: var(--cmux-hairline, 0.5px) solid var(--agent-border);
+}
 .acpmux-quick-placement-compact .acpmux-quick-rail { flex-basis: 68px; }
 .acpmux-quick-placement-compact .acpmux-quick-rail-tab { flex-direction: column; gap: 0; padding-block: var(--ds-space-1); text-align: center; }
 .acpmux-quick-placement-compact .acpmux-quick-harness-name { font-size: var(--text-caption); }

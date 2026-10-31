@@ -563,26 +563,34 @@ test("⌘D stars and unstars the highlighted model row, as its star does", async
   expect(star().getAttribute("aria-pressed")).toBe("false");
 });
 
-test("a harness whose only icon is a glyph shows its name on the symbols row", async () => {
-  // A glyph with no brand mark behind it draws nothing, so the tab must not be the symbol alone.
+test("every harness tab on the symbols row is a mark with no visible text, its name only its label", async () => {
+  // Leo 2026-10-31: "NOBODY FUCKING ASKED FOR THE HARNESSES TO HAVE FUCKING LABELED FUCKING TEXT ON
+  // THEM THAT'S THE POINT". A glyph-only harness (no brand mark behind it) draws its initial.
   const { rememberHarnessIcons } = await import("../src/agent-session/shared/harnessIcons");
   rememberHarnessIcons([{ id: "glyph-harness", iconSpec: { kind: "glyph", name: "terminal", source: "default" } }]);
   await mount({ routes: [] }, { glyphHarness: true });
   await open();
-  const tab = railTabs().find((item) => item.getAttribute("aria-label") === "Glyph harness");
-  expect(
-    tab,
-    railTabs()
-      .map((item) => item.getAttribute("aria-label"))
-      .join(", "),
-  ).toBeDefined();
-  const label = tab!.querySelector(".acpmux-quick-harness-name")!;
-  expect(label.textContent).toBe("Glyph harness");
-  expect(label.classList.contains("sr-only")).toBe(false);
-  // A harness with its own mark still draws the symbol alone.
-  const claude = railTabs().find((item) => item.getAttribute("aria-label") === "Claude Code")!;
-  expect(claude.querySelector(".agent-mark")).not.toBeNull();
-  expect(claude.querySelector(".acpmux-quick-harness-name")!.classList.contains("sr-only")).toBe(true);
+  const tabs = railTabs().filter((tab) => !tab.classList.contains("acpmux-quick-rail-add"));
+  expect(tabs.map((tab) => tab.getAttribute("aria-label"))).toContain("Glyph harness");
+  for (const tab of tabs) {
+    const name = tab.getAttribute("aria-label");
+    // The name is the tab's label and tooltip, hidden on the tab itself.
+    expect(tab.title, `${name}`).toContain(name!);
+    const label = tab.querySelector(".acpmux-quick-harness-name")!;
+    expect(label.classList.contains("sr-only"), `${name}: its name shows on the tab`).toBe(true);
+    // Its mark: a symbol, the star, or the name's initial.
+    expect(tab.querySelector(".agent-mark, svg, .acpmux-quick-rail-initial"), `${name}: no mark`).not.toBeNull();
+    // No visible text: everything outside the hidden name is a mark.
+    const visible = [...tab.childNodes]
+      .filter((node) => node !== label)
+      .map((node) => node.textContent ?? "")
+      .join("");
+    expect(visible.replace(/\s/g, "").length, `${name}: visible text "${visible}"`).toBeLessThanOrEqual(1);
+  }
+  const glyph = tabs.find((tab) => tab.getAttribute("aria-label") === "Glyph harness")!;
+  expect(glyph.querySelector(".acpmux-quick-rail-initial")?.textContent).toBe("G");
+  const add = menu()!.querySelector(".acpmux-quick-rail-add");
+  if (add) expect(add.querySelector(".sr-only")).not.toBeNull();
 });
 
 test("without a starred model the rail starts at the harnesses", async () => {

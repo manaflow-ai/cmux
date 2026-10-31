@@ -238,25 +238,24 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
       const boxes = await tabs.evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect().toJSON()));
       // One row: every tab on the first tab's line.
       for (const box of boxes) expect(Math.abs(box.y - boxes[0].y)).toBeLessThan(1);
-      // A tab with a symbol of its own draws it alone; its name stays its label and title. Tabs
-      // that draw the same symbol (Claude Code and its launch setup Claude Code (sr)) keep their
-      // names in the row, so no two tabs look alike.
-      const symbolTabs = await page.locator(".acpmux-quick-rail-tab:has(.agent-mark)").evaluateAll((nodes) =>
+      // Every tab is its mark alone, never text (Leo 2026-10-31: "NOBODY FUCKING ASKED FOR THE
+      // HARNESSES TO HAVE FUCKING LABELED FUCKING TEXT ON THEM THAT'S THE POINT"); its name is its
+      // label and title. Drawn: a tab is as narrow as its mark (the picker's own rule hides the
+      // name, not a Tailwind utility the page may lack).
+      const allTabs = await tabs.evaluateAll((nodes) =>
         nodes.map((node) => ({
-          symbol: [...node.querySelectorAll(".agent-mark path")].map((path) => path.getAttribute("d")).join(" "),
           hidden: !!node.querySelector(".acpmux-quick-harness-name.sr-only"),
-          // A tab whose name is hidden is as narrow as its symbol (the picker's own rule hides it,
-          // not a Tailwind utility the page may lack).
           drawn: node.getBoundingClientRect().width > node.getBoundingClientRect().height * 1.5,
+          mark: !!node.querySelector(".agent-mark, svg, .acpmux-quick-rail-initial"),
           label: node.getAttribute("aria-label"),
           title: node.getAttribute("title"),
         })),
       );
-      expect(symbolTabs.filter((tab) => tab.hidden).length).toBeGreaterThan(0);
-      for (const tab of symbolTabs) {
-        const shared = symbolTabs.filter((other) => other.symbol === tab.symbol).length > 1;
-        expect(tab.hidden, `${tab.label}: symbol alone unless another tab draws it`).toBe(!shared);
-        expect(tab.drawn, `${tab.label}: its name shows beside the symbol`).toBe(shared);
+      expect(allTabs.length).toBeGreaterThan(1);
+      for (const tab of allTabs) {
+        expect(tab.hidden, `${tab.label}: its name is hidden on the tab`).toBe(true);
+        expect(tab.drawn, `${tab.label}: text shows on the tab`).toBe(false);
+        expect(tab.mark, `${tab.label}: no mark`).toBe(true);
         expect(tab.label).toBeTruthy();
         expect(tab.title).toBeTruthy();
       }

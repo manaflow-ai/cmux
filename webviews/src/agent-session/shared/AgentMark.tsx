@@ -102,6 +102,7 @@ function HarnessIcon({
   size = 16,
   label,
   onDark,
+  tint,
 }: MarkProps & { spec: Exclude<HarnessIconSpec, { kind: "brand" | "glyph" }> }) {
   const [scheme] = useSyncExternalStore(subscribe, appearance, () => "dark brand").split(" ");
   const symbols = useSyncExternalStore(subscribeHarnessIcons, harnessSymbolsSnapshot, harnessSymbolsSnapshot);
@@ -132,6 +133,17 @@ function HarnessIcon({
     );
   }
   const box: React.CSSProperties = { display: "inline-flex", flex: "none", width: size, height: size };
+  // Themed, a custom image is its shape in the text colour, as a symbol is.
+  if (spec.kind === "image" && tint) {
+    const mask = `url("${harnessIconImageURL(spec)}") center / contain no-repeat`;
+    return (
+      <span
+        className="agent-mark agent-mark-image"
+        style={{ ...box, backgroundColor: "currentColor", mask, WebkitMask: mask }}
+        {...a11y}
+      />
+    );
+  }
   if (spec.kind === "image") {
     return (
       <img
@@ -150,7 +162,15 @@ function HarnessIcon({
     return (
       <span
         className="agent-mark agent-mark-emoji"
-        style={{ ...box, alignItems: "center", justifyContent: "center", fontSize: size * 0.9, lineHeight: 1 }}
+        style={{
+          ...box,
+          alignItems: "center",
+          justifyContent: "center",
+          fontSize: size * 0.9,
+          lineHeight: 1,
+          // Themed, an emoji (which has no single colour to take) drops its colours.
+          ...(tint ? { filter: "grayscale(1)" } : {}),
+        }}
         {...a11y}
       >
         {spec.text}

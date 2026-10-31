@@ -106,6 +106,12 @@ function symbolOf(family: { mark?: string }): boolean {
   return !!agentBrand(mark);
 }
 
+/// A harness with no symbol of its own draws its name's first letter as a mark in the symbols row,
+/// so every tab there is a mark and none is text.
+function initialOf(name: string): string {
+  return (name.match(/\p{L}|\p{N}/u)?.[0] ?? "?").toLocaleUpperCase();
+}
+
 export type QuickSearchField = "always" | "typed" | "long";
 
 /// How many models (the tab's rows and More models) make a list long enough for the `long`
@@ -370,18 +376,6 @@ export function QuickModelMenu({
     const matched = new Set(groups.map((group) => group.id));
     return families.list.filter((family) => matched.has(family.id));
   }, [families, groups]);
-  // In the symbols row, tabs that would draw the same symbol (two launch setups of one harness)
-  // keep their names, so no two tabs look alike.
-  const sharedSymbols = useMemo(() => {
-    const seen = new Set<string>();
-    const shared = new Set<string>();
-    for (const family of railTabs) {
-      if (family.starred || !symbolOf(family) || !family.mark) continue;
-      if (seen.has(family.mark)) shared.add(family.mark);
-      seen.add(family.mark);
-    }
-    return shared;
-  }, [railTabs]);
   // Rows whose name and detail read the same within one harness also show their model id.
   const twins = useMemo(() => twinRows(groups ?? (found ? [{ id: "", name: "", rows: found }] : [])), [groups, found]);
   const providerLook = menu.providers ?? "row";
@@ -1121,8 +1115,9 @@ export function QuickModelMenu({
                   // While a search shows, no tab is the list's: the matches are every harness's.
                   aria-pressed={!query && family.id === tab}
                   disabled={family.launch && families.forkReady === false}
-                  // tooltip-allow: the rail tab draws only a meaningful harness mark, never a
-                  // machine/session initial; its accessible name and title identify the harness.
+                  // tooltip-allow: the rail tab draws only the harness's mark (its symbol, else its
+                  // name's initial), never a machine or session initial; its accessible name and
+                  // title identify the harness.
                   title={family.note ? `${family.name} · ${family.note}` : family.name}
                   className="acpmux-quick-rail-tab"
                   // ui-allow: the rail is no row of the menu; ArrowLeft and ArrowRight move along it, so Up and Down stay in the list.
@@ -1142,18 +1137,15 @@ export function QuickModelMenu({
                     <StarIcon />
                   ) : symbolOf(family) ? (
                     <AgentMark agent={family.mark} size={16} tint={placement === "symbols"} />
+                  ) : placement === "symbols" ? (
+                    <span className="acpmux-quick-rail-initial" aria-hidden="true">
+                      {initialOf(family.name)}
+                    </span>
                   ) : null}
-                  {/* The symbols row draws the symbol alone (its name is the tab's label and title);
-                      a harness with no symbol of its own, or one whose symbol another tab shares,
-                      shows its name there too. */}
-                  <span
-                    className={`acpmux-quick-harness-name${
-                      placement === "symbols" &&
-                      (family.starred || (symbolOf(family) && !sharedSymbols.has(family.mark ?? "")))
-                        ? " sr-only"
-                        : ""
-                    }`}
-                  >
+                  {/* The symbols row is marks only, never text on a tab (Leo 2026-10-31: "NOBODY
+                      FUCKING ASKED FOR THE HARNESSES TO HAVE FUCKING LABELED FUCKING TEXT ON THEM
+                      THAT'S THE POINT"): the name is the tab's accessible name and its tooltip. */}
+                  <span className={`acpmux-quick-harness-name${placement === "symbols" ? " sr-only" : ""}`}>
                     {family.name}
                   </span>
                 </button>
