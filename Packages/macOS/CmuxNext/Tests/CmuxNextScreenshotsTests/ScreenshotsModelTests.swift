@@ -268,8 +268,9 @@ private final class RecordingWatcher: FolderWatching {
     @MainActor @Test func spacePressesShowScreenshotsWhileThePromptIsUp() throws {
         let model = ScreenshotsModel(watcher: SilentWatcher(), listsAtOnce: false)
         let view = ScreenshotsView(model: model, cache: ThumbnailCache(), workspace: NoWorkspace())
-        let gated = view.focusTarget
-        #expect(gated === view, "the focused view before the click is \(type(of: gated))")
+        // Plain values in each expectation: a failure message must not reflect the view (its drop pasteboard).
+        let paneTakesKeys = view.focusTarget === view
+        #expect(paneTakesKeys, "the pane does not take the keyboard before the click")
         let acceptsKeys = view.acceptsFirstResponder
         #expect(acceptsKeys)
         let space = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0,
@@ -278,8 +279,8 @@ private final class RecordingWatcher: FolderWatching {
         view.keyDown(with: space)
         let listing = model.isListing
         #expect(listing, "Space did not show the screenshots")
-        let after = view.focusTarget
-        #expect(after !== view)
+        let gridTakesKeys = view.focusTarget !== view
+        #expect(gridTakesKeys)
     }
 
     @Test func aModelListsOnlyWhenItsCallerSaysSo() {
