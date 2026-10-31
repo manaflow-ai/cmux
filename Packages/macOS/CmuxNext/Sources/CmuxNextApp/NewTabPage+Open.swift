@@ -233,15 +233,6 @@ extension NewTabPage {
             && ChatColumnPlacement.resolve(from: pane, services: pane.services, ignoringPages: true) == .dockChat
     }
 
-    /// What docks the lone chat in `page`'s pane left once a pick there lands (``docksChat(_:)``).
-    private static func docking(_ page: PaneController) -> @MainActor (SurfaceID) -> Void {
-        let services = page.services
-        return { [weak page] surface in
-            guard let page else { return }
-            MainPaneLayout.dockChat(of: page, keeping: surface, focus: true, services: services)
-        }
-    }
-
     /// The address a browser pick of the page goes to: a search, a cmux/Chromium page, or the typed
     /// destination (typos fixed).
     private static func browserURL(_ request: AgentPaneOpenTab, services: AppServices) -> URL? {
