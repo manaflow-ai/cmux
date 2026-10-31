@@ -6,7 +6,7 @@ import { BlockTail, InlineTail } from "./InlineTail";
 // code blocks rendered by @pierre/diffs (see CodeBlock.tsx), vega-lite charts (DiagramBlock.tsx), live
 // ```cmux-render pages (RenderCard.tsx), and `$…$`, `$$…$$`, `\(…\)`
 // and `\[…\]` math typeset by KaTeX (see Math.tsx).
-import { Fragment, memo, useId, useMemo, useRef, type ReactNode } from "react";
+import { Fragment, memo, useId, useMemo, useRef, type CSSProperties, type ReactNode } from "react";
 import { useT } from "../i18n";
 import { appHref, safeHref } from "../model";
 import { needsYouListOff, needsYouTarget, openNeedsYou } from "../needsYou/links";
@@ -41,6 +41,8 @@ import { StartedSessionChip, useStartedMentions, type StartedMentions } from "..
 import { splitMentions } from "../started/startedSessions";
 import { entranceAllowed } from "../../shared/pageReveal";
 import { isAgentMotionOff } from "../../shared/motion";
+import { animateScroll } from "../threadMinimap/scrollMotion";
+import { JUMP_CURVE, jumpDuration } from "../threadMinimap/model";
 import { decorateTimes, splitTimeTokens, TimeHover } from "./timeHover";
 
 export type Align = "left" | "center" | "right" | null;
@@ -61,6 +63,32 @@ export type MdBlock =
 export type MdListItem = { text: string; task?: boolean; checked?: boolean; children: MdBlock[] };
 
 const LIST_RE = /^(\s*)([-*+]|\d+[.)])\s+(.*)$/;
+
+/// A paragraph's lines, each break kept, except one inside a reference: a line that ends with
+/// `repo#` and one that starts with its number are one `repo#N`, so it links and wraps whole.
+function joinParagraph(lines: string[]): string {
+  return lines.reduce((text, line) =>
+    /(?:^|[^\s#])#$/.test(text) && /^\d/.test(line) ? text + line : `${text}\n${line}`,
+  );
+}
+
+/// A long list number (`1000.`) widens its items' indent so it never draws over their text; a
+/// number of one or two digits keeps the list's usual indent.
+function listNumberStyle(block: { ordered: boolean; start: number; items: unknown[] }): CSSProperties | undefined {
+  if (!block.ordered) return undefined;
+  const digits = String(block.start + block.items.length - 1).length;
+  return digits > 2 ? ({ "--cv-ol-digits": digits } as CSSProperties) : undefined;
+}
+
+/// Whether a line starts a list inside a paragraph. A numbered line does so only from 1, as
+/// CommonMark and GitHub read it: a reply wrapped as "the cards (cmux#\n29613) and the fix" kept
+/// its text, where reading "29613)" as a list's number drew it bold over "and" (Leo 2026-10-31:
+/// "WTF HAPPENED WITH THIS" / "F***ING TEXT????").
+function interruptsParagraph(line: string): boolean {
+  const m = LIST_RE.exec(line);
+  return Boolean(m && (!/\d/.test(m[2]!) || parseInt(m[2]!, 10) === 1));
+}
+
 /// The deepest nesting of quotes and lists the parser builds. A reply is untrusted, and each level
 /// costs stack while it draws (800 list levels overflowed it), so content below this depth draws
 /// as the plain text of one paragraph.
@@ -203,10 +231,10 @@ function parseLines(lines: string[], depth = 0): MdBlock[] {
       !/^\s*```/.test(lines[i]) &&
       !/^\s*\$\$/.test(lines[i]) &&
       !/^\s*>/.test(lines[i]) &&
-      !LIST_RE.test(lines[i])
+      !interruptsParagraph(lines[i])
     )
       para.push(lines[i++].trim());
-    out.push({ type: "paragraph", text: para.join("\n") });
+    out.push({ type: "paragraph", text: joinParagraph(para) });
   }
   return out;
 }
@@ -651,13 +679,7 @@ export function renderInline(source: string, outer: InlineOptions = {}): ReactNo
         const anchor = opts.notes.anchor(id);
         out.push(
           <sup key={k++} className="cv-fnref">
-            <button
-              type="button"
-              aria-describedby={anchor}
-              onClick={() =>
-                document.getElementById(anchor)?.scrollIntoView({ block: "nearest", behavior: noteScroll() })
-              }
-            >
+            <button type="button" aria-describedby={anchor} onClick={() => scrollNote(document.getElementById(anchor))}>
               {number}
             </button>
           </sup>,
@@ -668,6 +690,54 @@ export function renderInline(source: string, outer: InlineOptions = {}): ReactNo
   }
   if (last < text.length) out.push(...proseText(text.slice(last), `t${k++}`, opts));
   return out;
+}
+
+// Native smooth scroll can paint one queued compositor step after cancellation. Transcript
+// footnotes use the shared runner so manual input stops them before the next painted frame.
+// A note inside its own scrolling panel (a capped tool result) is first brought into view
+// there, at once, as scrollIntoView would; then the transcript rides to it.
+function scrollNote(note: HTMLElement | null) {
+  if (!note) return;
+  const node = note.closest<HTMLElement>(".acpmux-scroll");
+  if (!node) return note.scrollIntoView({ block: "nearest", behavior: noteScroll() });
+  for (let inner = note.parentElement; inner && inner !== node; inner = inner.parentElement) {
+    if (inner.scrollHeight <= inner.clientHeight) continue;
+    const overflow = inner.ownerDocument.defaultView?.getComputedStyle(inner).overflowY;
+    if (overflow !== "auto" && overflow !== "scroll") continue;
+    inner.scrollTop = revealedTop(note, inner);
+  }
+  const target = () => revealedTop(note, node);
+  animateScroll(
+    node,
+    target,
+    noteScroll() === "auto" ? 0 : jumpDuration(target() - node.scrollTop),
+    JUMP_CURVE,
+    undefined,
+    undefined,
+    { explicit: true },
+  );
+}
+
+/// Where `scroller` shows `note` by scrollIntoView's "nearest" rule, inside its scroll range.
+function revealedTop(note: HTMLElement, scroller: HTMLElement): number {
+  const end = scroller.scrollHeight - scroller.clientHeight;
+  return Math.max(0, Math.min(end, scroller.scrollTop + nearest(note, scroller)));
+}
+
+/// How far `scroller` must move to show `note`, by scrollIntoView's "nearest" rule.
+function nearest(note: HTMLElement, scroller: HTMLElement): number {
+  const box = note.getBoundingClientRect();
+  const top = scroller.getBoundingClientRect().top + scroller.clientTop;
+  const paddingBottom =
+    Number.parseFloat(scroller.ownerDocument.defaultView?.getComputedStyle(scroller).scrollPaddingBottom ?? "0") || 0;
+  const bottom = top + scroller.clientHeight - paddingBottom;
+  const visibleHeight = Math.max(0, bottom - top);
+  const above = box.top < top;
+  const below = box.bottom > bottom;
+  if (above && below) return 0;
+  if (above) return box.height <= visibleHeight ? box.top - top : box.bottom - bottom;
+  if (below) return box.height <= visibleHeight ? box.bottom - bottom : box.top - top;
+  return 0;
 }
 
 /// How a footnote reference scrolls to its note: a glide, or with cmux's animations off
@@ -862,6 +932,7 @@ function Block({
           className={`cv-list ${block.ordered ? "cv-ol" : "cv-ul"}${tasks ? " cv-tasks" : ""}${motion}`}
           data-depth={depth}
           start={block.ordered && block.start !== 1 ? block.start : undefined}
+          style={listNumberStyle(block)}
         >
           {block.items.map((it, i) => (
             <li key={i} className={it.task ? "cv-task" : undefined}>

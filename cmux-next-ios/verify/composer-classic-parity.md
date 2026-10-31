@@ -33,7 +33,7 @@ Sources compared:
 | | Classic | cmux NEXT (before) |
 | --- | --- | --- |
 | Container | No bar: each key is its own glass capsule, 28 pt tall, on a clear strip | One 44 pt glass capsule holding 34 pt keys |
-| Pinned (left) | Keyboard toggle (keyboard / keyboard.chevron.compact.down, cross-dissolve), arrow nub, compose toggle (square.and.pencil) | esc, ctrl, ^C |
+| Pinned (left) | Keyboard toggle (keyboard / keyboard.chevron.compact.down, cross-dissolve), arrow nub, text field toggle (character.textbox, 13 pt like its neighbors) | esc, ctrl, ^C |
 | Pinned (right) | None (the row scrolls to the screen edge) | Joystick, hide keyboard |
 | Scrolling keys | ⌃ ⌥ ⌘ ⇧ paste, Tab, Esc, ⏎, ^C, ^D, Claude, Codex, Ollama, ↑ ↓ ← →, Clear, ~ $ / @ \|, ^Z, Home, End, PgUp, PgDn, zoom out, zoom in, then Hide Toolbar and Customize | tab, ⇧tab, ↑ ↓ ← →, ^D ^Z ^L, alt, \| ~ / -, paste, ` { } [ ], ^R, ^B |
 | Key size | Hugs its label, min 32 pt wide (glyph keys exactly 32), 4 pt gaps, 14 pt medium text | Fixed 44 pt wide, 6 pt gaps, snaps to whole keys, 15 pt monospaced |

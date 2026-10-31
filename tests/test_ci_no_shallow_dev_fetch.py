@@ -45,6 +45,7 @@ OWN_REPOSITORY = {
         "the generated script fetches into $HOME/work/<repo> right after its own `git init` there",
     "cmux-tui/build-support/notices/fetch_crates.py": "fetches into a fresh `git init` cache directory",
     "scripts/ci/macos-cross.sh": "fetches into a directory it just ran `git init` in",
+    "scripts/pr-media.py": "fetches only into its own `git init --bare` cache clone of the media branch",
     "scripts/cmux-next/base-autofix-changed.sh": "fetches into a scratch `git init --bare` repository it just made",
     "scripts/cmux-next/base_autofix_pushed_exports.py":
         "remote_history fetches into a scratch `git init --bare` repository it just made, then deletes it",

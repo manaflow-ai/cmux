@@ -62,6 +62,10 @@ fn nothing_failed() -> RpcError {
     )
 }
 
+fn not_resendable() -> RpcError {
+    refused("retry.not_resendable", "the failed prompt cannot be sent again as it was")
+}
+
 fn answer(prompt_id: String, turn_id: Option<String>) -> Value {
     let result = RetryResult { prompt_id, turn_id, kind: RetryKind::Turn };
     serde_json::to_value(result).unwrap_or(Value::Null)
@@ -123,16 +127,42 @@ impl Hub {
         session: &Arc<Session>,
         by: RetryBy,
     ) -> Result<Value, RpcError> {
+        self.resend_turn(session, by, None).await
+    }
+
+    /// [`Hub::retry_turn`], or with `auto` the automatic retry of a first send
+    /// (`first_send.rs`) that answers for the cut turn `auto`: it goes only while its own wait
+    /// still holds the chat (Stop, close or anything that ran since refuses it, as
+    /// `auto_resume.superseded` or `auto_resume.stopped`), only as the same prompt
+    /// (`retry.not_resendable` when it cannot be rebuilt), and its provenance has no `manual`.
+    pub(super) async fn resend_turn(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        by: RetryBy,
+        auto: Option<&str>,
+    ) -> Result<Value, RpcError> {
         self.retry_allowed(session, &by).await?;
-        let (cut_turn, failed, error) = self.claim_failed_turn(session)?;
+        let (cut_turn, failed, error) = self.claim_failed_turn(session, auto)?;
         let (root, done) = split_attempt(&failed);
         let (root, attempt) = (root.to_owned(), done + 1);
-        let blocks = self.resend_of(session, &cut_turn, &failed).unwrap_or_else(|| {
-            let reason = crate::hub::turn_errors::resume_cause(&error, &error).unwrap_or("error");
-            vec![json!({"type": "text", "text": continue_text(&error, reason)})]
-        });
+        let blocks = match self.resend_of(session, &cut_turn, &failed) {
+            Some(blocks) => blocks,
+            // The agent never saw a first send it refused: a continuation would make no sense.
+            None if auto.is_some() => {
+                self.clear_fired(session, &cut_turn);
+                return Err(not_resendable());
+            }
+            None => {
+                let reason =
+                    crate::hub::turn_errors::resume_cause(&error, &error).unwrap_or("error");
+                vec![json!({"type": "text", "text": continue_text(&error, reason)})]
+            }
+        };
         let held = self.held_by(session, &root, &cut_turn);
-        let mut provenance = json!({"kind": "auto_resume", "promptId": root, "attempt": attempt, "turnId": cut_turn, "manual": true});
+        let mut provenance = json!({"kind": "auto_resume", "promptId": root, "attempt": attempt, "turnId": cut_turn});
+        if auto.is_none() {
+            provenance.set("manual", json!(true));
+        }
         // A sub-session's retry names its sender: checked again at dispatch as its messages are
         // (`subsession_guard.rs` `family_dispatch_check`).
         if let Some(from) = by.from {
@@ -173,6 +203,8 @@ impl Hub {
                 Ok(Err(e)) => {
                     let reason = e.data.as_ref().and_then(|d| d.get("reason"));
                     return Err(match reason.and_then(Value::as_str) {
+                        // An automatic retry records why itself (`first_send.rs`).
+                        _ if auto.is_some() => e,
                         // Something else took the chat between the claim and the turn lock.
                         Some("auto_resume.superseded") => busy(),
                         Some("auto_resume.stopped") => stopped(),
@@ -226,8 +258,21 @@ impl Hub {
     /// now firing, so Stop or close until its turn starts still counts (`start_turn`). A retry
     /// that waits is taken over (its timer wakes and records the skip `superseded`). `retry.busy`
     /// while a turn runs, a prompt waits to run, or a continuation is about to start.
-    fn claim_failed_turn(&self, session: &Session) -> Result<(String, String, String), RpcError> {
+    /// `auto`: an automatic retry's cut turn, claimed only from that retry's own wait (`Waiting`
+    /// for it), so a Stop, a close or a turn that took the chat since refuses it.
+    fn claim_failed_turn(
+        &self,
+        session: &Session,
+        auto: Option<&str>,
+    ) -> Result<(String, String, String), RpcError> {
         let mut pending = session.auto_resume.lock();
+        if let Some(cut) = auto {
+            let waits = matches!(pending.as_ref(), Some(Mark::Waiting { turn, .. }) if turn == cut);
+            if !waits {
+                let stopped_here = pending.is_none() && still_cut(session, cut);
+                return Err(if stopped_here { super::stopped() } else { super::superseded() });
+            }
+        }
         if session.turn().is_some() || session.queue().iter().any(|q| !q.held) {
             return Err(busy());
         }
@@ -239,6 +284,9 @@ impl Hub {
         else {
             return Err(nothing_failed());
         };
+        if auto.is_some_and(|cut| cut != cut_turn) {
+            return Err(super::superseded());
+        }
         match pending.as_ref() {
             // A retry of this turn that waits gives way to this one.
             Some(Mark::Waiting { turn, .. }) if *turn == cut_turn => {}

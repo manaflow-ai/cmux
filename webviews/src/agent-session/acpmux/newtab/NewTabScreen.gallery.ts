@@ -6,6 +6,7 @@ import type { PlayContext } from "../../../gallery/play";
 import { CATALOG, CWD, fleetPeers, manySessions, noChat, session } from "../../../gallery/fixtures/acpmux";
 import { minutesAgo } from "../../../gallery/clock";
 import { composerStatePlays } from "../composerStatePlays";
+import { createStripLabelsFit } from "./createStripFit";
 
 /// Favicons as the host sends them (cx-d0d.8): small inline PNGs.
 const SITE_ICON =
@@ -357,6 +358,27 @@ export default agentPaneEntry({
     "ui/VirtualList.tsx#VirtualList",
   ],
   variants: withAllChats({
+    "start-refused": {
+      note: "A refused new chat keeps the typed prompt and SSH machine, with the host's reason inline.",
+      ready: newTab({ template: "minimal", pageWidgets: [] }),
+      snapshot: noChat([], { peers: ["devbox"], peerKinds: { devbox: "ssh" } }),
+      native: { "chat.new": { nativeError: { code: "agent.start_failed", userMessage: "devbox: agent unavailable" } } },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-field") !== null);
+        await ctx.click({ selector: '.nt-location .acpmux-location-picker[data-kind="computer"] button' });
+        await ctx.click({ role: "option", name: /devbox/ });
+        await ctx.type("Inspect the failed build and suggest a fix.", { selector: ".nt-field" });
+        await ctx.press("Enter");
+        await ctx.waitFor(() => galleryNativeCalls(ctx.document).some((call) => call.method === "chat.new"));
+        // Also ends on the unpatched base, so the comparison records its lost draft rather than
+        // waiting for a reason that the old action swallowed.
+        await ctx.waitFor(
+          () =>
+            !ctx.document.querySelector(".nt-field") ||
+            !!ctx.document.querySelector('[role="alert"]')?.textContent?.includes("agent unavailable"),
+        );
+      },
+    },
     empty: {
       note: "No chats yet. A harness is installed, so the chip names its model and nothing on the page offers Add harness.",
       ready: newTab({ pageWidgets: ["chats"] }),
@@ -437,7 +459,8 @@ export default agentPaneEntry({
         });
         // The row itself, by role: the menu's hidden width probe (QuickMenuSpacer) repeats its text
         // later in the document, and a text target takes the last match.
-        await ctx.click({ role: "menuitem", name: "More models" });
+        // The symbols row (the default) names it Legacy models, with its count.
+        await ctx.click({ role: "menuitem", name: /^(Legacy|More) models/ });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-quick-list > .acpmux-quick-more-list"));
         const more = ctx.document.querySelector(".acpmux-quick-list > .acpmux-quick-more-list")!;
         if (more.querySelector('[aria-label="Add harness…"]'))
@@ -1107,6 +1130,31 @@ export default agentPaneEntry({
         await ctx.type("fix the flaky upload test", { selector: ".nt-field" });
       },
     },
+    "typed-hover": {
+      note: 'Leo 2026-10-31 ("i cant even press enter on that hello anymore it doesnt send it to claude"): "helo" typed, the pointer resting on New browser tab. The hovered item is only lit (a neutral fill); Ask Claude Code keeps Return\'s highlight and its ↵, so Return sends the prompt.',
+      ready: newTab({ projects: [CWD] }),
+      snapshot: noChat(manySessions(3)),
+      play: async (ctx) => {
+        await ctx.type("helo", { selector: ".nt-field" });
+        await ctx.hover({ role: "option", name: "New browser tab" });
+      },
+    },
+    "typed-hover-return": {
+      note: 'The same, then Return: the page asks Claude Code with "helo" (chat.new), never opens the hovered browser tab.',
+      ready: newTab({ projects: [CWD] }),
+      snapshot: noChat(manySessions(3)),
+      play: async (ctx) => {
+        await ctx.type("helo", { selector: ".nt-field" });
+        await ctx.hover({ role: "option", name: "New browser tab" });
+        await ctx.press("Enter");
+        // Ends on the unpatched base too (it opens the browser tab, and the state fails there).
+        await ctx.waitFor(() =>
+          galleryNativeCalls(ctx.document).some((call) => call.method === "chat.new" || call.method === "tab.open"),
+        );
+        if (galleryNativeCalls(ctx.document).some((call) => call.method === "tab.open"))
+          throw new Error("Return opened the hovered row instead of asking the agent");
+      },
+    },
     "typed-keywords": {
       note: 'Leo 2026-10-20 (no Search | Ask switch) and 2026-10-24 ("Search the web. Do you really want that first?"): plain keywords. Ask Claude Code leads (Return\'s, highlighted), the web search is the last row.',
       ready: newTab({ projects: [CWD] }),
@@ -1273,6 +1321,36 @@ export default agentPaneEntry({
         // The create actions stay one click away, as the strip under the rows.
         const strip = ctx.document.querySelectorAll(".nt-popover .nt-create-strip-item").length;
         if (strip !== 3) throw new Error(`the create strip shows ${strip} actions, not 3`);
+        // A narrow pane must keep every quick action inside the anchored popover. The fixture
+        // runs under every shipped locale, including the long French/Spanish labels and pseudo
+        // locales, so this catches the non-wrapping overflow at its source boundary.
+        const popover = ctx.document.querySelector<HTMLElement>(".nt-popover");
+        const rows = ctx.document.querySelector<HTMLElement>(".nt-rows");
+        if (!popover || !rows) throw new Error("the suggestions popover did not render");
+        // Measured narrow, then put back: the state's capture shows the popover at its anchored width.
+        const width = popover.style.width;
+        popover.style.width = "260px";
+        try {
+          const viewport = rows.getBoundingClientRect();
+          if (rows.scrollWidth > rows.clientWidth + 1)
+            throw new Error(`the create strip scrolls sideways (${rows.scrollWidth} > ${rows.clientWidth})`);
+          for (const item of rows.querySelectorAll<HTMLElement>(".nt-create-strip-item")) {
+            const rect = item.getBoundingClientRect();
+            if (rect.left < viewport.left - 1 || rect.right > viewport.right + 1)
+              throw new Error(`create action leaves the narrow popover (${rect.left}..${rect.right})`);
+          }
+          // No label shows cut off ("Nouv…"): at 260px either every label fits beside its glyph or the
+          // strip goes icon-only (createStripFit.ts), which its ResizeObserver settles in the next frame.
+          const strip = rows.querySelector<HTMLElement>(".nt-create-strip");
+          if (!strip) throw new Error("the create strip did not render");
+          await ctx.waitFor(() => strip.hasAttribute("data-icons-only") || createStripLabelsFit(strip));
+          if (!strip.hasAttribute("data-icons-only"))
+            for (const title of strip.querySelectorAll<HTMLElement>(".nt-create-strip-item .nt-row-title"))
+              if (title.scrollWidth > title.clientWidth + 1)
+                throw new Error(`a create label is cut off at 260px: ${title.textContent}`);
+        } finally {
+          popover.style.width = width;
+        }
       },
     },
     "suggestions-url": {
@@ -1427,9 +1505,18 @@ export default agentPaneEntry({
       },
     },
     "template-composer": {
-      note: "Composer template (tabs.newTabTemplate): one large prompt, no chats.",
+      note: "Legacy Composer template id: saved input is migrated to Minimal, whose shared composer remains the one visible style.",
       ready: newTab({ template: "composer" }),
       snapshot: noChat(manySessions(4)),
+      play: async (ctx: PlayContext) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-field") !== null);
+        if (ctx.document.querySelector('.nt-screen[data-template="composer"]'))
+          throw new Error("legacy Composer id still renders the retired template");
+        if (!ctx.document.querySelector('.nt-screen[data-template="minimal"]'))
+          throw new Error("legacy Composer id did not migrate to Minimal");
+        if (ctx.document.querySelector('[data-style="composer"]'))
+          throw new Error("legacy Composer id is still selectable");
+      },
     },
     "composer-holds-its-place": {
       note: "After typing, a pasted image and Now Playing: the composer and the typed text are where the empty page drew them; the image sits under the text (Leo 2026-10-19: the composer kept moving).",
@@ -1438,7 +1525,7 @@ export default agentPaneEntry({
       play: holdsItsPlace,
     },
     "composer-template-holds-its-place": {
-      note: "Composer template after typing, a pasted image and Now Playing: the card stays where the empty page drew it, about the middle, instead of re-centering on what grew under it.",
+      note: "Legacy Composer input after typing, a pasted image and Now Playing: migration keeps the shared Minimal composer in place.",
       ready: newTab({ template: "composer", projects: [CWD] }),
       snapshot: noChat(manySessions(4)),
       play: holdsItsPlace,

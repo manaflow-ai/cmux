@@ -195,9 +195,13 @@ extension PaneController {
         }
         let pending = BenchSpans.measure("newTerminal.intend") { command.intendNow(on: daemon, cwd: agentCwd) }
         if selectHere { selectWhenReported(surface: pending.surface) }
-        services.registry.track(Task { [services] in
+        // After the workspace's create before it (a Ctrl-` on a split still in flight names that split's pane once the
+        // daemon made it), as Cmd-D, New Column and New Row go (`WorkspaceContentController.pendingCreate`).
+        let previous = self.workspace?.pendingCreate
+        let work: ActionWork = Task { [services] in
             var landed = false
             defer { services.keyRouter.creationInputCoordinator.resolve(keys, landed: landed, in: window) }
+            await previous?.value
             do {
                 let created = try await pending.send(); BenchSpans.mark("daemon.newTab.returned")
                 // The swap moved the selection already (NewTabSuccession); a pane still on the stand-in follows it.
@@ -214,9 +218,12 @@ extension PaneController {
             } catch {
                 if homePlacement { HomeDockOpens.cancel(self.pane, services: services) }
                 daemon.logger.error("new-tab failed: \(String(describing: error), privacy: .public)")
-                return ActionWorkFailure("new-tab", error)
+                return .create("new-tab", error)
             }
-        })
+        }
+        self.workspace?.pendingCreate = work
+        // A refusal never vanishes: the stand-in rolls back and the refusal shows where refusals show (rule a).
+        services.registry.trackRollingBack("newSurface", work)
     }
 
     /// New browser tab in this pane (`PaneBrowserTabOpener`), selected and
@@ -371,8 +378,8 @@ extension PaneController {
 
     // MARK: Context menus
 
-    /// A tab's menu, the same wherever it is opened (its strip, its row in
-    /// the sidebar): a browser tab drops what does not apply to a page.
+    /// A tab's menu, the same wherever it is opened on its strip: a browser
+    /// tab drops what does not apply to a page.
     /// New <Kind> Tab reads as the kind `sameKind` names ("New Browser Tab").
     /// `selectionPins`: the menu is on one of several selected tabs, its rows act on all of them, and Pin pins them (true) or unpins.
     static func tabMenu(_ id: String, tab: TabModel?, keepsTab: Bool, sameKind: NewTabKind, registry: ActionRegistry, selectionPins: Bool? = nil, machineID: String? = nil) -> NSMenu {
