@@ -12,12 +12,7 @@ import { turnView, WORKED } from "../src/agent-session/acpmux/conversation/turns
 import { TurnFooter } from "../src/agent-session/acpmux/conversation/TurnRows";
 import { turnCopyText } from "../src/agent-session/acpmux/conversation/turnCopy";
 import { translatorFor } from "../src/agent-session/acpmux/i18n";
-import {
-  hasReplyActions,
-  nextDrawnRow,
-  type AcpmuxActivity,
-  type AcpmuxRow,
-} from "../src/agent-session/acpmux/model";
+import { hasReplyActions, nextDrawnRow, type AcpmuxActivity, type AcpmuxRow } from "../src/agent-session/acpmux/model";
 
 const row = (id: string, kind: string, at: number, fields: Partial<AcpmuxRow> = {}): AcpmuxRow => ({
   id,
@@ -58,7 +53,13 @@ const marked = (rows: readonly AcpmuxRow[]) =>
 const read: AcpmuxActivity = {
   kind: "tool",
   text: "Read turns.ts",
-  tool: { id: "read-1", title: "Read turns.ts", kind: "read", status: "completed", locations: [{ path: "/r/turns.ts" }] },
+  tool: {
+    id: "read-1",
+    title: "Read turns.ts",
+    kind: "read",
+    status: "completed",
+    locations: [{ path: "/r/turns.ts" }],
+  },
 };
 const run = (id: string): AcpmuxActivity => ({
   kind: "tool",
