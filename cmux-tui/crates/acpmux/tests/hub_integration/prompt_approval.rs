@@ -727,3 +727,92 @@ async fn a_relayed_guests_prompt_typing_and_view_are_taken_and_its_prompt_waits(
     }
     assert!(!ran(&mut owner, &session, "g-Qm9xV3bT1kLp0aZr8yW2cE").await, "approved the other");
 }
+
+/// Writes the log as an older writer did: a `queued` record with no `awaitingOwner` and no
+/// `approval` on its provenance.
+struct UnmarkedStore(Box<dyn acpmux::store::Store>);
+
+impl acpmux::store::Store for UnmarkedStore {
+    fn list(&self) -> anyhow::Result<Vec<acpmux::store::SessionMeta>> {
+        self.0.list()
+    }
+    fn load(&self, id: &str) -> anyhow::Result<Option<acpmux::store::SessionMeta>> {
+        self.0.load(id)
+    }
+    fn save(&self, meta: &acpmux::store::SessionMeta) -> anyhow::Result<()> {
+        self.0.save(meta)
+    }
+    fn append(&self, id: &str, record: &acpmux::store::EventRecord) -> anyhow::Result<()> {
+        let mut record = record.clone();
+        if record.kind == "queued"
+            && let Some(msg) = record.msg.as_object_mut()
+        {
+            msg.remove("awaitingOwner");
+            if let Some(p) = msg
+                .get_mut("_meta")
+                .and_then(|m| m.get_mut("provenance"))
+                .and_then(Value::as_object_mut)
+            {
+                p.remove("approval");
+            }
+        }
+        self.0.append(id, &record)
+    }
+    fn events(
+        &self,
+        id: &str,
+        after: u64,
+        limit: usize,
+    ) -> anyhow::Result<Vec<acpmux::store::EventRecord>> {
+        self.0.events(id, after, limit)
+    }
+    fn delete(&self, id: &str) -> anyhow::Result<()> {
+        self.0.delete(id)
+    }
+    fn scan(
+        &self,
+        id: &str,
+        after: u64,
+        visit: &mut dyn FnMut(acpmux::store::EventRecord) -> bool,
+    ) -> anyhow::Result<()> {
+        self.0.scan(id, after, visit)
+    }
+}
+
+/// A link guest's queued prompt that an older writer recorded unmarked still waits for the
+/// owner after a restart (hq#5528): the owner's own prompt runs past it, and it runs only once
+/// the owner approves it.
+#[tokio::test]
+async fn an_unmarked_guest_record_still_waits_after_a_restart() {
+    let dir = std::env::temp_dir().join(format!("acpmux-approval-{}", uuid::Uuid::now_v7()));
+    let cfg = durable_config();
+    let store = UnmarkedStore(acpmux::store::open(&cfg.store, &dir).unwrap());
+    let hub = Hub::new(cfg, Box::new(store));
+    let mut c = Client::open(&hub);
+    let session = c.new_session(json!({"harness": "fake"})).await;
+    let author = json!({"id": "guest:share.guest", "name": "Theo"});
+    c.queue(by(prompt(&session, "g-1", "guest words", None), Some(&author))).await;
+    let recorded = c.records(&session, "queued").await;
+    let unmarked = recorded.iter().find(|m| m["promptId"] == "g-1").expect("its queued record");
+    assert!(unmarked.get("awaitingOwner").is_none(), "the store kept the mark: {unmarked}");
+    hub.shutdown_all().await;
+    drop(c);
+    drop(hub);
+
+    let hub = durable(&dir);
+    let mut c = Client::open(&hub);
+    hub.resume_queues();
+    c.call("session/prompt", prompt(&session, "p-owner", "owner words", None)).await;
+    let listed = queue(&hub, &session);
+    assert_eq!(listed.len(), 1, "{listed:?}");
+    assert_eq!(listed[0]["awaitingOwner"], true, "it lost its hold: {listed:?}");
+    assert!(!ran(&mut c, &session, "g-1").await, "a restart ran it unapproved");
+    c.call("_acpmux/queue_approve", answer(&hub, &session, "g-1", Some(0))).await;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    while !ran(&mut c, &session, "g-1").await {
+        assert!(std::time::Instant::now() < deadline, "the approved prompt never ran");
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&dir);
+}
