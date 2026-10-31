@@ -44,7 +44,8 @@ enum CloudCreationRows {
     /// (link or daemon gave up, the provider failed it) with its reason as
     /// the tooltip, so it keeps its header in the one list instead of
     /// "connecting" for ever.
-    static func machine(_ session: CloudMachineSession, compatibility: DaemonCompatibility?, limits: CloudMachineLimits? = nil) -> SidebarMachine {
+    static func machine(_ session: CloudMachineSession, compatibility: DaemonCompatibility?, limits: CloudMachineLimits? = nil,
+                        updates: DaemonUpdateBoard) -> SidebarMachine {
         var header = SidebarBridge.machine(for: session.daemon, name: session.machine.title, kind: .cloud, live: session.machine.status.isLive,
                              compatibility: compatibility)
         header.cost = cost(session.machine, limits: limits)
@@ -56,7 +57,7 @@ enum CloudCreationRows {
             header.status = session.stageInput.isDisconnect ? .disconnected : .failed
             header.detail = failure
         }
-        header.detail = withUpdate(header.detail, DaemonUpdateBoard.shared.targets[CloudMachineUpdateTarget.id(session.machineID)],
+        header.detail = withUpdate(header.detail, updates.targets[CloudMachineUpdateTarget.id(session.machineID)],
                                    compatibility: compatibility)
         return header.redialing(session.link?.redial.isRedialing == true)
     }

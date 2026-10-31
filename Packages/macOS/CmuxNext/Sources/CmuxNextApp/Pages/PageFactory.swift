@@ -123,7 +123,11 @@ struct PageFactory {
         return CloudPageProvider(op: classic.map(CloudAppLinks.ops(classic:)) ?? account.appOps,
                                  signIn: { [weak account] in await account?.auth.signIn() ?? false },
                                  signOut: { [weak account] in await account?.signOut() },
-                                 feed: classic.map(CloudAppLinks.feed(classic:)))
+                                 feed: classic.map(CloudAppLinks.feed(classic:)),
+                                 account: { [weak account] in
+                                     CloudPageProvider.accountValue(signedIn: account?.isSignedIn ?? false, user: account?.auth.user?.id,
+                                                                    team: account?.auth.teamID)
+                                 })
     }
 
     /// The Settings page's engine options.
@@ -280,14 +284,14 @@ struct PageFactory {
                       PageRoute(prefix: ChiefBackendPageRoute.prefix, provider: ChiefBackendPageRoute(center: services.agentHarnesses)),
                       PageRoute(prefix: "cmux.settings.mobile.", provider: MobilePageProvider(host: services.iphone)),
                       PageRoute(prefix: ChannelsPageProvider.prefix,
-                                provider: ChannelsPageProvider(updater: services.updater, daemon: { @MainActor [weak services] in
+                                provider: ChannelsPageProvider(updater: services.updater, daemon: { @MainActor [weak services, daemons = services.acpmuxDaemons] in
                                     // The acpmux this app starts; none in a showcase or with the mock agent host.
                                     guard let environment = services.flatMap(QuitAgents.environment) else { return nil }
-                                    return (AcpmuxDaemonSummary.title, await AcpmuxDaemonSummary.current(environment).text)
-                                }, machines: { PageFactory.otherMachines(DaemonUpdateBoard.shared) },
-                                // The person's Update on a machine of that row: the shared policy asks it again.
-                                updateMachine: { id in
-                                    await DaemonUpdateBoard.shared.update(id) { await DaemonUpdatePolicy.shared.retry($0) }
+                                    return (AcpmuxDaemonSummary.title, await AcpmuxDaemonSummary.current(environment, daemons: daemons).text)
+                                }, machines: { [updates = services.daemonUpdates] in PageFactory.otherMachines(updates.board) },
+                                // The person's Update on a machine of that row: the app's policy asks it again.
+                                updateMachine: { [updates = services.daemonUpdates] id in
+                                    await updates.board.update(id) { await updates.policy.retry($0) }
                                         ? nil : DaemonUpdateBoard.updateRefused
                                 })),
                       PageRoute(prefix: WebUpdatesPageProvider.prefix, provider: WebUpdatesPageProvider()),

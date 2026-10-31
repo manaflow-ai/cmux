@@ -8,11 +8,31 @@
 use std::io::Write;
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::sync::{Arc, Mutex};
 
 use optchat_chief::prompt::Tools;
 use optchat_chief::session_dir::{SessionSetup, write};
 use optchat_chief::toolpacks::{self, FileStore, Store};
+
+/// What the launcher wrote, shared with the test.
+#[derive(Clone, Default)]
+struct Captured(Arc<Mutex<Vec<u8>>>);
+
+impl Write for Captured {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.0.lock().unwrap().extend_from_slice(buf);
+        Ok(buf.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+impl Captured {
+    fn text(&self) -> String {
+        String::from_utf8(self.0.lock().unwrap().clone()).unwrap()
+    }
+}
 
 const SECRET: &str = "acme_0123456789abcdefABCDEF0123";
 
@@ -197,21 +217,27 @@ fn enabling_a_pack_adds_its_skills_and_servers_and_disabling_removes_them() {
         );
     }
 
-    // The launcher hands the secret to the server and keeps only the allowed tools.
-    let mut child = Command::new(env!("CARGO_BIN_EXE_optchat-chief"))
-        .args(["pack", "mcp", "acme", "acme", "--mux-home"])
-        .arg(home)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .spawn()
-        .unwrap();
-    child
-        .stdin
-        .take()
-        .unwrap()
-        .write_all(b"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\"}\n{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/call\",\"params\":{\"name\":\"acme_delete\"}}\n{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"acme_read\"}}\n")
-        .unwrap();
-    let out = String::from_utf8(child.wait_with_output().unwrap().stdout).unwrap();
+    // The launcher hands the secret to the server and keeps only the allowed tools. It reads
+    // the secret from the store it is given: this test's file store (the binary's `main` passes
+    // the Chief home's own, the login keychain on macOS).
+    let output = Captured::default();
+    let input = b"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\"}\n{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/call\",\"params\":{\"name\":\"acme_delete\"}}\n{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"acme_read\"}}\n";
+    let file_store = |p: &toolpacks::Pack| -> Box<dyn Store> {
+        Box::new(FileStore {
+            path: toolpacks::secret_file(home, &p.name),
+            pack: p.clone(),
+        })
+    };
+    toolpacks::serve_mcp(
+        home,
+        "acme",
+        "acme",
+        &file_store,
+        Box::new(std::io::Cursor::new(input.to_vec())),
+        Box::new(output.clone()),
+    )
+    .unwrap();
+    let out = output.text();
     let lines: Vec<serde_json::Value> = out
         .lines()
         .map(|l| serde_json::from_str(l).unwrap())
