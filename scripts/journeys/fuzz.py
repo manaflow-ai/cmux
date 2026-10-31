@@ -272,8 +272,9 @@ def main(argv=None):
         work.append(("replay", {"fuzz_sequence": json.dumps(seq, separators=(",", ":")), "fuzz_shrink": "false"}, None))
     else:
         if opts.corpus:
-            for name, seq in ext_fuzz.CORPUS.items():
-                work.append((name, {"fuzz_sequence": json.dumps(seq, separators=(",", ":"))}, None))
+            # Lawrence's reported bugs, one round (a close-all between them): ext_fuzz.CORPUS_SETS[--set].
+            seq = ext_fuzz.corpus_sequence(ext_fuzz.CORPUS_SETS[opts.set])
+            work.append(("corpus", {"fuzz_sequence": json.dumps(seq, separators=(",", ":"))}, None))
 
     def play(label, options, seed, n):
         # ABBA over rounds; the second side plays on the mini the first one got.
@@ -290,7 +291,7 @@ def main(argv=None):
                    "host": used, "status": row.get("status"), "reason": (row.get("reason") or "")[:300], "exit": code,
                    "played": (report or {}).get("played"), "seconds": (report or {}).get("seconds"),
                    "failure": (report or {}).get("failure"), "shrunk": (report or {}).get("shrunk"),
-                   "speed": (report or {}).get("speed") or [], "corpus": label if label not in ("seed", "replay") else None,
+                   "speed": (report or {}).get("speed") or [], "corpus": label == "corpus",
                    "exclusive": gate.exclusive_line(r_out), "pressure": gate.pressure(r_out, opts.hog_swap_gb) if opts.hog_swap_gb else None}
             rounds.append(rec)
             print(f"round {n} {side} ({label}, seed {rec['seed']}) on {used}: {rec['status']}"

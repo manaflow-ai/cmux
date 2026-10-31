@@ -145,6 +145,22 @@ CORPUS = {
 }
 
 
+# The corpus entries each set plays (fuzz.py --corpus): the layout set's are the layout reports.
+CORPUS_SETS = {"layout": ("lawrence-cmd-d-twice", "lawrence-ctrl-backtick-twice", "lawrence-resize", "lawrence-column-widths"),
+               "full": tuple(CORPUS)}
+
+
+def corpus_sequence(names):
+    """The named corpus entries as one sequence, a close-all between them (one lease plays them all; ddmin keeps
+    only what a failure needs)."""
+    out = []
+    for name in names:
+        if out:
+            out.append({"a": "close_all", "t": "slow", "corpus": name})
+        out += [dict(i, corpus=name) for i in CORPUS[name]]
+    return out
+
+
 def install(driver):
     global D
     D = driver

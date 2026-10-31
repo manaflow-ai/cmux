@@ -171,8 +171,10 @@ class Verdicts(unittest.TestCase):
     def test_corpus_first(self):
         done, summary, calls, _ = self.run_fuzz({"jobT": {}}, "--corpus")
         corpus = [c for c in calls if "fuzz_sequence" in c["opts"]]
-        self.assertEqual(len(corpus), len(ext_fuzz.CORPUS))
-        self.assertEqual(calls[0]["opts"]["fuzz_sequence"], json.dumps(next(iter(ext_fuzz.CORPUS.values())), separators=(",", ":")))
+        self.assertEqual(len(corpus), 1)
+        seq = json.loads(calls[0]["opts"]["fuzz_sequence"])
+        self.assertEqual({i["corpus"] for i in seq}, set(ext_fuzz.CORPUS_SETS["layout"]))
+        self.assertEqual(sum(1 for i in seq if i["a"] == "close_all"), len(ext_fuzz.CORPUS_SETS["layout"]) - 1)
 
     def test_cmux17_refused(self):
         tmp = Path(tempfile.mkdtemp())
