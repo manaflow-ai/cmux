@@ -136,6 +136,7 @@ pub mod transcript;
 pub mod trust;
 pub mod trust_auto;
 pub mod tui;
+pub mod turn_attestation;
 pub mod usage_stats;
 pub mod user_settings;
 pub mod web_modes;
