@@ -238,11 +238,14 @@ for (const [remoteStart, trust, reconnectStart, decline, promptTrust] of [
       // prompt is never lost, back in the chat's composer.
       await until(() => !host.querySelector(".nt-field"), "the local start becomes its chat");
       if (!trust) {
-        await until(
-          () =>
-            [...host.querySelectorAll("textarea")].some((node) => node.value.includes("inspect the failed build")),
-          "the refused prompt is back in the chat's composer",
-        );
+        // The refusal says why in the chat, and the prompt is still on the page (its failed row or the
+        // chat's composer): nothing typed is lost.
+        await until(() => !!host.textContent?.includes("agent unavailable"), "the chat says why it did not start");
+        const kept = () =>
+          host.textContent?.includes("inspect the failed build") ||
+          [...host.querySelectorAll("textarea")].some((node) => node.value.includes("inspect the failed build"));
+        await until(() => !!kept(), "the refused prompt is kept");
+        expect(prompts).toHaveLength(0);
         return;
       }
       await until(() => !!host.querySelector(".acpmux-trust-ask-primary"), "Trust in the chat");
@@ -296,3 +299,89 @@ for (const [remoteStart, trust, reconnectStart, decline, promptTrust] of [
     expect(starts[1]._meta.acpmux.peer).toBe(remoteStart ? "devbox" : undefined);
     expect(field.value).toBe("inspect the failed build");
   }, 15_000);
+
+// Return twice while a chat start has not answered: the page's one-ask guard (NewTabScreen
+// `requestChat`) holds the second, so one chat starts and the prompt goes once. Through the real App
+// and its actions (#29011: the test before stood in for them with its own queue). An SSH start keeps
+// the page until it starts; a local one becomes its chat on the first Return.
+test("Return twice while a start has not answered asks once", async () => {
+  const { MockAcpmuxSocket } = await import("../src/agent-session/acpmux/mock");
+  type Answer = (method: string, params: Record<string, any>) => Promise<any>;
+  const proto = MockAcpmuxSocket.prototype as unknown as { answer: Answer };
+  const answer = proto.answer;
+  restoreAnswer = () => (proto.answer = answer);
+  const starts: Record<string, any>[] = [];
+  const prompts: Record<string, any>[] = [];
+  let release: () => void = () => {};
+  const released = new Promise<void>((done) => (release = done));
+  proto.answer = async function (method, params) {
+    if (method === "session/prompt") prompts.push(params);
+    if (method === "session/new") {
+      starts.push(params);
+      await released;
+    }
+    const result = await answer.call(this, method, params);
+    return method === "_acpmux/status"
+      ? { ...result, peers: [{ name: "devbox", kind: "ssh", connected: true }] }
+      : result;
+  };
+  const { createRoot } = await import("react-dom/client");
+  const { AcpmuxApp } = await import("../src/agent-session/acpmux/App");
+  Object.assign(dom.window, {
+    webkit: {
+      messageHandlers: {
+        agentSession: {
+          postMessage: (message: { method: string }) =>
+            Promise.resolve({
+              ok: true,
+              value:
+                message.method === "ready"
+                  ? {
+                      protocolVersion: 1,
+                      transport: "mock",
+                      newSession: true,
+                      machineName: "Mac",
+                      newTab: { template: "minimal", layout: "b", lastAgent: "claude", cwd: "/tmp/demo-project" },
+                    }
+                  : undefined,
+            }),
+        },
+      },
+    },
+  });
+  root = createRoot(host);
+  await act(async () => root!.render(<AcpmuxApp />));
+  await until(() => !!(dom.window as any).cmuxAcpmuxActions?.["chat.new"], "mock handshake");
+  const machine = () => host.querySelector<HTMLButtonElement>('.acpmux-location-picker[data-kind="computer"] button');
+  await act(async () => machine()!.click());
+  await until(
+    () => [...dom.window.document.querySelectorAll(".acpmux-menu-label")].some((node) => node.textContent === "devbox"),
+    "devbox pick",
+  );
+  const remote = [...dom.window.document.querySelectorAll<HTMLElement>(".acpmux-menu-item")].find(
+    (node) => node.querySelector(".acpmux-menu-label")?.textContent === "devbox",
+  )!;
+  await act(async () => remote.click());
+  const field = host.querySelector<HTMLTextAreaElement>(".nt-field")!;
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, "value")!.set!.call(
+      field,
+      "fix the flaky upload test",
+    );
+    field.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+  });
+  for (let press = 0; press < 2; press++) {
+    await act(async () =>
+      field.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })),
+    );
+    await until(() => starts.length >= 1, "the start is asked");
+  }
+  for (let turn = 0; turn < 10; turn++) await tick();
+  expect(starts).toHaveLength(1);
+  await act(async () => release());
+  await until(() => prompts.length >= 1, "the prompt goes once the chat started");
+  for (let turn = 0; turn < 10; turn++) await tick();
+  expect(starts).toHaveLength(1);
+  expect(prompts).toHaveLength(1);
+  expect(prompts[0].prompt[0].text).toBe("fix the flaky upload test");
+}, 15_000);
