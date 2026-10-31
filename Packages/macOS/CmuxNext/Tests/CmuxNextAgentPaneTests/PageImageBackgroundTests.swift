@@ -43,4 +43,29 @@ struct PageImageBackgroundTests {
         let image = PageImageBackground.fill(try Self.page(), color)
         #expect(try Self.alpha(image, x: 2, y: 2) == 1)
     }
+
+    /// Leo 2026-10-26: "on restarting after an update/maybe in general, we dont wanna see a black
+    /// background on the agent chat". A Chromium picture has no alpha, so a see-through page's clear
+    /// pixels come out black; over a transparent window that picture was the relaunch's first frame.
+    @Test func aPictureWithNoAlphaIsNoCoverForATransparentPage() throws {
+        let clear = AgentPaneTheme.underPageColor(ThemeTokens.unresolved, surface: .newTabPage)
+        #expect(clear.alpha < 1)
+        #expect(PageImageBackground.cover(try Self.page(), color: clear, keepsClearAreas: false) == nil)
+    }
+
+    @Test func aPictureWithNoAlphaStillCoversAnOpaquePage() throws {
+        let opaque = AgentPaneTheme.underPageColor(ThemeTokens.unresolved, surface: .newTabPage).withAlpha(1)
+        let image = try #require(PageImageBackground.cover(try Self.page(), color: opaque, keepsClearAreas: false))
+        #expect(try Self.alpha(image, x: 2, y: 2) == 1)
+    }
+
+    @Test func aPictureThatKeepsClearPixelsCoversATransparentPage() throws {
+        let clear = AgentPaneTheme.underPageColor(ThemeTokens.unresolved, surface: .newTabPage)
+        let image = try #require(PageImageBackground.cover(try Self.page(), color: clear, keepsClearAreas: true))
+        #expect(try Self.alpha(image, x: 2, y: 2) == 0)
+    }
+
+    @Test func noPictureIsNoCover() {
+        #expect(PageImageBackground.cover(nil, color: ThemeTokens.unresolved.surfaceBackground.withAlpha(1), keepsClearAreas: true) == nil)
+    }
 }
