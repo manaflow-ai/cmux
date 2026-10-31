@@ -30677,8 +30677,8 @@
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Enroll this Mac on %@ to allow from here"
+            "state": "translated",
+            "value": "سجّل هذا الـ Mac لدى %@ للموافقة على الطلبات من هنا"
           }
         },
         "bs": {
@@ -30695,8 +30695,8 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Enroll this Mac on %@ to allow from here"
+            "state": "translated",
+            "value": "Registriere diesen Mac auf %@, um von hier aus Genehmigungen zu erteilen"
           }
         },
         "en": {
@@ -30707,14 +30707,14 @@
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Enroll this Mac on %@ to allow from here"
+            "state": "translated",
+            "value": "Registra este Mac en %@ para autorizar solicitudes desde aquí"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Enroll this Mac on %@ to allow from here"
+            "state": "translated",
+            "value": "Enregistrez ce Mac sur %@ pour autoriser des demandes depuis ici"
           }
         },
         "it": {
@@ -30737,8 +30737,8 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Enroll this Mac on %@ to allow from here"
+            "state": "translated",
+            "value": "여기서 요청을 승인하려면 이 Mac을 %@에 등록하세요"
           }
         },
         "nb": {
@@ -30791,14 +30791,14 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Enroll this Mac on %@ to allow from here"
+            "state": "translated",
+            "value": "若要从这里批准请求，请先在 %@ 上注册此 Mac"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Enroll this Mac on %@ to allow from here"
+            "state": "translated",
+            "value": "若要從這裡批准請求，請先在 %@ 上註冊此 Mac"
           }
         }
       }
@@ -30808,8 +30808,8 @@
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "That machine counts this Mac's one-time Allow only after this Mac is enrolled there. The key never leaves this Mac."
+            "state": "translated",
+            "value": "لا يقبل ذلك الجهاز الموافقات لمرة واحدة من هذا الـ Mac إلا بعد تسجيله لديه. لا يغادر المفتاح هذا الـ Mac مطلقًا."
           }
         },
         "bs": {
@@ -30826,8 +30826,8 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "That machine counts this Mac's one-time Allow only after this Mac is enrolled there. The key never leaves this Mac."
+            "state": "translated",
+            "value": "Dieser Rechner akzeptiert einmalige Genehmigungen von diesem Mac erst, nachdem dieser Mac dort registriert wurde. Der Schlüssel verlässt diesen Mac nie."
           }
         },
         "en": {
@@ -30838,14 +30838,14 @@
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "That machine counts this Mac's one-time Allow only after this Mac is enrolled there. The key never leaves this Mac."
+            "state": "translated",
+            "value": "Ese equipo solo acepta las autorizaciones de una sola vez de este Mac después de registrarlo allí. La clave nunca sale de este Mac."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "That machine counts this Mac's one-time Allow only after this Mac is enrolled there. The key never leaves this Mac."
+            "state": "translated",
+            "value": "Cette machine n’accepte les autorisations ponctuelles de ce Mac qu’une fois celui-ci enregistré auprès d’elle. La clé ne quitte jamais ce Mac."
           }
         },
         "it": {
@@ -30868,8 +30868,8 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "That machine counts this Mac's one-time Allow only after this Mac is enrolled there. The key never leaves this Mac."
+            "state": "translated",
+            "value": "해당 기기는 이 Mac이 등록된 후에만 이 Mac의 일회성 승인을 받아들입니다. 키는 이 Mac을 절대 벗어나지 않습니다."
           }
         },
         "nb": {
@@ -30922,14 +30922,14 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "That machine counts this Mac's one-time Allow only after this Mac is enrolled there. The key never leaves this Mac."
+            "state": "translated",
+            "value": "只有在该机器上注册此 Mac 后，该机器才会接受来自此 Mac 的单次授权。密钥永远不会离开此 Mac。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "That machine counts this Mac's one-time Allow only after this Mac is enrolled there. The key never leaves this Mac."
+            "state": "translated",
+            "value": "只有在該機器上註冊此 Mac 後，該機器才會接受來自此 Mac 的單次授權。金鑰永遠不會離開此 Mac。"
           }
         }
       }
@@ -30939,8 +30939,8 @@
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Enroll this Mac"
+            "state": "translated",
+            "value": "تسجيل هذا الـ Mac"
           }
         },
         "bs": {
@@ -30957,8 +30957,8 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Enroll this Mac"
+            "state": "translated",
+            "value": "Diesen Mac registrieren"
           }
         },
         "en": {
@@ -30969,14 +30969,14 @@
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Enroll this Mac"
+            "state": "translated",
+            "value": "Registrar este Mac"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Enroll this Mac"
+            "state": "translated",
+            "value": "Enregistrer ce Mac"
           }
         },
         "it": {
@@ -30999,8 +30999,8 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Enroll this Mac"
+            "state": "translated",
+            "value": "이 Mac 등록"
           }
         },
         "nb": {
@@ -31053,14 +31053,14 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Enroll this Mac"
+            "state": "translated",
+            "value": "注册此 Mac"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Enroll this Mac"
+            "state": "translated",
+            "value": "註冊此 Mac"
           }
         }
       }
@@ -31070,8 +31070,8 @@
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Could not enroll this Mac on %@: %@"
+            "state": "translated",
+            "value": "تعذّر تسجيل هذا الـ Mac لدى %@: %@"
           }
         },
         "bs": {
@@ -31088,8 +31088,8 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Could not enroll this Mac on %@: %@"
+            "state": "translated",
+            "value": "Dieser Mac konnte nicht auf %@ registriert werden: %@"
           }
         },
         "en": {
@@ -31100,14 +31100,14 @@
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Could not enroll this Mac on %@: %@"
+            "state": "translated",
+            "value": "No se pudo registrar este Mac en %@: %@"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Could not enroll this Mac on %@: %@"
+            "state": "translated",
+            "value": "Impossible d’enregistrer ce Mac sur %@ : %@"
           }
         },
         "it": {
@@ -31130,8 +31130,8 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Could not enroll this Mac on %@: %@"
+            "state": "translated",
+            "value": "이 Mac을 %@에 등록할 수 없습니다: %@"
           }
         },
         "nb": {
@@ -31184,14 +31184,14 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Could not enroll this Mac on %@: %@"
+            "state": "translated",
+            "value": "无法在 %@ 上注册此 Mac：%@"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Could not enroll this Mac on %@: %@"
+            "state": "translated",
+            "value": "無法在 %@ 上註冊此 Mac：%@"
           }
         }
       }
@@ -31201,8 +31201,8 @@
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Only a one-time Allow works from this Mac"
+            "state": "translated",
+            "value": "لا يمكن منح الموافقة من هذا الـ Mac إلا لمرة واحدة"
           }
         },
         "bs": {
@@ -31219,8 +31219,8 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Only a one-time Allow works from this Mac"
+            "state": "translated",
+            "value": "Von diesem Mac aus sind nur einmalige Genehmigungen möglich"
           }
         },
         "en": {
@@ -31231,14 +31231,14 @@
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Only a one-time Allow works from this Mac"
+            "state": "translated",
+            "value": "Desde este Mac solo se pueden conceder autorizaciones de una sola vez"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Only a one-time Allow works from this Mac"
+            "state": "translated",
+            "value": "Seules les autorisations ponctuelles sont possibles depuis ce Mac"
           }
         },
         "it": {
@@ -31261,8 +31261,8 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Only a one-time Allow works from this Mac"
+            "state": "translated",
+            "value": "이 Mac에서는 일회성 승인만 가능합니다"
           }
         },
         "nb": {
@@ -31315,14 +31315,14 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Only a one-time Allow works from this Mac"
+            "state": "translated",
+            "value": "从此 Mac 只能授予单次授权"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Only a one-time Allow works from this Mac"
+            "state": "translated",
+            "value": "從此 Mac 只能授予單次授權"
           }
         }
       }
