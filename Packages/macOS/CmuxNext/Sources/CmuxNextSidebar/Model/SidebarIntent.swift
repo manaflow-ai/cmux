@@ -23,7 +23,7 @@ public nonisolated enum SidebarIntent: Hashable, Sendable {
     /// section node index counted without the joining workspaces, places it
     /// instead (`Int.max`: last); New Workspace in New Group forms it at its
     /// final slot that way, never at the new row's slot first (cx-f6i7).
-    case createGroup(GroupID, name: String, color: GroupColor, workspaces: [WorkspaceID], anchor: WorkspaceID? = nil, collapsed: Bool = false,
+    case createGroup(GroupID, name: String, color: GroupTint, workspaces: [WorkspaceID], anchor: WorkspaceID? = nil, collapsed: Bool = false,
                      index: Int? = nil)
     case renameGroup(GroupID, String)
     /// The group's name editor closed (commit or cancel). The App removes a

@@ -260,14 +260,13 @@ enum WorkspaceGroupHandlers {
     }
 
     /// A new group inside `parent` on the sidebar document (remote-groups-DESIGN.md slice 3), with the
-    /// next palette color; a person's new subgroup opens its name editor, as New Group does.
+    /// no color; a person's new subgroup opens its name editor, as New Group does.
     private static func newSubgroup(in parent: CmuxNextSidebar.GroupID, name: String, byUser: Bool, _ context: AppActionContext) throws {
         guard let store = SidebarDocStore.current, SidebarDocWiring.isActive else {
             throw ActionFailure.invalidTarget(WorkspaceVerbStrings.subgroupNeedsDocument)
         }
         let id = CmuxNextSidebar.GroupID.make()
-        let used = Set(context.services.machines.local.store.personal.groups.compactMap(\.color))
-        let plan = SidebarDocSubgroupPlan(parent: parent, id: id, name: name, color: GroupColor.automatic(used: used) ?? .grey,
+        let plan = SidebarDocSubgroupPlan(parent: parent, id: id, name: name, color: .none,
                                           records: store.records)
         guard let ops = plan.ops else {
             throw ActionFailure.invalidTarget(plan.refusal == .tooDeep ? WorkspaceVerbStrings.subgroupTooDeep : RefusalStrings.groupRequired)

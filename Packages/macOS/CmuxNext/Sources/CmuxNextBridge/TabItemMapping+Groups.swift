@@ -9,7 +9,8 @@ extension TabItemMapping {
     /// image or SVG icon (the App reads it from the group's daemon).
     public func groupItem(_ group: TabGroupModel, isSaved: Bool, asset: (String) -> TabImage? = { _ in nil }) -> TabGroupItem {
         TabGroupItem(id: CmuxNextTabs.TabGroupID(group.id.rawValue), name: group.name,
-                     tint: group.color.flatMap(GroupTint.init(wire:)) ?? .palette(.grey),
+                     // No stored color: no color (no dot, chip fill or underline), never a pick.
+                     tint: group.color.flatMap(GroupTint.init(wire:)) ?? .none,
                      isCollapsed: group.collapsed, isSaved: isSaved, icon: groupIcon(group.icon, asset: asset))
     }
 

@@ -346,15 +346,20 @@ pub struct PresentationSnapshot {
 pub const TAB_GROUP_COLORS: [&str; 9] =
     ["grey", "blue", "red", "yellow", "green", "pink", "purple", "cyan", "orange"];
 
-/// A tab or screen group color: one of the nine tokens, or a custom `#RRGGBB` a person picked,
-/// stored as given (cx-wqn5).
+/// A tab or screen group with no color: frontends draw no dot, chip fill or underline. A group
+/// gets a color only when a person picks one (Leo 2026-10-31: "WHERE IS ORANGE
+/// COMING FROM"), so this is the default when a create names none.
+pub const TAB_GROUP_NO_COLOR: &str = "none";
+
+/// A tab or screen group color: one of the nine tokens, a custom `#RRGGBB` a person picked,
+/// stored as given (cx-wqn5), or `none` (``TAB_GROUP_NO_COLOR``).
 pub fn validate_tab_group_color(value: &str) -> anyhow::Result<()> {
     let hex = value.len() == 7
         && value.starts_with('#')
         && value[1..].bytes().all(|byte| byte.is_ascii_hexdigit());
     anyhow::ensure!(
-        hex || TAB_GROUP_COLORS.contains(&value),
-        "bad request: tab group color must be one of {} or #RRGGBB",
+        hex || value == TAB_GROUP_NO_COLOR || TAB_GROUP_COLORS.contains(&value),
+        "bad request: tab group color must be one of {}, none or #RRGGBB",
         TAB_GROUP_COLORS.join(", ")
     );
     Ok(())

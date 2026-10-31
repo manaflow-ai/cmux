@@ -18,7 +18,7 @@ use super::{
 };
 
 const GROUP_COLORS: &[&str] =
-    &["grey", "blue", "red", "yellow", "green", "pink", "purple", "cyan", "orange"];
+    &["none", "grey", "blue", "red", "yellow", "green", "pink", "purple", "cyan", "orange"];
 const LOG_LEVELS: &[&str] = &["info", "progress", "success", "warning", "error"];
 pub(super) const STATUS_AREAS: &[&str] = &["status", "progress", "log"];
 

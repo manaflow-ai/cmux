@@ -470,7 +470,7 @@ impl Mux {
             "bad request: a screen group needs at least one screen"
         );
         let name = name.unwrap_or_default();
-        let color = color.unwrap_or_else(|| "grey".to_string());
+        let color = color.unwrap_or_else(|| crate::workspace_registry::TAB_GROUP_NO_COLOR.to_string());
         validate_tab_group_name(&name)?;
         validate_tab_group_color(&color)?;
         let (_, commit) = self.commit_screen_request(request, |_, state, edit| {

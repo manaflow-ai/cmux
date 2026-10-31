@@ -22,7 +22,7 @@ struct SidebarDocSubgroupPlanTests {
     }
 
     @Test func aSubgroupGoesUnderItsParentInTheParentsSection() throws {
-        let plan = SidebarDocSubgroupPlan(parent: GroupID("g1"), id: GroupID("g_new"), name: "feat-x", color: .green, records: records(chain: 1))
+        let plan = SidebarDocSubgroupPlan(parent: GroupID("g1"), id: GroupID("g_new"), name: "feat-x", color: .palette(.green), records: records(chain: 1))
         let op = try #require(plan.ops?.first)
         #expect(op["op"] as? String == "group.create")
         #expect(op["id"] as? String == "g_new")
@@ -34,21 +34,21 @@ struct SidebarDocSubgroupPlanTests {
 
     @Test func thereIsRoomUnderEveryLevelButTheDeepest() {
         let max = SidebarDocSubgroupPlan.maxDepth
-        let below = SidebarDocSubgroupPlan(parent: GroupID("g\(max - 1)"), id: GroupID("n"), name: "", color: .grey, records: records(chain: max - 1))
+        let below = SidebarDocSubgroupPlan(parent: GroupID("g\(max - 1)"), id: GroupID("n"), name: "", color: .none, records: records(chain: max - 1))
         #expect(below.ops != nil)
-        let deepest = SidebarDocSubgroupPlan(parent: GroupID("g\(max)"), id: GroupID("n"), name: "", color: .grey, records: records(chain: max))
+        let deepest = SidebarDocSubgroupPlan(parent: GroupID("g\(max)"), id: GroupID("n"), name: "", color: .none, records: records(chain: max))
         #expect(deepest.ops == nil)
         #expect(deepest.refusal == .tooDeep)
     }
 
     /// Lawrence 2026-10-23: "i want to see deeply nested groups". A sixth-level group still takes a subgroup.
     @Test func aSixthLevelGroupTakesASubgroup() {
-        let sixth = SidebarDocSubgroupPlan(parent: GroupID("g6"), id: GroupID("n"), name: "", color: .grey, records: records(chain: 6))
+        let sixth = SidebarDocSubgroupPlan(parent: GroupID("g6"), id: GroupID("n"), name: "", color: .none, records: records(chain: 6))
         #expect(sixth.ops != nil, "refused: \(String(describing: sixth.refusal))")
     }
 
     @Test func anUnknownParentPlansNothing() {
-        let plan = SidebarDocSubgroupPlan(parent: GroupID("nope"), id: GroupID("n"), name: "", color: .grey, records: records(chain: 1))
+        let plan = SidebarDocSubgroupPlan(parent: GroupID("nope"), id: GroupID("n"), name: "", color: .none, records: records(chain: 1))
         #expect(plan.ops == nil)
         #expect(plan.refusal == .unknownGroup)
     }

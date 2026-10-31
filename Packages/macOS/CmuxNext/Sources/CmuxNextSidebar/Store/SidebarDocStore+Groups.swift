@@ -20,7 +20,7 @@ extension SidebarDocStore {
             guard case .group(_, _, _, let collapsed)? = shownRecords.items[item(group: group)]?.body else { return nil }
             return (update(group, ["collapsed": !collapsed]), false)
         case let .createGroup(group, name, color, workspaces, anchor, collapsed, _):
-            var op: [String: Any] = ["op": "group.create", "id": group.rawValue, "name": SidebarGroup.named(name), "color": color.rawValue,
+            var op: [String: Any] = ["op": "group.create", "id": group.rawValue, "name": SidebarGroup.named(name), "color": color.wire,
                                      "items": items(workspaces)]
             if let anchor, let item = items([anchor]).first, let section = records.items[item]?.section {
                 op["to"] = ["section": section, "before": item]

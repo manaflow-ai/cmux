@@ -232,7 +232,7 @@ struct SidebarDocOptimisticGroupTests {
 
     @Test func newGroupShowsBeforeTheEcho() async throws {
         let store = try await Self.store()
-        Self.send(.createGroup(GroupID("g_new"), name: "Fresh", color: .green, workspaces: [WorkspaceID("scratch")]), to: store)
+        Self.send(.createGroup(GroupID("g_new"), name: "Fresh", color: .palette(.green), workspaces: [WorkspaceID("scratch")]), to: store)
         #expect(Self.groups(store)["g_new"]?.name == "Fresh", "New Group waited for the daemon's echo: \(Self.groups(store).keys.sorted())")
     }
 
@@ -260,7 +260,7 @@ struct SidebarDocOptimisticGroupTests {
             try #require(store.handle(.setPinned([first], true), model: SidebarModel(), drag: drag, pinTitle: "Pin", unpinTitle: "Unpin"))
             try #require(refusals.shown.isEmpty, "the setup pin must apply before testing a drop into its group")
         }
-        let created = store.handle(.createGroup(GroupID("g_new"), name: "Fresh", color: .green, workspaces: [first]), model: SidebarModel(),
+        let created = store.handle(.createGroup(GroupID("g_new"), name: "Fresh", color: .palette(.green), workspaces: [first]), model: SidebarModel(),
                                    drag: drag, pinTitle: "Pin", unpinTitle: "Unpin")
         try #require(created)
         let request = SidebarViewRequest(live: Self.live + [SidebarDocWorkspaceRef(sessionID: "s1", workspaceID: "unplaced")])

@@ -79,13 +79,6 @@ public struct TabGroupOrdering {
             ?? ordered.first { $0.groupID != group }?.id
     }
 
-    /// The color a new group gets, as workspace groups get theirs (`GroupColor.automatic`): the
-    /// first palette color in `automaticOrder` no group in the same strip uses yet, never
-    /// blue (a user may still choose it) or grey; grey when every one is taken.
-    public static func nextColor(used: some Sequence<GroupColor>) -> GroupColor {
-        GroupColor.automatic(used: Set(used.map(\.rawValue))) ?? .grey
-    }
-
     /// When a group collapses over the selection: select the
     /// nearest tab to the right outside the group, else to the left. Nil
     /// when every visible tab is in the group (the caller opens a new tab).
