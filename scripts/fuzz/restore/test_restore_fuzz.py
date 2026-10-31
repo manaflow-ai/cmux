@@ -206,6 +206,29 @@ class EnvLog(unittest.TestCase):
         self.assertIn("CMUX_API_TOKEN", row["other_cmux_keys"])
 
 
+class Hosts(unittest.TestCase):
+    def test_host_rows_reads_only_this_builds_hosts(self):
+        app = rf.App.__new__(rf.App)
+        app.bundle_id = "com.cmuxterm.app.debug.t.capslot1"
+        rf.APP = app
+        saved = rf.subprocess.run
+
+        class Done:
+            stdout = ("  101     1 Sat Oct 31 04:38:10 2026 cmux-tui __terminal-host --bootstrap-stdio "
+                      "--owner com.cmuxterm.app.debug.t.capslot1:sess term_abc\n"
+                      "  102     1 Sat Oct 31 04:38:11 2026 cmux-tui __terminal-host --bootstrap-stdio "
+                      "--owner com.cmuxterm.app.debug.other:sess term_x\n"
+                      "  103    50 Sat Oct 31 04:38:12 2026 /bin/zsh -l\n")
+        rf.subprocess.run = lambda *a, **k: Done()
+        try:
+            rows = rf.host_rows()
+        finally:
+            rf.subprocess.run = saved
+        self.assertEqual([r["pid"] for r in rows], [101])
+        self.assertEqual(rows[0]["lstart"], "Sat Oct 31 04:38:10 2026")
+        self.assertIn("term_abc", rows[0]["argv"])
+
+
 class Answers(unittest.TestCase):
     def test_bare_list_answer_is_listed(self):
         # `cmux --json workspace list` answers a bare list (fleet run seed 1004, cmux21).

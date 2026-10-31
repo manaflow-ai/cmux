@@ -297,6 +297,39 @@ def proc_env(pid):
     return {"pid": pid, "argv": argv[:600], "env": env, "other_cmux_keys": sorted(names)}
 
 
+def host_rows():
+    """This build's terminal hosts: launchd children with a bare `cmux-tui` argv that name their owner
+    (`--bootstrap-stdio ... --owner <bundle id>:`, host_exe.rs). Read-only: pid, ppid, start time, argv."""
+    owner = f"--owner {APP.bundle_id}:"
+    out = subprocess.run(["ps", "axo", "pid=,ppid=,lstart=,args="], capture_output=True, text=True).stdout
+    rows = []
+    for line in out.splitlines():
+        if "--bootstrap-stdio" not in line or owner not in line:
+            continue
+        parts = line.split(None, 7)  # pid ppid + lstart's five words + args
+        if len(parts) == 8 and parts[0].isdigit():
+            rows.append({"pid": int(parts[0]), "ppid": int(parts[1]), "lstart": " ".join(parts[2:7]), "argv": parts[7][:600]})
+    return rows
+
+
+def log_hosts(label):
+    """Terminal hosts of this build vs the terminals the daemon lists (session registry), to OUT/hosts.jsonl.
+    A note for the terminal-host leak owner, not an oracle verdict."""
+    hosts = host_rows()
+    listed_answer, _ = cli("terminal", "list")
+    terms = sorted({first(t, "id", "terminal_id") for t in listed(listed_answer, "terminals") if isinstance(t, dict)} - {None})
+    unlisted = [h for h in hosts if not any(t in h["argv"] for t in terms)]
+    row = {"t": round(time.time() - T0, 2), "label": label, "hosts": len(hosts), "terminals_listed": len(terms),
+           "hosts_not_naming_a_listed_terminal": len(unlisted), "sample_unlisted": unlisted[:3], "terminal_ids": terms[:200]}
+    with open(os.path.join(opts.out, "hosts.jsonl"), "a") as f:
+        f.write(json.dumps(row) + "\n")
+    HOSTS_MAX[0] = max(HOSTS_MAX[0], len(hosts))
+    return row
+
+
+HOSTS_MAX = [0]
+
+
 def log_daemon_env(label):
     rows = {"app": proc_env(APP.pid), "daemons": [proc_env(pid) for pid in APP.daemon_pids()]}
     with open(os.path.join(opts.out, "daemon-env.jsonl"), "a") as f:
@@ -807,6 +840,7 @@ def iteration(seed, targets, keep=None, label="i"):
     state, timings, problem = restore(target, killed_at, old_daemons)
     rec["timings"] = timings
     log_daemon_env(f"after-restore-{target}")
+    rec["hosts_after_restore"] = log_hosts(f"after-restore-{target}")["hosts"]
     outside = APP.state_outside_slot()
     if outside:
         say(f"RESTORE-FUZZ SUMMARY seed=none chaos={opts.chaos} iterations=0 judged=0 not_run=0 violations=0 chaos_lost=0 "
@@ -893,6 +927,7 @@ def main():
     seed = opts.seed if opts.seed is not None else int(time.time() * 1000) % (1 << 31)
     say(f"restore-fuzz seed {seed} chaos {opts.chaos} targets {targets}")
     log_daemon_env("start")
+    log_hosts("start")
     master = random.Random(seed)
     deadline = T0 + opts.max_seconds
     records, violations = [], []
@@ -947,7 +982,7 @@ def main():
     p = lambda q: settle[min(len(settle) - 1, int(q * len(settle)))] if settle else None
     say(f"RESTORE-FUZZ SUMMARY seed={seed} chaos={opts.chaos} iterations={len(records)} judged={len(judged)} "
         f"not_run={len(records) - len(judged)} kills={json.dumps(kills, sort_keys=True)} violations={len(violations)} "
-        f"chaos_lost={chaos_lost[0]} "
+        f"chaos_lost={chaos_lost[0]} hosts_max={HOSTS_MAX[0]} "
         f"settle_s p50={p(0.5)} p95={p(0.95)} max={settle[-1] if settle else None}")
     sys.exit(1 if violations else (0 if judged and not chaos_lost[0] else 75))
 
