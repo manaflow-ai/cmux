@@ -68,7 +68,6 @@ fn row(
         height: 10.0,
         section,
         group: group.map(str::to_string),
-        workspace: None,
         sibling_index,
         parent_index,
         is_last_in_group,
@@ -248,7 +247,6 @@ fn rows_without(excluded: &[&str], excluded_group: Option<&str>) -> Vec<Row> {
     rows.retain(|row| match &row.key {
         RowKey::Workspace { id } => !excluded.contains(id.as_str()),
         RowKey::Group { id } => Some(id.as_str()) != excluded_group,
-        RowKey::Tab { workspace, .. } => !excluded.contains(workspace.as_str()),
         _ => true,
     });
     let mut y = 0.0;

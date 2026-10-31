@@ -43,7 +43,6 @@ pub enum RowKey {
     Section { id: SectionId },
     Group { id: String },
     Workspace { id: String },
-    Tab { workspace: String, id: String },
     EmptySection { id: SectionId },
 }
 
@@ -54,7 +53,6 @@ pub struct Row {
     pub height: f64,
     pub section: SectionId,
     pub group: Option<String>,
-    pub workspace: Option<String>,
     pub sibling_index: i32,
     pub parent_index: Option<i32>,
     pub is_last_in_group: bool,
@@ -250,16 +248,6 @@ fn workspace_target(
                 })
             }
         }
-        RowKey::Tab { workspace, .. } => {
-            let parent = rows.iter().find(
-                |candidate| matches!(&candidate.key, RowKey::Workspace { id } if id == workspace),
-            )?;
-            Some(Target::Position {
-                section: parent.section.clone(),
-                group: parent.group.clone(),
-                index: parent.sibling_index + 1,
-            })
-        }
         RowKey::Group { id } => {
             if row.is_collapsed {
                 if fraction < group_edge_fraction {
@@ -368,13 +356,6 @@ fn group_target(
                 return None;
             }
             row.sibling_index + i32::from(fraction >= 0.5)
-        }
-        RowKey::Tab { .. } => {
-            if row.section != home {
-                return None;
-            }
-            let parent = row.workspace.as_ref().and_then(|id| rows.iter().find(|candidate| matches!(&candidate.key, RowKey::Workspace { id: candidate_id } if candidate_id == id)))?;
-            parent.sibling_index + 1
         }
         RowKey::Section { .. } => {
             if row.section == home {
@@ -546,7 +527,6 @@ pub fn resolve_tab_drop(request: &TabRequest) -> Option<TabDrop> {
     };
     let target_workspace = match &row.key {
         RowKey::Workspace { id } => Some(id.as_str()),
-        RowKey::Tab { workspace, .. } => Some(workspace.as_str()),
         _ => None,
     };
     let into = (request.tab_into_start..=request.tab_into_end).contains(&fraction);
@@ -593,7 +573,6 @@ pub fn tab_drop_refusal(request: &TabRequest) -> Option<TabRefusal> {
     let (row, _) = hit(request.y, &request.rows)?;
     let workspace_id = match &row.key {
         RowKey::Workspace { id } => Some(id.as_str()),
-        RowKey::Tab { workspace, .. } => Some(workspace.as_str()),
         _ => None,
     };
     let workspace_machine = workspace_id
