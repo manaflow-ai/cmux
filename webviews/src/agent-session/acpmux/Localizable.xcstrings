@@ -170192,27 +170192,27 @@
       "extractionState" : "manual",
       "localizations" : {
         "ar" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "فتح الوكلاء الفرعيين في أجزاء"
+          "stringUnit": {
+            "state": "translated",
+            "value": "فتح الوكلاء الفرعيين في أجزاء"
           }
         },
         "bs" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Otvori podagente u oknima"
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otvori podagente u oknima"
           }
         },
         "da" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Åbn underagenter i ruder"
+          "stringUnit": {
+            "state": "translated",
+            "value": "Åbn underagenter i ruder"
           }
         },
         "de" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Subagenten in Bereichen öffnen"
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subagenten in Bereichen öffnen"
           }
         },
         "en" : {
@@ -170222,99 +170222,99 @@
           }
         },
         "es" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Abrir subagentes en paneles"
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir subagentes en paneles"
           }
         },
         "fr" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Ouvrir les sous-agents dans des sous-fenêtres"
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ouvrir les sous-agents dans des sous-fenêtres"
           }
         },
         "it" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Apri i subagenti in riquadri"
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apri i subagenti in riquadri"
           }
         },
         "ja" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "サブエージェントをペインで開く"
+          "stringUnit": {
+            "state": "translated",
+            "value": "サブエージェントをペインで開く"
           }
         },
         "km" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "បើកភ្នាក់ងាររងក្នុងផ្ទាំង"
+          "stringUnit": {
+            "state": "translated",
+            "value": "បើកភ្នាក់ងាររងក្នុងផ្ទាំង"
           }
         },
         "ko" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "하위 에이전트를 창에서 열기"
+          "stringUnit": {
+            "state": "translated",
+            "value": "하위 에이전트를 창에서 열기"
           }
         },
         "nb" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Åpne underagenter i ruter"
+          "stringUnit": {
+            "state": "translated",
+            "value": "Åpne underagenter i ruter"
           }
         },
         "pl" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Otwieraj podagenty w panelach"
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otwieraj podagenty w panelach"
           }
         },
         "pt-BR" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Abrir subagentes em painéis"
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir subagentes em painéis"
           }
         },
         "ru" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Открывать субагентов в панелях"
+          "stringUnit": {
+            "state": "translated",
+            "value": "Открывать субагентов в панелях"
           }
         },
         "th" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "เปิดเอเจนต์ย่อยในบานหน้าต่าง"
+          "stringUnit": {
+            "state": "translated",
+            "value": "เปิดเอเจนต์ย่อยในบานหน้าต่าง"
           }
         },
         "tr" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Alt ajanları bölmelerde aç"
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alt ajanları bölmelerde aç"
           }
         },
         "uk" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Відкривати субагентів у панелях"
+          "stringUnit": {
+            "state": "translated",
+            "value": "Відкривати субагентів у панелях"
           }
         },
         "vi" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Mở tác tử phụ trong khung"
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mở tác tử phụ trong khung"
           }
         },
         "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "在窗格中打开子代理"
+          "stringUnit": {
+            "state": "translated",
+            "value": "在窗格中打开子代理"
           }
         },
         "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "在窗格中開啟子代理"
+          "stringUnit": {
+            "state": "translated",
+            "value": "在窗格中開啟子代理"
           }
         }
       }
