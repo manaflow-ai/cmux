@@ -11,7 +11,7 @@
 import { readFileSync } from "node:fs";
 
 import { afterEach, beforeEach, expect, setSystemTime, spyOn, test } from "bun:test";
-import { act, Profiler, useState, type ReactNode } from "react";
+import { act, useState, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
@@ -140,6 +140,7 @@ function Pane({
     machineName: "Studio",
     shell,
     onOpenOutput,
+    onRender: onPanelRender,
     sessions,
   });
   reveal = inspector.reveal;
@@ -169,9 +170,7 @@ function Pane({
           />
         </header>
       </div>
-      <Profiler id="session-info" onRender={onPanelRender}>
-        {inspector.panel}
-      </Profiler>
+      {inspector.panel}
     </section>
   );
 }
@@ -311,9 +310,9 @@ test("Session Info does not render when the transcript scrolls", async () => {
   });
   const beforeScroll = renders;
   const shell = container.querySelector<HTMLElement>(".acpmux-shell")!;
-  await act(async () => {
-    for (let frame = 0; frame < 20; frame++) shell.dispatchEvent(new Event("scroll", { bubbles: true }));
-  });
+  for (let frame = 0; frame < 20; frame++)
+    await act(async () => shell.dispatchEvent(new dom!.window.Event("scroll", { bubbles: true })));
+  expect(shell.dataset.scrollFrame).toBe("20");
   expect(renders).toBe(beforeScroll);
 });
 

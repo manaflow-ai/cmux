@@ -33,10 +33,10 @@
 // While the pane shows a subagent's own view, it lists that subagent's things alone, under
 // "Subagent · <name>" with a back button (subagentScope.ts, SubagentScopeHeader.tsx).
 import {
+  memo,
   useCallback,
   useEffect,
   useLayoutEffect,
-  memo,
   useMemo,
   useRef,
   useState,
@@ -290,6 +290,7 @@ export function useChatInspector({
   onReconnectMcp,
   remoteControl,
   onCompact,
+  onRender,
 }: {
   snapshot: AcpmuxSnapshot;
   /// A view has the pane in the chat's place (App.tsx: a turn's diff in place, the event Inspector):
@@ -355,6 +356,8 @@ export function useChatInspector({
   remoteControl?: { on: boolean; set: (on: boolean) => void };
   /// Sends the chat's agent its `/compact` (Context's Compact); unset where Compact cannot reach.
   onCompact?: () => void;
+  /// Test-only render probe for the transcript scroll isolation regression test.
+  onRender?: () => void;
 }): {
   on: boolean;
   /// The panel shows (on, open, not stepped aside): a card under it keeps no room of its own beside
@@ -387,6 +390,27 @@ export function useChatInspector({
   const [revealed, setRevealed] = useState<{ section: InspectorSectionId; at: number }>();
   const clearRevealed = useCallback(() => setRevealed(undefined), []);
   const openedOutputAt = useRef(0);
+  const stableOnOpenOutput = useStableCallback(onOpenOutput);
+  const stableOnOpenSourceFile = useStableCallback(onOpenSourceFile);
+  const stableOnOpenUrl = useStableCallback(onOpenUrl);
+  const stableOnOpenImage = useStableCallback(onOpenImage);
+  const stableOnOpenDocument = useStableCallback(onOpenDocument);
+  const stableOnOpenFolder = useStableCallback(onOpenFolder);
+  const stableOnSaveEnvironment = useStableCallback(onSaveEnvironment);
+  const stableOnReconnectMcp = useStableCallback(onReconnectMcp);
+  const stableOnCompact = useStableCallback(onCompact);
+  const stableOnShowCall = useStableCallback(onShowCall);
+  const stableOnStopProcess = useStableCallback(onStopProcess);
+  const openOutput = useMemo(
+    () =>
+      stableOnOpenOutput
+        ? (path: string) => {
+            openedOutputAt.current = Date.now();
+            stableOnOpenOutput(path);
+          }
+        : undefined,
+    [stableOnOpenOutput],
+  );
   const label = t("chatInspector.title");
   // Opening it while a view covers the chat closes that view first. The palette's opener outlives a
   // render, so it reads the latest from a ref.
@@ -446,12 +470,6 @@ export function useChatInspector({
     setInspectorOpen(true);
     setRevealed({ section, at: Date.now() });
   };
-  const openOutput = onOpenOutput
-    ? (path: string) => {
-        openedOutputAt.current = Date.now();
-        onOpenOutput(path);
-      }
-    : undefined;
   return {
     on: true,
     shown,
@@ -479,18 +497,19 @@ export function useChatInspector({
         workflows={workflows}
         revealed={revealed}
         onRevealed={clearRevealed}
-        onStopProcess={onStopProcess}
-        onOpenSourceFile={subagent?.agent.host ? undefined : onOpenSourceFile}
+        onStopProcess={stableOnStopProcess}
+        onOpenSourceFile={subagent?.agent.host ? undefined : stableOnOpenSourceFile}
         onOpenOutput={openOutput}
-        onOpenUrl={onOpenUrl}
-        onOpenImage={onOpenImage}
-        onOpenFolder={onOpenFolder}
-        onSaveEnvironment={onSaveEnvironment}
-        onReconnectMcp={onReconnectMcp}
+        onOpenUrl={stableOnOpenUrl}
+        onOpenImage={stableOnOpenImage}
+        onOpenFolder={stableOnOpenFolder}
+        onSaveEnvironment={stableOnSaveEnvironment}
+        onReconnectMcp={stableOnReconnectMcp}
         remoteControl={remoteControl}
-        onCompact={onCompact}
-        onOpenDocument={onOpenDocument}
-        onShowCall={onShowCall}
+        onCompact={stableOnCompact}
+        onRender={onRender}
+        onOpenDocument={stableOnOpenDocument}
+        onShowCall={stableOnShowCall}
         scope={subagent}
       />
     ),
@@ -498,6 +517,17 @@ export function useChatInspector({
 }
 
 const INSPECTOR_TOGGLE = "button.acpmux-chat-inspector-toggle";
+/// Keep event props stable while retaining the latest callback. The pane owns transcript scroll
+/// state, so a fresh inline callback would defeat the InspectorPresence memo.
+function useStableCallback<T extends (...args: never[]) => unknown>(callback: T | undefined): T | undefined {
+  const current = useRef<T | undefined>(callback);
+  current.current = callback;
+  return useMemo(
+    () => (callback === undefined ? undefined : ((...args: Parameters<T>) => current.current?.(...args)) as T),
+    [callback === undefined],
+  );
+}
+
 /// What a press may land on without hiding the popover: a menu, popup or dialog the panel opened,
 /// drawn outside it in a portal.
 const DISMISS_KEEPERS =
@@ -544,6 +574,7 @@ const InspectorPresence = memo(function InspectorPresence({
   onReconnectMcp,
   remoteControl,
   onCompact,
+  onRender,
   onOpenDocument,
   onShowCall,
   scope,
@@ -591,11 +622,13 @@ const InspectorPresence = memo(function InspectorPresence({
   onReconnectMcp?: (server: string) => Promise<unknown>;
   remoteControl?: { on: boolean; set: (on: boolean) => void };
   onCompact?: () => void;
+  onRender?: () => void;
   onOpenDocument?: (artifact: Artifact) => void;
   onShowCall?: (toolCallId: string) => boolean;
   /// The subagent it lists, while the pane shows one's own view.
   scope?: SubagentScope;
 }) {
+  onRender?.();
   const { width, sections } = useInspectorState(chat);
   const display = useChatDisplay();
   const sizing = useChatSizing();
