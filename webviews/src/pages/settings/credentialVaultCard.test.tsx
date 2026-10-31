@@ -19,7 +19,9 @@ test("the Chief page lists each vault secret by name, its use and who may use it
   await settle();
   expect(card(page.container)?.querySelector(".group-title")?.textContent).toBe("Credential Vault");
   expect(names(page.container)).toEqual(["GH_TOKEN", "OPENAI_API_KEY"]);
-  expect(row(page.container, "GH_TOKEN").querySelector(".row-help")?.textContent).toContain("agent session 4f2a");
+  expect(row(page.container, "GH_TOKEN").querySelector(".row-help")?.getAttribute("aria-label")).toContain(
+    "agent session 4f2a",
+  );
   expect(row(page.container, "OPENAI_API_KEY").querySelector(".row-help")?.textContent).toContain("Never used");
   expect(row(page.container, "OPENAI_API_KEY").querySelector(".row-help")?.textContent).toContain("work account");
   const agents = (name: string) =>
@@ -78,4 +80,31 @@ test("the Agents switch changes only agents: an agents-only secret never gains t
   expect(withAgents(["agents"], true)).toEqual(["agents"]);
   expect(withAgents(["user", "agents"], false)).toEqual(["user"]);
   expect(withAgents(["user"], true)).toEqual(["user", "agents"]);
+});
+
+test("vault use summaries stay short and preserve the full details", async () => {
+  const note = "work account ".repeat(12);
+  const page = await renderPage({
+    path: "/settings/chief",
+    setup: (provider) => {
+      const vault = provider.host.credential_vault!;
+      provider.setHost({
+        ...provider.host,
+        credential_vault: {
+          ...vault,
+          secrets: vault.secrets.map((secret) => ({ ...secret, note })),
+        },
+      });
+    },
+  });
+  await settle();
+  const segmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+  for (const line of card(page.container)!.querySelectorAll<HTMLElement>(".row-help")) {
+    expect([...segmenter.segment(line.textContent ?? "")].length).toBeLessThanOrEqual(60);
+  }
+  const used = row(page.container, "GH_TOKEN").querySelector<HTMLElement>(".row-help")!;
+  expect(used.title).toContain("agent session 4f2a");
+  expect(used.title).toContain(note);
+  expect(used.getAttribute("aria-label")).toBe(used.title);
+  page.unmount();
 });

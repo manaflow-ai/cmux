@@ -101,4 +101,69 @@ import Testing
         #expect(await rig.send(text) == nil)
         #expect(rig.storeItems() == [text])
     }
+
+    /// The held send is too late to protect the durable draft: typing already saves it. A vault
+    /// host keeps a detected key only in the live field, before Return and while its sheet waits
+    /// or is cancelled. Check the actual cache file, not only the post-move draft.
+    @Test func aKeyNeverEntersTheKeptDraftBeforeDuringOrAfterTheOffer() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("home-secret-draft-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let url = root.appendingPathComponent("home.json")
+        let store = HomeStore(source: MockHomeSource(options: .immediate), blobCacheDirectory: root.appendingPathComponent("blobs"),
+                              cache: HomeCache(url: url), cacheWriteDelay: .zero)
+        defer { store.stop() }
+        store.start()
+        await HomeChatRig.until { store.me != nil && store.isOnline }
+        await store.open(HomeChatRig.conversation)
+        await HomeChatRig.until { !store.transcript(for: HomeChatRig.conversation).isEmpty }
+        let me = try #require(store.me?.id)
+        let view = MessagesLabHomeView(store: store, conversation: HomeChatRig.conversation, me: me, wake: HomeChatRig.NoWake())
+        defer { view.stop() }
+        var answer: CheckedContinuation<Void, Never>?
+        view.secretHost = { _ in
+            await withCheckedContinuation { answer = $0 }
+            return []
+        }
+
+        view.setDraft("ordinary text")
+        view.projection.draftChanged()
+        await store.flushCache()
+        #expect(store.draft(for: HomeChatRig.conversation) == "ordinary text")
+        let text = "use \(Self.key)"
+        view.setDraft(text)
+        view.projection.draftChanged()
+        await store.flushCache()
+        #expect(view.draftText == text, "the field still holds what the person typed")
+        #expect(store.draft(for: HomeChatRig.conversation) == nil, "no secret-bearing draft queued for disk")
+        #expect(!(try String(contentsOf: url, encoding: .utf8)).contains(Self.key), "before Return")
+
+        #expect(view.projection.send()?.hasPrefix("held") == true)
+        await HomeChatRig.until { answer != nil }
+        await store.flushCache()
+        #expect(!(try String(contentsOf: url, encoding: .utf8)).contains(Self.key), "while the sheet is open")
+        answer?.resume()
+        await HomeChatRig.until { !view.projection.secretOfferOpen }
+        view.projection.draftChanged()
+        await store.flushCache()
+        #expect(view.draftText == text, "cancelling keeps the field intact")
+        #expect(!(try String(contentsOf: url, encoding: .utf8)).contains(Self.key), "after cancelling")
+
+        view.setDraft("ordinary text again")
+        view.projection.draftChanged()
+        await store.flushCache()
+        #expect(store.draft(for: HomeChatRig.conversation) == "ordinary text again")
+        #expect((try String(contentsOf: url, encoding: .utf8)).contains("ordinary text again"))
+    }
+
+    @Test func installingTheVaultHostClearsASecretFromTheKeptDraft() async throws {
+        let rig = try await HomeChatRig(history: 0)
+        defer { rig.stop() }
+        let text = "use \(Self.key)"
+        rig.view.setDraft(text)
+        rig.view.projection.draftChanged()
+        #expect(rig.store.draft(for: HomeChatRig.conversation) == text, "without a host drafts keep their existing behavior")
+        rig.view.secretHost = { _ in [] }
+        #expect(rig.store.draft(for: HomeChatRig.conversation) == nil)
+        #expect(rig.view.draftText == text, "installing the host leaves the live field alone")
+    }
 }

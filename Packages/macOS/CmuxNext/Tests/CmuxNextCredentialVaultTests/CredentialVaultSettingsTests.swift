@@ -109,6 +109,31 @@ import Testing
         #expect(asked.withLock { $0.count } == 2, "taking agents off asks nothing")
     }
 
+    /// A scope revoked elsewhere is authoritative before the board's asynchronous refresh.
+    /// Synthetic Settings gestures must not restore the board's formerly agent-usable scope.
+    @Test func aStaleBoardCannotRestoreAgentAccessWithoutApproval() async throws {
+        let vault = vault()
+        try vault.set("PROD_DB", value: Self.secret, scope: [.user, .agents], note: nil, by: Self.person)
+        let board = CredentialVaultBoard(vault: vault)
+        await board.reload().value
+        let asked = Mutex([CredentialVault.Approval]())
+        let route = CredentialVaultPageRoute(board: board, window: { nil }, approve: { approval in
+            asked.withLock { $0.append(approval) }
+            return false
+        })
+        // No await between revocation and the route: the board still shows the old scope.
+        try vault.setScope("PROD_DB", scope: [.user], by: Self.person)
+        #expect(board.entries["PROD_DB"]?.scope == [.user, .agents])
+        let result = try await route.call(CredentialVaultPageRoute.prefix + "scope",
+                                          params: ["name": "PROD_DB", "scope": ["user", "agents"]], context: Self.settings)
+        #expect(result == ["done": false])
+        #expect(asked.withLock { $0 } == [.scope(name: "PROD_DB", scope: [.user, .agents])])
+        #expect(try vault.list()["PROD_DB"]?.scope == [.user])
+        #expect(throws: CredentialVault.Failure.denied(["PROD_DB"], .agents)) {
+            try vault.resolve(["PROD_DB"], for: .init(consumer: .agents, label: "agent"), command: nil, approved: [])
+        }
+    }
+
     @Test func addAsksForTheNameAndReplaceKeepsTheSecretsScope() throws {
         let add = CredentialVault.EntryRequest(name: "", reason: nil, requester: "", replaces: false)
         let spec = CredentialVault.entrySheet(add)
