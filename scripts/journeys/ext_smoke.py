@@ -75,6 +75,7 @@ Conditions:
                                       is. A width that is unknown (a pane with no frame) is not judged (not run)
 """
 import json
+import os
 import time
 
 D = None  # the driver module (install)
@@ -648,6 +649,84 @@ def _current_workspace(j):
     raise D.StepError(f"the current pane {j.pane} is in no workspace of the topology")
 
 
+def _alive(pid):
+    """Whether process PID runs (the driver's App.alive: a zombie counts as gone)."""
+    app = getattr(D, "App", None)
+    if app is not None and hasattr(app, "alive"):
+        return app.alive(pid)
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def _frame_loss(j, panes):
+    """For each pane with no view frame: is its terminal only hidden (the view unmounted or discarded, the daemon pane,
+    its terminal and the shell process alive) or GONE (no daemon pane or terminal, a dead lifecycle, a failed screen
+    read, or a dead shell process)? Evidence from the app (debug.surfaces), the daemon (topology, terminal process,
+    screen read) and the process table. Returns ({pane: evidence}, [gone panes])."""
+    rows = {p.get("pane"): p for p in j.app.panes()}
+    places = {}
+    for _ws, pane, tab, term in j.places(j.topology()):
+        if pane.get("id") in panes and pane.get("selected_tab") == tab.get("id"):
+            places[pane.get("id")] = term
+    evidence, gone = {}, []
+    for pane in panes:
+        row = rows.get(pane) or {}
+        surface = row.get("surface") if isinstance(row.get("surface"), dict) else {}
+        ev = {"app": {k: row.get(k) for k in ("presence", "kind", "visible", "blank", "content_installed",
+                                               "content_in_window", "content_size", "link", "attach", "host_pid")},
+              "app_surface": {k: surface.get(k) for k in ("exists", "replay_applied", "rendering_suspended", "grid")},
+              "in_topology": pane in places, "terminal": places.get(pane)}
+        reasons = []
+        term = places.get(pane)
+        if pane not in places:
+            reasons.append("the daemon topology has no such pane (or no terminal tab selected in it)")
+        elif not term:
+            reasons.append("the pane's selected tab has no terminal")
+        else:
+            try:
+                screen = j.app.screen(term)
+                ev["daemon_screen"] = {"ok": True, "cols": screen.get("cols"), "rows": screen.get("rows")}
+            except D.StepError as error:
+                ev["daemon_screen"] = {"ok": False, "error": str(error)[:200]}
+                reasons.append("the daemon cannot read the terminal's screen")
+            try:
+                proc = j.app.cmux("terminal", term, "process", "show")
+                proc = proc if isinstance(proc, dict) else {}
+                pid = proc.get("pid")
+                ev["daemon_process"] = {"pid": pid, "foreground_pid": proc.get("foreground_pid")}
+                if pid:
+                    ev["shell_alive"] = _alive(int(pid))
+                    if not ev["shell_alive"]:
+                        reasons.append(f"the terminal's process {pid} is not running")
+                else:
+                    reasons.append("the daemon reports no process for the terminal")
+            except D.StepError as error:
+                ev["daemon_process"] = {"error": str(error)[:200]}
+                reasons.append("the daemon has no process record for the terminal")
+        ev["at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        ev["gone_because"] = reasons
+        evidence[pane] = ev
+        if reasons:
+            gone.append(pane)
+    return evidence, gone
+
+
+def _no_frame_verdict(j, panes, what):
+    """Not judged (NotRun) when every pane without a frame is only hidden; a FAIL (StepError) when a terminal is gone:
+    a person would lose a terminal under memory pressure (cmux-ad, possible P0)."""
+    evidence, gone = _frame_loss(j, panes)
+    if gone:
+        raise D.StepError(f"TERMINAL GONE under memory pressure ({what}): panes {gone}: "
+                          + json.dumps({p: evidence[p] for p in gone})[:1500])
+    raise D.NotRun(f"{what}: panes {sorted(panes)} have no view frame, but each terminal is alive (daemon pane, screen "
+                   f"and shell process): the view is hidden or discarded, not judged: " + json.dumps(evidence)[:1200])
+
+
 def step_smoke_widths(j, step):
     workspace = _current_workspace(j)
     for state in ("smoke_unknown_since", "smoke_width_held"):
@@ -662,9 +741,9 @@ def step_smoke_widths(j, step):
             break
         time.sleep(0.2)
     if no_frame:
-        # A pane with no frame (an off-screen column whose terminal the app closed under memory pressure): its
-        # column's width is unknown. Not judged (the round is "not run"), never a fail or a pass.
-        raise D.NotRun(f"smoke_widths: no frame for panes {no_frame}: their column widths are unknown (not judged)")
+        # A pane with no view frame: its column's width is unknown from the view. A gone terminal fails; a hidden one
+        # (its terminal alive) is not judged.
+        _no_frame_verdict(j, sorted({p for v in no_frame.values() for p in v}), "smoke_widths")
     if not hasattr(j, "smoke_width_snaps"):
         j.smoke_width_snaps = {}
     focused = _focused_pane(j)
@@ -738,8 +817,8 @@ def cond_smoke_same_widths(j, want, cache):
         # The check held, then an old pane lost its frame during the settle (its terminal closed under memory
         # pressure): the driver's settle reads a negative condition again only while it holds, so a False here would
         # be final. Not judged at once.
-        raise D.NotRun(f"an old pane lost its frame after the check held: {sorted({p for v in unknown.values() for p in v['no_frame']})} "
-                       f"(the widths of {len(unknown)} existing columns are unknown; not judged)")
+        _no_frame_verdict(j, sorted({p for v in unknown.values() for p in v["no_frame"]}),
+                          "an old pane lost its view frame after the width check held")
     if unknown and not problems:
         # Only unknown widths (an old column's pane has no frame, e.g. an off-screen column whose terminal the app
         # closed under memory pressure): not yet judged this poll; past UNKNOWN_SECONDS, not judged at all (the
@@ -747,8 +826,8 @@ def cond_smoke_same_widths(j, want, cache):
         # judged first and fails.
         first = seen.setdefault(want["since"], D.now())
         if D.now() - first >= float(want.get("unknown_seconds", UNKNOWN_SECONDS)):
-            raise D.NotRun(f"no frame for old panes {sorted({p for v in unknown.values() for p in v['no_frame']})}: "
-                           f"the widths of {len(unknown)} existing columns are unknown (not judged)")
+            _no_frame_verdict(j, sorted({p for v in unknown.values() for p in v["no_frame"]}),
+                              f"old panes had no view frame for {UNKNOWN_SECONDS:g} s")
         return False, dict(detail, waiting_for_frames=True)
     seen.pop(want["since"], None)
     if not problems:

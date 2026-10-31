@@ -534,11 +534,14 @@ class Resize(unittest.TestCase):
                   "surface": {"grid": grid, "fit_grid": fit, "drawn_grid": drawn},
                   "grid": {"cell_width": 8, "cell_height": 16, "frame_x": 0, "frame_y": 0, "origin_x": 4, "origin_y": 4,
                            "frame_width": frame[0], "frame_height": frame[1]}}]
-        topo_panes = [{"id": "P1", "column": 0}]
+        topo_panes = [{"id": "P1", "column": 0, "selected_tab": "tab-P1", "tabs": [{"id": "tab-P1", "terminal": "T-P1"}]}]
         for column, key, x0, width in (columns or []):
             panes.append({"pane": key, "workspace": "W", "content_size": "%dx400" % int(width),
                           "grid": {"frame_x": x0, "frame_width": width}})
-            topo_panes.append({"id": key, "column": column})
+            topo_panes.append({"id": key, "column": column, "selected_tab": "tab-" + key,
+                               "tabs": [{"id": "tab-" + key, "terminal": "T-" + key}]})
+
+        shell = {"pid": os.getpid()}
 
         class App:
             def panes(self_):
@@ -547,10 +550,14 @@ class Resize(unittest.TestCase):
             def screen(self_, term):
                 return {"text": screen_text, "cols": daemon[0], "rows": daemon[1]}
 
+            def cmux(self_, *args):
+                return {"pid": shell["pid"]}
+
         class J:
             app = App()
             vars = {}
             pane = "P1"
+            shell_state = shell
             smoke_named = {"right": {"pane": "P1", "term": "T1"}}
             ext_remembered = {"right0": {"grid": (70, 24)}, "right1": {"grid": (90, 24)}}
             smoke_long = {"LL": 95}
@@ -562,8 +569,10 @@ class Resize(unittest.TestCase):
                 return {"workspaces": [{"id": "W", "screens": [{"panes": topo_panes}]}]}
 
             @staticmethod
-            def places(_topology):
+            def places(topology):
                 yield {"id": "W"}, {"id": "P1"}, {"id": "t", "columns": topo[0], "rows": topo[1]}, "T1"
+                for pane in (topology or {}).get("workspaces", [{}])[0].get("screens", [{}])[0].get("panes", [])[1:]:
+                    yield {"id": "W"}, pane, pane["tabs"][0], pane["tabs"][0]["terminal"]
         return J()
 
     def r3(self, j, **want):
@@ -674,11 +683,19 @@ class Resize(unittest.TestCase):
         ok, detail = self.ext.cond_smoke_same_widths(later, {"since": "c0", "new": 1}, {})
         self.assertFalse(ok)
         self.assertTrue(detail["waiting_for_frames"])
-        # Past UNKNOWN_SECONDS: not judged (the round is "not run"), never a fail or a pass.
+        # Past UNKNOWN_SECONDS, with P2's terminal alive (daemon pane, screen, shell process): the view is only
+        # hidden: not judged (the round is "not run"), never a fail or a pass.
         clock["t"] = self.ext.UNKNOWN_SECONDS + 0.1
         with self.assertRaises(self.NotRun) as caught:
             self.ext.cond_smoke_same_widths(later, {"since": "c0", "new": 1}, {})
         self.assertIn("P2", str(caught.exception))
+        # P2's terminal process is gone (killed under memory pressure): a FAIL, never "not judged".
+        later.shell_state["pid"] = 999999
+        later.smoke_unknown_since = {"c0": 0.0}
+        with self.assertRaises(self.StepError) as caught:
+            self.ext.cond_smoke_same_widths(later, {"since": "c0", "new": 1}, {})
+        self.assertIn("TERMINAL GONE", str(caught.exception))
+        self.assertIn("999999", str(caught.exception))
         bare = self.journey(columns=[(1, "P2", 650.0, 300.0)])
         del bare.app.panes()[1]["grid"]
         with self.assertRaises(self.NotRun):
@@ -791,14 +808,21 @@ class SettleThroughTheDriver(unittest.TestCase):
         import ext_smoke
         ext_smoke.install(driver)
         t0 = driver.now()
-        topo = {"workspaces": [{"id": "W", "screens": [{"panes": [{"id": "P1", "column": 0}, {"id": "P2", "column": 1},
-                                                                  {"id": "P3", "column": 2}]}]}]}
+        topo = {"workspaces": [{"id": "W", "screens": [{"panes": [
+            {"id": k, "column": c, "selected_tab": "tab-" + k, "tabs": [{"id": "tab-" + k, "terminal": "T-" + k}]}
+            for k, c in (("P1", 0), ("P2", 1), ("P3", 2))]}]}]}
 
         class App:
             snapshot_window = None
 
             def rpc(self_, method, params=None):
                 return {"topology": topo} if method == "snapshot.get" else {}
+
+            def screen(self_, term):
+                return {"text": "$", "cols": 80, "rows": 24}
+
+            def cmux(self_, *args):
+                return {"pid": os.getpid()}
 
             def panes(self_):
                 lost = lose_after is not None and driver.now() - t0 >= lose_after
