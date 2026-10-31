@@ -28,6 +28,8 @@ final class SidebarNoticeCardView: NSView {
     private let track = CALayer()
     private let bar = CALayer()
     private(set) var actionButtons: [SidebarUpdateButton] = []
+    /// The action drawn as a switch (``SidebarNoticeCard/Action/isSwitch``), right of the buttons; nil until one shows.
+    private(set) var actionSwitch: SidebarCardSwitch?
     let closeButton = SidebarIconButton(icon: .actionClose, pointSize: { 9 }, label: "")
     /// The text button that replaces the x when the notice names one (``SidebarNoticeCard/dismissTitle``).
     let dismissButton = SidebarCardTextButton()
@@ -135,7 +137,7 @@ final class SidebarNoticeCardView: NSView {
         dismissButton.configure(title: notice.dismissTitle ?? "", help: notice.dismissLabel)
         if previous?.actions != notice.actions { rebuildButtons(notice.actions) }
         let help = [notice.title, notice.detail].compactMap { $0 }.joined(separator: ". ")
-        for (button, action) in zip(actionButtons, notice.actions) {
+        for (button, action) in zip(actionButtons, notice.actions.filter { !$0.isSwitch }) {
             button.configure(title: action.title, enabled: true, help: help)
         }
         needsLayout = true
@@ -207,7 +209,19 @@ final class SidebarNoticeCardView: NSView {
 
     private func rebuildButtons(_ actions: [SidebarNoticeCard.Action]) {
         actionButtons.forEach { $0.removeFromSuperview() }
-        actionButtons = actions.prefix(2).map { action in
+        let toggle = actions.first(where: \.isSwitch)
+        if let toggle, actionSwitch == nil {
+            let control = SidebarCardSwitch()
+            content.addSubview(control)
+            actionSwitch = control
+        }
+        actionSwitch?.isHidden = toggle == nil
+        actionSwitch?.configure(title: toggle?.title ?? "", identifier: toggle.map { "cmux.sidebar.notice.action.\($0.id)" })
+        actionSwitch?.onFlip = { [weak self] in
+            guard let id = self?.notice?.id, let toggle else { return }
+            self?.onAction?(id, toggle.id)
+        }
+        actionButtons = actions.filter { !$0.isSwitch }.prefix(2).map { action in
             let button = SidebarUpdateButton()
             button.isQuiet = !action.prominent
             button.fixedStyle = .inverted
@@ -319,6 +333,11 @@ final class SidebarNoticeCardView: NSView {
             button.frame = NSRect(x: x, y: rowY, width: buttonWidth, height: SidebarUpdateButton.height)
             x = button.frame.maxX + Metrics.space2
         }
+        if let actionSwitch, !actionSwitch.isHidden {
+            let size = actionSwitch.fittingSize
+            actionSwitch.frame = NSRect(x: max(x, b.width - pad - size.width), y: rowY + (SidebarUpdateButton.height - size.height) / 2,
+                                        width: min(size.width, max(0, b.width - pad - x)), height: size.height)
+        }
         shortcutLabel.frame = NSRect(x: x, y: rowY + (SidebarUpdateButton.height - line.caption) / 2,
                                      width: max(0, b.width - pad - x), height: line.caption)
         // A window that shows after the card was filled lays it out: the hint is on screen now.
@@ -414,6 +433,7 @@ final class SidebarNoticeCardView: NSView {
             detailLabel.textColor = Palette.textSecondary
             for label in lineLabels { label.textColor = Palette.textSecondary }
             shortcutLabel.textColor = Palette.textTertiary
+            actionSwitch?.applyColors()
             icon.contentTintColor = Palette.textSecondary
             icon.image = notice?.symbol.map { NSImage.icon(symbol: $0, size: .iconRowSize(forLabelPointSize: Typography.bodyEmphasized.pointSize)) }
             track.backgroundColor = Palette.hoverFill.cgColor
