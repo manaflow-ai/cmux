@@ -1484,7 +1484,6 @@
           "group": "Sidebar",
           "values": [
             "top",
-            "beforeCurrent",
             "afterCurrent",
             "bottom"
           ]
@@ -3500,7 +3499,7 @@
           "title": "Show Workspace Tabs",
           "help": "Lists tabs beneath each workspace in the sidebar.",
           "kind": "toggle",
-          "default": true,
+          "default": false,
           "group": "Sidebar"
         },
         {

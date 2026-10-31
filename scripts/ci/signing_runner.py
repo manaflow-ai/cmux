@@ -37,7 +37,9 @@ so on an owned Mac it must have the mini to itself:
   `unverified` when no fresh pool snapshot backs them (nightly_sign_runner.place()).
 
 The workflow takes `owned` only on attempt 1; a re-run takes `alternate`, so a
-job an owned runner refused or left queued leaves the fleet. It never fails the
+job an owned runner refused or left queued leaves the fleet. With PICK_ON_RERUN=1
+(nightly.yml's legacy sign) a re-run that runs the picker again is offered an
+owned Mac too, and the workflow reads it only on that attempt. It never fails the
 job and never prints an empty `runner`:
 
     ENABLED=<vars.CI_SIGN_OWNED> ROUTE_TOKEN=<org runners: read> OWNED_LABELS='<a> <b>' \\
@@ -275,7 +277,10 @@ def owned_pick(env: Mapping[str, str],
                bounded_snapshot: Callable[[str, str], tuple[Any, str]] | None = None) -> tuple[str, str]:
     if (env.get("ENABLED") or "").strip() != ENABLED_VALUE:
         return "", "vars.CI_SIGN_OWNED is not 1, so signing stays off the owned Macs"
-    if (env.get("GITHUB_RUN_ATTEMPT") or "1").strip() not in ("", "1"):
+    # A re-run signs on Blacksmith unless its workflow picks again on every attempt and reads the pick only on the
+    # attempt that made it (PICK_ON_RERUN=1, nightly.yml's legacy sign): a re-run of failed jobs keeps the old pick,
+    # and its runs-on then takes Blacksmith.
+    if (env.get("GITHUB_RUN_ATTEMPT") or "1").strip() not in ("", "1") and (env.get("PICK_ON_RERUN") or "") != "1":
         return "", "a re-run signs on Blacksmith"
     token, repo = env.get("ROUTE_TOKEN", ""), env.get("GITHUB_REPOSITORY", "")
     if not (token and repo):

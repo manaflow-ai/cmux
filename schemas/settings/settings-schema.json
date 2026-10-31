@@ -484,6 +484,7 @@
           {
             "key" : "settings.group.sidebar",
             "rows" : [
+              "sidebar.showWorkspaceTabs",
               "workspaces.newPlacement",
               "sidebar.groupByComputer",
               "workspaces.autoName",
@@ -494,7 +495,6 @@
               "sidebar.topBandMaxShare",
               "sidebar.bottomBandMaxShare",
               "sidebar.pinnedBandsScroll",
-              "sidebar.showWorkspaceTabs",
               "sidebar.sessionTree",
               "sidebar.showProjects",
               "sidebar.groupBy",
@@ -15038,7 +15038,6 @@
     {
       "accepts" : [
         "top",
-        "beforeCurrent",
         "afterCurrent",
         "bottom"
       ],
@@ -15051,13 +15050,6 @@
             "text" : "Top"
           },
           "value" : "top"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.beforeCurrentWorkspace",
-            "text" : "Before Current Workspace"
-          },
-          "value" : "beforeCurrent"
         },
         {
           "title" : {
@@ -15098,9 +15090,6 @@
         "top",
         "bottom",
         "after",
-        "before",
-        "above",
-        "below",
         "sidebar",
         "placement"
       ],
@@ -48702,7 +48691,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : true,
+      "default" : false,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.sidebar",
@@ -48717,7 +48706,16 @@
       "keywords" : [
         "sidebar",
         "workspace",
-        "tabs"
+        "workspaces",
+        "tabs",
+        "panes",
+        "under",
+        "beneath",
+        "nested",
+        "expand",
+        "list",
+        "tree",
+        "disclosure"
       ],
       "kind" : "toggle",
       "page_hidden" : false,

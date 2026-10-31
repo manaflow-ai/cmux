@@ -194,6 +194,7 @@ mod history_search;
 mod home;
 mod icon_assets;
 mod launch_snapshot;
+pub(crate) use launch_snapshot::MAX_LAUNCH_SNAPSHOT_BYTES;
 mod new_screen;
 mod personal;
 mod raw_tab;

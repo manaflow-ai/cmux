@@ -1406,7 +1406,6 @@
 			<key>pfm_range_list</key>
 			<array>
 				<string>top</string>
-				<string>beforeCurrent</string>
 				<string>afterCurrent</string>
 				<string>bottom</string>
 			</array>
@@ -4628,7 +4627,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<true/>
+			<false/>
 			<key>pfm_description</key>
 			<string>Lists tabs beneath each workspace in the sidebar.</string>
 			<key>pfm_name</key>
