@@ -401,7 +401,8 @@ pub(crate) fn group_member_holding_workspace(
     connection: &Connection,
     workspace: &str,
 ) -> anyhow::Result<Option<(String, usize)>> {
-    // A `ws_` id is lowercase hex after its prefix: no LIKE wildcard in it.
+    // A `ws_` id is hex after its prefix. Its `_` is a LIKE wildcard, so LIKE only narrows the
+    // candidates; the exact `closed_workspace_id` check below decides.
     let Some(suffix) = workspace.strip_prefix("ws_") else {
         return Ok(None);
     };

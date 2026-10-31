@@ -129,6 +129,20 @@ fn a_named_workspace_id_shows_its_name() {
 }
 
 #[test]
+fn a_workspace_title_with_a_backslash_or_line_break_stays_one_link() {
+    let named = link_refs_named(
+        &format!("a1 is in {WS}."),
+        Path::new("/Users/me"),
+        &exists,
+        &|id| (id == WS).then(|| "fix C:\\\nnext".to_owned()),
+    );
+    assert_eq!(
+        named,
+        format!("a1 is in [fix C:\\\\ next](cmux://workspace/{WS}).")
+    );
+}
+
+#[test]
 fn a_github_url_becomes_a_short_named_link() {
     assert_eq!(
         link(&format!("Opened {PR}.")),

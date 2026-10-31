@@ -388,11 +388,17 @@ fn path_link(word: &str, home: &Path, exists: &dyn Fn(&Path) -> bool) -> Option<
     ))
 }
 
-/// Link text with the Markdown marks that would end it escaped.
+/// Link text with the Markdown marks that would end it escaped. A backslash is escaped too, so
+/// a title ending in `\` cannot escape the closing `]`, and a line break becomes a space, so a
+/// title on two lines stays one link.
 fn escape_text(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for c in s.chars() {
-        if matches!(c, '[' | ']' | '`') {
+        if matches!(c, '\n' | '\r') {
+            out.push(' ');
+            continue;
+        }
+        if matches!(c, '[' | ']' | '`' | '\\') {
             out.push('\\');
         }
         out.push(c);
