@@ -101,7 +101,7 @@ export async function showSubagent(
     return;
   }
   options.beforeOpen?.();
-  const opened = await openSubagentPane(call, id, focus);
+  const opened = await openSubagentPane(call, id, focus, options.title);
   if (!opened && focus) options.here(id);
 }
 
