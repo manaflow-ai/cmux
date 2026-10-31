@@ -203,10 +203,7 @@
     "cmux-next-frame-pacing.yml#bench": "apple-gui",
     "cmux-next-guards.yml#ci-guard-group": "portable-checks",
     "cmux-next-guards.yml#tooling-tests": "portable-checks",
-    "cmux-next-ios-kit.yml#kit-tests": {
-      "class": "apple-swift-tests",
-      "picker_followup": "runs-on names a fixed macOS label; #28145 takes it from ios_runner_pool.py and removes this followup"
-    },
+    "cmux-next-ios-kit.yml#kit-tests": "apple-swift-tests",
     "cmux-next-media.yml#tour": "apple-gui",
     "cmux-next-perf-bench.yml#bench": {
       "class": "apple-gui",
