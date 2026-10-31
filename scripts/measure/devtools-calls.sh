@@ -47,7 +47,14 @@ for arm in "${arm_list[@]}"; do
     exit 2
   fi
   tree="$out/tree-$label"
-  git fetch -q --no-tags origin "$sha"
+  [ ! -e "$tree" ] || { echo "devtools-calls: arm label '$label' given twice" >&2; exit 2; }
+  # A host-reference checkout has no origin remote (the worker fetches by URL), so fetch by URL, and only
+  # when the commit is not here yet (swift-test-bench.sh's pattern).
+  if ! git cat-file -e "$sha^{commit}" 2>/dev/null; then
+    depth=()
+    [ "$(git rev-parse --is-shallow-repository)" = true ] && depth=(--depth=1)
+    git fetch -q --no-tags ${depth[@]+"${depth[@]}"} https://github.com/manaflow-ai/cmux.git "$sha"
+  fi
   git worktree add -q --detach "$tree" "$sha"
   trees+=("$tree")
   # A worktree checks out no submodules: the app build needs Ghostty's headers and the ghostty-next tree,
@@ -62,7 +69,9 @@ for arm in "${arm_list[@]}"; do
       fi
       ./scripts/download-prebuilt-ghosttykit.sh
     fi
-    CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "dtc$label" --config bench --no-global-cli-links 2>&1 | tee "$out/reload-$label.log"
+    # CMUX_NEXT_REQUIRE_CEF=1: a missing CEF artifact fails the build here (embed-cef.sh otherwise builds an
+    # app without Chromium and exits 0), not after both builds.
+    CMUX_NEXT_REQUIRE_CEF=1 CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "dtc$label" --config bench --no-global-cli-links 2>&1 | tee "$out/reload-$label.log"
   )
   app="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$out/reload-$label.log" | tail -n 1)"
   if [[ -z "$app" || ! -d "$app" ]]; then

@@ -8,8 +8,9 @@ local page and sends `Runtime.evaluate` calls of each size through `debug.cef.de
 page's script batch and an agent's script take (`CEFTab.devTools`). Around every call it resets and reads
 `debug.hangs`:
 
-  gap_ms     the longest main-thread gap of any length during the call (`max_gap_ms`): the call's
-             main-thread time, with no threshold
+  gap_ms     the longest main-thread gap of any length from the reset to the read (`max_gap_ms`): the call's
+             main-thread time with no threshold, plus whatever else ran in that window; size 0 (a one-byte
+             script through the same reads) is that floor
   stall_ms   the longest stall record (threshold and over), with its CPU time and whether its stack
              has a DevTools or JSON frame
   wall_ms    request to reply (Chromium runs the script meanwhile; not main-thread time)
@@ -37,11 +38,15 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import bench_memory  # noqa: E402
 
 LINE = 'globalThis.__cmuxPageHostResolve?.(7, {"text":"a\\\\b é \\"q\\""});\n'
-DEVTOOLS_FRAMES = ("DevTools", "devTools", "devtools", "JSON", "Json", "cef_parse_json", "CefParseJSON")
+# Frames of the DevTools send path: the call itself, the JSON writer under it, the shim's parse. Not "JSONValue"
+# (the control path's own type), so a stall in the request's decode is not counted.
+DEVTOOLS_FRAMES = ("DevTools", "devTools", "devtools", "NSJSONSerialization", "_NSJSONWriter", "cef_parse_json", "CefParseJSON")
 
 
 def parse_size(text):
     text = text.strip().upper()
+    if text == "0":
+        return 0
     scale = {"K": 1 << 10, "M": 1 << 20}.get(text[-1:], 1)
     return int(float(text.rstrip("KM")) * scale)
 
@@ -118,9 +123,14 @@ def has_devtools_frame(record):
 
 
 def one_call(path, method, params):
+    """One call with its main-thread numbers; a failed call is a row with its error, not the end of the run."""
     rpc(path, "debug.hangs", {"clear": True, "limit": 0})
     start = time.monotonic()
-    devtools(path, method, params)
+    error = None
+    try:
+        devtools(path, method, params)
+    except (RuntimeError, OSError, ValueError) as failure:
+        error = str(failure)[:300]
     wall = (time.monotonic() - start) * 1000
     time.sleep(0.3)  # bench: the watchdog records a stall after it ends
     hangs = rpc(path, "debug.hangs", {})
@@ -134,6 +144,7 @@ def one_call(path, method, params):
         "stall_devtools_frame": bool(worst and has_devtools_frame(worst)),
         "stalls": len(stalls),
         "threshold_ms": hangs.get("threshold_ms"),
+        "error": error,
     }
 
 
@@ -143,6 +154,9 @@ def run_arm(label, bundle, url, sizes, calls, threshold_ms, round_index):
     rows = []
     try:
         app = bench_memory.App(bundle, path)
+        cef = rpc(path, "debug.cef")
+        if cef.get("unavailable") or cef.get("fallback"):
+            raise SystemExit(f"devtools-calls: {label}: Chromium is not available: {json.dumps(cef)[:400]}")
         opened = app.action("openBrowser.chromium", focus=True, url=url)
         if opened.get("error"):
             raise SystemExit(f"devtools-calls: {label}: openBrowser.chromium: {opened['error']}")
@@ -151,13 +165,19 @@ def run_arm(label, bundle, url, sizes, calls, threshold_ms, round_index):
             one_call(path, "Runtime.evaluate", {"expression": script(4 << 10, uuid.uuid4().hex), "silent": True})
         for size in sizes:
             for index in range(calls):
-                row = one_call(path, "Runtime.evaluate", {"expression": script(size, f"{round_index}-{index}-{uuid.uuid4().hex}"),
-                                                          "silent": True})
+                # Size 0 is the floor: the same wrapper and reads around a call with a one-byte script.
+                expression = "0" if size == 0 else script(size, f"{round_index}-{index}-{uuid.uuid4().hex}")
+                try:
+                    row = one_call(path, "Runtime.evaluate", {"expression": expression, "silent": True})
+                except (RuntimeError, OSError, ValueError) as failure:  # debug.hangs itself failed: the app is gone
+                    row = {"wall_ms": None, "gap_ms": None, "stall_ms": None, "stall_cpu_ms": None, "stall_devtools_frame": False,
+                           "stalls": 0, "threshold_ms": None, "error": f"debug.hangs: {str(failure)[:300]}"}
                 row.update({"arm": label, "size": size, "round": round_index, "call": index})
                 rows.append(row)
-            sized = [r for r in rows if r["size"] == size]
-            print(f"  {label} round {round_index} {size >> 10} KiB: gap max {max(r['gap_ms'] for r in sized):.1f} ms, "
-                  f"stalls {sum(r['stalls'] for r in sized)}", flush=True)
+            sized = [r for r in rows if r["size"] == size and r["gap_ms"] is not None]
+            failed = sum(1 for r in rows if r["size"] == size and r["error"])
+            print(f"  {label} round {round_index} {size >> 10} KiB: gap max {max((r['gap_ms'] for r in sized), default=0):.1f} ms, "
+                  f"stalls {sum(r['stalls'] for r in sized)}, failed calls {failed}", flush=True)
     finally:
         bench_memory.end_bundle(bundle)
         shutil.rmtree(scratch, ignore_errors=True)
@@ -178,10 +198,11 @@ def summary(rows, arms, sizes):
     table = []
     for size in sizes:
         for label in arms:
-            sample = [r for r in rows if r["arm"] == label and r["size"] == size]
+            every = [r for r in rows if r["arm"] == label and r["size"] == size]
+            sample = [r for r in every if r["gap_ms"] is not None]
             if not sample:
                 continue
-            line = {"arm": label, "size": size, "calls": len(sample),
+            line = {"arm": label, "size": size, "calls": len(sample), "failed": sum(1 for r in every if r["error"]),
                     "devtools_stalls": sum(1 for r in sample if r["stall_devtools_frame"])}
             for metric in ("gap_ms", "stall_ms", "stall_cpu_ms", "wall_ms"):
                 values = [r[metric] for r in sample]
@@ -194,7 +215,7 @@ def summary(rows, arms, sizes):
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--app", action="append", required=True, help="LABEL=PATH of a tagged .app (repeatable)")
-    parser.add_argument("--sizes", default="64K,512K,2560K")
+    parser.add_argument("--sizes", default="0,64K,512K,2560K", help="script sizes; 0 is the floor (a one-byte script)")
     parser.add_argument("--calls", type=int, default=20)
     parser.add_argument("--rounds", type=int, default=3)
     parser.add_argument("--threshold-ms", type=int, default=8)
@@ -217,18 +238,19 @@ def main():
                 rows += run_arm(label, bundle, url, sizes, opts.calls, opts.threshold_ms, round_index)
     finally:
         server.shutdown()
+        # Whatever ran is kept, also when an arm ended the run (an app that died, a launch that failed).
+        if opts.json:
+            os.makedirs(os.path.dirname(os.path.abspath(opts.json)), exist_ok=True)
+            with open(opts.json, "w") as handle:
+                json.dump({"arms": arms, "sizes": sizes, "calls": opts.calls, "rounds": opts.rounds, "threshold_ms": opts.threshold_ms,
+                           "summary": summary(rows, list(arms), sizes), "rows": rows}, handle, indent=1)
     table = summary(rows, list(arms), sizes)
-    print("\narm   size      calls  gap_ms p50/p95/p99/max            stall_ms p50/p95/p99/max          devtools stalls")
+    print("\narm   size      calls  gap_ms p50/p95/p99/max            stall_ms p50/p95/p99/max          devtools stalls (stack heuristic), failed")
     for line in table:
         g, s = line["gap_ms"], line["stall_ms"]
         print(f"DEVTOOLS-CALLS {line['arm']:<5} {line['size'] >> 10:>6}KiB {line['calls']:>4}  "
               f"{g['p50']:>6} {g['p95']:>6} {g['p99']:>6} {g['max']:>7}    "
-              f"{s['p50']:>6} {s['p95']:>6} {s['p99']:>6} {s['max']:>7}    {line['devtools_stalls']}")
-    if opts.json:
-        os.makedirs(os.path.dirname(os.path.abspath(opts.json)), exist_ok=True)
-        with open(opts.json, "w") as handle:
-            json.dump({"arms": arms, "sizes": sizes, "calls": opts.calls, "rounds": opts.rounds,
-                       "threshold_ms": opts.threshold_ms, "summary": table, "rows": rows}, handle, indent=1)
+              f"{s['p50']:>6} {s['p95']:>6} {s['p99']:>6} {s['max']:>7}    {line['devtools_stalls']}, {line['failed']}")
 
 
 if __name__ == "__main__":
