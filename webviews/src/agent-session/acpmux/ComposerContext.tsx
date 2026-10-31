@@ -136,8 +136,9 @@ export function ComposerContext({
   peerStates?: Record<string, string>;
   /// Each peer's cached one-minute host health from the same acpmux reading as the sidebar.
   peerResources?: Record<string, MachineResources>;
-  /// Preview features on (`labs.previewFeatures`): the computer control is the environment picker
-  /// (EnvironmentPicker.tsx), with Local, SSH and Cloud sections and ⌥⌘1–9.
+  /// The computer control is the environment picker (EnvironmentPicker.tsx), with Local, SSH and
+  /// Cloud sections and ⌥⌘1–9. The agent page always passes it (not behind Labs, Leo 2026-10-30);
+  /// off, the plain Computer menu, for surfaces that pass nothing.
   environments?: boolean;
   started?: boolean;
   onProject?(cwd: string, peer?: string): void;
@@ -400,7 +401,7 @@ export function ComposerContext({
   const onboardingConnect =
     !environments && !computers.some((computer) => computer.id !== "local") ? onConnect : undefined;
   const computerDisabled = readOnly && !offload && (started || !onConnect) && !onboardingConnect;
-  // Preview (`labs.previewFeatures`): the computer control is the environment picker.
+  // The computer control is the environment picker where the surface asks for it.
   const environmentsShown = environments && !computerDisabled;
   const savedRows = environmentsShown && !readOnly ? saved : undefined;
   const savedPick = savedRows?.environments.find((environment) => environment.id === savedRows.current);
