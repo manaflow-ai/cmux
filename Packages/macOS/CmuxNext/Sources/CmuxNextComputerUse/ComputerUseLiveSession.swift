@@ -1,27 +1,60 @@
-import Foundation
+public import Foundation
 
 /// One live Computer Use session on this Mac, as the File menu's Computer Use
 /// actions need it: what it drives and which terminal started it. Read from
 /// the CUA host's `activity_sessions_list` (plans/cmux-next/computer-use.md
 /// section 6a, `SessionRecord`).
-nonisolated struct ComputerUseLiveSession: Equatable, Sendable {
+public nonisolated struct ComputerUseLiveSession: Equatable, Sendable {
     /// The app window the session last acted on.
-    nonisolated struct Target: Equatable, Sendable {
-        var pid: Int32?
-        var bundleID: String?
-        var appName: String?
+    public nonisolated struct Target: Equatable, Sendable {
+        /// The app's process, when known.
+        public var pid: Int32?
+        /// The app's bundle id, when known.
+        public var bundleID: String?
+        /// The app's name, when known.
+        public var appName: String?
+
+        /// - Parameters:
+        ///   - pid: The app's process.
+        ///   - bundleID: The app's bundle id.
+        ///   - appName: The app's name.
+        public init(pid: Int32? = nil, bundleID: String? = nil, appName: String? = nil) {
+            self.pid = pid
+            self.bundleID = bundleID
+            self.appName = appName
+        }
     }
 
-    var id: String
-    var lastActionAt: Date
+    /// The session's id.
+    public var id: String
+    /// When the session last acted.
+    public var lastActionAt: Date
     /// The newest target (the host lists targets oldest first); nil before the first act.
-    var target: Target?
+    public var target: Target?
     /// The session host terminal the agent runs in (`agent.terminal_id`), when attributed.
-    var terminalID: String?
-    var workspaceID: String?
+    public var terminalID: String?
+    /// The workspace the agent runs in (`agent.workspace_id`), when attributed.
+    public var workspaceID: String?
+
+    /// - Parameters:
+    ///   - id: The session's id.
+    ///   - lastActionAt: When it last acted.
+    ///   - target: What it drives.
+    ///   - terminalID: The terminal it started in.
+    ///   - workspaceID: The workspace it started in.
+    public init(id: String, lastActionAt: Date, target: Target? = nil, terminalID: String? = nil, workspaceID: String? = nil) {
+        self.id = id
+        self.lastActionAt = lastActionAt
+        self.target = target
+        self.terminalID = terminalID
+        self.workspaceID = workspaceID
+    }
 
     /// The live (not ended) sessions of an `activity_sessions_list` result, newest action first.
-    static func live(from result: [String: Any]) -> [ComputerUseLiveSession] {
+    ///
+    /// - Parameter result: The host's answer.
+    /// - Returns: The sessions not ended, newest action first.
+    public static func live(from result: [String: Any]) -> [ComputerUseLiveSession] {
         let rows = result["sessions"] as? [[String: Any]] ?? []
         return rows.compactMap(session).sorted { $0.lastActionAt > $1.lastActionAt }
     }
