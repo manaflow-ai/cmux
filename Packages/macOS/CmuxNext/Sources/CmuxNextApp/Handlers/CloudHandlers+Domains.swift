@@ -43,7 +43,7 @@ extension CloudHandlers {
             answer("provision Cloud API", invocation, context) {
                 let api = try await cloud.api.provisionAPI(machineID: session.machineID, port: port, keyName: name?.isEmpty == false ? name : nil)
                 return CloudAnswer(title: CloudStrings.apiTitle, text: CloudStrings.provisionedAPI(url: api.url, key: api.token, cookie: api.cookie),
-                                   fields: machineFields(session.machineID, provisionedAPIFields(api)))
+                                   fields: machineFields(session.machineID, api.actionFields.mapValues(ActionResultValue.string)))
             }
         }
         bind("cloudAPIKeyList", registry, reason: reason) { invocation in
@@ -65,15 +65,5 @@ extension CloudHandlers {
                                    fields: ["api_key_id": .string(key.id), "revoked_at": .string(key.revokedAt ?? "")])
             }
         }
-    }
-
-    /// What a CLI or agent run of Provision API answers besides `text`.
-    static func provisionedAPIFields(_ api: CloudProvisionedAPI) -> [String: ActionResultValue] {
-        var fields: [String: ActionResultValue] = [
-            "url": .string(api.url), "api_key_id": .string(api.apiKey.id), "key": .string(api.token), "cookie": .string(api.cookie),
-        ]
-        if let id = api.publication.id { fields["publication_id"] = .string(id) }
-        if let access = api.publication.accessMode { fields["access"] = .string(access) }
-        return fields
     }
 }

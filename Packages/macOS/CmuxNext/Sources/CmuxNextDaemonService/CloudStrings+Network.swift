@@ -2,7 +2,7 @@ import Foundation
 
 /// What the network, firewall, domain, publication and API key actions say. Keys
 /// live in Resources/Cloud.xcstrings with every app locale.
-extension CloudStrings {
+public extension CloudStrings {
     /// `cloud tunnel-attach` / `tunnel-detach` without a network id. The
     /// actions take it in `--path` (their one string argument).
     static var networkIDRequired: String {

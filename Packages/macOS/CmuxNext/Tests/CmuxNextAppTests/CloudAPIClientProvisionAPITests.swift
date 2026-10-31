@@ -78,7 +78,7 @@ struct CloudAPIClientProvisionAPITests {
         #expect(body["name"] as? String == "agent")
         #expect(body["accessMode"] == nil)
 
-        let fields = CloudHandlers.machineFields("vm-1", CloudHandlers.provisionedAPIFields(provisioned))
+        let fields = CloudHandlers.machineFields("vm-1", provisioned.actionFields.mapValues(ActionResultValue.string))
         #expect(fields["url"] == .string("https://hello--owner--3000.cmux.sh"))
         #expect(fields["key"] == .string("cmux_api_secret"))
         #expect(fields["cookie"] == .string("__Host-cmux-api-key=cmux_api_secret"))

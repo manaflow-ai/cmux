@@ -22,4 +22,15 @@ public struct CloudProvisionedAPI: Sendable, Hashable, Decodable {
     public var token: String
     public var cookieName: String
     public var cookie: String
+
+    /// String fields returned by the provision action to CLI, MCP and agent callers.
+    /// Optional publication fields are omitted when the server does not supply them.
+    public var actionFields: [String: String] {
+        var fields = [
+            "url": url, "api_key_id": apiKey.id, "key": token, "cookie": cookie,
+        ]
+        if let id = publication.id { fields["publication_id"] = id }
+        if let access = publication.accessMode { fields["access"] = access }
+        return fields
+    }
 }
