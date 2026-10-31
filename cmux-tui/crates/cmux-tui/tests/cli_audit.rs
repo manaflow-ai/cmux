@@ -138,6 +138,34 @@ fn legacy_request(path: &Path, value: &Value) -> Option<Value> {
     serde_json::from_str(&line).ok()
 }
 
+/// CLI-only terminal-agent verbs must be routed before the generic terminal grammar.
+/// This tests the shipped executable, not only the terminal-talk parser.
+#[test]
+fn terminal_agent_list_and_send_reach_their_cli_handlers() {
+    let dir = temp_dir("terminal-talk-route");
+    let send = cmux(&dir, &["--json", "terminal", "term_missing", "send", "--text", "  "]);
+    assert_eq!(send.status.code(), Some(2), "{}", text(&send.stderr));
+    assert!(
+        text(&send.stderr).contains("terminal send needs a message that is not blank"),
+        "terminal send was handled by the wrong parser: {}",
+        text(&send.stderr)
+    );
+
+    let list = cmux(&dir, &["--json", "terminal", "list", "--agents", "--bogus"]);
+    assert_eq!(list.status.code(), Some(2), "{}", text(&list.stderr));
+    assert!(
+        text(&list.stderr).contains("terminal list --agents takes no other option"),
+        "terminal list --agents was handled by the wrong parser: {}",
+        text(&list.stderr)
+    );
+
+    // Ordinary terminal verbs and their help still go through the resource grammar.
+    let help = cmux(&dir, &["terminal", "list", "--help"]);
+    assert!(help.status.success(), "{}", text(&help.stderr));
+    assert!(text(&help.stdout).contains("list"), "{}", text(&help.stdout));
+    fs::remove_dir_all(dir).unwrap();
+}
+
 #[test]
 fn tab_zoom_and_update_resolve_current_through_the_current_pane() {
     let daemon = Daemon::start("zoom");
