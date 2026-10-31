@@ -35,14 +35,18 @@ public struct CloudConfiguration: Sendable, Equatable {
 
     public enum LinkSource: Sendable, Equatable {
         /// `/api/vm` list, create and attach endpoint and a `cmux-tui remote
-        /// connect` process (frozen, contract 2.5). The default until the
-        /// first-party app packages ship in the bundle (cx-t2rz).
+        /// connect` process (frozen, contract 2.5). Production's link until
+        /// the first-party app packages ship in the bundle (cx-t2rz), and a
+        /// local-only backend's.
         case legacy
         /// The Cloud app server (contract 2.1, 2.3): the machine list,
         /// create and the `cloud.machine.connect` carrier socket, all on the
         /// cmux-next API Worker through the host credential relay (cx-t2rz).
-        /// Debug builds with `CMUX_NEXT_CLOUD_LINK=app` (launch env) or
-        /// `CMUX_CLOUD_LINK=app` (baked).
+        /// The default of a Debug build on a staging or development backend
+        /// (``Backend/development(_:)``), whose Worker makes machines from the
+        /// current guest images. `CMUX_NEXT_CLOUD_LINK` (launch env) or
+        /// `CMUX_CLOUD_LINK` (baked) `app` or `legacy` picks either in any
+        /// Debug build.
         case appServer
     }
 
@@ -114,7 +118,21 @@ public struct CloudConfiguration: Sendable, Equatable {
             // CMUX_NEXT_CLOUD_LINK survives the launch: the app unsets every inherited
             // CMUX_* variable but CMUX_NEXT_* (LaunchIdentity.stripInheritedEnvironment);
             // CMUX_CLOUD_LINK works only when baked into the bundle's LSEnvironment.
-            linkSource: (value("CMUX_NEXT_CLOUD_LINK") ?? value("CMUX_CLOUD_LINK"))?.lowercased() == "app" ? .appServer : .legacy)
+            linkSource: resolvedLink(asked: value("CMUX_NEXT_CLOUD_LINK") ?? value("CMUX_CLOUD_LINK"), backend: backend))
+    }
+
+    /// A non-production build's link: `app` or `legacy` as asked, else the app
+    /// server on a staging or development backend and the legacy link on a
+    /// local-only one. (The classic `/api/vm` makes machines from an older
+    /// guest image whose cmux-tui cannot hold agent chat tabs.)
+    static func resolvedLink(asked: String?, backend: Backend) -> LinkSource {
+        switch asked?.lowercased() {
+        case "app"?: return .appServer
+        case "legacy"?: return .legacy
+        default:
+            if case .development = backend { return .appServer }
+            return .legacy
+        }
     }
 
     /// This process's configuration.
