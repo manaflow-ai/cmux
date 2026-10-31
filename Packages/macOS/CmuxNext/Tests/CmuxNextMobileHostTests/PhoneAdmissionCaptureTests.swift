@@ -32,11 +32,15 @@ import Testing
         defer { window.close() }
         let content = Backdrop(frame: NSRect(x: 0, y: 0, width: 560, height: 360))
         window.contentView = content
+        // Layer-backed, as in the app: the dialog's glass draws only into a layer-backed tree.
+        content.wantsLayer = true
         let caption = NSTextField(labelWithString: "Phone Access")
         caption.frame = NSRect(x: 24, y: 320, width: 200, height: 24)
         content.addSubview(caption)
         func capture(_ name: String) throws {
             content.layoutSubtreeIfNeeded()
+            content.displayIfNeeded()
+            RunLoop.current.run(until: Date().addingTimeInterval(0.5))
             var png: Data?
             window.effectiveAppearance.performAsCurrentDrawingAppearance {
                 let size = content.bounds.size
