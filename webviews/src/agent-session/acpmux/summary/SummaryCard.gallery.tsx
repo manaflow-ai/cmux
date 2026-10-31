@@ -206,6 +206,37 @@ export default componentEntry<Props>({
       note: "The toolbar popover begins with Environment and keeps activity counts in Subagents, without a title row.",
       props: { popover: true, rows, background: background(processes), sessions: { list: sessions, onOpen: none } },
     },
+    "popover-subagents": {
+      note: "A narrow pane's popover with live subagents: Environment first, and the Subagents title still opens the Subagents tab.",
+      props: {
+        popover: true,
+        rows: [
+          ...rows,
+          row("subagents", 1, {
+            subagents: [
+              {
+                id: "explore-docs",
+                name: "Explore docs",
+                task: "Read the release docs",
+                parent: null,
+                state: "running",
+                startedAt: minutesAgo(3),
+              },
+              {
+                id: "check-links",
+                name: "Check links",
+                task: "Check every link",
+                parent: null,
+                state: "completed",
+                startedAt: minutesAgo(3),
+                endedAt: minutesAgo(1),
+              },
+            ],
+          }),
+        ],
+        background: background(processes.slice(0, 2)),
+      },
+    },
     "preview-tab-row": {
       note: "The Preview sibling obeys the same native tab-row clearance, both beside the chat and covering a narrow pane.",
       props: { tabRowHeight: 32, preview: true, rows: [] },

@@ -284,4 +284,58 @@ await requireBrowserLane("summary-header-surface.test.ts", async () => {
       await page.close();
     }
   });
+  // The Subagents title opens the Subagents tab in both placements: beside a wide chat (inline
+  // column) and over a narrow one (popover, which has no title row of its own).
+  for (const [placement, variant, width] of [
+    ["inline", "shared-tab-row", 720],
+    ["popover", "popover-subagents", 480],
+  ] as const) {
+    for (const theme of ["Apple System Colors", "Apple System Colors Light"]) {
+      test(`the ${placement} Summary's Subagents title opens the Subagents tab (${theme})`, async () => {
+        const page = await browser.newPage({
+          viewport: { width, height: 560 },
+          deviceScaleFactor: 2,
+          reducedMotion: "reduce",
+        });
+        const mode = theme.endsWith("Light") ? "light" : "dark";
+        try {
+          const port = (server.httpServer!.address() as { port: number }).port;
+          await page.goto(`http://127.0.0.1:${port}${galleryFrame("agent-pane.summary-card", { variant, theme })}`);
+          await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
+          const panel = page.locator(`.acpmux-summary-card[data-placement="${placement}"]`);
+          await panel.waitFor();
+          const capture = async (name: string) => {
+            if (!process.env.CMUX_SUMMARY_CAPTURE_DIR) return;
+            await mkdir(process.env.CMUX_SUMMARY_CAPTURE_DIR, { recursive: true });
+            await page.screenshot({
+              path: path.join(process.env.CMUX_SUMMARY_CAPTURE_DIR, `subagents-${placement}-${name}-${mode}.png`),
+            });
+          };
+          await capture("summary");
+          const title = panel.locator(".acpmux-summary-agents h3 .acpmux-summary-title__button");
+          expect(await title.count()).toBe(1);
+          expect(await title.textContent()).toContain("1 running");
+          await title.click();
+          const tabs = panel.locator(".acpmux-summary-tabs");
+          await tabs.waitFor({ timeout: 5_000 });
+          expect(await tabs.getByRole("button", { name: "Subagents", exact: true }).getAttribute("aria-pressed")).toBe(
+            "true",
+          );
+          await panel.getByRole("region", { name: "Active · 1" }).waitFor({ timeout: 5_000 });
+          // One way back: the tab's own close button, not a second one in the body.
+          expect(await panel.getByRole("button", { name: "Close Subagents" }).count()).toBe(1);
+          if (placement === "popover") {
+            expect(await panel.locator("h3").first().textContent()).toBe("Environment");
+            expect(await panel.getByRole("button", { name: "Collapse summary" }).count()).toBe(1);
+          }
+          await capture("tab");
+          await panel.getByRole("button", { name: "Close Subagents" }).click();
+          await panel.getByRole("region", { name: "Subagents", exact: true }).waitFor({ timeout: 5_000 });
+          expect(await tabs.count()).toBe(0);
+        } finally {
+          await page.close();
+        }
+      });
+    }
+  }
 });
