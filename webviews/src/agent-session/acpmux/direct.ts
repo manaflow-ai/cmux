@@ -34,7 +34,15 @@ import type {
 import { continuesTurn } from "./turnStart";
 import { mergeModelCatalog } from "./modelCatalog";
 import { commandsFromUpdate, type SlashCommand } from "./slashCommands";
-import { hasInlineMarks, promptBlocks, promptText, takesAudio, type ComposerAttachment } from "./attachments";
+import {
+  attachmentSource,
+  hasInlineMarks,
+  promptBlocks,
+  promptText,
+  takesAudio,
+  type AttachmentSource,
+  type ComposerAttachment,
+} from "./attachments";
 import { carryInline, inlinePrompt, recordedPromptParts, restoreInline, stripFileDisplay } from "./inlinePrompt";
 import { fitPromptBudget } from "./promptBudget";
 import { liftInlineImages } from "./inlineImages";
@@ -45,6 +53,7 @@ import { peerConnectedFromStatus, peerKindsFromStatus, peerStatesFromStatus } fr
 import { peerResourcesFromStatus } from "./machineResources";
 import { type ChatUnavailable, chatUnavailable, type PeerStatus, peerStatusFromStatus } from "./chatUnavailable";
 import { hostKind, sessionEntry, summaryActivityAt, text, type AcpmuxSessionEntry } from "./sessionList";
+import { usageLimitsOf } from "./usageLimits";
 import { clampRunning, subsessionLimits } from "./subsessionLimits";
 import { agentName } from "./agents";
 import { FORK_OP, servesOperation } from "./operations";
@@ -656,6 +665,7 @@ function attachedImages(attachments: readonly ComposerAttachment[]): QueuedPromp
             name: attachment.name,
             src: `data:${attachment.mimeType};base64,${attachment.data}`,
             local: true,
+            ...(attachment.source ? { source: attachment.source } : {}),
           },
         ]
       : [],
@@ -665,7 +675,18 @@ function attachedImages(attachments: readonly ComposerAttachment[]): QueuedPromp
 /// `images` named by acpmux, each keeping the bytes the pane already had for it.
 function withKnownBytes(images: QueuedPromptImage[], known: readonly QueuedPromptImage[] | undefined) {
   const bytes = new Map((known ?? []).flatMap((image) => (image.src ? [[image.id, image.src] as const] : [])));
-  return images.map((image) => (bytes.has(image.id) ? { ...image, src: bytes.get(image.id) } : image));
+  // The source each image's `queued` record named, which acpmux's list does not carry: by
+  // occurrence, since byte-identical images share an id but not a source.
+  const sources = new Map<string, (AttachmentSource | undefined)[]>();
+  for (const image of known ?? []) sources.set(image.id, [...(sources.get(image.id) ?? []), image.source]);
+  const seen = new Map<string, number>();
+  return images.map((image) => {
+    const at = seen.get(image.id) ?? 0;
+    seen.set(image.id, at + 1);
+    const src = bytes.get(image.id);
+    const source = image.source ?? sources.get(image.id)?.[at];
+    return src || source ? { ...image, ...(src ? { src } : {}), ...(source ? { source } : {}) } : image;
+  });
 }
 
 /// How long a send waits for acpmux before its row says it is still sending, and before it fails
@@ -1187,6 +1208,7 @@ function promptImages(value: unknown): PromptImage[] {
             mimeType: image.mimeType,
             ...(typeof image.name === "string" && { name: image.name }),
             ...(dimension(image.width) && dimension(image.height) && { width: image.width, height: image.height }),
+            ...(attachmentSource(image.source) && { source: attachmentSource(image.source) }),
           },
         ]
       : [],
@@ -4818,6 +4840,20 @@ export class AcpmuxDirectClient {
         return;
       }
     }
+    // Route child updates before session metadata's early returns too: a helper's init or
+    // usage belongs to that helper, just like its text and tools.
+    if (update) {
+      this.subagents.cause = this.turnStopCause(event);
+      this.subagents.chat = this.chatThread();
+      this.subagents.harness = this.summary?.harness;
+      if (this.subagents.reduce(event, update)) {
+        // A later command update can associate a shell call with its recorded child session.
+        if (typeof update.toolCallId === "string" && this.subagents.isRun(update.toolCallId))
+          this.dropToolItem(update.toolCallId);
+        this.takeSubagentRows();
+        return;
+      }
+    }
     if (update?.sessionUpdate === USAGE_KIND) {
       const used = Number(update.used);
       const size = Number(update.size);
@@ -5257,17 +5293,6 @@ export class AcpmuxDirectClient {
       return;
     }
     if (!update) return;
-    this.subagents.cause = this.turnStopCause(event);
-    this.subagents.chat = this.chatThread();
-    this.subagents.harness = this.summary?.harness;
-    if (this.subagents.reduce(event, update)) {
-      // A shell call known to start another agent only once its command came (a later update)
-      // drew a row before: the agent's card stands for it now.
-      if (typeof update.toolCallId === "string" && this.subagents.isRun(update.toolCallId))
-        this.dropToolItem(update.toolCallId);
-      this.takeSubagentRows();
-      return;
-    }
     const commands = commandsFromUpdate(update);
     if (commands) {
       this.commands = commands;
@@ -5721,7 +5746,7 @@ export class AcpmuxDirectClient {
             baseUrl: text(summary.baseUrl),
             route: text(summary.route),
             settingsSources: summary.settingsSources,
-            usageLimits: text(summary.usageLimits),
+            usageLimits: usageLimitsOf(summary.usageLimits) ?? text(summary.usageLimits),
             // acpmux reports `model: null` for a harness with no model (one known only from its config).
             model: text(summary.model),
             effort: effort?.currentValue,
@@ -6524,6 +6549,7 @@ export class AcpmuxDirectClient {
           mimeType: data.mimeType,
           size: Math.floor((data.data.length * 3) / 4),
           data: data.data,
+          ...(image.source ? { source: image.source } : {}),
         };
       }),
     );
