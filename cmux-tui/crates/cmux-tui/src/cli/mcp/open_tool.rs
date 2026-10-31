@@ -98,9 +98,24 @@ impl<B: Backend> Server<B> {
                  the person, or show the text in a terminal",
             );
         };
-        let target = match self.open_target(place, arguments) {
+        // The app reads a path in its own process: a relative one is made absolute here,
+        // against the chat's folder (`file open` and the diff viewer refuse anything else).
+        let value = match value {
+            Some(value) if kind != "page" => Some(self.chat_path(value)),
+            value => value.map(str::to_owned),
+        };
+        let (target, made) = match self.open_target(place, arguments) {
             Ok(target) => target,
             Err(answer) => return answer,
+        };
+        // A page opens as a tab beside a tab (`tab new-browser` takes a tab target, not a
+        // pane): the pane's shown tab.
+        let target = match (kind, target) {
+            ("page", Some(pane)) => match self.shown_tab(&pane) {
+                Ok(tab) => Some(tab),
+                Err(answer) => return self.undo_split(made, answer),
+            },
+            (_, target) => target,
         };
         let mut run = Map::new();
         if let Some(value) = value {
@@ -112,38 +127,100 @@ impl<B: Backend> Server<B> {
         if focus {
             run.insert("focus".into(), json!(true));
         }
-        self.call_action(tool, &run)
+        let answer = self.call_action(tool, &run);
+        if answer.get("isError").and_then(Value::as_bool) == Some(true) {
+            return self.undo_split(made, answer);
+        }
+        answer
     }
 
-    /// The pane the viewer goes into: `None` lets the app place it (`workspace` with no
-    /// pane names its own). A side splits, `right` reuses or makes the column right of the
+    /// After a failed open, closes the pane the call split for it, so a refused open leaves
+    /// the layout as it was.
+    fn undo_split(&self, made: Option<String>, answer: Value) -> Value {
+        if let Some(pane) = made {
+            let _ = self.read(
+                v2_tools::find("pane_close"),
+                &Map::from_iter([("pane".into(), json!(pane))]),
+            );
+        }
+        answer
+    }
+
+    /// `path` as the app must read it: absolute, `~/` expanded, a relative path joined to
+    /// the chat's folder (its terminal's working folder, else this server's).
+    fn chat_path(&self, path: &str) -> String {
+        use std::path::{Component, Path, PathBuf};
+        if let Some(rest) = path.strip_prefix("~/").or((path == "~").then_some(""))
+            && let Some(home) = std::env::var_os("HOME")
+        {
+            return PathBuf::from(home).join(rest).to_string_lossy().into_owned();
+        }
+        if Path::new(path).is_absolute() {
+            return path.to_owned();
+        }
+        let folder = self.chat_folder().or_else(|| std::env::current_dir().ok());
+        let Some(folder) = folder else { return path.to_owned() };
+        let joined: PathBuf = folder
+            .join(path)
+            .components()
+            .filter(|part| !matches!(part, Component::CurDir))
+            .collect();
+        joined.to_string_lossy().into_owned()
+    }
+
+    /// The working folder of the chat's terminal (`terminal_process_get`), when the chat
+    /// runs in one.
+    fn chat_folder(&self) -> Option<std::path::PathBuf> {
+        let terminal = self.backend.caller_terminal()?;
+        let process = self
+            .read(
+                v2_tools::find("terminal_process_get"),
+                &Map::from_iter([("terminal".into(), json!(terminal))]),
+            )
+            .ok()?;
+        ["foreground_cwd", "cwd"]
+            .iter()
+            .find_map(|key| {
+                process.get(*key).and_then(Value::as_str).filter(|cwd| cwd.starts_with('/'))
+            })
+            .map(std::path::PathBuf::from)
+    }
+
+    /// The tab a pane shows: its focused tab, else its first.
+    fn shown_tab(&self, pane: &str) -> Result<String, Value> {
+        let list = Map::from_iter([("pane".into(), json!(pane)), ("limit".into(), json!(500))]);
+        let tabs = self.read(v2_tools::find("tab_list"), &list)?;
+        let items = tabs.get("items").and_then(Value::as_array).cloned().unwrap_or_default();
+        items
+            .iter()
+            .find(|tab| tab.get("focused").and_then(Value::as_bool) == Some(true))
+            .or_else(|| items.first())
+            .and_then(|tab| tab.get("id").and_then(Value::as_str))
+            .map(str::to_owned)
+            .ok_or_else(|| invalid("open: that pane has no tab to open the page beside"))
+    }
+
+    /// The pane the viewer goes into, and the pane this call made for it (closed again
+    /// when the open fails). A side splits, `right` reuses or makes the column right of the
     /// chat, `sticky` reuses or docks a column.
     fn open_target(
         &self,
         place: &str,
         arguments: &Map<String, Value>,
-    ) -> Result<Option<String>, Value> {
-        let session = arguments.get("session").cloned();
-        let with_session = |mut map: Map<String, Value>| {
-            if let Some(session) = &session {
-                map.insert("session".into(), session.clone());
-            }
-            map
-        };
+    ) -> Result<(Option<String>, Option<String>), Value> {
         let pane = text(arguments, "pane");
+        let made = |pane: String| (Some(pane.clone()), Some(pane));
+        let found = |pane: String| (Some(pane), None);
         match place {
-            "here" => self
-                .pane_id(&with_session(Map::from_iter([("pane".into(), json!("current"))])))
-                .map(Some),
+            "here" => self.pane_id(&Map::from_iter([("pane".into(), json!("current"))])).map(found),
             "pane" => {
                 let pane = pane.ok_or_else(|| invalid("open where: pane needs pane"))?;
-                self.pane_id(&with_session(Map::from_iter([("pane".into(), json!(pane))])))
-                    .map(Some)
+                self.pane_id(&Map::from_iter([("pane".into(), json!(pane))])).map(found)
             }
             "workspace" => {
                 let workspace = text(arguments, "workspace")
                     .ok_or_else(|| invalid("open where: workspace needs workspace"))?;
-                let mut list = with_session(Map::new());
+                let mut list = Map::new();
                 list.insert("workspace".into(), json!(workspace));
                 list.insert("limit".into(), json!(500));
                 let panes = self.read(v2_tools::find("pane_list"), &list)?;
@@ -155,7 +232,7 @@ impl<B: Backend> Server<B> {
                     .or_else(|| items.first())
                     .and_then(|pane| pane.get("id").and_then(Value::as_str))
                     .map(str::to_owned);
-                pane.map(Some).ok_or_else(|| {
+                pane.map(found).ok_or_else(|| {
                     invalid("that workspace has no pane to take the tab; pane_create {workspace} makes one")
                 })
             }
@@ -165,69 +242,74 @@ impl<B: Backend> Server<B> {
                     "below" => "down",
                     _ => "up",
                 };
-                let mut split = with_session(Map::new());
+                let mut split = Map::new();
                 split.insert("pane".into(), json!(pane.unwrap_or("current")));
                 split.insert("direction".into(), json!(direction));
-                self.split_pane(&split).map(Some)
+                self.split_pane(&split).map(made)
             }
             "right" => {
-                let mut neighbor = with_session(Map::new());
+                let mut neighbor = Map::new();
                 neighbor.insert("pane".into(), json!(pane.unwrap_or("current")));
                 neighbor.insert("direction".into(), json!("right"));
                 let answer = self.read(v2_tools::find("pane_neighbor_get"), &neighbor)?;
                 if let Some(id) =
                     answer.get("pane").and_then(|pane| pane.get("id")).and_then(Value::as_str)
                 {
-                    return Ok(Some(id.to_owned()));
+                    return Ok(found(id.to_owned()));
                 }
-                let mut split = with_session(Map::new());
+                let mut split = Map::new();
                 split.insert("pane".into(), json!(pane.unwrap_or("current")));
                 split.insert("direction".into(), json!("right"));
                 split.insert("viewport_width".into(), json!(COLUMN_WIDTH));
-                self.split_pane(&split).map(Some)
+                self.split_pane(&split).map(made)
             }
-            "sticky" => self.sticky_pane(arguments, &with_session).map(Some),
+            "sticky" => self.sticky_pane(arguments),
             other => Err(invalid(format!(
                 "open where must be right, left, below, above, here, sticky, pane or workspace, not {other:?}"
             ))),
         }
     }
 
-    /// A pane in a column docked to `edge`: an existing docked column on that edge, else a
-    /// new column right of the chat, docked.
+    /// A pane in a column docked to `edge`: an existing docked column on that edge (not a
+    /// column with a role, such as the agent chat's, and not the chat's own), else a new
+    /// column right of the chat, docked.
     fn sticky_pane(
         &self,
         arguments: &Map<String, Value>,
-        with_session: &dyn Fn(Map<String, Value>) -> Map<String, Value>,
-    ) -> Result<String, Value> {
+    ) -> Result<(Option<String>, Option<String>), Value> {
         let edge = text(arguments, "edge").unwrap_or("right");
         let screen = self.read(
             v2_tools::find("screen_get"),
-            &with_session(Map::from_iter([("screen".into(), json!("current"))])),
+            &Map::from_iter([("screen".into(), json!("current"))]),
         )?;
         let screen_id = screen.get("id").and_then(Value::as_str).unwrap_or_default().to_owned();
-        let docked = docked_column(screen.get("layout"), edge);
-        if let Some(pane) = docked {
-            return Ok(pane);
+        let chat = self.pane_id(&Map::from_iter([("pane".into(), json!("current"))])).ok();
+        if let Some(pane) = docked_column(screen.get("layout"), edge, chat.as_deref()) {
+            return Ok((Some(pane), None));
         }
-        let mut split = with_session(Map::new());
+        let mut split = Map::new();
         split.insert("pane".into(), json!("current"));
         split.insert("direction".into(), json!("right"));
         split.insert("viewport_width".into(), json!(COLUMN_WIDTH));
         let pane = self.split_pane(&split)?;
-        let screen = self.read(
-            v2_tools::find("screen_get"),
-            &with_session(Map::from_iter([("screen".into(), json!(&screen_id))])),
-        )?;
-        let column = column_of(screen.get("layout"), &pane)
-            .ok_or_else(|| invalid("open: the new column is not in the screen's layout"))?;
-        let mut update = with_session(Map::new());
-        update.insert("screen".into(), json!(screen_id));
-        update.insert("column".into(), json!(column));
-        update.insert("dock".into(), json!(true));
-        update.insert("edge".into(), json!(edge));
-        self.read(v2_tools::find("column_update"), &update)?;
-        Ok(pane)
+        let docked = (|| {
+            let screen = self.read(
+                v2_tools::find("screen_get"),
+                &Map::from_iter([("screen".into(), json!(&screen_id))]),
+            )?;
+            let column = column_of(screen.get("layout"), &pane)
+                .ok_or_else(|| invalid("open: the new column is not in the screen's layout"))?;
+            let mut update = Map::new();
+            update.insert("screen".into(), json!(screen_id));
+            update.insert("column".into(), json!(column));
+            update.insert("dock".into(), json!(true));
+            update.insert("edge".into(), json!(edge));
+            self.read(v2_tools::find("column_update"), &update)
+        })();
+        match docked {
+            Ok(_) => Ok((Some(pane.clone()), Some(pane))),
+            Err(answer) => Err(self.undo_split(Some(pane), answer)),
+        }
     }
 
     /// A pane selector's own id.
@@ -251,13 +333,18 @@ impl<B: Backend> Server<B> {
     }
 }
 
-/// The first pane of a column docked to `edge` in a screen layout (`viewport.columns`).
-fn docked_column(layout: Option<&Value>, edge: &str) -> Option<String> {
+/// The first pane of a column docked to `edge` in a screen layout (`viewport.columns`),
+/// skipping a column with a role (`dock.role`, such as `agent_chat`) and the one that
+/// holds `chat`.
+fn docked_column(layout: Option<&Value>, edge: &str, chat: Option<&str>) -> Option<String> {
     let columns = viewport_columns(layout?)?;
     columns.iter().find_map(|column| {
         let dock = column.get("dock")?;
         let at = dock.get("edge").and_then(Value::as_str).unwrap_or("right");
-        (at == edge).then(|| first_pane(column.get("root")?)).flatten()
+        let root = column.get("root")?;
+        let free = dock.get("role").is_none_or(Value::is_null)
+            && chat.is_none_or(|chat| !holds(root, chat));
+        (at == edge && free).then(|| first_pane(root)).flatten()
     })
 }
 

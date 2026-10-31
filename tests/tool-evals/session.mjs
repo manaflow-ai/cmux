@@ -322,6 +322,14 @@ async function standInApp(path, cmux, origin, log) {
       const kind = OPEN_ACTIONS.get(params.action);
       const args = params.args ?? {};
       const what = args.path ?? args.url ?? (kind === "diff" ? "changes" : "");
+      // The app's own refusals: a file or diff path must be absolute (AgentHandlers.openFile,
+      // ViewerHandlers), and a page takes a tab target (TabActionCatalog `targets: [.tab]`).
+      if (kind !== "page" && args.path != null && !String(args.path).startsWith("/")) {
+        throw { code: "invalid_argument", message: `path must be absolute: ${args.path}` };
+      }
+      if (kind === "page" && params.target != null && !/(^|:)tab_/.test(String(params.target))) {
+        throw { code: "invalid_argument", message: `No tab matches ${params.target}` };
+      }
       const pane = (await paneOf(params.target)) ?? origin.pane_id;
       return open(kind, what, pane, { method, action: params.action, args, target: params.target ?? null, focus: params.focus === true || args.focus === true });
     }

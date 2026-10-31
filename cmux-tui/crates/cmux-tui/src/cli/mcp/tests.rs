@@ -19,6 +19,8 @@ struct Fake {
     actions: Value,
     fail_resources: bool,
     fail_apps: bool,
+    /// The app refuses every `action.run`, as for a path it cannot open.
+    refuse_actions: bool,
     daemon_snapshot: Option<Value>,
     /// The answer to every daemon request but `session.snapshot`; else
     /// `daemon_snapshot`.
@@ -271,6 +273,13 @@ impl Backend for Fake {
             return Err(CallFailure {
                 kind: FailureKind::NotRun,
                 error: json!({"code": "transport.unavailable", "message": "app is down"}),
+                idempotency_key: None,
+            });
+        }
+        if self.refuse_actions && method == "action.run" {
+            return Err(CallFailure {
+                kind: FailureKind::Rejected,
+                error: json!({"code": "invalid_argument", "message": "no such file"}),
                 idempotency_key: None,
             });
         }
@@ -1934,12 +1943,26 @@ fn open_splits_and_opens_in_one_call() {
         "targets": ["pane"], "arguments": [{"name": "path", "kind": "string", "required": false}],
         crate::app_identity::ACTION_SURFACE_PLAN: {"cli": "offered", "mcp": "offered"},
     }));
-    let created = json!({"pane_id": pane, "id": pane});
-    let fake = Fake { actions, resource_result: Some(created), ..Fake::default() };
+    actions["actions"].as_array_mut().unwrap().push(json!({
+        "id": "openBrowser", "title": "New Browser Tab", "cli_name": "tab new-browser",
+        "cli": true, "targets": ["tab"],
+        "arguments": [{"name": "url", "kind": "string", "required": false}],
+        crate::app_identity::ACTION_SURFACE_PLAN: {"cli": "offered", "mcp": "offered"},
+    }));
+    // One record answers every daemon read: the split's new pane, the pane's one tab
+    // (`tab_list`) and the chat terminal's process (`terminal_process_get`).
+    let tab = "tab_0000000000000000000000000000000b";
+    let created = json!({"pane_id": pane, "id": tab, "focused": true, "cwd": "/work/chat"});
+    let fake = Fake {
+        actions: actions.clone(),
+        resource_result: Some(created.clone()),
+        caller_terminal: Some("term_1".into()),
+        ..Fake::default()
+    };
     let mut server = Server::new(fake, None);
     let result = server
         .call(&json!({"name": "open",
-                       "arguments": {"kind": "file", "path": "notes.md", "where": "below"}}))
+                       "arguments": {"kind": "file", "path": "./docs/notes.md", "where": "below"}}))
         .expect("a tool result");
     assert_ne!(result["isError"], true, "{result}");
     let sent = server.backend.sent.borrow();
@@ -1949,7 +1972,40 @@ fn open_splits_and_opens_in_one_call() {
     let run = sent.iter().find(|s| s["method"] == "action.run");
     let run = run.unwrap_or_else(|| panic!("{sent:?}"));
     assert_eq!(run["params"]["target"], pane, "{run}");
-    assert!(run["params"].to_string().contains("notes.md"), "{run}");
+    // The app opens only an absolute path: a relative one is the chat's folder's.
+    assert!(run["params"].to_string().contains("\"/work/chat/docs/notes.md\""), "{run}");
+    drop(sent);
+
+    // A page opens beside a tab (`tab new-browser` takes a tab, not a pane).
+    server.backend.sent.borrow_mut().clear();
+    let result = server
+        .call(&json!({"name": "open",
+                       "arguments": {"kind": "page", "url": "https://example.com", "where": "below"}}))
+        .expect("a tool result");
+    assert_ne!(result["isError"], true, "{result}");
+    let sent = server.backend.sent.borrow();
+    let run = sent.iter().find(|s| s["method"] == "action.run");
+    let run = run.unwrap_or_else(|| panic!("{sent:?}"));
+    assert_eq!(run["params"]["target"], tab, "{run}");
+    drop(sent);
+
+    // A refused open closes the pane it split for the viewer.
+    let refusing = Fake {
+        actions: actions.clone(),
+        resource_result: Some(created),
+        refuse_actions: true,
+        ..Fake::default()
+    };
+    let mut refused = Server::new(refusing, None);
+    let result = refused
+        .call(&json!({"name": "open",
+                       "arguments": {"kind": "file", "path": "/nope.md", "where": "left"}}))
+        .expect("a tool result");
+    assert_eq!(result["isError"], true, "{result}");
+    let sent = refused.backend.sent.borrow();
+    let close = sent.iter().find(|s| s["request"]["operation"] == "pane.close");
+    let close = close.unwrap_or_else(|| panic!("the split stays: {sent:?}"));
+    assert!(close["request"].to_string().contains(pane), "{close}");
     drop(sent);
 
     // `where` as an object names its workspace: the page goes there, not to the right.
