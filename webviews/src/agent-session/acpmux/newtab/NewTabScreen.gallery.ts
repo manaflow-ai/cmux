@@ -6,6 +6,7 @@ import type { PlayContext } from "../../../gallery/play";
 import { CATALOG, CWD, fleetPeers, manySessions, noChat, session } from "../../../gallery/fixtures/acpmux";
 import { minutesAgo } from "../../../gallery/clock";
 import { composerStatePlays } from "../composerStatePlays";
+import { paneLanguage, translateKey } from "../i18n";
 import { createStripLabelsFit } from "./createStripFit";
 
 /// Favicons as the host sends them (cx-d0d.8): small inline PNGs.
@@ -1310,6 +1311,71 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await ctx.type("localhost:3000", { selector: ".nt-field" });
         await ctx.waitFor(() => ctx.document.querySelector(".nt-rows"));
+      },
+    },
+    "create-strip-narrow": {
+      note: 'The create strip in a narrow pane (capture at 320px in French): the three actions go icon-only, each named by its tooltip and accessible label, never three cut labels ("Nouv…"). Wide, every shipped locale\'s labels show whole.',
+      ready: newTab(),
+      snapshot: noChat(manySessions(3)),
+      play: async (ctx) => {
+        await ctx.type("localhost:3000", { selector: ".nt-field" });
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-create-strip-item"));
+        // The frame loads the pane's language store before the locale's catalog; a languagechange
+        // moves it to the case's locale (as new-tab-strip-overflow.test.ts does), so the labels are that locale's.
+        ctx.document.defaultView?.dispatchEvent(new Event("languagechange"));
+        const browserLabel = translateKey("newTab.create.browser", {}, paneLanguage());
+        await ctx.waitFor(() =>
+          [...ctx.document.querySelectorAll(".nt-create-strip-item .nt-row-title")].some(
+            (title) => title.textContent === browserLabel,
+          ),
+        );
+        const popover = ctx.document.querySelector<HTMLElement>(".nt-popover");
+        const strip = ctx.document.querySelector<HTMLElement>(".nt-create-strip");
+        if (!popover || !strip) throw new Error("the create strip did not render");
+        const items = [...strip.querySelectorAll<HTMLElement>(".nt-create-strip-item")];
+        if (items.length !== 3) throw new Error(`the create strip shows ${items.length} actions, not 3`);
+        // Every action is named whether or not its label shows.
+        for (const item of items) {
+          const name = item.querySelector(".nt-row-title")?.textContent ?? "";
+          if (!name || item.getAttribute("aria-label") !== name || item.getAttribute("title") !== name)
+            throw new Error(`a create action is not named by its aria-label and tooltip (${name})`);
+        }
+        // A label either shows whole or not at all: never cut. Icon-only (createStripFit.ts
+        // data-icons-only) hides every title, so only a strip that shows its labels can cut one.
+        const iconsOnly = () => strip.hasAttribute("data-icons-only");
+        const settled = () => ctx.waitFor(() => iconsOnly() || createStripLabelsFit(strip));
+        const cut = () =>
+          iconsOnly()
+            ? []
+            : items
+                .map((item) => item.querySelector<HTMLElement>(".nt-row-title")!)
+                .filter((title) => title.scrollWidth > title.clientWidth + 1)
+                .map((title) => title.textContent);
+        await settled();
+        if (cut().length) throw new Error(`create action labels are cut: ${cut().join(", ")}`);
+        // Wide, every shipped locale's labels show whole; narrow, the actions stay inside the strip,
+        // icon-only when their labels do not fit. The ResizeObserver settles each width in the next frame.
+        const width = popover.style.width;
+        try {
+          // The pseudo-locale pads every label on purpose, so only shipped locales must fit wide.
+          const locale = new URLSearchParams(ctx.document.defaultView?.location.search).get("locale");
+          popover.style.width = "760px";
+          if (locale !== "en-XA") {
+            await ctx.waitFor(() => !iconsOnly());
+            if (cut().length) throw new Error(`wide create action labels are cut: ${cut().join(", ")}`);
+          }
+          popover.style.width = "260px";
+          await settled();
+          if (cut().length) throw new Error(`narrow create action labels are cut: ${cut().join(", ")}`);
+          const box = strip.getBoundingClientRect();
+          for (const item of items) {
+            const rect = item.getBoundingClientRect();
+            if (rect.left < box.left - 1 || rect.right > box.right + 1)
+              throw new Error(`a narrow create action leaves the strip (${rect.left}..${rect.right})`);
+          }
+        } finally {
+          popover.style.width = width;
+        }
       },
     },
     "suggestions-ff": {
