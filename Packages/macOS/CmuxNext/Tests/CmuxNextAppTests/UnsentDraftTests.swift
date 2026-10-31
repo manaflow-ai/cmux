@@ -1,5 +1,7 @@
 import CmuxNextAgentPane
+import CmuxNextActions
 import CmuxNextCompat
+import CmuxNextDaemon
 import CmuxNextWakeups
 import Foundation
 import Testing
@@ -65,6 +67,40 @@ struct UnsentDraftTests {
         await work.shutdown() // test cleanup also drains the unfixed implementation's late save
         let relaunched = AgentUnsentDrafts(file: file, work: nil)
         #expect(await relaunched.seed(for: "tab-1", session: nil)?.take()?.draft == "before engine stop")
+    }
+
+    @Test func aPendingTabsAcceptedDraftFollowsItsRealIDDuringQuit() async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "unsent-drafts-identity-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appending(path: AgentUnsentDrafts.fileName)
+        let work = BackgroundWork(label: "test.unsent-drafts-identity")
+        let drafts = AgentUnsentDrafts(file: file, work: work)
+        let tabs = AgentTabStore(build: nil, registry: ActionRegistry.standard(), environment: [:], showcase: true,
+                                 defaults: UserDefaults())
+        tabs.unsentDrafts = drafts
+        let provisional = ProvisionalTab().id
+        tabs.track(provisional, in: DaemonStore())
+        defer { tabs.release("tab-real"); tabs.release(provisional) }
+        let text = "accepted while the tab was still being created"
+        #expect(drafts.set(text, for: provisional))
+
+        let quit = Task { await AgentPanePersistenceQuit(drafts: drafts, anchors: nil, work: work).drain() }
+        // Observe the public refusal boundary, without sleeps or a test-only quit hook. Repeating
+        // the unchanged text queues no save while the quit task gets its main-actor turn.
+        for _ in 0..<1000 {
+            if !drafts.set(text, for: provisional) { break }
+            await Task.yield()
+        }
+        #expect(!drafts.set(text, for: provisional), "quit did not seal new edits")
+        // The pending create's reply or event echo uses this same rekey path while quit awaits.
+        tabs.rekey(provisional, to: "tab-real")
+        await quit.value
+        await work.shutdown()
+
+        let relaunched = AgentUnsentDrafts(file: file, work: nil)
+        #expect(await relaunched.seed(for: "tab-real", session: nil)?.take()?.draft == text)
+        #expect(relaunched.seed(for: provisional, session: nil) == nil)
     }
 
     /// #25852 (threading item 1, main-thread blocking): a draft holds up to a million characters and is saved
