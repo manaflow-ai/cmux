@@ -1,4 +1,5 @@
-// Codex keeps its mode/model/context controls beside + and the send controls inside the box.
+// Codex keeps its mode/model/context controls beside + and the send controls inside the box, with
+// the look dots in that row's empty middle.
 // Claude keeps the quiet footer. Captures are gallery fixtures, never private reference images.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -57,7 +58,7 @@ await requireBrowserLane("composer-codex-row.test.ts", async () => {
                 return el ? [{ selector, inside: box.contains(el), ...bounds(el) }] : [];
               });
               const bar = box.querySelector(".acpmux-composer-bar")!;
-              const dots = composer.querySelector(".acpmux-composer-under");
+              const dots = composer.querySelector(".acpmux-composer-under .acpmux-look-dots");
               return { box: bounds(box), controls, bar: bounds(bar), dots: dots ? bounds(dots) : null,
                 emptyAttachments: !!box.querySelector(".acpmux-attachments:empty") };
             });
@@ -73,7 +74,16 @@ await requireBrowserLane("composer-codex-row.test.ts", async () => {
               const axis = geometry.controls[0]!.cy;
               for (const control of geometry.controls) expect(Math.abs(control.cy - axis)).toBeLessThanOrEqual(0.5);
               expect(geometry.box.bottom - geometry.bar.bottom).toBeLessThanOrEqual(0.5);
-              if (geometry.dots) expect(geometry.dots.top).toBeGreaterThanOrEqual(geometry.box.bottom);
+              // The look dots sit in the row's empty middle (Leo 2026-10-30: "you notice how the middle
+              // of the normal codex compser has all that blank space? we can just have the dots there.").
+              if (geometry.dots) {
+                expect(geometry.dots.top).toBeGreaterThanOrEqual(geometry.bar.top);
+                expect(geometry.dots.bottom).toBeLessThanOrEqual(geometry.bar.bottom);
+                const leftEdge = Math.max(...geometry.controls.filter((c) => /plus|access/.test(c.selector)).map((c) => c.right));
+                const rightEdge = Math.min(...geometry.controls.filter((c) => !/plus|access/.test(c.selector)).map((c) => c.left));
+                expect(geometry.dots.left).toBeGreaterThanOrEqual(leftEdge);
+                expect(geometry.dots.right).toBeLessThanOrEqual(rightEdge);
+              }
             } else {
               for (const control of geometry.controls.filter((c) => /access|model|context/.test(c.selector))) expect(control.inside).toBe(false);
             }
