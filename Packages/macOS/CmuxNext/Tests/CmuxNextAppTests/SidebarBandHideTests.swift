@@ -4,6 +4,7 @@ import CmuxNextActions
 import CmuxNextDesign
 @testable import CmuxNextSettings
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -11,7 +12,7 @@ import Testing
 /// "Hide <piece>", right-click the band where it was for "Show <piece>". No trip to Settings.
 /// Each piece is a cmux.json setting (`sidebar.showSpaces`, `sidebar.showProfileControl`), so a
 /// hidden piece stays hidden after a relaunch, and Settings shows the same switch.
-@MainActor @Suite(.serialized) struct SidebarBandHideTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct SidebarBandHideTests {
     struct Harness {
         let services: AppServices
         let model: SidebarModel

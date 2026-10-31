@@ -4,11 +4,12 @@ import CmuxNextServer
 import Foundation
 import QuartzCore
 import Vision
+import CmuxNextTestSupport
 import Testing
 
 /// Three recovery layouts, using the shipped dialog and a public example destination.
 /// The balanced layout keeps the cause and all actions in one persistent sheet.
-@MainActor @Suite(.serialized) struct SSHRecoveryShotsTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct SSHRecoveryShotsTests {
     @Test func recoveryVariantsRenderInLightAndDark() throws {
         _ = NSApplication.shared
         let detail = "Could not resolve hostname nohost.invalid: nodename nor servname provided, or not known"

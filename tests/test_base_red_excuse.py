@@ -576,6 +576,32 @@ class Excusing(unittest.TestCase):
                 self.assertIn("run 40", text)
                 self.assertFalse([route for route in self.gh.routes if "/runs/50" in route and "/jobs?" in route])
 
+    def test_cancelled_base_tier_runs_are_skipped_unread(self):
+        # The base tier kick cancels superseded base tier runs before a Mac job starts
+        # (cmux_next_base_tier.py cancel_superseded). Ahead of the run with the verdict, more of them than the
+        # lookup reads must not hide it.
+        self.base_tier_setup(SCHEME)
+        cancelled = [{"id": 7000 + offset, "event": "workflow_dispatch", "head_branch": "feat-cmux-next",
+                      "status": "completed", "conclusion": "cancelled",
+                      "display_title": "cmux-next base tier · " + f"{offset:x}" * 40}
+                     for offset in range(excuse.TIP_SUITE_JOB_READS + 2)]
+        suite = {"id": 40, "event": "workflow_dispatch", "head_branch": "feat-cmux-next", "status": "completed",
+                 "conclusion": "failure", "display_title": "cmux-next base tier · " + "e" * 40,
+                 "created_at": "2026-10-31T09:48:29Z"}
+        self.gh.base_runs = copy.deepcopy(cancelled)
+        plain = self.gh.json
+
+        def json(route, *, paginate=False):
+            if "/actions/workflows/7/runs?" in route and "event=workflow_dispatch" in route:
+                self.gh.routes.append(route)
+                return {"workflow_runs": copy.deepcopy(cancelled) + [copy.deepcopy(suite)]}
+            return plain(route, paginate=paginate)
+
+        self.gh.json = json
+        text = "\n".join(self.judge())
+        self.assertIn(f"excused '{SCHEME}'", text)
+        self.assertFalse([route for route in self.gh.routes if "/runs/70" in route and "/jobs?" in route])
+
     def test_tree_jobs_are_jobs_of_the_suites_that_defer_them(self):
         # Only a tip daemon suite or base tier run defers its tree jobs; a name outside them skips nothing.
         self.assertLessEqual(excuse.TREE_JOBS, excuse.SUITES["cmux-next base tier · "])
