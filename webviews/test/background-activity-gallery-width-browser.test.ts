@@ -11,7 +11,8 @@
 //
 // At each of the entry's gallery widths, in real Chromium on the gallery frame: the open output
 // fills its row, the row's controls sit on one line (or wrap with several to a line, never one per
-// line), and nothing draws past the frame's right or bottom edge. CI fails the file when Chromium
+// line), and nothing draws past the frame's right edge or runs past its bottom (a
+// longer board scrolls inside the frame, as a chat pane does). CI fails the file when Chromium
 // cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
@@ -83,18 +84,17 @@ await requireBrowserLane("background-activity-gallery-width-browser.test.ts", as
                   };
                 });
                 const board = document.querySelector("[data-bg-gallery]")!;
+                // Nothing draws past the right edge (the output scrolls inside its own block).
                 let right = 0;
-                let bottom = 0;
                 for (const el of [board, ...board.querySelectorAll("*")]) {
                   const box = rect(el);
                   if (box.width === 0 && box.height === 0) continue;
                   right = Math.max(right, box.right);
-                  bottom = Math.max(bottom, box.bottom);
                 }
                 return {
                   rows,
                   right,
-                  bottom,
+                  bottom: rect(board).bottom,
                   scrollWidth: document.documentElement.scrollWidth,
                   scrollHeight: document.documentElement.scrollHeight,
                 };
@@ -112,8 +112,9 @@ await requireBrowserLane("background-activity-gallery-width-browser.test.ts", as
                 right: Math.min(Math.ceil(layout.right), width),
                 scrollWidth: width,
               });
-              expect({ bottom: Math.ceil(layout.bottom), scrollHeight: layout.scrollHeight }).toEqual({
-                bottom: Math.min(Math.ceil(layout.bottom), HEIGHT),
+              // The board ends at the frame's bottom; what is longer scrolls inside it.
+              expect({ bottom: Math.floor(layout.bottom), scrollHeight: layout.scrollHeight }).toEqual({
+                bottom: Math.min(Math.floor(layout.bottom), HEIGHT),
                 scrollHeight: HEIGHT,
               });
               expect(errors).toEqual([]);
