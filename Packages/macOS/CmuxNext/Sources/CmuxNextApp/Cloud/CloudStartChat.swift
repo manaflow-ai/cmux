@@ -64,9 +64,11 @@ struct CloudStartChat {
     }
 
     /// Whether `folder` is what the send may copy: for a folder the page named, exactly the upload
-    /// root the pane checked against its roots; the tab's own folder (no `cwd`) as Move to Cloud copies it.
+    /// root the pane checked against its roots; for the tab's own folder (no `cwd`), only that folder
+    /// itself, never a Git working copy found above it, which no check covered (a tab in
+    /// /repo/project never uploads /repo, its siblings and its history).
     nonisolated static func uploads(_ folder: CloudMoveFolder, as start: AgentPaneCloudStart) -> Bool {
-        guard start.cwd != nil else { return true }
+        guard start.cwd != nil else { return folder.subpath.isEmpty }
         return start.uploadRoot == folder.root
     }
 

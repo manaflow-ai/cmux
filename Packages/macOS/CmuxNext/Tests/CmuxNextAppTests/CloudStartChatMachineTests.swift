@@ -157,9 +157,19 @@ struct CloudStartChatMachineTests {
         #expect(CloudStartChat.uploads(folder, as: start))
         start.uploadRoot = "/Users/me/src/paint/sub"
         #expect(!CloudStartChat.uploads(folder, as: start))
-        // The tab's own folder (no `cwd`) is copied as Move to Cloud copies it.
+        // The tab's own folder (no `cwd`): only that folder itself, never a working copy above it.
         let tabs = try #require(AgentPaneCloudStart(params: ["task": "t", "key": UUID().uuidString]))
         #expect(CloudStartChat.uploads(folder, as: tabs))
+        let repo = FileManager.default.temporaryDirectory.appendingPathComponent("cn-start-\(UUID().uuidString.prefix(8))")
+        defer { try? FileManager.default.removeItem(at: repo) }
+        let project = repo.appendingPathComponent("project")
+        try FileManager.default.createDirectory(at: repo.appendingPathComponent(".git"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
+        let inRepo = try #require(CloudMoveFolder(chat: project.path))
+        #expect(!inRepo.subpath.isEmpty)
+        #expect(!CloudStartChat.uploads(inRepo, as: tabs))
+        let atRoot = try #require(CloudMoveFolder(chat: repo.path))
+        #expect(CloudStartChat.uploads(atRoot, as: tabs))
     }
 
     /// The create's key is the send's, so a retry after a lost create answer never makes a second VM.
