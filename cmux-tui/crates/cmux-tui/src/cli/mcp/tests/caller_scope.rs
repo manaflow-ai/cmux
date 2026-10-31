@@ -188,6 +188,26 @@ fn a_terminal_with_no_place_opens_in_the_column_right_of_the_chat() {
     assert_eq!(request["params"]["name"], "Chief TUI");
 }
 
+/// `pane: "current"` is the chat's own pane, which a new tab would cover: models write
+/// it by reflex for "on my right" (tests/tool-evals r13a), so it goes beside the chat
+/// like no pane. The chat's pane named by its id is still obeyed.
+#[test]
+fn a_terminal_for_the_current_pane_opens_beside_the_chat() {
+    let fake =
+        Fake { beside: json!({"pane": RIGHT_PANE, "placement": "existing_column"}), ..placed() };
+    let mut server = Server::new(fake, None);
+    for pane in ["current", OWN_PANE] {
+        let result = call(&mut server, "tab_create_terminal", json!({"pane": pane, "name": "w"}));
+        assert_ne!(result["isError"], true, "{result}");
+    }
+    let sent = sent_resources(&server);
+    let creates: Vec<&Value> =
+        sent.iter().filter(|s| s["request"]["operation"] == "tab.create_terminal").collect();
+    assert_eq!(creates.len(), 2, "{sent:?}");
+    assert_eq!(creates[0]["request"]["params"]["pane"], RIGHT_PANE, "{}", creates[0]);
+    assert_eq!(creates[1]["request"]["params"]["pane"], OWN_PANE, "{}", creates[1]);
+}
+
 /// With no column right of the chat, a split right of the chat makes one,
 /// running the command, and the new tab gets the asked name.
 #[test]
