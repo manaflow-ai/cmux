@@ -492,8 +492,8 @@
   min-height: 0;
   padding: 0;
 }
-/* A symbol tab's name is its label only: hidden here, not by a utility class the page may lack
-   (the gallery loads no Tailwind, and showed every name). */
+/* A symbol tab's name is its label only: hidden by the picker's own rule, not only by the pane's
+   Tailwind sr-only, so a page without that stylesheet never shows every name. */
 .acpmux-quick-harness-name.sr-only {
   position: absolute;
   overflow: hidden;
