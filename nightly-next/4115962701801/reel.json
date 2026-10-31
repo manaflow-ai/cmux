@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "build": "4115962701801",
+  "notes": "notes/4115962701801.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 28713,
+      "title": "ci(cmux-next): no priority shard past 40 changed suites; its filter stalls swift test",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28740,
+      "title": "ci(cmux-tui): verify the client manifest offline from a published Sigstore bundle",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27911,
+      "title": "perf(agent-chat): stop redrawing every waiting message card on each event",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28126,
+      "title": "carry of #27796: daemon home-loss lifecycle",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28217,
+      "title": "fix(files): ignore stale file-open errors",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
