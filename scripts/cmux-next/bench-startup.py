@@ -425,6 +425,9 @@ def seed_realistic(tag, scratch, timeout):
                 agent = False
     finally:
         prime.quit()
+    # A seed whose app made no tag folder (the agent chat never loaded, nothing was saved) still records its outcome:
+    # without the folder this write raised FileNotFoundError and ended the whole bench (fleet jobs 67312a24, fa5bb1cf).
+    os.makedirs(os.path.dirname(seeded_marker(tag)), exist_ok=True)
     with open(seeded_marker(tag), "w") as out:
         out.write(f"agent focus={seed_layout()}\n" if agent else f"terminals focus={seed_layout()}\n")
 
