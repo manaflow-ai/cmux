@@ -21,7 +21,9 @@ import { Spinner } from "../conversation/icons";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 import type { SubagentStatus } from "../summary/SubagentStatusList";
+import type { Subagent } from "./subagentFold";
 import { TonedIcon } from "./TonedIcon";
+import { useAgentProgress } from "./agentProgressStore";
 import { Tick } from "./trayMotion";
 
 const ROW_ICON = rowIconSize(12);
@@ -30,6 +32,7 @@ export function AgentLine({
   name,
   detail,
   progress,
+  progressAgent,
   status,
   state,
   time,
@@ -57,6 +60,7 @@ export function AgentLine({
   detail?: string;
   /// Reported agent counts, warnings and usage; separate from the current action.
   progress?: string;
+  progressAgent?: Subagent;
   status: SubagentStatus;
   /// Its state in words ("Running", "Waiting", "Done").
   state: string;
@@ -100,6 +104,8 @@ export function AgentLine({
   /// Use the running tray's fixed trailing columns; other AgentLine consumers keep their flow.
   trayColumns?: boolean;
 }) {
+  const liveProgress = useAgentProgress(progressAgent);
+  progress = liveProgress ?? progress;
   const shimmer = waveProps(wave);
   const brand = mark ? knownMark(mark, mark.split(/[-_/]/)[0]) : undefined;
   const glyph = <TonedIcon name={icon} size={iconSize} tone={tone} row />;
