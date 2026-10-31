@@ -43,6 +43,12 @@ extension CloudStartChat {
         return String(decoding: data, as: UTF8.self)
     }
 
+    /// The store's machines the list did not name: made since, kept for a pin. Never one the server failed or is removing,
+    /// which may stay in the store after the list dropped it: a pin or workspace on it then moves on.
+    static func stored(_ machines: [CloudMachine], listed: Set<String>) -> [String] {
+        machines.filter { !listed.contains($0.id) && ![.failed, .destroyed, .deleting].contains($0.shownStatus) }.map(\.id)
+    }
+
     /// The create of the machine for a send: sized for the chat, under the send's own idempotency key
     /// (the plan's `create_key`), so a retry after a create whose answer was lost gets the same
     /// machine from the server, never a second paid VM. Its team is the send's (`team`, the account's
@@ -86,7 +92,7 @@ extension CloudStartChat {
         let listed = cloud.listedMachineIDs
         let request = Self.planRequest(key: start.key, account: account, workspace: workspace, user: cloud.auth.user?.id,
                                        machines: machines.cloud.filter { listed.contains($0.machineID) },
-                                       stored: machines.cloud.map(\.machineID).filter { !listed.contains($0) })
+                                       stored: Self.stored(machines.cloud.map(\.machine), listed: listed))
         let plan = try Self.checked(await cli.startChatPlan(request: request))
         var invocation = invocation
         if let id = plan.machine {

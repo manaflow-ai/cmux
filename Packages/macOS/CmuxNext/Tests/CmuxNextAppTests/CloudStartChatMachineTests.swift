@@ -28,6 +28,15 @@ struct CloudStartChatMachineTests {
 
     /// The plan reads the send under its account and Mac workspace, only the machines the account's list
     /// named, and the ones made since (kept for a pin, never picked).
+    /// Router review at f766845: a machine the server destroyed may stay in the store after the list dropped it. It is
+    /// never sent as made since, so a workspace or send pinned to it moves on instead of failing to connect.
+    @Test func aGoneMachineInTheStoreIsNeverKeptForAPin() {
+        let machines = [CloudMachine(id: "vm-listed"), CloudMachine(id: "vm-new", status: .provisioning),
+                        CloudMachine(id: "vm-destroyed", status: .destroyed), CloudMachine(id: "vm-failed", status: .failed),
+                        CloudMachine(id: "vm-deleting", status: .deleting)]
+        #expect(CloudStartChat.stored(machines, listed: ["vm-listed"]) == ["vm-new"])
+    }
+
     @Test func thePlanRequestCarriesTheSendItsAccountWorkspaceAndTheListedMachines() throws {
         let text = CloudStartChat.planRequest(key: "K", account: [Self.me, "team-a"], workspace: "ws-1", user: Self.me, machines: [],
                                               stored: ["vm-new"])
