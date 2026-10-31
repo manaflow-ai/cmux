@@ -142,6 +142,13 @@ describe("hold timing", () => {
     expect(held.top).toBe(200);
     expect(held.until).toBeGreaterThan(500);
   });
+  test("press, click, then the row's own anchored-collapse event: the line stays where it was pressed", () => {
+    const toggle = line(300);
+    const pressed = { toggle, top: 200, until: 1_000 };
+    const clicked = clickFold(toggle, pressed, 500);
+    const asked = clickFold(toggle, clicked, 501);
+    expect(asked.top).toBe(200);
+  });
   test("a click on another line, or after its press let go, holds where the line is now", () => {
     const toggle = line(300);
     expect(clickFold(toggle, { toggle: line(0), top: 200, until: 1_000 }, 500).top).toBe(300);

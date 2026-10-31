@@ -4141,7 +4141,8 @@ export function VirtualTranscript({
         return;
       event.preventDefault();
       settleFold(header);
-      foldAnchor.current = holdFold(header);
+      // The click that asked for it already holds this line at the place it was pressed at: keep it.
+      foldAnchor.current = clickFold(header, foldAnchor.current);
       keepFoldRoom();
     };
     // The reader scrolling lets go of it.
