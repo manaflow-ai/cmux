@@ -43,7 +43,6 @@ import { turnErrorCard } from "./turnErrorCard.experiment";
 import { codeRouterOffer } from "./codeRouterOffer.experiment";
 import { CodeRouterAction, useCodeRouterChoice } from "./CodeRouterOffer";
 import { TranscriptDisclosureProvider } from "./transcriptDisclosure";
-import { ToolVerbColumn } from "./ToolVerb";
 
 /// "Worked for 15s" with its time in the line's quieter color (workedLabel's words otherwise).
 function WorkedLabel({ row }: { row: AcpmuxRow }) {
@@ -297,7 +296,9 @@ export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: strin
     <TranscriptDisclosureProvider sessionId={sessionId}>
       <McpNamesContext.Provider value={names}>
         <FindReveal.Provider value={reveal && isRevealRow(row, reveal) ? reveal : undefined}>
-          <ToolVerbColumn className="cv-tools">{nodes}</ToolVerbColumn>
+          {/* No verb column: each row reads icon, verb, then its subject one space after, as Claude Code
+              lists them (Leo, 2026-10-31: "why are these indented for no reason"). */}
+          <div className="cv-tools">{nodes}</div>
         </FindReveal.Provider>
       </McpNamesContext.Provider>
     </TranscriptDisclosureProvider>
