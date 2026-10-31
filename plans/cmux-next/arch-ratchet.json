@@ -731,6 +731,26 @@
       "owner": "cloud-sidebar-vms",
       "receipt": "Review (codex gpt-6-astra): SHIP at 5f7db1579443b56e7f57e17ff14e9c82bba8578c",
       "expiry": "2026-12-31"
+    },
+    {
+      "date": "2026-10-31",
+      "row": "observer_sites",
+      "allow": 1,
+      "why": "Packages/macOS/CmuxNext/Sources/CmuxNextWakeups/FrameScheduler+Sight.swift:53: the one app-wide NSWindow.didChangeOcclusionStateNotification observer (started once by watchSight, held by FrameScheduler.app). Its handler finds the posting window's SightNote and its existing scheduler through associated objects (O(1)) and tells only that scheduler to end its animations (scheduler(of:) makes none). The row's fix shape: one observation per app in an adapter that tells only the affected subscriber. It lets a window out of sight get no animation frames (Chrome's hidden-tab rule; base-red hang of the feat tip Swift suite, 41190088925).",
+      "author": "lead base-red owner (claude, triage of feat reds 2026-10-31)",
+      "owner": "Performance Lead (Wakeups)",
+      "receipt": "Review (independent review subagent, Opus 5.5 claude-opus-5-5, read-only): SHIP at 663aaac4021910486e5c921cda36f0ddde13511b",
+      "expiry": "2026-12-31"
+    },
+    {
+      "date": "2026-10-31",
+      "row": "app_lines",
+      "allow": 15,
+      "why": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Drag/TabDragGhostPanel.swift, TabDragSession.swift, TabDragSession+Ghost.swift: the tab-drag ghost's FrameClient gets a settle (settleGhost: snap the ghost motion, render, finishLanding for a landing drag), so a landing ghost whose panel goes out of sight still ends the drag and brings the input invariant monitor back (review round 2 finding). TabDragSession and its ghost panel live in CmuxNextApp, so the wiring cannot go elsewhere without moving the drag session out of the app target (out of scope).",
+      "author": "lead base-red owner (claude, triage of feat reds 2026-10-31)",
+      "owner": "ux-tabs-panes area owner (move with TabDragSession out of CmuxNextApp)",
+      "receipt": "Review (independent review subagent, Opus 5.5 claude-opus-5-5, read-only): SHIP at 663aaac4021910486e5c921cda36f0ddde13511b",
+      "expiry": "2026-12-31"
     }
   ],
   "escape_reviews": [
