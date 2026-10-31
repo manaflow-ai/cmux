@@ -235,7 +235,7 @@ extension NewTabPage {
 
     /// The address a browser pick of the page goes to: a search, a cmux/Chromium page, or the typed
     /// destination (typos fixed).
-    private static func browserURL(_ request: AgentPaneOpenTab, services: AppServices) -> URL? {
+    static func browserURL(_ request: AgentPaneOpenTab, services: AppServices) -> URL? {
         let resolver = services.cache.suggestionEngine.resolver
         let text = request.text.trimmingCharacters(in: .whitespacesAndNewlines)
         return request.search
@@ -336,37 +336,24 @@ extension NewTabPage {
             page.services.registry.refuse(refusal)
             return false
         }
-        var effectiveKind = kind
-        var effectiveText = trimmed
-        if kind == .browser, !trimmed.isEmpty {
-            let plan = NewTabSubmit.plan(text: trimmed, search: search, agent: nil,
-                                         resolver: page.services.cache.suggestionEngine.resolver)
-            switch plan {
-            case .terminal(let command): effectiveKind = .terminal; effectiveText = command
-            case .refused(let reason): page.services.registry.refuse(reason); return false
-            default: break
-            }
-        }
-        // Native terminal and browser picks use the same right-column decision as web picks, including
-        // same-kind reuse and a lower split for the opposite kind.
+        guard let request = NewTabSubmit.nativeRequest(text: trimmed, kind: kind, search: search, cwd: cwd,
+                                                       resolver: page.services.cache.suggestionEngine.resolver) else { return false }
         let chatPlacement = ChatColumnPlacement.keepsNewTabPage(in: page) || Self.docksChat(page)
-        if effectiveKind.opensBesideChat && chatPlacement {
-            let request = AgentPaneOpenTab(kind: effectiveKind, text: effectiveText, cwd: cwd, search: search, run: kind == .terminal)
-            return servicesOpenNativeTool(request, from: page)
-        }
-        switch (effectiveKind, effectiveText.isEmpty) {
-        case (.terminal, _): page.newTerminalTab(cwd: cwd, typing: kind == .terminal ? command(effectiveText) ?? nil : (effectiveText.isEmpty ? nil : effectiveText))
+        if request.kind.opensBesideChat && chatPlacement { return servicesOpenNativeTool(request, from: page) }
+        switch (request.kind, request.text.isEmpty) {
+        case (.terminal, _): page.newTerminalTab(cwd: cwd, typing: nativeTerminalTyping(request))
         case (.browser, true): return page.newBrowserTab()
         case (.agent, true): return page.openAgentTab(seed: AgentPaneSeedSource(AgentPaneSeed(cwd: cwd)))
         case (.browser, false), (.agent, false):
-            // A browser's words are searched; an agent's go out as a prompt.
-            let reads = NewTabSubmit.plan(text: effectiveText, search: search, agent: nil, resolver: page.services.cache.suggestionEngine.resolver)
-            var searches = search
-            if kind == .browser, case .chat = reads { searches = true }
-            let arguments: [String: ActionValue] = ["text": .string(trimmed), "search": .bool(searches)]
+            let arguments: [String: ActionValue] = ["text": .string(request.text), "search": .bool(request.search)]
             return page.services.registry.perform(NewTabSubmit.action, invocation: ActionInvocation(target: ActionTargetRef(kind: .pane, id: page.pane.id), arguments: arguments, origin: .user))
         }
         return true
+    }
+
+    /// Explicit Terminal Run appends a newline; a Browser-mode !command only types its text.
+    static func nativeTerminalTyping(_ request: AgentPaneOpenTab) -> String? {
+        request.run ? command(request.text) ?? nil : (request.text.isEmpty ? nil : request.text)
     }
 
     private static func servicesOpenNativeTool(_ request: AgentPaneOpenTab, from page: PaneController) -> Bool {
@@ -374,7 +361,7 @@ extension NewTabPage {
         return services.linkOpener.open(from: page, kind: request.kind.rightColumnKind) { target, placed in
             switch request.kind {
             case .terminal:
-                let typing = request.run ? command(request.text) ?? nil : (request.text.isEmpty ? nil : request.text)
+                let typing = nativeTerminalTyping(request)
                 target.newTerminalTab(cwd: request.cwd, typing: typing, placementOwner: placed != nil) { surface in placed?(surface) }; return true
             case .browser:
                 let url = browserURL(request, services: services)

@@ -52,6 +52,22 @@ nonisolated enum NewTabSubmit: Equatable {
 }
 
 extension NewTabSubmit {
+    /// Classify before choosing a pane, so native Browser picks keep the submission table's commands,
+    /// searches and typo fixes. Explicit Terminal picks keep their Run intent.
+    static func nativeRequest(text: String, kind: AgentPaneTabKind, search: Bool, cwd: String?, resolver: OmniboxResolver) -> AgentPaneOpenTab? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        var request = AgentPaneOpenTab(kind: kind, text: trimmed, cwd: cwd, search: search, run: kind == .terminal)
+        guard kind == .browser, !trimmed.isEmpty else { return request }
+        switch plan(text: trimmed, search: search, agent: nil, resolver: resolver, fixesHostTypos: true) {
+        case .terminal(let command): request.kind = .terminal; request.text = command
+        case .chat: request.search = true
+        case .browser(let url): request.text = url.absoluteString; request.search = false
+        case .refused: return nil
+        case .page: break
+        }
+        return request
+    }
+
     /// Whether what this submission opens is a tool that goes beside the chat, never into the chat dock: a
     /// terminal or a browser. The page, a chat and a refusal stay where they were asked for.
     var opensBesideChat: Bool {
