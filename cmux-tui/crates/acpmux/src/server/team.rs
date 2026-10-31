@@ -3,6 +3,9 @@
 //! This keeps the CLI and MCP clients on one daemon path. The hub remains the
 //! authority for address resolution and `startWork`; this layer only validates
 //! the local request and passes the signed daemon identity to `MeshHub`.
+//!
+//! While the Labs flag is off, the inbox, read and ack of a chat's own agent read that chat's inbox
+//! instead of refusing ([`chat_inbox`], `hub/inbox_team_page.rs`).
 
 use super::*;
 use crate::mesh::{Kind, MeshHub, Mode, OutMessage, Sender, Target};
@@ -13,6 +16,9 @@ pub(super) async fn handle(
     method: &str,
     params: &Value,
 ) -> Result<Value, RpcError> {
+    if let Some(answer) = chat_inbox(hub, conn, method, params).await {
+        return answer;
+    }
     authorize(hub, conn).await?;
     let mesh =
         hub.mesh.get().ok_or_else(|| RpcError::internal("the mesh relay is not configured"))?;
@@ -23,6 +29,53 @@ pub(super) async fn handle(
         crate::rpc::method::MUX_TEAM_ACK => ack(hub, conn, mesh, params).await,
         _ => Err(RpcError::method_not_found(method)),
     }
+}
+
+/// While team messaging is off, the mailbox's inbox, read and ack of an agent proven to run in a
+/// chat here read that chat's own inbox (`hub/inbox_team_page.rs`): an agent started before the
+/// inbox has `team_inbox` and not `inbox_read`, and `acpmux inbox` is the name an agent tries.
+/// None for every other caller and method, and whenever team messaging is on.
+async fn chat_inbox(
+    hub: &Arc<Hub>,
+    conn: &Arc<Conn>,
+    method: &str,
+    params: &Value,
+) -> Option<Result<Value, RpcError>> {
+    let read = matches!(
+        method,
+        crate::rpc::method::MUX_TEAM_INBOX
+            | crate::rpc::method::MUX_TEAM_READ
+            | crate::rpc::method::MUX_TEAM_ACK
+    );
+    if !read
+        || conn.origin != Origin::Local
+        || conn.is_person()
+        || conn.unproven_caller.get().is_some()
+    {
+        return None;
+    }
+    let caller = conn.caller()?;
+    if hub.config.read().await.mesh_relay.as_ref().is_some_and(|relay| relay.team_messaging) {
+        return None;
+    }
+    let session = match hub.resolve(caller) {
+        Ok(session) => session,
+        Err(e) => return Some(Err(e)),
+    };
+    Some(match method {
+        crate::rpc::method::MUX_TEAM_INBOX => {
+            let unread_only = params.get("unreadOnly").and_then(Value::as_bool).unwrap_or(true);
+            Ok(hub.inbox_team_page(&session, unread_only))
+        }
+        crate::rpc::method::MUX_TEAM_READ => match required(params, "id") {
+            Ok(id) => hub.inbox_team_read(&session, &id),
+            Err(e) => Err(e),
+        },
+        _ => match required(params, "id") {
+            Ok(id) => hub.inbox_team_ack(&session, &id),
+            Err(e) => Err(e),
+        },
+    })
 }
 
 pub(super) async fn authorize(hub: &Arc<Hub>, conn: &Arc<Conn>) -> Result<(), RpcError> {
