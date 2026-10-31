@@ -111,7 +111,8 @@ RULES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     # state and control pipe (where the app's admission values arrive), host check and the two
     # socket servers that call them, the app's check of the helper on that socket, the requirement
     # or cdhash, the acpmux daemon and executable and the per-launch secret the app gives the helper
-    # for acpmux bridges, the requirement of the helper the app or acpmux may
+    # for acpmux bridges, which acpmux executable the app runs and trusts (its team-signature
+    # refusal, and the DEBUG override), the requirement of the helper the app or acpmux may
     # launch (Swift, Rust and shell copies) and the check of its staged copy, the root server
     # helper's XPC requirements (its clients', and the app's of it), and the signature checks of a
     # downloaded browser runtime. A wrong time or anchor here lets another process take the socket
@@ -124,6 +125,8 @@ RULES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
         "*/CmuxCuaHelperCore/AdmissionState.swift", "*/CmuxCuaHelperCore/HelperController.swift",
         "*/CmuxCuaHelperCore/HelperSocketServer.swift", "*/CmuxCuaHelperCore/HostConsentServer.swift",
         NEXT + "CmuxNextComputerUse/ComputerUseHelperV2+Secret.swift", NEXT + "CmuxNextApp/AgentTabs+PaneSource.swift",
+        NEXT + "CmuxNextAgentPane/AcpmuxEnvironment+Resolve.swift",
+        NEXT + "CmuxNextAgentPane/AcpmuxEnvironment+DebugOverride.swift",
         "cmux-tui/crates/acpmux/src/agent_tools/cua_helper.rs", "scripts/cmux-cua-helper-trust.sh",
         NEXT + "CmuxNextComputerUse/ComputerUseHelperStaging.swift",
         NEXT + "CmuxNextComputerUse/ComputerUseHelperV2HostLink.swift",

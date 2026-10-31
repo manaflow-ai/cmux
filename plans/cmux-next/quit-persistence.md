@@ -57,7 +57,7 @@ Paths below are relative to `Packages/macOS/CmuxNext/Sources/` unless they start
   it is 15 commits ahead of and 100 behind origin/feat-cmux-next.** On that branch,
   `Quit/QuitAlert.swift` already presents through `CmuxDialogCenter` (`.window(w)` or `.app`), with
   Return for Quit (keep) and Escape for Cancel.
-- Completion (`QuitCoordinator.swift:84-116`, `Quit/QuitCompletion.swift:18-25`) runs in this
+- Completion (`QuitCoordinator.swift:84-116`, `CmuxNextControl/Quit/QuitSteps.swift` `run`) runs in this
   order:
   1. Write the crash-recovery "quitting" marker.
   2. Remember the choice, if asked.
@@ -380,7 +380,7 @@ work.
   skips the home workspace (`WorkspaceSnapshot.isHome`), never stops at the first error, and
   returns every failed step in `EndedSessions.failures`.
   - `DaemonService.endSessionsAndStop` returns the failures and keeps the connection for Retry.
-  - `QuitCompletion` shows them in `QuitFailureAlert` ("Some sessions did not end"), with Retry
+  - `QuitSteps.run` shows them in `QuitFailureAlert` ("Some sessions did not end"), with Retry
     and Quit Anyway, until the CmuxDialog conversion replaces both alerts. The quit never goes on
     silently.
   - `debug.quit` reports `failure` and answers `retry` and `quit-anyway`.
