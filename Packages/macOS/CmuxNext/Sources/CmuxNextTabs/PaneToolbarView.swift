@@ -72,10 +72,10 @@ public final class PaneToolbarView: NSView {
         addSubview(moreButton)
         // Hidden at rest by default (Lawrence 2026-10-20; Leo's muted look is a value above 0); a Debug
         // Settings change applies at once. task-owner: this view (cancelled in deinit); event-driven.
-        reveal.restAlpha = TabTunables.restingControlOpacity.value
+        reveal.restAlpha = ChromeLookPreview.current != nil ? 1 : TabTunables.restingControlOpacity.value
         _ = reveal.add(moreButton)
         restObservation = Task { [weak self] in
-            for await rest in ObservationStream({ TabTunables.restingControlOpacity.value }) { self?.reveal.restAlpha = rest }
+            for await rest in ObservationStream({ TabTunables.restingControlOpacity.value }) { self?.reveal.restAlpha = ChromeLookPreview.current != nil ? 1 : rest }
         }
     }
 

@@ -98,6 +98,10 @@ final class PaneController: SurfacePresenter, PresentablePane {
         // Its adjacent chevron exposes that same menu without changing what a plus click does.
         view.stripView.opensNewTabMenuOnPress = false
         view.stripView.showsNewTabMenuButton = true
+        if let look = ChromeLookPreview.current {
+            view.stripView.showsNewTabMenuButton = look.stripChevron
+            view.stripView.opensNewTabMenuOnPress = look.stripPlusChevron
+        }
         view.stripView.contextMenuProvider = { [weak self] target in self?.contextMenu(for: target) }
         view.stripView.hoverCards = services.hoverCards
         view.stripView.onHoverTab = { [weak self] id in self?.noteHover(id) }

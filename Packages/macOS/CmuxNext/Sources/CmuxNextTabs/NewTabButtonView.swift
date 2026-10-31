@@ -93,6 +93,7 @@ final class NewTabButtonView: NSView {
             path.addLine(to: CGPoint(x: x + Metrics.space1, y: center.y - Metrics.space1 / 2))
         }
         glyphLayer.path = path
+        glyphLayer.isHidden = ChromeLookPreview.current?.stripPlus == false
         CATransaction.commit()
     }
 

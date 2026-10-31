@@ -180,12 +180,12 @@ final class PaneToolbar {
         let reservedPins = kinds.map { kind in pinned.count(where: { Self.actions(kind).contains(ActionID(rawValue: $0)) }) }.max() ?? 0
         // A zoomed pane keeps the zoom button's room whichever tab is selected (a chat shows none).
         let zoomRoom = zoomed && !pinned.contains(Self.zoom.rawValue) ? 1 : 0
-        let buttons = shownButtons()
+        let buttons = ChromeLookPreview.current.map { $0.toolbar.map(ActionID.init(rawValue:)) } ?? shownButtons()
         // The new-terminal and new-browser buttons are not shown: the + and the "…" menu offer them (Lawrence 2026-10-27: too many buttons).
         // A native page list needs an overflow route when a narrow pane cannot fit every real
         // button. It also keeps chat panes discoverable, which otherwise have no pane "…".
         let nativeTools = nativeEnabled ? nativeItems : []
-        view.show(buttons.compactMap(item), more: shown || !nativeTools.isEmpty, lit: zoomed && shown,
+        view.show(buttons.compactMap(item), more: (shown && ChromeLookPreview.current?.more != false) || !nativeTools.isEmpty, lit: zoomed && shown,
                   reserving: kinds.isEmpty ? 0 : max(reservedPins + zoomRoom, buttons.count) + 1,
                   nativeItems: nativeTools)
     }
@@ -208,7 +208,7 @@ final class PaneToolbar {
         let title = descriptor.title.hasSuffix("…") ? String(descriptor.title.dropLast()) : descriptor.title
         let lit = zoomed && id == Self.zoom
         let symbols: [ActionID: String] = ["openDiffViewer": "plusminus", "file.open": "folder", "agentPane.searchChats": "bubble.left.and.text.bubble.right"]
-        return PaneToolbarItem(id: id.rawValue, title: title, symbol: lit ? "arrow.down.right.and.arrow.up.left" : symbols[id] ?? descriptor.symbol,
+        return PaneToolbarItem(id: id.rawValue, title: title, symbol: lit ? "arrow.down.right.and.arrow.up.left" : (ChromeLookPreview.current != nil ? ChromeLookPreview.classicSymbols[id.rawValue] : nil) ?? symbols[id] ?? descriptor.symbol,
                                shortcut: registry.shortcutDisplay(for: id), lit: lit, alwaysVisible: Self.creationActions.contains(id))
     }
 

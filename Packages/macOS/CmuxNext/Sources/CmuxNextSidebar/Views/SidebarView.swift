@@ -354,7 +354,7 @@ public final class SidebarView: NSView {
         // sits above it there and takes the clicks), and the + takes the trailing slot alone.
         let segment = SidebarStyle.toolbarMenuSegmentWidth
         let pairMinX = trailing - segment - button - (priorityButton.isHidden ? 0 : Metrics.space1 + button)
-        let showsChevron = pairMinX >= x
+        let showsChevron = pairMinX >= x && ChromeLookPreview.current?.sidebarChevron != false
         newWorkspaceOptionsButton.isHidden = !showsChevron
         newButton.frame = NSRect(x: trailing - button - (showsChevron ? segment : 0), y: buttonY, width: button, height: button)
         newWorkspaceOptionsButton.frame = NSRect(x: newButton.frame.maxX, y: buttonY, width: segment, height: button)

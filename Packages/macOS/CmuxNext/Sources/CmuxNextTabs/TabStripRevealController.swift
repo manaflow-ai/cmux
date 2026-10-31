@@ -49,7 +49,7 @@ final class TabStripRevealController {
     func applyPlusButtonMode() {
         guard let strip else { return }
         // At rest the plus shows muted, so its kept room never reads as an empty gap (Leo 2026-10-19).
-        hover.restAlpha = TabTunables.restingControlOpacity.value
+        hover.restAlpha = ChromeLookPreview.current != nil ? 1 : TabTunables.restingControlOpacity.value
         // The chooser sits beside the plus, so it fades with it; it never shows next to a hidden plus.
         for control in [strip.newTabButton, strip.newTabMenuButton] as [NSView] {
             if DesignSettings.shared.plusButton == .hover {
