@@ -79,7 +79,7 @@ extension SidebarListViewComponents {
         // drop's result would show different rows.
         if shownDrag != nil || external != nil { o.rowLimit = 0 }
         // External tab drops still use the older reducer: keep its unfolded group-exit geometry and visible tab slots.
-        if external != nil { o.foldsDone = false }
+        if external != nil { (o.foldsDone, o.foldsArchived) = (false, false) }
         if includeGap, case let .newWorkspace(section, group, index)? = external?.proposal {
             o.gap = DropPosition(section: section, group: group, index: index)
             o.gapHeight = metrics.rowHeight
@@ -96,7 +96,7 @@ extension SidebarListViewComponents {
             o.excludedWorkspaces.formUnion(ids)
             o.showEmptyPinned = true
             // A drag that carries a Done row draws unfolded: the fold would move it out of the slot or add a fold row.
-            if SidebarLayout.dragUnfolds(ids.compactMap { model.workspace($0) }, options: o) { o.foldsDone = false }
+            if SidebarLayout.dragUnfolds(ids.compactMap { model.workspace($0) }, options: o) { (o.foldsDone, o.foldsArchived) = (false, false) }
         case let .group(group):
             o.excludedGroup = group
         case let .item(item):

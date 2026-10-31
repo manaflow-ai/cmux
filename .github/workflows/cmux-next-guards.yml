@@ -610,6 +610,10 @@ jobs:
         if: ${{ !cancelled() }}
         run: python3 -I tests/test_ios_ffi_cache.py
 
+      - name: The iOS Chief benchmark repeats one simulator and requires retained measurements
+        if: ${{ !cancelled() }}
+        run: python3 -I tests/test_ios_chief_benchmark_route.py
+
       # cmux-ci sends a package-test-lane suite step that names a display suite to a display
       # worker; the list it reads is derived from the suites' own display skip traits, so a
       # Swift change that adds or drops such a trait without the list fails here.
