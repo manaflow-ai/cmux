@@ -284,6 +284,9 @@ final class DevServerChannel: LinkChannel, @unchecked Sendable {
             do {
                 try await probe.forward(port: port, macID: nil)
                 probe.stop(port)
+                // The probe's listeners hold the address until they report cancelled: a bind of
+                // the port by another forwarder before then loses it ("Another app ... uses port").
+                await probe.closedEarlier(port)
                 return port
             } catch {
                 continue

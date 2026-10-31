@@ -124,8 +124,9 @@ public final class LocalhostForwarder {
         }
     }
 
-    /// Waits until the port's earlier listeners closed.
-    private func closedEarlier(_ port: UInt16) async {
+    /// Waits until the port's earlier listeners closed: a port stopped here is free for another
+    /// listener (another forwarder, another app) only once this returns.
+    public func closedEarlier(_ port: UInt16) async {
         while let task = closing[port] {
             await task.value
             if closing[port] == task { closing[port] = nil }
