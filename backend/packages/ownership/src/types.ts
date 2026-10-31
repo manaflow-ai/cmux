@@ -113,7 +113,7 @@ export interface EventFrame {
    * the row writes. A mirror applies them instead of replaying the reducer, so it needs
    * no rows it was never sent (the delta form of OwnershipConvergence.tla Apply).
    */
-  readonly effects?: { readonly state: unknown; readonly writes: ReadonlyArray<RowWrite> }
+  readonly effects?: { readonly state: unknown; readonly writes: ReadonlyArray<RowWrite> } | undefined
 }
 
 /** Owner to requester. `replayed` is true when the key was already decided. */
