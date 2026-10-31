@@ -76,8 +76,9 @@ enum ChiefMemoryImportHandlers {
     /// The offer's detect: unasked, so never the export zips in ~/Downloads and ~/Desktop (LAUNCH-NO-TCC-PROMPTS).
     static func offerDetectArguments(muxHome: String) -> [String] { MemoryImportCommand(target: .local(muxHome: muxHome)).detect() }
 
-    /// The detect of an Import Memories run that names no source.
-    static func detectArguments(muxHome: String, invocation: ActionInvocation) -> [String] { MemoryImportCommand(target: .local(muxHome: muxHome)).detect(exports: true) }
+    /// A run's detect: only the person's own (``ActionInvocation/isPersonsOwnRun``) lists the export zips in the
+    /// guarded ~/Downloads and ~/Desktop; automation names a zip instead (`source: zip:/path`) (LAUNCH-NO-TCC-PROMPTS).
+    static func detectArguments(muxHome: String, invocation: ActionInvocation) -> [String] { MemoryImportCommand(target: .local(muxHome: muxHome)).detect(exports: invocation.isPersonsOwnRun) }
 
     private static func muxHome(_ context: AppActionContext) -> String {
         HomeBrainHost.muxHome(tag: context.services.environment.tag).path

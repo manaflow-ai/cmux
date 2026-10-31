@@ -150,3 +150,13 @@ public nonisolated struct ActionInvocation: Sendable, Hashable {
         }
     }
 }
+
+public extension ActionInvocation {
+    /// Whether this is a person's own run in this app (palette, menu, keyboard, click): the only run
+    /// that gets what automation must not (raw screen pixels, a read of a folder macOS guards). A run
+    /// the control socket carries is automation even when it claims the `user` origin, and so is a
+    /// run that names a caller (an app, an agent chat or a terminal), even during the person's gesture in it.
+    var isPersonsOwnRun: Bool {
+        origin == .user && !viaControlSocket && callerApp == nil && callerAgentSession == nil && callerTerminal == nil
+    }
+}
