@@ -5,7 +5,7 @@ import Testing
 /// Regression for HQ #4743: closable pinned and crowded tabs expose a visible
 /// close target on hover. The unhovered icon keeps its original center;
 /// TabCell uses centersContent to put the replacement close glyph there.
-@Suite struct TabHoverCloseVisibilityTests {
+@MainActor @Suite(.serialized) struct TabHoverCloseVisibilityTests {
     private let metrics = TabStripMetrics.standard
 
     @Test func pinnedTabsSwapTheirIconForTheCloseOnHover() {
