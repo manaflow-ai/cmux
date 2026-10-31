@@ -320,9 +320,12 @@ terminals is broken", "creating new columns must never resize existing columns")
 the journey drags the divider between the two new panes and then the window's right edge. After each,
 in the shown terminal: grid == fitted grid == drawn grid == fit(the view's bounds at the cell size) ==
 the PTY's size (`stty size`) == the daemon's screen size == the topology tab's size, and a line longer
-than the old width wraps at the new width (`smoke_r3`; every size is in the result). Then New Column
-and a Cmd-D that adds a column: every existing pane of the workspace keeps exactly its width
-(`smoke_same_widths`, re-read through a 1.5 s settle; each old and new width in the result).
+than the old width wraps at the new width (`smoke_r3`; every size is in the result; the window check
+also needs the window 160 points narrower and the pane narrower than before). Both are re-read through
+a 1.5 s settle. Then New Column twice (the action, then its key Ctrl-Cmd-D): every existing column
+(matched by its panes, width from the float view frames) keeps exactly its width, and there is one
+more column each time (`smoke_same_widths`; each old and new width in the result). Cmd-D (Split
+Right) is not used here: it never opens a column (`SplitRoomCheck.toolSplit`), it splits the pane.
 
 **Typed at once** (`smoke_type_now`): no wait for the creation hold, the case Lawrence reports
 (keys into a terminal while it is created). A capture slot's window is never key

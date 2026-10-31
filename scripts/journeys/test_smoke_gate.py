@@ -479,10 +479,11 @@ class Resize(unittest.TestCase):
             pass
 
         ext_smoke.install(type("D", (), {"StepError": StepError, "NotRun": Exception, "now": staticmethod(lambda: 0.0)}))
-        self.ext = ext_smoke
+        self.ext, self.StepError = ext_smoke, StepError
 
     def journey(self, grid="80x24", fit="80x24", drawn="80x24", daemon=(80, 24), topo=(80, 24), pty=(80, 24),
-                frame=(80 * 8 + 8, 24 * 16 + 8), long_rows=None, widths=None):
+                frame=(80 * 8 + 8, 24 * 16 + 8), long_rows=None, columns=None):
+        """columns: [(column index, pane id, frame_x, frame_width)] of workspace W besides pane P1 (column 0)."""
         screen_text = "$ echo r3-1 $(stty size)\nr3-1 %d %d\n" % (pty[1], pty[0]) if pty else ""
         if long_rows:
             screen_text += "\n".join(long_rows) + "\n"
@@ -490,8 +491,11 @@ class Resize(unittest.TestCase):
                   "surface": {"grid": grid, "fit_grid": fit, "drawn_grid": drawn},
                   "grid": {"cell_width": 8, "cell_height": 16, "frame_x": 0, "frame_y": 0, "origin_x": 4, "origin_y": 4,
                            "frame_width": frame[0], "frame_height": frame[1]}}]
-        for key, width in (widths or {}).items():
-            panes.append({"pane": key, "workspace": "W", "content_size": "%sx400" % width})
+        topo_panes = [{"id": "P1", "column": 0}]
+        for column, key, x0, width in (columns or []):
+            panes.append({"pane": key, "workspace": "W", "content_size": "%dx400" % int(width),
+                          "grid": {"frame_x": x0, "frame_width": width}})
+            topo_panes.append({"id": key, "column": column})
 
         class App:
             def panes(self_):
@@ -503,15 +507,16 @@ class Resize(unittest.TestCase):
         class J:
             app = App()
             vars = {}
+            pane = "P1"
             smoke_named = {"right": {"pane": "P1", "term": "T1"}}
-            ext_remembered = {"right0": {"grid": (70, 24)}}
+            ext_remembered = {"right0": {"grid": (70, 24)}, "right1": {"grid": (90, 24)}}
             smoke_long = {"LL": 95}
 
             def sub(self_, x):
                 return x
 
             def topology(self_):
-                return {}
+                return {"workspaces": [{"id": "W", "screens": [{"panes": topo_panes}]}]}
 
             @staticmethod
             def places(_topology):
@@ -529,12 +534,24 @@ class Resize(unittest.TestCase):
     def test_r3_fails_on_each_mismatch_and_reports_every_size(self):
         for kwargs, word in ((dict(fit="79x24"), "fit_grid"), (dict(drawn="70x24"), "drawn_grid"),
                              (dict(daemon=(70, 24)), "daemon"), (dict(topo=(70, 24)), "topology"),
-                             (dict(pty=(70, 24)), "pty"), (dict(frame=(70 * 8 + 8, 24 * 16 + 8)), "bounds"),
-                             (dict(pty=None), "pty")):
+                             (dict(pty=(70, 24)), "pty"), (dict(frame=(70 * 8 + 8, 24 * 16 + 8)), "fit(bounds)"),
+                             (dict(frame=(81 * 8 + 8, 24 * 16 + 8)), "fit(bounds)"), (dict(pty=None), "pty")):
             ok, detail = self.r3(self.journey(**kwargs))
             self.assertFalse(ok, (kwargs, detail))
             self.assertTrue(any(word in p for p in detail["problems"]), (kwargs, detail["problems"]))
             self.assertEqual(set(detail["sizes"]), {"grid", "fit_grid", "drawn_grid", "fit_bounds", "pty", "daemon", "topology"})
+
+    def test_a_terminal_that_did_not_resize_fails_the_window_check(self):
+        # After the window drag the pane must be narrower than right1 (90 cols): 80 passes; a pane that stayed at
+        # 90 (the window resized, the terminal did not) fails, although its seven sizes agree.
+        ok, detail = self.r3(self.journey(), vs="right1", cols="narrower")
+        self.assertTrue(ok, detail)
+        same = self.journey(grid="90x24", fit="90x24", drawn="90x24", daemon=(90, 24), topo=(90, 24), pty=(90, 24),
+                            frame=(90 * 8 + 8, 24 * 16 + 8))
+        ok, detail = self.r3(same, vs="right1", cols="narrower")
+        self.assertFalse(ok)
+        self.assertTrue(any("not narrower" in p for p in detail["problems"]), detail["problems"])
+        self.assertIn("smoke_r3", self.ext.NEGATIVE)
 
     def test_the_long_line_must_wrap_at_the_new_width(self):
         good = ["LL" + "x" * 78, "x" * 15]
@@ -547,7 +564,7 @@ class Resize(unittest.TestCase):
         ok, detail = self.r3(self.journey(long_rows=None), long_tag="LL")
         self.assertFalse(ok)
 
-    def test_the_long_line_waits_for_the_prompt_before_its_keys(self):
+    def test_the_long_line_waits_for_the_prompt_and_exceeds_the_current_width(self):
         j = self.journey()
         screens = iter(["$ echo r3-1 $(stty size)\n", "$ echo r3-1 $(stty size)\nr3-1 24 80\n$ \n"])
         state = {"text": next(screens)}
@@ -560,32 +577,40 @@ class Resize(unittest.TestCase):
         typed = []
         j.key = lambda *a: typed.append(a)
         j.key_window = None
+        j.ext_remembered = {}
         sleep = self.ext.time.sleep
         self.ext.time.sleep = lambda s: None
         try:
-            result = self.ext.step_smoke_long_line(j, {"tag": "LL", "longer_than": ["right"]})
+            result = self.ext.step_smoke_long_line(j, {"tag": "LL"})
+            self.assertEqual(result["length"], 95)  # the current pane's 80 columns + 15
+            self.assertGreater(len(typed), 0)
+            j.pane = "P9"  # the focused pane is not the current one: the keys would go elsewhere
+            with self.assertRaises(self.StepError):
+                self.ext.step_smoke_long_line(j, {"tag": "LL2"})
         finally:
             self.ext.time.sleep = sleep
-        self.assertEqual(result["length"], 95)
-        self.assertGreater(len(typed), 0)
 
     def test_r3b_any_old_column_width_change_fails_with_old_and_new(self):
-        j = self.journey(widths={"P2": 300.0})
+        base = [(1, "P2", 650.0, 300.0)]
+        j = self.journey(columns=base)
         self.ext.step_smoke_widths(j, {"name": "c0"})
-        same = self.journey(widths={"P2": 300.0, "P3": 300.0})
+        # A new column after column 0 shifts P2 to index 2; it is matched by its pane, not its index.
+        same = self.journey(columns=[(1, "P3", 650.0, 300.0), (2, "P2", 951.0, 300.0)])
         same.smoke_width_snaps = j.smoke_width_snaps
         ok, detail = self.ext.cond_smoke_same_widths(same, {"since": "c0", "new": 1}, {})
         self.assertTrue(ok, detail)
-        moved = self.journey(widths={"P2": 299.5, "P3": 300.0})
+        moved = self.journey(columns=[(1, "P3", 650.0, 300.0), (2, "P2", 951.0, 299.5)])
         moved.smoke_width_snaps = j.smoke_width_snaps
         ok, detail = self.ext.cond_smoke_same_widths(moved, {"since": "c0", "new": 1}, {})
         self.assertFalse(ok)
-        self.assertEqual(detail["changed"], {"P2": {"old": 300.0, "new": 299.5}})
-        none_new = self.journey(widths={"P2": 300.0})
-        none_new.smoke_width_snaps = j.smoke_width_snaps
-        self.assertFalse(self.ext.cond_smoke_same_widths(none_new, {"since": "c0", "new": 1}, {})[0])
+        self.assertEqual({k: (v["old"], v["new"]) for k, v in detail["changed"].items()}, {"1": (300.0, 299.5)})
+        # A split inside a column is no new column: "1 new" fails.
+        split = self.journey(columns=[(1, "P2", 650.0, 300.0), (1, "P4", 650.0, 300.0)])
+        split.smoke_width_snaps = j.smoke_width_snaps
+        ok, detail = self.ext.cond_smoke_same_widths(split, {"since": "c0", "new": 1}, {})
+        self.assertFalse(ok)
+        self.assertTrue(any("new columns" in p for p in detail["problems"]), detail["problems"])
         self.assertIn("smoke_same_widths", self.ext.NEGATIVE)
-
 
 class Loads(unittest.TestCase):
     def test_the_smoke_journey_and_its_steps_load(self):
