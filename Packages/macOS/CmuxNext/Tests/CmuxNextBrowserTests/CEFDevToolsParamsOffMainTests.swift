@@ -69,6 +69,39 @@ import Testing
         #expect(sent.map(\.params) == [#"{"text":"a"}"#], "sent in the task's first turn, as before")
     }
 
+    /// An agent's `browser screenshot` (`CEFTab.snapshot`): the answer is a viewport PNG as base64, megabytes for a
+    /// Retina window; its base64 and PNG decode must not run on the main actor.
+    @Test func aLargeScreenshotAnswerIsDecodedOffTheMainActor() async throws {
+        let rig = try Rig()
+        defer { rig.close() }
+        let tab = try rig.attachedTab()
+        let answer = try Self.screenshotAnswer(width: 3_840, height: 2_400)
+        var image: CGImage?
+        Task { image = try? await tab.snapshot() }
+        await rig.until { Recorder.sent(["Page.captureScreenshot"]).count == 1 }
+        let message = try #require(Recorder.lastMessage)
+        rig.runtime.handle(.devToolsResult(browser: Rig.browser, messageID: message, success: true, json: answer))
+        let longest = await rig.longestMainActorJob { image != nil }
+        #expect(image?.width == 3_840, "the picture arrives")
+        #expect(longest < Self.budget, "a \(answer.utf8.count >> 20) MB screenshot answer held the main actor \(longest) (budget \(Self.budget))")
+    }
+
+    /// `Page.captureScreenshot`'s result for a noisy (hard to compress) PNG of `width` x `height`.
+    static func screenshotAnswer(width: Int, height: Int) throws -> String {
+        var pixels = [UInt8](repeating: 0, count: width * height * 4)
+        var seed: UInt32 = 2_463_534_242
+        for i in pixels.indices {
+            seed ^= seed << 13; seed ^= seed >> 17; seed ^= seed << 5
+            pixels[i] = i % 4 == 3 ? 255 : UInt8(truncatingIfNeeded: seed)
+        }
+        let image = try #require(pixels.withUnsafeMutableBytes { bytes in
+            CGContext(data: bytes.baseAddress, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
+                      space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)?.makeImage()
+        })
+        let png = try #require(NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]))
+        return #"{"data":""# + png.base64EncodedString() + #""}"#
+    }
+
     // MARK: Rig
 
     @MainActor final class Rig {
@@ -129,11 +162,14 @@ private nonisolated enum Recorder {
     nonisolated(unsafe) static var calls: [Call] = []
     nonisolated(unsafe) static var forkAPI: Int32 = 29
     nonisolated(unsafe) static var nextMessage: Int32 = 1
+    /// The message id the last DevTools call got.
+    nonisolated(unsafe) static var lastMessage: Int32?
 
     static func reset(forkAPI api: Int32) {
         forkAPI = api
         calls = []
         nextMessage = 1
+        lastMessage = nil
     }
 
     /// The calls of `methods`, in the order they reached the shim.
@@ -147,6 +183,7 @@ private nonisolated enum Recorder {
             Recorder.calls.append(Call(method: method.map { String(cString: $0) } ?? "",
                                        params: bytes < 256 ? params.map { String(cString: $0) } ?? "" : "", paramsBytes: bytes))
             Recorder.nextMessage += 1
+            Recorder.lastMessage = Recorder.nextMessage
             return Recorder.nextMessage
         }
         let freeze: @convention(c) (Int32, Int32) -> Int32 = { _, _ in
