@@ -394,6 +394,9 @@ public struct CloudAttachEndpoint: Sendable, Hashable, Decodable {
     /// boundary (acpmux `hub/vm_boundary.rs`). Missing, null or any other string keeps them
     /// sandboxed; a value of another type fails the attach.
     public var callerOwnsVM: Bool { vmKind == "owner" }
+    /// Only the exact `"team"`: the Cloud API says the machine is a teammate's, so its owner starts
+    /// chats there. Grants nothing; it only names the refusal (``CloudMachineLink/callerIsTeammate``).
+    public var callerIsTeammate: Bool { vmKind == "team" }
 }
 
 public struct CloudEnrollmentApproval: Sendable, Hashable, Decodable {

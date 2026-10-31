@@ -17906,6 +17906,268 @@
         }
       }
     },
+    "cloud.cli.networkAccessMustBeOneOf": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Access must be one of: %@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アクセスには次のいずれかを指定してください: %@。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يجب أن يكون الوصول واحدًا من: %@."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pristup mora biti jedno od: %@."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adgang skal være en af: %@."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Zugriff muss einer dieser Werte sein: %@."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El acceso debe ser uno de: %@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’accès doit être l’une des valeurs suivantes : %@."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’accesso deve essere uno tra: %@."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការចូលប្រើត្រូវតែជាមួយក្នុងចំណោម៖ %@។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "접근은 다음 중 하나여야 합니다: %@."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tilgang må være én av: %@."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dostęp musi mieć jedną z wartości: %@."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O acesso deve ser um destes: %@."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Доступ должен быть одним из значений: %@."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การเข้าถึงต้องเป็นค่าใดค่าหนึ่งต่อไปนี้: %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erişim şunlardan biri olmalıdır: %@."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Доступ має бути одним зі значень: %@."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quyền truy cập phải là một trong: %@."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "访问级别必须是以下之一：%@。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "存取層級必須是下列其中之一：%@。"
+          }
+        }
+      }
+    },
+    "cloud.cli.networkAccessAgentWidens": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An agent can only turn a machine's internet access off. To choose another level, use Internet Access… in the machine's menu."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントができるのは、マシンのインターネットアクセスをオフにすることだけです。ほかのレベルを選ぶには、マシンのメニューの「インターネットアクセス…」を使ってください。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يمكن للوكيل فقط إيقاف وصول الآلة إلى الإنترنت. لاختيار مستوى آخر، استخدم «الوصول إلى الإنترنت…» في قائمة الآلة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent može samo isključiti pristup internetu za mašinu. Za drugi nivo koristite Pristup internetu… u meniju mašine."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En agent kan kun slå maskinens internetadgang fra. Vælg et andet niveau med Internetadgang… i maskinens menu."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Agent kann den Internetzugang einer Maschine nur ausschalten. Eine andere Stufe wählst du über „Internetzugang…“ im Menü der Maschine."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un agente solo puede desactivar el acceso a internet de una máquina. Para elegir otro nivel, usa Acceso a internet… en el menú de la máquina."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un agent peut seulement couper l’accès à Internet d’une machine. Pour choisir un autre niveau, utilisez Accès à Internet… dans le menu de la machine."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un agente può solo disattivare l’accesso a internet di una macchina. Per scegliere un altro livello, usa Accesso a internet… nel menu della macchina."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ភ្នាក់ងារអាចត្រឹមតែបិទការចូលប្រើអ៊ីនធឺណិតរបស់ម៉ាស៊ីនប៉ុណ្ណោះ។ ដើម្បីជ្រើសកម្រិតផ្សេង សូមប្រើ «ការចូលប្រើអ៊ីនធឺណិត…» នៅក្នុងម៉ឺនុយរបស់ម៉ាស៊ីន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트는 머신의 인터넷 액세스를 끄는 것만 할 수 있습니다. 다른 수준을 선택하려면 머신 메뉴의 인터넷 액세스…를 사용하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En agent kan bare slå av maskinens internettilgang. Velg et annet nivå med Internettilgang… i maskinens meny."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent może jedynie wyłączyć dostęp maszyny do internetu. Aby wybrać inny poziom, użyj opcji Dostęp do internetu… w menu maszyny."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Um agente só pode desativar o acesso à internet de uma máquina. Para escolher outro nível, use Acesso à internet… no menu da máquina."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Агент может только отключить доступ машины к интернету. Чтобы выбрать другой уровень, используйте «Доступ к интернету…» в меню машины."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เอเจนต์ทำได้เพียงปิดการเข้าถึงอินเทอร์เน็ตของเครื่องเท่านั้น หากต้องการเลือกระดับอื่น ให้ใช้ การเข้าถึงอินเทอร์เน็ต… ในเมนูของเครื่อง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bir ajan yalnızca makinenin internet erişimini kapatabilir. Başka bir düzey seçmek için makinenin menüsündeki İnternet Erişimi… seçeneğini kullanın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Агент може лише вимкнути доступ машини до інтернету. Щоб вибрати інший рівень, скористайтеся пунктом «Доступ до інтернету…» у меню машини."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tác tử chỉ có thể tắt quyền truy cập internet của máy. Để chọn mức khác, hãy dùng Truy cập internet… trong menu của máy."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理只能关闭机器的互联网访问。如需选择其他级别，请使用机器菜单中的“互联网访问…”。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理程式只能關閉機器的網際網路存取。若要選擇其他層級，請使用機器選單中的「網際網路存取…」。"
+          }
+        }
+      }
+    },
     "cloud.link.unsupported": {
       "comment": "A Cloud machine connect needs a connection path this cmux build does not have yet.",
       "extractionState": "manual",
@@ -18430,666 +18692,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "機器的連線尚未就緒（%@）。按一下「連線」再試一次。"
-          }
-        }
-      }
-    },
-    "cloud.network.networkIDRequired": {
-      "comment": "A tunnel network action ran without a network id. --path <network-id> is the CLI flag and `cmux cloud network-list` a command; keep both as they are.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pass the network id with --path <network-id>; `cmux cloud network-list` lists ids."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "مرّر معرّف الشبكة باستخدام --path <network-id>؛ يعرض `cmux cloud network-list` المعرّفات."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Proslijedite id mreže pomoću --path <network-id>; `cmux cloud network-list` prikazuje id-ove."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Angiv netværks-id'et med --path <network-id>; `cmux cloud network-list` viser id'erne."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Gib die Netzwerk-ID mit --path <network-id> an; `cmux cloud network-list` listet die IDs auf."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pasa el id de la red con --path <network-id>; `cmux cloud network-list` muestra los ids."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Indiquez l'identifiant du réseau avec --path <network-id> ; `cmux cloud network-list` affiche les identifiants."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Passa l'id della rete con --path <network-id>; `cmux cloud network-list` elenca gli id."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ネットワーク ID を --path <network-id> で指定してください。`cmux cloud network-list` で ID の一覧を表示できます。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "បញ្ជូនលេខសម្គាល់បណ្ដាញដោយប្រើ --path <network-id>; `cmux cloud network-list` បង្ហាញលេខសម្គាល់។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "--path <network-id>로 네트워크 ID를 전달하세요. `cmux cloud network-list`로 ID 목록을 볼 수 있습니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Oppgi nettverks-ID-en med --path <network-id>; `cmux cloud network-list` viser ID-ene."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Podaj identyfikator sieci w --path <network-id>; `cmux cloud network-list` wyświetla identyfikatory."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Passe o id da rede com --path <network-id>; `cmux cloud network-list` lista os ids."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Передайте идентификатор сети через --path <network-id>; `cmux cloud network-list` показывает идентификаторы."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ส่งรหัสเครือข่ายด้วย --path <network-id> `cmux cloud network-list` แสดงรายการรหัส"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ağ kimliğini --path <network-id> ile verin; `cmux cloud network-list` kimlikleri listeler."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Передайте ідентифікатор мережі через --path <network-id>; `cmux cloud network-list` показує ідентифікатори."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Truyền id mạng bằng --path <network-id>; `cmux cloud network-list` liệt kê các id."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "用 --path <network-id> 传入网络 id；`cmux cloud network-list` 会列出 id。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "用 --path <network-id> 傳入網路 id；`cmux cloud network-list` 會列出 id。"
-          }
-        }
-      }
-    },
-    "cloud.network.ruleIDRequired": {
-      "comment": "A firewall rule action ran without a rule id. --path <rule-id> is the CLI flag and `cmux cloud firewall-list` a command; keep both as they are.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pass the firewall rule id with --path <rule-id>; `cmux cloud firewall-list` lists ids."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "مرّر معرّف قاعدة جدار الحماية باستخدام --path <rule-id>؛ يعرض `cmux cloud firewall-list` المعرّفات."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Proslijedite id pravila zaštitnog zida pomoću --path <rule-id>; `cmux cloud firewall-list` prikazuje id-ove."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Angiv firewallreglens id med --path <rule-id>; `cmux cloud firewall-list` viser id'erne."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Gib die ID der Firewall-Regel mit --path <rule-id> an; `cmux cloud firewall-list` listet die IDs auf."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pasa el id de la regla del firewall con --path <rule-id>; `cmux cloud firewall-list` muestra los ids."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Indiquez l'identifiant de la règle de pare-feu avec --path <rule-id> ; `cmux cloud firewall-list` affiche les identifiants."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Passa l'id della regola del firewall con --path <rule-id>; `cmux cloud firewall-list` elenca gli id."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ファイアウォールルールの ID を --path <rule-id> で指定してください。`cmux cloud firewall-list` で ID の一覧を表示できます。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "បញ្ជូនលេខសម្គាល់ច្បាប់ជញ្ជាំងភ្លើងដោយប្រើ --path <rule-id>; `cmux cloud firewall-list` បង្ហាញលេខសម្គាល់។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "--path <rule-id>로 방화벽 규칙 ID를 전달하세요. `cmux cloud firewall-list`로 ID 목록을 볼 수 있습니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Oppgi ID-en til brannmurregelen med --path <rule-id>; `cmux cloud firewall-list` viser ID-ene."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Podaj identyfikator reguły zapory w --path <rule-id>; `cmux cloud firewall-list` wyświetla identyfikatory."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Passe o id da regra de firewall com --path <rule-id>; `cmux cloud firewall-list` lista os ids."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Передайте идентификатор правила брандмауэра через --path <rule-id>; `cmux cloud firewall-list` показывает идентификаторы."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ส่งรหัสกฎไฟร์วอลล์ด้วย --path <rule-id> `cmux cloud firewall-list` แสดงรายการรหัส"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Güvenlik duvarı kuralının kimliğini --path <rule-id> ile verin; `cmux cloud firewall-list` kimlikleri listeler."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Передайте ідентифікатор правила брандмауера через --path <rule-id>; `cmux cloud firewall-list` показує ідентифікатори."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Truyền id quy tắc tường lửa bằng --path <rule-id>; `cmux cloud firewall-list` liệt kê các id."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "用 --path <rule-id> 传入防火墙规则 id；`cmux cloud firewall-list` 会列出 id。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "用 --path <rule-id> 傳入防火牆規則 id；`cmux cloud firewall-list` 會列出 id。"
-          }
-        }
-      }
-    },
-    "cloud.network.ruleJSONRequired": {
-      "comment": "cloud firewall-create got no valid rule. The --path '{…}' example is literal JSON the CLI takes; keep it exactly as it is, including the quotes.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pass the rule as JSON with a source and a destination, for example --path '{\"source\":{\"vmId\":\"<machine-id>\"},\"destination\":{\"cidr\":\"10.0.0.0/24\",\"port\":443,\"protocol\":\"tcp\"}}'."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "مرّر القاعدة بصيغة JSON مع مصدر ووجهة، مثلًا --path '{\"source\":{\"vmId\":\"<machine-id>\"},\"destination\":{\"cidr\":\"10.0.0.0/24\",\"port\":443,\"protocol\":\"tcp\"}}'."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Proslijedite pravilo kao JSON s izvorom i odredištem, na primjer --path '{\"source\":{\"vmId\":\"<machine-id>\"},\"destination\":{\"cidr\":\"10.0.0.0/24\",\"port\":443,\"protocol\":\"tcp\"}}'."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Angiv reglen som JSON med en kilde og en destination, for eksempel --path '{\"source\":{\"vmId\":\"<machine-id>\"},\"destination\":{\"cidr\":\"10.0.0.0/24\",\"port\":443,\"protocol\":\"tcp\"}}'."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Gib die Regel als JSON mit Quelle und Ziel an, zum Beispiel --path '{\"source\":{\"vmId\":\"<machine-id>\"},\"destination\":{\"cidr\":\"10.0.0.0/24\",\"port\":443,\"protocol\":\"tcp\"}}'."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pasa la regla como JSON con un origen y un destino, por ejemplo --path '{\"source\":{\"vmId\":\"<machine-id>\"},\"destination\":{\"cidr\":\"10.0.0.0/24\",\"port\":443,\"protocol\":\"tcp\"}}'."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Indiquez la règle en JSON avec une source et une destination, par exemple --path '{\"source\":{\"vmId\":\"<machine-id>\"},\"destination\":{\"cidr\":\"10.0.0.0/24\",\"port\":443,\"protocol\":\"tcp\"}}'."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Passa la regola come JSON con un'origine e una destinazione, per esempio --path '{\"source\":{\"vmId\":\"<machine-id>\"},\"destination\":{\"cidr\":\"10.0.0.0/24\",\"port\":443,\"protocol\":\"tcp\"}}'."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ルールは送信元と宛先を含む JSON で指定してください。例: --path '{\"source\":{\"vmId\":\"<machine-id>\"},\"destination\":{\"cidr\":\"10.0.0.0/24\",\"port\":443,\"protocol\":\"tcp\"}}'"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "បញ្ជូនច្បាប់ជា JSON ដែលមានប្រភព និងគោលដៅ ឧទាហរណ៍ --path '{\"source\":{\"vmId\":\"<machine-id>\"},\"destination\":{\"cidr\":\"10.0.0.0/24\",\"port\":443,\"protocol\":\"tcp\"}}'។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "출발지와 목적지가 있는 JSON으로 규칙을 전달하세요. 예: --path '{\"source\":{\"vmId\":\"<machine-id>\"},\"destination\":{\"cidr\":\"10.0.0.0/24\",\"port\":443,\"protocol\":\"tcp\"}}'"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Oppgi regelen som JSON med en kilde og et mål, for eksempel --path '{\"source\":{\"vmId\":\"<machine-id>\"},\"destination\":{\"cidr\":\"10.0.0.0/24\",\"port\":443,\"protocol\":\"tcp\"}}'."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Podaj regułę jako JSON ze źródłem i celem, na przykład --path '{\"source\":{\"vmId\":\"<machine-id>\"},\"destination\":{\"cidr\":\"10.0.0.0/24\",\"port\":443,\"protocol\":\"tcp\"}}'."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Passe a regra como JSON com uma origem e um destino, por exemplo --path '{\"source\":{\"vmId\":\"<machine-id>\"},\"destination\":{\"cidr\":\"10.0.0.0/24\",\"port\":443,\"protocol\":\"tcp\"}}'."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Передайте правило в формате JSON с источником и назначением, например --path '{\"source\":{\"vmId\":\"<machine-id>\"},\"destination\":{\"cidr\":\"10.0.0.0/24\",\"port\":443,\"protocol\":\"tcp\"}}'."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ส่งกฎเป็น JSON ที่มีต้นทางและปลายทาง เช่น --path '{\"source\":{\"vmId\":\"<machine-id>\"},\"destination\":{\"cidr\":\"10.0.0.0/24\",\"port\":443,\"protocol\":\"tcp\"}}'"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kuralı bir kaynak ve bir hedefle JSON olarak verin, örneğin --path '{\"source\":{\"vmId\":\"<machine-id>\"},\"destination\":{\"cidr\":\"10.0.0.0/24\",\"port\":443,\"protocol\":\"tcp\"}}'."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Передайте правило у форматі JSON із джерелом і призначенням, наприклад --path '{\"source\":{\"vmId\":\"<machine-id>\"},\"destination\":{\"cidr\":\"10.0.0.0/24\",\"port\":443,\"protocol\":\"tcp\"}}'."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Truyền quy tắc dưới dạng JSON có nguồn và đích, ví dụ --path '{\"source\":{\"vmId\":\"<machine-id>\"},\"destination\":{\"cidr\":\"10.0.0.0/24\",\"port\":443,\"protocol\":\"tcp\"}}'."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "以包含来源和目标的 JSON 传入规则，例如 --path '{\"source\":{\"vmId\":\"<machine-id>\"},\"destination\":{\"cidr\":\"10.0.0.0/24\",\"port\":443,\"protocol\":\"tcp\"}}'。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "以包含來源和目的地的 JSON 傳入規則，例如 --path '{\"source\":{\"vmId\":\"<machine-id>\"},\"destination\":{\"cidr\":\"10.0.0.0/24\",\"port\":443,\"protocol\":\"tcp\"}}'。"
-          }
-        }
-      }
-    },
-    "cloud.result.domainsTitle": {
-      "comment": "Title of the sheet that lists the team's custom Cloud domains.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud Domains"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "نطاقات Cloud"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud domene"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud-domæner"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud-Domains"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dominios de Cloud"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Domaines Cloud"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Domini Cloud"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud ドメイン"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ដែន Cloud"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud 도메인"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud-domener"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Domeny Cloud"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Domínios do Cloud"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Домены Cloud"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "โดเมน Cloud"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud alan adları"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Домени Cloud"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tên miền Cloud"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud 域名"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud 網域"
-          }
-        }
-      }
-    },
-    "cloud.result.publicationsTitle": {
-      "comment": "Title of the sheet that lists the team's published Cloud hostnames (a machine port served on a domain).",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud Publications"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "منشورات Cloud"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud objave"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud-publiceringer"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud-Veröffentlichungen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Publicaciones de Cloud"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Publications Cloud"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pubblicazioni Cloud"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud 公開"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ការបោះពុម្ពផ្សាយ Cloud"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud 게시"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud-publiseringer"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Publikacje Cloud"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Publicações do Cloud"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Публикации Cloud"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "การเผยแพร่ Cloud"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud yayınları"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Публікації Cloud"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bản xuất bản Cloud"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud 发布"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud 發布"
           }
         }
       }
