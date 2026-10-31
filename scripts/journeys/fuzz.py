@@ -29,6 +29,7 @@ speed regression), NOT JUDGED (a round did not run), DIAGNOSTIC. Writes OUT/summ
 Exit 0 CLEAN, 1 RED, 75 NOT JUDGED or DIAGNOSTIC without a red, 2 usage. Fleet only: never on a person's Mac.
 """
 import argparse
+import calendar
 import importlib.util
 import json
 import os
@@ -178,7 +179,7 @@ def wait_go(opts, what):
             expired = until < time.time()
         elif isinstance(until, str):
             try:
-                expired = time.mktime(time.strptime(until[:19], "%Y-%m-%dT%H:%M:%S")) - time.timezone < time.time()
+                expired = calendar.timegm(time.strptime(until[:19], "%Y-%m-%dT%H:%M:%S")) < time.time()  # UTC
             except ValueError:
                 expired = False
         if not host or host not in allowed or expired:
@@ -221,7 +222,18 @@ class Runner:
 
     def lease(self, build, out, options, host=None):
         """One run.py round: the fuzz journey on BUILD in an exclusive lease (on HOST when given); (exit code,
-        journey row, fuzz report, the mini it ran on)."""
+        journey row, fuzz report, the mini it ran on). With --go-dir every lease (rounds, ddmin tries, confirmations)
+        waits for the scheduler's go file and leases only the mini it names, then writes the done file."""
+        opts = self.opts
+        if opts.go_dir:
+            host = wait_go(opts, out.name)
+            try:
+                return self._lease(build, out, options, host)
+            finally:
+                signal_done(opts, out.name, host, None)
+        return self._lease(build, out, options, host)
+
+    def _lease(self, build, out, options, host=None):
         opts = self.opts
         env = {**os.environ,
                "CAPTURE_HOST_ACQUIRE_TIMEOUT_SECONDS": os.environ.get("CAPTURE_HOST_ACQUIRE_TIMEOUT_SECONDS", "600"),
@@ -429,10 +441,7 @@ def main(argv=None):
                 continue
             job = opts.build if side == "test" else opts.base
             r_out = out / f"round-{n:03d}-{side}"
-            go_host = wait_go(opts, f"round {n} {side}") if opts.go_dir else None
-            code, row, report, used = runner.lease(job, r_out, options, go_host or host)
-            if opts.go_dir:
-                signal_done(opts, f"round {n} {side}", used, row.get("status"))
+            code, row, report, used = runner.lease(job, r_out, options, host)
             host = host or used
             rec = {"round": n, "build": side, "job": job, "label": label, "seed": seed if seed is not None else (report or {}).get("seed"),
                    "host": used, "status": row.get("status"), "reason": (row.get("reason") or "")[:300], "exit": code,

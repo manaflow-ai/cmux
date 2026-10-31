@@ -245,6 +245,14 @@ class Verdicts(unittest.TestCase):
         self.assertTrue(all(c["hosts"] == "cmux19" for c in calls), calls[:2])
         self.assertTrue((go / "fz.done").exists())
 
+    def test_iso_until_is_utc(self):
+        import types
+        tmp = Path(tempfile.mkdtemp())
+        soon = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() + 120))
+        (tmp / "fz.go").write_text(json.dumps({"host": "cmux19", "until": soon}))
+        opts = types.SimpleNamespace(go_dir=str(tmp), go_spec="fz", host=None, hosts="cmux19")
+        self.assertEqual(fuzz.wait_go(opts, "r"), "cmux19")
+
     def test_expired_or_foreign_go_is_dropped(self):
         import types
         tmp = Path(tempfile.mkdtemp())
