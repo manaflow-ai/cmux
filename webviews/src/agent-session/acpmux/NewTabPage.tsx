@@ -428,12 +428,22 @@ export function NewTabPage({
   // The kind a prefix switched from, so Backspace in the empty field switches back.
   const [beforePrefix, setBeforePrefix] = useState<TabKind>();
   const field = useRef<HTMLInputElement>(null);
-  const { attachments, setAttachments, pending, unsettled, cancel, retry, attachError, drop, dropLanded } =
-    useAttachmentIntake({
-      allowImages: snapshot.summary?.promptCapabilities?.image !== false,
-      pasteTarget: (target) => (kind === "agent" && field.current?.contains(target) ? { uploads: false } : undefined),
-      dropZone: () => field.current?.closest(".acpmux-newtab") ?? null,
-    });
+  const {
+    attachments,
+    setAttachments,
+    pending,
+    originalFailures,
+    unsettled,
+    cancel,
+    retry,
+    attachError,
+    drop,
+    dropLanded,
+  } = useAttachmentIntake({
+    allowImages: snapshot.summary?.promptCapabilities?.image !== false,
+    pasteTarget: (target) => (kind === "agent" && field.current?.contains(target) ? { uploads: false } : undefined),
+    dropZone: () => field.current?.closest(".acpmux-newtab") ?? null,
+  });
   const holdForAttachments = useSendWhenAttached(unsettled);
   const command = useNewTabCommand(
     text,
@@ -733,6 +743,7 @@ export function NewTabPage({
               field.current?.focus();
             }}
             onRetry={retry}
+            originalFailures={originalFailures}
             onReorder={(id, index) => setAttachments((current) => reordered(current, id, index))}
           />
           {dropHost && (
@@ -805,7 +816,8 @@ export function NewTabPage({
                 tabIndex={-1}
                 aria-selected={index === selected}
                 className={index === selected ? "acpmux-omni-row is-selected" : "acpmux-omni-row"}
-                onMouseMove={() => index !== selected && setSelected(index)}
+                // Hover only lights the row (styles.css); Return stays the keyboard's row, as on
+                // the New Tab screen (newtab/NewTabScreen.tsx). A press still runs the row.
                 onMouseDown={(event) => {
                   event.preventDefault();
                   activate(row);
