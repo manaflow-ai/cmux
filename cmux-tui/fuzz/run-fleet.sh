@@ -12,7 +12,7 @@
 #   run-fleet.sh tsan [FILTER]                     cmux-tui-core's daemon tests
 #                                                  (server, diagnostics, journal
 #                                                  ingress) under ThreadSanitizer
-#   run-fleet.sh loom                              the loom models (cargo test --cfg loom)
+#   run-fleet.sh loom [MODEL [SECONDS]]            the loom models, each alone under a time limit
 #   run-fleet.sh check                             compile every target, test and model
 #
 # Each run ends with one line `FUZZ-VERDICT <mode> PASS|FAIL <reason>|NOVERDICT
@@ -231,17 +231,33 @@ case "$mode" in
     verdict "PASS filters=${filters[*]}"
     ;;
   loom)
+    # loom [MODEL [SECONDS]]: each model (a tests/*.rs of loom/) runs alone under
+    # a time limit, so one model with too many states cannot hide the others.
+    model="${2:-}"
+    limit="${3:-1500}"
+    [[ -z "$model" || "$model" =~ ^[a-z_]+$ ]] || die_noverdict "bad MODEL"
+    [[ "$limit" =~ ^[0-9]+$ ]] || die_noverdict "SECONDS must be a number"
     need_nightly; need_lock
     cd "$here"
-    set +e
-    RUSTFLAGS="--cfg loom" cargo test --release -p cmux-tui-loom -- --nocapture --test-threads 4 2>&1 | tail -120
-    rc=${PIPESTATUS[0]}
-    set -e
-    case $rc in
-      0) verdict "PASS" ;;
-      101) verdict "FAIL a loom model failed"; exit 1 ;;
-      *) verdict "NOVERDICT cargo exited $rc (build failure)"; exit 3 ;;
-    esac
+    models=(admission journal_queue registry_receipt)
+    [[ -n "$model" ]] && models=("$model")
+    RUSTFLAGS="--cfg loom" cargo test --release -p cmux-tui-loom --no-run 2>&1 | grep -E "^(error|warning: unused)" -A8 | head -60
+    [[ ${PIPESTATUS[0]} -eq 0 ]] || die_noverdict "the loom models do not build"
+    failed=() timed_out=()
+    for m in "${models[@]}"; do
+      echo "=== loom $m (limit ${limit}s)"
+      start=$SECONDS
+      set +e
+      RUSTFLAGS="--cfg loom" timeout --kill-after=30 "$limit" \
+        cargo test --release -p cmux-tui-loom --test "$m" -- --nocapture --test-threads 1 2>&1 | \
+        grep -E -A6 "^test |test result|panicked at|Completed in|iterations" | head -120
+      rc=${PIPESTATUS[0]}
+      echo "loom $m: exit $rc after $((SECONDS - start))s"
+      case $rc in 0) ;; 124|137) timed_out+=("$m") ;; *) failed+=("$m") ;; esac
+    done
+    if [[ ${#failed[@]} -gt 0 ]]; then verdict "FAIL models=${failed[*]} timed_out=${timed_out[*]:-none}"; exit 1; fi
+    if [[ ${#timed_out[@]} -gt 0 ]]; then verdict "NOVERDICT models over the limit: ${timed_out[*]}"; exit 3; fi
+    verdict "PASS models=${models[*]}"
     ;;
   check)
     need_nightly; need_ghostty; need_lock
