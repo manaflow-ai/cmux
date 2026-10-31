@@ -237,15 +237,19 @@ impl Hub {
         // and in once the agent's writer took it.
         let inbox_notice = super::inbox::is_notice(opts.provenance.as_ref());
         // Another agent's steer, checked again as it is written: a chat that became a review box
-        // since (a `review.` tag) takes it as a turn of its own after the review (`inbox.rs`).
+        // since (a `review.` tag) takes it as a turn of its own after the review, and one where
+        // the person's prompt waits behind the running turn now as one after it (`inbox.rs`).
         let agent_steer = !opts.send_now
             && super::digest::agent_sender(opts.provenance.as_ref(), opts.agent.as_deref())
                 .is_some();
+        // A digest its drain asked to steer is not held behind a waiting prompt (`turns.rs`).
+        let digest = super::digest::inbox_digest::is_digest(opts.provenance.as_ref());
         let held = || {
             if inbox_notice {
                 super::inbox::notice_held(session)
             } else {
                 super::inbox::review_box(session)
+                    || (!digest && super::inbox::persons_prompt_waits(session))
             }
         };
         let answer = agent_prompt_hook(
