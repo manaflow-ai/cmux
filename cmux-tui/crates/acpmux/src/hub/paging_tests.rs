@@ -529,7 +529,8 @@ fn the_prompt_index_holds_every_prompt_cut_short_oldest_first() {
 #[test]
 #[ignore = "a measurement, not a check"]
 fn prompt_index_perf() {
-    let root = std::env::temp_dir().join(format!("acpmux-prompt-index-perf-{}", uuid::Uuid::now_v7()));
+    let root =
+        std::env::temp_dir().join(format!("acpmux-prompt-index-perf-{}", uuid::Uuid::now_v7()));
     let sessions = root.join("sessions");
     let writer = LocalStore::new(sessions.clone(), 8 << 20).unwrap();
     writer.save(&meta("c")).unwrap();
@@ -543,12 +544,16 @@ fn prompt_index_perf() {
     let mut pages_read = 0;
     for _ in 0..3 {
         let started = std::time::Instant::now();
-        let mut page = hub.events_page("c", 0, None, OPEN_LIMIT, Some(OPEN_BYTES), true, &transcript(true)).unwrap();
+        let mut page = hub
+            .events_page("c", 0, None, OPEN_LIMIT, Some(OPEN_BYTES), true, &transcript(true))
+            .unwrap();
         let mut pages = 1;
         let mut shown = prompts(&page);
         while page.has_more {
             let before = page.events.first().map(|r| r.seq);
-            page = hub.events_page("c", 0, before, OPEN_LIMIT, Some(256 * 1024), true, &transcript(true)).unwrap();
+            page = hub
+                .events_page("c", 0, before, OPEN_LIMIT, Some(256 * 1024), true, &transcript(true))
+                .unwrap();
             pages += 1;
             shown += prompts(&page);
         }

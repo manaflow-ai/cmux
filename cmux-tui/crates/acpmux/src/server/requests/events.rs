@@ -30,7 +30,8 @@ pub(super) fn handle(
     // reply, so the rail draws a long chat's every turn before its history pages in. A daemon
     // without it reads `promptIndex` as nothing and answers the bounded page the pane also asks for.
     if params.get("promptIndex").and_then(Value::as_bool) == Some(true) {
-        let records = hub.prompt_index(&s.id, before).map_err(|e| RpcError::internal(e.to_string()))?;
+        let records =
+            hub.prompt_index(&s.id, before).map_err(|e| RpcError::internal(e.to_string()))?;
         let through = newest_seq(&records);
         return Ok(json!({
             "events": values(&s.id, records),
