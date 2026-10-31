@@ -543,6 +543,8 @@ final class RowCell: UICollectionViewCell {
     var tiled: TiledBody?
     /// Markdown rows: scrollable blocks and copy buttons (MarkdownOverlay.swift).
     var markdownOverlay: MarkdownOverlay?
+    /// cmux: the Chief's status line's shimmer (HomeNoticeShimmer.swift), made on its first notice row.
+    var noticeShimmer: HomeNoticeShimmer?
     /// The row this cell waits for from the bitmap queue (renders nobody waits for are skipped).
     private var pendingWant: RowSpec?
     private func dropWant() { if let w = pendingWant { RowBitmaps.shared.unwant(w); pendingWant = nil } }
