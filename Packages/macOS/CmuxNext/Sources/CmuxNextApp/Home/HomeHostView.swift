@@ -157,20 +157,7 @@ final class HomeHostView: NSView {
             if url.isFileURL, url.path.hasPrefix("/") { fileActions?.open(URL(fileURLWithPath: url.path)); return }
             if let services { CmuxAppLinks.open(url, services: services) }
         }
-        // A key pasted in a message: held, and each one moves to the Credential Vault on its secure sheet (#26412).
-        transcript.secretHost = { [weak services] findings in
-            // No window to ask on: nil, the send stays held.
-            guard let services, let window = services.windows.active?.window else { return nil }
-            var moved: [(value: String, name: String)] = []
-            for finding in findings {
-                switch await services.credentialVault.movePasted(finding.value, suggestedName: finding.suggestedName, in: window) {
-                case .moved(let name): moved.append((finding.value, name))
-                case .cancelled: continue
-                case .failed: return moved.isEmpty ? nil : moved
-                }
-            }
-            return moved
-        }
+        transcript.connectCredentialVault(vault: services.credentialVault) { [weak services] in services?.windows.active?.window }
         // A link chip's hover card: the app's one coordinator, the target's live facts.
         transcript.enableLinkPreviews(coordinator: services.hoverCards, previewer: HomeLinkPreviewProvider(services: services))
         // Beside the pane showing this chat (the Home dock's: the first pane on its right), never the focused pane.
