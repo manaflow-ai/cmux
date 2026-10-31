@@ -114,3 +114,9 @@ slow-timeout = { period = "60s", terminate-after = 4, grace-period = "5s" }
 [[profile.ci.overrides]]
 filter = 'test(=lifecycle_latency_creates_and_closes_in_a_populated_session)'
 success-output = "final"
+
+# The VT fuzz's open-findings notice (issue #29136) is shown in every run, so a
+# pass with the reduced checks is not read as full coverage.
+[[profile.ci.overrides]]
+filter = 'binary_id(ghostty-vt::vt_resize_fuzz) & test(/known_open_findings/)'
+success-output = "final"

@@ -2964,6 +2964,7 @@ dependencies = [
  "base64",
  "ghostty-vt-sys",
  "png",
+ "proptest",
 ]
 
 [[package]]
