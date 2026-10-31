@@ -384,10 +384,14 @@ await requireBrowserLane("pr-dock-inline-layout.test.ts", () => {
         const tone = theme.endsWith("Light") ? "light" : "dark";
         try {
           const { port } = vite.httpServer!.address() as { port: number };
-          await page.goto(`http://127.0.0.1:${port}${galleryFrame("agent-pane.pr-dock", { variant, width: 760, theme })}`);
+          await page.goto(
+            `http://127.0.0.1:${port}${galleryFrame("agent-pane.pr-dock", { variant, width: 760, theme })}`,
+          );
           await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
           await page.locator(".acpmux-pr-dock").waitFor();
-          await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+          await page.evaluate(
+            () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
+          );
           await page.screenshot({ path: `${captures}/many-${variant}-${tone}.png` });
           const more = page.locator(".acpmux-pr-dock__more").last();
           if (await more.count()) {
@@ -453,7 +457,13 @@ await requireBrowserLane("pr-dock-inline-layout.test.ts", () => {
             const last = lines.at(-1)!;
             const dockBox = node.getBoundingClientRect();
             const row = paragraph.getBoundingClientRect();
-            return { lastBottom: last.bottom, dockTop: dockBox.top, dockRight: dockBox.right, rowRight: row.right, line: !!node.closest(".cv-tail-line") };
+            return {
+              lastBottom: last.bottom,
+              dockTop: dockBox.top,
+              dockRight: dockBox.right,
+              rowRight: row.right,
+              line: !!node.closest(".cv-tail-line"),
+            };
           });
           expect(place.line).toBe(true);
           expect(place.dockTop).toBeGreaterThanOrEqual(place.lastBottom - 1);
@@ -488,7 +498,9 @@ await requireBrowserLane("pr-dock-inline-layout.test.ts", () => {
     const page = await browser.newPage({ viewport: { width: 320, height: 660 } });
     try {
       const { port } = vite.httpServer!.address() as { port: number };
-      await page.goto(`http://127.0.0.1:${port}${galleryFrame("agent-pane.pr-dock", { variant: "numbers-only", width: 320 })}`);
+      await page.goto(
+        `http://127.0.0.1:${port}${galleryFrame("agent-pane.pr-dock", { variant: "numbers-only", width: 320 })}`,
+      );
       await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
       const chip = page.locator(".acpmux-pr-dock .acpmux-pr-dock__bar").first();
       await chip.waitFor();
