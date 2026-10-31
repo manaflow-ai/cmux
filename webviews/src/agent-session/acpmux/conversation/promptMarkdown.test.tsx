@@ -41,6 +41,9 @@ const MARKDOWN: [string, string, string][] = [
   ["dash list", "- one\n- two", "<li>"],
   ["star list", "* one\n* two", "<li>"],
   ["ordered list", "1. first\n2. second", "<ol"],
+  // Markdown.tsx's LIST_RE takes a number of any length (`\d+`), so the gate does too.
+  ["long ordered marker", "1234567890. first\n1234567891. second", "<ol"],
+  ["long ordered paren marker", "20261031001) first", "<ol"],
   ["list after prose", "do these:\n- one\n- two", "<li>"],
   ["indented list", "    - nested item", "<li>"],
   ["fence", "```ts\nconst a_b = 1;\n```", "<pre"],
@@ -103,6 +106,8 @@ describe("sent prompt Markdown gate", () => {
       `${" ".repeat(n)}|x`,
       `x | y\n|-- ${" ".repeat(n)}x`,
       `${"- ".repeat(n / 2)}`,
+      "1".repeat(n),
+      `${"1".repeat(n)}.`,
     ];
     const started = performance.now();
     for (const input of inputs) isPromptMarkdown(input);
