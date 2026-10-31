@@ -118,7 +118,7 @@ pub(super) enum Step {
     /// A turn ended: how, and the hand-off turn its prompt names, if it names one.
     Ended(End, Option<u64>),
     /// A failed turn's automatic continuation will not come (`auto_resume_settled`,
-    /// `auto_resume_exhausted`, `auto_resume_skipped`).
+    /// `auto_resume_exhausted`, `auto_resume_skipped`, `auto_resume_stopped`).
     NoRetry,
     /// A terminal retry decision observed after reporter restart, before its failed
     /// turn was seen. Carries the named hand-off turn so it can be closed.
@@ -160,12 +160,20 @@ pub(super) fn step_of(kind: &str, msg: &Value) -> Option<Step> {
     let named = || named_turn(msg["promptId"].as_str());
     match kind {
         "turn_started" => Some(Step::Began(named())),
-        "auto_resume_settled" | "auto_resume_exhausted" | "auto_resume_stopped" => {
+        "auto_resume_settled" | "auto_resume_exhausted" => {
             let Some(turn) = named_turn(msg["promptId"].as_str()) else {
                 return Some(Step::NoRetry);
             };
             let why = msg["why"].as_str().or_else(|| msg["reason"].as_str()).unwrap_or("policy");
             Some(Step::NoRetryFor { turn, why: format!("Automatic retry settled ({why}).") })
+        }
+        // A Stop ended the wait (`hub/auto_resume.rs` records only `turnId` and `promptId`):
+        // the person stopped it, no policy settled it.
+        "auto_resume_stopped" => {
+            let Some(turn) = named_turn(msg["promptId"].as_str()) else {
+                return Some(Step::NoRetry);
+            };
+            Some(Step::NoRetryFor { turn, why: "Automatic retry stopped.".to_owned() })
         }
         "auto_resume_skipped" => {
             let Some(turn) = named_turn(msg["promptId"].as_str()) else {

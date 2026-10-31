@@ -6,20 +6,27 @@
 //! and closes its own tab; what decides is here:
 //!
 //! - `plan --request JSON`: the machine the send takes ([`pick::destination`]):
-//!   the one its first try took while that machine exists, else, for a send
-//!   from a Mac workspace, that workspace's own machine or a new one, else
-//!   this person's free one or a new one named for chats; and the send's keys
-//!   ([`Keys`]). A machine that exists is pinned to the send (and is the
-//!   workspace's) before anything runs there, so a retry of the send names it.
-//! - `pin --key K --machine ID [--workspace W]`: pins the send to the machine
-//!   the App just made for it, and makes it the workspace's own.
-//! - `copy --key K --machine ID --socket PATH --local ROOT [--subpath SUB]
-//!   --work-root R...`: copies ROOT to the send's own place on the machine
-//!   (`cmux link sync push`), trying each work root in turn, unless this
-//!   send's copy already finished there: a second push would overwrite what
-//!   the chat changed since. Answers the chat's folder there.
+//!   the one its first try took while that machine exists; for a send from a
+//!   Mac workspace, that workspace's own machine, else a new one (Leo,
+//!   2026-10-30: "we'll want a vm for every single workspace"); for one from
+//!   no workspace, this person's free one, else a new one named for chats;
+//!   and the send's keys ([`Keys`]). A machine that exists is pinned to the
+//!   send before anything runs there, so a retry of the send names it.
+//! - `pin --key K --account A --machine ID [--workspace W]`: pins the send
+//!   to the machine the App just made for it, and makes it the workspace's.
+//! - `copy --key K --account A --machine ID --socket PATH --local ROOT
+//!   [--subpath SUB] --work-root R...`: copies ROOT to a folder of the send's
+//!   own on the machine (`cmux link sync push`), trying each work root in
+//!   turn, unless this send's copy already finished there: a second push
+//!   would overwrite what the chat changed since. Answers the chat's folder
+//!   there.
+//! - `import --entries JSON`: takes in the sends the App kept in its user
+//!   defaults before this did ([`Ledger::import`]), once, on upgrade.
 //!
-//! The pins live in this Mac's state folder ([`ledger`]). Output: one JSON
+//! Every send is kept under the account it began in (`account`: the user and
+//! the team, as the App spells them): a team switch keeps the person signed
+//! in, and a send of the previous team must never take, or copy to, this
+//! team's machine. The pins live in this Mac's state folder ([`ledger`]). Output: one JSON
 //! line on stdout, `{"ok":true,...}` with exit 0, or
 //! `{"ok":false,"error":...,"error_code":...}` with exit 1; bad usage exits 64.
 
@@ -32,12 +39,13 @@ use std::path::{Path, PathBuf};
 
 use serde_json::{Value, json};
 
-use ledger::Ledger;
+use ledger::{Ledger, Send};
 use pick::{Candidate, Destination};
 
 const USAGE: &str = "usage: cmux link start-chat plan --request JSON\n       \
-cmux link start-chat pin --key KEY --machine ID [--workspace ID]\n       \
-cmux link start-chat copy --key KEY --machine ID --socket PATH --local FOLDER [--subpath PATH] --work-root PATH...";
+cmux link start-chat pin --key KEY --account ACCOUNT --machine ID [--workspace ID]\n       \
+cmux link start-chat import --entries JSON\n       \
+cmux link start-chat copy --key KEY --account ACCOUNT --machine ID --socket PATH --local FOLDER [--subpath PATH] --work-root PATH...";
 
 /// The error code a work root the machine's user cannot write answers with:
 /// the next root is tried.
@@ -65,13 +73,14 @@ pub(super) fn run(args: &[String]) -> i32 {
     };
     let answer = match action.as_str() {
         "plan" => flags.one("--request").map(|request| plan(&ledger, request)),
-        "pin" => match (flags.key(), flags.one("--machine"), flags.workspace()) {
-            (Some(key), Some(machine), Some(workspace)) => {
-                Some(pin(&ledger, &key, machine, workspace))
+        "pin" => match (flags.key(), flags.account(), flags.one("--machine"), flags.workspace()) {
+            (Some(key), Some(account), Some(machine), Some(workspace)) => {
+                Some(pin(&ledger, &key, account, machine, workspace))
             }
             _ => None,
         },
         "copy" => StartCopy::of(&flags).map(|copy| copy.run(&ledger, &push)),
+        "import" => flags.one("--entries").map(|entries| import(&ledger, entries)),
         _ => None,
     };
     let Some(answer) = answer else {
@@ -92,9 +101,10 @@ pub(super) struct Keys {
     /// The creation key of the machine's chat tab: a retry gets the tab its
     /// first try made, never a second chat with the prompt again.
     pub(super) tab: String,
-    /// The folder under the machine's work root the send's copy goes to: its
+    /// The folder under the machine's work root the send's copies go in: its
     /// own, so a second chat from the same folder never writes over the first
-    /// one's changes on a reused machine.
+    /// one's changes on a reused machine. Each copy goes to a new folder in it
+    /// ([`StartCopy::run`]).
     pub(super) place: String,
 }
 
@@ -126,17 +136,24 @@ fn refused(code: &str, error: impl std::fmt::Display) -> Value {
     json!({"ok": false, "error": error.to_string(), "error_code": code})
 }
 
-/// A Mac workspace's id as the App names it: 1 to 128 characters, no control characters.
-pub(super) fn valid_workspace(workspace: &str) -> bool {
-    !workspace.is_empty() && workspace.len() <= 128 && !workspace.chars().any(char::is_control)
+/// The account a send began in, as the App spells it: printable, at most 512 bytes.
+pub(super) fn valid_account(account: &str) -> bool {
+    account.len() <= 512 && !account.chars().any(char::is_control)
 }
 
-/// What `plan` reads: the send, the Mac workspace it is sent from, who is
-/// signed in, and this app's Cloud machines.
+/// A Mac workspace's id, as the App spells it: 1 to 128 printable characters.
+pub(super) fn valid_workspace(workspace: &str) -> bool {
+    (1..=128).contains(&workspace.chars().count()) && !workspace.chars().any(char::is_control)
+}
+
+/// What `plan` reads: the send, the account it began in, the Mac workspace it
+/// came from, who is signed in, and the Cloud machines the App's list for
+/// that account named.
 #[derive(serde::Deserialize)]
 struct PlanRequest {
     key: String,
-    /// The Mac workspace the chat starts in; none from a caller that has none.
+    account: String,
+    /// The Mac workspace of the tab that sent; None for a send from no workspace.
     #[serde(default)]
     workspace: Option<String>,
     #[serde(default)]
@@ -145,8 +162,13 @@ struct PlanRequest {
     /// a pin names is kept (it may be one made for this send, not listed yet).
     #[serde(default)]
     loaded: bool,
+    /// The machines the account's list named: the only ones a send may take.
     #[serde(default)]
     machines: Vec<Candidate>,
+    /// Machines in the App's store that its list did not name yet (made
+    /// since): a send pinned to one keeps it, but none is picked.
+    #[serde(default)]
+    stored: Vec<String>,
 }
 
 /// `plan`: where the send goes, pinned when it is a machine that exists.
@@ -158,6 +180,9 @@ pub(super) fn plan(ledger: &Path, request: &str) -> Value {
     if !valid_key(&request.key) {
         return refused("bad_request", "the send's key is not a UUID");
     }
+    if !valid_account(&request.account) {
+        return refused("bad_request", "the account is too long or has control characters");
+    }
     let workspace = request.workspace.as_deref();
     if workspace.is_some_and(|workspace| !valid_workspace(workspace)) {
         return refused(
@@ -166,20 +191,25 @@ pub(super) fn plan(ledger: &Path, request: &str) -> Value {
         );
     }
     let keys = Keys::of(&request.key);
+    let send = Send::new(&request.key, &request.account);
     let planned = Ledger::update(ledger, |pins| {
         let destination = pick::destination(
-            &request.key,
+            &send,
+            &request.account,
             workspace,
             pins,
             &request.machines,
+            &request.stored,
             request.user.as_deref(),
             request.loaded,
         );
         if let Destination::Machine(id) = &destination {
-            pins.record(id, &request.key);
+            pins.record(id, &send);
             // A retry of an older send keeps its machine, never the workspace's newer one.
-            if let Some(workspace) = workspace.filter(|ws| pins.workspace_machine(ws).is_none()) {
-                pins.bind(workspace, id);
+            if let Some(workspace) = workspace
+                && pins.workspace_machine(workspace, &request.account).is_none()
+            {
+                pins.bind(workspace, &request.account, id);
             }
         }
         destination
@@ -200,17 +230,35 @@ pub(super) fn plan(ledger: &Path, request: &str) -> Value {
     line
 }
 
-/// `pin`: the send `key` runs on `machine` (one the App just made for it),
-/// which is the Mac workspace `workspace`'s own from now on.
-pub(super) fn pin(ledger: &Path, key: &str, machine: &str, workspace: Option<&str>) -> Value {
-    let pinned = Ledger::update(ledger, |pins| {
-        pins.record(machine, key);
+/// `pin`: the send `key` of `account` runs on `machine` (one the App just made
+/// for it), which is the Mac workspace `workspace`'s own from now on.
+pub(super) fn pin(
+    ledger: &Path,
+    key: &str,
+    account: &str,
+    machine: &str,
+    workspace: Option<&str>,
+) -> Value {
+    match Ledger::update(ledger, |pins| {
+        pins.record(machine, &Send::new(key, account));
         if let Some(workspace) = workspace {
-            pins.bind(workspace, machine);
+            pins.bind(workspace, account, machine);
         }
-    });
-    match pinned {
+    }) {
         Ok(()) => json!({"ok": true}),
+        Err(error) => refused("ledger_failed", format!("{error:#}")),
+    }
+}
+
+/// `import`: the sends the App kept before cmux-tui did, a JSON list of its
+/// entries ([`ledger::AppEntry`]).
+pub(super) fn import(ledger: &Path, entries: &str) -> Value {
+    let entries: Vec<ledger::AppEntry> = match serde_json::from_str(entries) {
+        Ok(entries) => entries,
+        Err(error) => return refused("bad_request", error),
+    };
+    match Ledger::update(ledger, |pins| pins.import(&entries)) {
+        Ok(count) => json!({"ok": true, "imported": count}),
         Err(error) => refused("ledger_failed", format!("{error:#}")),
     }
 }
@@ -235,6 +283,7 @@ fn push(socket: &Path, local: &Path, remote: &str) -> Result<(), (String, String
 #[derive(Clone, Debug)]
 pub(super) struct StartCopy {
     pub(super) key: String,
+    pub(super) account: String,
     pub(super) machine: String,
     pub(super) socket: PathBuf,
     /// The folder that is copied (a Git working copy's top, else the chat's
@@ -263,6 +312,7 @@ impl StartCopy {
         }
         Some(Self {
             key: flags.key()?,
+            account: flags.account()?.to_string(),
             machine: flags.one("--machine")?.to_string(),
             socket: PathBuf::from(flags.one("--socket")?),
             local: local.to_string(),
@@ -271,32 +321,46 @@ impl StartCopy {
         })
     }
 
-    /// The copied folder and the chat's folder in it, under `work_root`.
-    pub(super) fn remote(&self, work_root: &str) -> (String, String) {
-        let place = join(work_root, &Keys::of(&self.key).place);
-        let folder = join(&place, &remote_name(&self.local));
+    /// A new folder for one copy of the send, under its [`Keys::place`].
+    pub(super) fn fresh_place(&self) -> String {
+        let id = uuid::Uuid::new_v4().simple().to_string();
+        format!("{}/{}", Keys::of(&self.key).place, &id[..8])
+    }
+
+    /// The copied folder and the chat's folder in it, in `place` under `work_root`.
+    pub(super) fn remote(&self, work_root: &str, place: &str) -> (String, String) {
+        let folder = join(&join(work_root, place), &remote_name(&self.local));
         let chat =
             if self.subpath.is_empty() { folder.clone() } else { join(&folder, &self.subpath) };
         (folder, chat)
     }
 
     /// The copy, or the chat's folder of the one that already finished.
+    /// Each copy goes to a new folder, kept before the push starts: the
+    /// ledger is not locked during the push, which can take minutes, so a
+    /// copy whose answer was lost (it may have finished on the machine) or
+    /// a second copy of the same send at once never writes over another.
     pub(super) fn run(&self, ledger: &Path, push: &Push<'_>) -> Value {
-        // The ledger is not locked during the push, which can take minutes: a
-        // second copy of the same send at once is held off by the App's
-        // one-start-per-page hold, and would record the same folder.
-        match Ledger::update(ledger, |pins| pins.copied_chat(&self.key, &self.machine)) {
+        let send = Send::new(&self.key, &self.account);
+        let place = self.fresh_place();
+        match Ledger::update(ledger, |pins| {
+            let finished = pins.copied_chat(&send, &self.machine);
+            if finished.is_none() {
+                pins.start_copy(&send, &self.machine, &place);
+            }
+            finished
+        }) {
             Ok(Some(chat)) => return json!({"ok": true, "chat": chat, "copied": false}),
             Ok(None) => {}
             Err(error) => return refused("ledger_failed", format!("{error:#}")),
         }
         let mut last = ("sync_failed".to_string(), "no work root to copy to".to_string());
         for root in &self.work_roots {
-            let (folder, chat) = self.remote(root);
+            let (folder, chat) = self.remote(root, &place);
             match push(&self.socket, Path::new(&self.local), &folder) {
                 Ok(()) => {
                     return match Ledger::update(ledger, |pins| {
-                        pins.record_copy(&chat, &self.key, &self.machine);
+                        pins.record_copy(&chat, &send, &self.machine, &place);
                     }) {
                         Ok(()) => {
                             json!({"ok": true, "chat": chat, "folder": folder, "copied": true})
@@ -369,7 +433,11 @@ impl Flags {
         self.one("--key").filter(|key| valid_key(key)).map(str::to_string)
     }
 
-    /// `--workspace`, at most once and valid: `Some(None)` without it, None when it is bad.
+    fn account(&self) -> Option<&str> {
+        self.one("--account").filter(|account| valid_account(account))
+    }
+
+    /// `--workspace`: Some(None) when it is not given, None when it is not a valid id.
     fn workspace(&self) -> Option<Option<&str>> {
         match self.all("--workspace").as_slice() {
             [] => Some(None),

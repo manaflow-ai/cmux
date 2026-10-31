@@ -477,6 +477,53 @@ import Testing
         #expect(query[kSecAttrSynchronizable as String] as? Bool == false)
         #expect(query[kSecAttrAccessGroup as String] == nil, "the app's default (entitled) group, not a named one")
     }
+
+    /// cmux NEXT nightly is signed without a provisioning profile, so the data-protection Keychain
+    /// answers errSecMissingEntitlement: the seal goes to the login Keychain, and a phone allowed once
+    /// stays paired across a relaunch or an update (https://github.com/manaflow-ai/cmux/issues/26396).
+    @Test func aBuildWithoutTheKeychainEntitlementKeepsItsPhoneAcrossARelaunch() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let keychain = FakeKeychain(entitled: false)
+        _ = try Self.saved(directory, seal: MobileHostKeychainPairingSeal(bundleID: "test.next", keychain: keychain.calls))
+        #expect(keychain.items(dataProtection: false) == 1 && keychain.items(dataProtection: true) == 0)
+
+        // The next launch (a nightly update relaunches) builds a new seal over the same Keychain.
+        let relaunched = Self.relaunched(directory, seal: MobileHostKeychainPairingSeal(bundleID: "test.next", keychain: keychain.calls))
+        #expect(relaunched.approvers.map { $0["publicKey"] } == [Self.approval])
+        #expect(relaunched.hostd.count == 1)
+        let list = MobileHostPairedDevicesFile(directory: directory, seal: MobileHostKeychainPairingSeal(bundleID: "test.next", keychain: keychain.calls))
+            .load(userID: "u")
+        #expect(list.decision(for: Self.request) == .trusted, "the phone would be asked again")
+
+        // The fallback seal still catches a rewritten file (not a planted login item; see the seal's doc).
+        let file = MobileHostPairedDevicesFile(directory: directory, seal: MobileHostKeychainPairingSeal(bundleID: "test.next", keychain: keychain.calls))
+        let theirs = "04" + String(repeating: "cc", count: 64)
+        let text = try String(contentsOf: file.file, encoding: .utf8).replacingOccurrences(of: Self.approval, with: theirs)
+        try Data(text.utf8).write(to: file.file)
+        #expect(Self.relaunched(directory, seal: MobileHostKeychainPairingSeal(bundleID: "test.next", keychain: keychain.calls)).approvers.isEmpty)
+    }
+
+    /// An entitled build keeps its seal in the data-protection Keychain and never reads the login
+    /// Keychain: a digest planted there for a list of another process's own counts for nothing.
+    @Test func anEntitledBuildIgnoresTheLoginKeychain() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let keychain = FakeKeychain(entitled: true)
+        let seal = MobileHostKeychainPairingSeal(bundleID: "test.next", keychain: keychain.calls)
+        let (file, _) = try Self.saved(directory, seal: seal)
+        #expect(keychain.items(dataProtection: true) == 1 && keychain.items(dataProtection: false) == 0)
+        #expect(Self.relaunched(directory, seal: seal).approvers.map { $0["publicKey"] } == [Self.approval])
+
+        let theirs = "04" + String(repeating: "cc", count: 64)
+        let text = try String(contentsOf: file.file, encoding: .utf8).replacingOccurrences(of: Self.approval, with: theirs)
+        try Data(text.utf8).write(to: file.file)
+        // No data-protection item either (a list from before the seal): the login item is still not read.
+        #expect(seal.clearDigest())
+        keychain.plantLoginDigest(MobileHostPairingSeal.digest(try Data(contentsOf: file.file)), service: seal.service)
+        let relaunched = Self.relaunched(directory, seal: seal)
+        #expect(relaunched.approvers.isEmpty && relaunched.hostd.isEmpty, "a planted login item vouched for \(relaunched.approvers)")
+    }
 }
 
 /// The Mac's identity key (cmux-next-ios PROTOCOL.md "Mac identity"): kept across
@@ -517,4 +564,82 @@ final class GatedSeal: MobileHostPairingSealStore, @unchecked Sendable {
         gate.wait()
         return true
     }
+}
+
+/// A Keychain for the seal's calls (tests only). Without the entitlement, as cmux NEXT nightly is
+/// signed, every data-protection call answers errSecMissingEntitlement; the login Keychain works.
+final class FakeKeychain: @unchecked Sendable {
+    private struct Key: Hashable {
+        var dataProtection: Bool
+        var service: String
+        var account: String
+    }
+
+    private let lock = NSLock()
+    private var store: [Key: Data] = [:]
+    let entitled: Bool
+
+    init(entitled: Bool) {
+        self.entitled = entitled
+    }
+
+    func items(dataProtection: Bool) -> Int {
+        lock.withLock { store.keys.filter { $0.dataProtection == dataProtection }.count }
+    }
+
+    func plantLoginDigest(_ digest: Data, service: String) {
+        lock.withLock { store[Key(dataProtection: false, service: service, account: "paired-devices")] = digest }
+    }
+
+    /// The item a query names, or the status a refused query gets.
+    private func key(_ query: [String: Any]) -> Result<Key, FakeKeychainRefusal> {
+        let dataProtection = query[kSecUseDataProtectionKeychain as String] as? Bool == true
+        if dataProtection, !entitled { return .failure(FakeKeychainRefusal(status: errSecMissingEntitlement)) }
+        return .success(Key(dataProtection: dataProtection, service: query[kSecAttrService as String] as? String ?? "",
+                            account: query[kSecAttrAccount as String] as? String ?? ""))
+    }
+
+    var calls: MobileHostSecItems {
+        MobileHostSecItems(
+            copy: { [self] query in
+                switch key(query) {
+                case .failure(let refusal): return (refusal.status, nil)
+                case .success(let key):
+                    let data = lock.withLock { store[key] }
+                    return (data == nil ? errSecItemNotFound : errSecSuccess, data)
+                }
+            },
+            update: { [self] query, attributes in
+                switch key(query) {
+                case .failure(let refusal): return refusal.status
+                case .success(let key):
+                    return lock.withLock {
+                        guard store[key] != nil, let data = attributes[kSecValueData as String] as? Data else { return errSecItemNotFound }
+                        store[key] = data
+                        return errSecSuccess
+                    }
+                }
+            },
+            add: { [self] attributes in
+                switch key(attributes) {
+                case .failure(let refusal): return refusal.status
+                case .success(let key):
+                    return lock.withLock {
+                        guard store[key] == nil else { return errSecDuplicateItem }
+                        store[key] = attributes[kSecValueData as String] as? Data
+                        return errSecSuccess
+                    }
+                }
+            },
+            delete: { [self] query in
+                switch key(query) {
+                case .failure(let refusal): return refusal.status
+                case .success(let key): return lock.withLock { store.removeValue(forKey: key) == nil ? errSecItemNotFound : errSecSuccess }
+                }
+            })
+    }
+}
+
+struct FakeKeychainRefusal: Error {
+    let status: OSStatus
 }

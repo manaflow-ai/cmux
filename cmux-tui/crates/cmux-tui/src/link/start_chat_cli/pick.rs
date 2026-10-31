@@ -6,15 +6,10 @@
 //! Lane-pool VMs (`fs-lane-N`, `lane-vm-N`) are never picked. A retry of the
 //! same send stays on the machine its first try took ([`destination`]), so it
 //! never opens a second chat with the prompt elsewhere.
-//!
-//! A send from a Mac workspace goes to that workspace's own machine instead
-//! (Leo, 2026-10-30: "we'll want a vm for every single workspace"): the one
-//! its first send ran on, else a new one. It never takes a free machine or one
-//! marked for chats, which another workspace's chats may share.
 
 use std::collections::BTreeSet;
 
-use super::ledger::Ledger;
+use super::ledger::{Ledger, Send};
 
 /// One Cloud machine as the App lists it.
 #[derive(Clone, Debug, Default, PartialEq, Eq, serde::Deserialize)]
@@ -51,9 +46,12 @@ impl Candidate {
         self.status == "paused" && self.pause_reason.as_deref() == Some("idle")
     }
 
-    /// Running, starting or paused (a paused one resumes when it is used).
+    /// Can take work now or after a resume: connected, live, or paused (by a
+    /// person or the idle timer). Never one the server failed or is removing,
+    /// even while a stale link to it still reads as connected.
     fn is_usable(&self) -> bool {
-        self.connected || self.is_live() || self.status == "paused"
+        !matches!(self.status.as_str(), "failed" | "deleting" | "deleted" | "destroyed")
+            && (self.connected || self.is_live() || self.status == "paused")
     }
 
     fn names(&self) -> impl Iterator<Item = &str> {
@@ -115,7 +113,7 @@ pub(crate) fn pick(
 }
 
 /// This person's: they created it, or, when the server names no creator, an
-/// earlier send ran there (`used`).
+/// earlier send of this account ran there (`used`).
 fn is_mine(machine: &Candidate, user: &str, used: &BTreeSet<String>) -> bool {
     match &machine.created_by {
         Some(creator) => creator == user,
@@ -143,60 +141,71 @@ pub(crate) enum Destination {
     New,
 }
 
-/// Where the send `key` goes: the machine its first try took while that
-/// machine exists (before the App's list is `loaded`, it is kept: it may be
-/// one made for this send). Then, for a send from the Mac workspace
-/// `workspace`, [`workspace_destination`]; for one from no workspace, [`pick`]
-/// among the machines no workspace owns.
+/// Where `send` goes: the machine its first try took while that machine
+/// exists (listed, or `stored`: in the App's store but not yet in its list,
+/// one made since; before the App's list is `loaded`, it is kept). Then, for
+/// a send from the Mac workspace `workspace`, [`workspace_destination`]; for
+/// one from no workspace, [`pick`] among the machines no workspace of the
+/// account owns, which this account's sends count as the person's.
 /// Drops a pin to a machine that is gone, which holds no tab of this send.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn destination(
-    key: &str,
+    send: &Send,
+    account: &str,
     workspace: Option<&str>,
     pins: &mut Ledger,
     candidates: &[Candidate],
+    stored: &[String],
     user: Option<&str>,
     loaded: bool,
 ) -> Destination {
-    if let Some(pinned) = pins.machine(key) {
-        if !loaded || candidates.iter().any(|machine| machine.id == pinned) {
+    if let Some(pinned) = pins.machine(send) {
+        if !loaded
+            || candidates.iter().any(|machine| machine.id == pinned)
+            || stored.contains(&pinned)
+        {
             return Destination::Machine(pinned);
         }
-        pins.forget(key);
+        pins.forget(send);
     }
-    match workspace {
-        Some(workspace) => workspace_destination(workspace, pins, candidates, user, loaded),
-        None => {
-            // A workspace's own machine is never shared with a send from no workspace.
-            let owned = pins.workspace_machines();
-            let shared: Vec<Candidate> =
-                candidates.iter().filter(|machine| !owned.contains(&machine.id)).cloned().collect();
-            pick(&shared, user, &pins.machines()).map_or(Destination::New, Destination::Machine)
-        }
+    let used = pins.machines_of(account);
+    if let Some(workspace) = workspace {
+        return workspace_destination(
+            workspace, account, pins, candidates, stored, user, &used, loaded,
+        );
     }
+    // A workspace's own machine is never shared with a send from no workspace.
+    let owned = pins.workspace_machines(account);
+    let shared: Vec<Candidate> =
+        candidates.iter().filter(|machine| !owned.contains(&machine.id)).cloned().collect();
+    pick(&shared, user, &used).map_or(Destination::New, Destination::Machine)
 }
 
 /// The workspace `workspace`'s own machine while it is listed, this person's
-/// and usable (before the App's list is `loaded`, it is kept), else a new one.
-/// Drops the workspace's machine when it is gone, a teammate's or failed, so
-/// the new one becomes the workspace's.
+/// and usable (one made since, `stored`, or before the App's list is `loaded`,
+/// it is kept), else a new one. Drops the workspace's machine when it is gone,
+/// a teammate's or failed, so the new one becomes the workspace's.
+#[allow(clippy::too_many_arguments)]
 fn workspace_destination(
     workspace: &str,
+    account: &str,
     pins: &mut Ledger,
     candidates: &[Candidate],
+    stored: &[String],
     user: Option<&str>,
+    used: &BTreeSet<String>,
     loaded: bool,
 ) -> Destination {
-    let Some(own) = pins.workspace_machine(workspace) else { return Destination::New };
-    let used = pins.machines();
+    let Some(own) = pins.workspace_machine(workspace, account) else { return Destination::New };
     let keep = match candidates.iter().find(|machine| machine.id == own) {
         Some(machine) => {
-            user.is_some_and(|user| is_mine(machine, user, &used)) && machine.is_usable()
+            user.is_some_and(|user| is_mine(machine, user, used)) && machine.is_usable()
         }
-        None => !loaded,
+        None => !loaded || stored.contains(&own),
     };
     if keep {
         return Destination::Machine(own);
     }
-    pins.unbind(workspace);
+    pins.unbind(workspace, account);
     Destination::New
 }

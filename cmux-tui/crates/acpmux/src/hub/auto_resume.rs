@@ -401,14 +401,33 @@ impl TurnInfo {
             started_at: super::now_ms(),
             client: client.to_owned(),
             prompt_preview: super::short_text(text, 200),
-            masked_preview: super::session::masked_preview(text, 200),
+            masked_preview: String::new(),
             turn_id: turn_id.to_owned(),
             prompt_id: prompt_id.to_owned(),
             turn_seq: 0,
             control,
             doing: Default::default(),
         }
+        .shown_as(&super::prompt_line::prompt_line(text, client, None))
     }
+
+    /// The turn with `line` as the line its prompt leaves on the summary (`prompt_line.rs`): a
+    /// prompt's turn names it from the prompt's provenance (`turns.rs`), which `prompted` lacks.
+    pub(super) fn shown_as(mut self, line: &str) -> Self {
+        self.show(line);
+        self
+    }
+
+    /// Sets the line its prompt leaves on the summary ([`TurnInfo::shown_as`]): masked, then cut
+    /// to 200 characters. A line it gave comes back the same (`promptLine` on a restart).
+    pub(super) fn show(&mut self, line: &str) {
+        self.masked_preview = shown_line(line);
+    }
+}
+
+/// `line` as a turn's summary shows it ([`TurnInfo::show`]): its secrets masked, then cut.
+pub(super) fn shown_line(line: &str) -> String {
+    super::session::masked_preview(line, 200)
 }
 
 impl Hub {
@@ -482,6 +501,9 @@ impl Hub {
         turn_id: &str,
         cut: Option<CutTurn<'_>>,
     ) {
+        // Once a shutdown began none waits here to fire: a cut it hands on is the next daemon's
+        // to continue (`restart_resume.rs`), and Quit Everything continues nothing.
+        let cut = cut.filter(|_| !self.shutting_down());
         let mut pending = session.auto_resume.lock();
         let ending = match pending.as_ref() {
             Some(Mark::Ending(t)) if t == turn_id => Some(true),
@@ -552,7 +574,24 @@ impl Hub {
             };
             let mut msg = serde_json::to_value(&retry).unwrap_or_else(|_| json!({}));
             msg.set("delayMs", json!(delay));
-            if hub.set_retry(&session, &turn_id, retry, msg) {
+            // Tests only: pause a retry before its wait is set.
+            #[cfg(test)]
+            {
+                let seam = hub.retry_seam.lock().unwrap_or_else(|e| e.into_inner()).take();
+                if let Some((arrived, release)) = seam {
+                    let _ = arrived.send(());
+                    let _ = release.await;
+                }
+            }
+            // None once a shutdown began, whenever it began (router review of #28503): a cut it
+            // hands on is the next daemon's to continue, and Quit Everything continues nothing.
+            // The wait is the record the next daemon restores (`restore.rs`).
+            let set = hub.before_shutdown(|| hub.set_retry(&session, &turn_id, retry, msg));
+            let Some(set) = set else {
+                hub.take_pending(&session, &turn_id);
+                return;
+            };
+            if set {
                 // Its delay, or its mark going (`Wake`): Stop, close, a turn that took the chat.
                 tokio::select! {
                     () = tokio::time::sleep(Duration::from_millis(delay)) => {}
@@ -587,12 +626,17 @@ impl Hub {
     fn settled_unretried(&self, session: &Session, turn_id: &str, why: &str) {
         let last = session.meta().last_turn;
         let deciding = last.as_ref().is_some_and(|t| {
-            let error = t["errorText"].as_str().unwrap_or_default();
-            t["status"] == "failed" && t["turnId"] == turn_id && retry_decided_on(error)
+            let field = |key: &str| t.get(key).and_then(Value::as_str);
+            let error = field("errorText").unwrap_or_default();
+            field("status") == Some("failed")
+                && field("turnId") == Some(turn_id)
+                && retry_decided_on(error)
         });
         if deciding {
             let mut msg = json!({"turnId": turn_id, "why": why});
-            if let Some(prompt_id) = last.as_ref().and_then(|t| t["promptId"].as_str()) {
+            if let Some(prompt_id) =
+                last.as_ref().and_then(|t| t.get("promptId").and_then(Value::as_str))
+            {
                 msg.set("promptId", json!(prompt_id));
             }
             self.append_retry(session, "auto_resume_settled", msg);
@@ -810,9 +854,11 @@ impl Hub {
         last: Option<&Value>,
     ) -> (Option<RetrySummary>, bool) {
         let failed = last
-            .filter(|t| t["status"] == "failed")
-            .filter(|t| retry_decided_on(t["errorText"].as_str().unwrap_or_default()));
-        let cut = failed.and_then(|t| t["turnId"].as_str());
+            .filter(|t| t.get("status").and_then(Value::as_str) == Some("failed"))
+            .filter(|t| {
+                retry_decided_on(t.get("errorText").and_then(Value::as_str).unwrap_or_default())
+            });
+        let cut = failed.and_then(|t| t.get("turnId").and_then(Value::as_str));
         let snapshot = || {
             let pending = session.auto_resume.lock();
             let mark = pending.as_ref();

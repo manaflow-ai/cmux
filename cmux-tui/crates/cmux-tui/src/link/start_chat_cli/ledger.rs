@@ -1,11 +1,18 @@
 //! The machine each recent `cloud.startChat` send ran on, newest last, at
 //! most [`LIMIT`]: a retry of a send names it, so the retry's tab key (which
 //! only that machine's daemon knows) gets back the tab its first try opened,
-//! never a second chat elsewhere. With it, the chat's folder there once the
-//! send's copy finished: a retry opens its chat there without copying again.
-//! And each Mac workspace's own Cloud machine, at most [`WORKSPACE_LIMIT`]: a
-//! workspace's later sends go to the machine its first send made (Leo,
-//! 2026-10-30: "we'll want a vm for every single workspace").
+//! never a second chat elsewhere. With it, where the send's copy goes on that
+//! machine and, once it finished, the chat's folder there: a retry opens its
+//! chat there without copying again.
+//!
+//! Each send is kept under the account it began in ([`Send`]): a team
+//! switch keeps the person signed in, so a send of the previous team never
+//! names this team's machine, and switching back finds it again.
+//!
+//! Apart from the sends, the machine of each recent Mac workspace that sent
+//! to Cloud, under its account too, at most [`WORKSPACE_LIMIT`]: a workspace
+//! keeps its machine however many sends ran since (Leo, 2026-10-30: "we'll
+//! want a vm for every single workspace").
 //!
 //! Kept in `<state>/cloud-start-chat/destinations.json` (0600, its folder
 //! 0700), read and written under an exclusive lock on a sibling `.lock` file
@@ -24,29 +31,67 @@ use serde::{Deserialize, Serialize};
 /// How many sends are kept.
 pub(crate) const LIMIT: usize = 64;
 
-/// How many workspaces' machines are kept, kept apart from the sends so a
-/// workspace keeps its machine however many sends ran since.
+/// How many workspaces' machines are kept.
 pub(crate) const WORKSPACE_LIMIT: usize = 256;
+
+/// A send in the account it began in: its key and the account (the user and
+/// the team, as the App spells them), both lowercased.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct Send {
+    key: String,
+    account: String,
+}
+
+impl Send {
+    pub(crate) fn new(key: &str, account: &str) -> Self {
+        Self { key: key.to_lowercase(), account: account.to_lowercase() }
+    }
+}
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 struct Entry {
     key: String,
+    #[serde(default)]
+    account: String,
     machine_id: String,
+    /// The folder under the machine's work root this send's copy goes to,
+    /// kept before anything is copied (see [`Ledger::start_copy`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    place: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     copied_chat: Option<String>,
 }
 
-/// A Mac workspace's own Cloud machine.
+impl Entry {
+    fn is(&self, send: &Send) -> bool {
+        self.key == send.key && self.account == send.account
+    }
+}
+
+/// One send as the App kept it before cmux-tui did: its key is the send's
+/// key and account (`KEY@USER/TEAM`), and `place` the folder of its copy.
+#[derive(Clone, Debug, Deserialize)]
+pub(crate) struct AppEntry {
+    pub(crate) key: String,
+    #[serde(rename = "machineID")]
+    pub(crate) machine_id: String,
+    #[serde(default, rename = "copiedChat")]
+    pub(crate) copied_chat: Option<String>,
+    #[serde(default)]
+    pub(crate) place: Option<String>,
+}
+
+/// A Mac workspace's own machine, in the account it sent in.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 struct Binding {
     workspace: String,
+    account: String,
     machine_id: String,
 }
 
 /// The file: the sends, then the workspaces. An older ledger is the sends' list alone.
-#[derive(Default, Serialize, Deserialize)]
+#[derive(Serialize, Deserialize)]
 struct File {
-    #[serde(default)]
     sends: Vec<Entry>,
     #[serde(default)]
     workspaces: Vec<Binding>,
@@ -60,101 +105,163 @@ pub(crate) struct Ledger {
 }
 
 impl Ledger {
-    /// The machine the send `key` ran on, if it ran.
-    pub(crate) fn machine(&self, key: &str) -> Option<String> {
-        let key = key.to_lowercase();
-        self.entries
-            .iter()
-            .rev()
-            .find(|entry| entry.key == key)
-            .map(|entry| entry.machine_id.clone())
+    /// The machine `send` ran on, if it ran.
+    pub(crate) fn machine(&self, send: &Send) -> Option<String> {
+        self.entry(send).map(|entry| entry.machine_id.clone())
     }
 
-    /// Every machine a kept send ran on or a kept workspace has.
-    pub(crate) fn machines(&self) -> BTreeSet<String> {
+    /// Every machine a kept send of the account `account` ran on, or one of
+    /// its workspaces owns: what counts as that account's own machine when the
+    /// server names no creator. Another user's sends on this Mac, or another
+    /// team's, never do.
+    pub(crate) fn machines_of(&self, account: &str) -> BTreeSet<String> {
+        let account = account.to_lowercase();
         self.entries
             .iter()
+            .filter(|entry| entry.account == account)
             .map(|entry| entry.machine_id.clone())
-            .chain(self.workspaces.iter().map(|binding| binding.machine_id.clone()))
+            .chain(self.workspace_machines(&account))
             .collect()
     }
 
-    /// The Mac workspace `workspace`'s own machine, once a send from it ran on one.
-    pub(crate) fn workspace_machine(&self, workspace: &str) -> Option<String> {
+    /// The Mac workspace `workspace`'s own machine in `account`, once a send from it ran on one.
+    pub(crate) fn workspace_machine(&self, workspace: &str, account: &str) -> Option<String> {
+        let account = account.to_lowercase();
         self.workspaces
             .iter()
-            .find(|binding| binding.workspace == workspace)
+            .find(|binding| binding.workspace == workspace && binding.account == account)
             .map(|binding| binding.machine_id.clone())
     }
 
-    /// The machines that are some workspace's own.
-    pub(crate) fn workspace_machines(&self) -> BTreeSet<String> {
-        self.workspaces.iter().map(|binding| binding.machine_id.clone()).collect()
+    /// The machines that are some workspace's own in `account`.
+    pub(crate) fn workspace_machines(&self, account: &str) -> BTreeSet<String> {
+        let account = account.to_lowercase();
+        self.workspaces
+            .iter()
+            .filter(|binding| binding.account == account)
+            .map(|binding| binding.machine_id.clone())
+            .collect()
     }
 
-    /// `machine` is the workspace `workspace`'s own from now on.
-    pub(crate) fn bind(&mut self, workspace: &str, machine: &str) {
-        self.workspaces.retain(|kept| kept.workspace != workspace);
-        self.workspaces
-            .push(Binding { workspace: workspace.to_string(), machine_id: machine.to_string() });
+    /// `machine` is the workspace `workspace`'s own in `account` from now on.
+    pub(crate) fn bind(&mut self, workspace: &str, account: &str, machine: &str) {
+        self.unbind(workspace, account);
+        self.workspaces.push(Binding {
+            workspace: workspace.to_string(),
+            account: account.to_lowercase(),
+            machine_id: machine.to_string(),
+        });
         let over = self.workspaces.len().saturating_sub(WORKSPACE_LIMIT);
         self.workspaces.drain(..over);
     }
 
-    /// Drops the workspace `workspace`'s machine (gone, or no longer the person's).
-    pub(crate) fn unbind(&mut self, workspace: &str) {
-        self.workspaces.retain(|kept| kept.workspace != workspace);
+    /// Drops the workspace `workspace`'s machine in `account` (gone, or no longer the person's).
+    pub(crate) fn unbind(&mut self, workspace: &str, account: &str) {
+        let account = account.to_lowercase();
+        self.workspaces
+            .retain(|binding| binding.workspace != workspace || binding.account != account);
     }
 
-    /// Pins the send `key` to `machine` (before anything runs there). A pin
-    /// to the same machine keeps its finished copy.
-    pub(crate) fn record(&mut self, machine: &str, key: &str) {
-        let key = key.to_lowercase();
-        let copied = self
-            .entries
-            .iter()
-            .rev()
-            .find(|entry| entry.key == key && entry.machine_id == machine)
-            .and_then(|entry| entry.copied_chat.clone());
-        self.put(Entry { key, machine_id: machine.to_string(), copied_chat: copied });
+    /// Pins `send` to `machine` (before anything runs there). A pin to the
+    /// same machine keeps its copy's place and finished copy.
+    pub(crate) fn record(&mut self, machine: &str, send: &Send) {
+        let same = self.entry(send).filter(|entry| entry.machine_id == machine);
+        let (place, copied_chat) =
+            same.map_or((None, None), |entry| (entry.place.clone(), entry.copied_chat.clone()));
+        self.put(Entry {
+            key: send.key.clone(),
+            account: send.account.clone(),
+            machine_id: machine.to_string(),
+            place,
+            copied_chat,
+        });
     }
 
-    /// The chat's folder on `machine` when the send `key`'s copy finished there.
-    pub(crate) fn copied_chat(&self, key: &str, machine: &str) -> Option<String> {
-        let key = key.to_lowercase();
-        self.entries
-            .iter()
-            .rev()
-            .find(|entry| entry.key == key && entry.machine_id == machine)
+    /// The chat's folder on `machine` when `send`'s copy finished there.
+    pub(crate) fn copied_chat(&self, send: &Send, machine: &str) -> Option<String> {
+        self.entry(send)
+            .filter(|entry| entry.machine_id == machine)
             .and_then(|entry| entry.copied_chat.clone())
     }
 
-    /// The send `key`'s copy finished on `machine`, its chat's folder there `chat`.
-    pub(crate) fn record_copy(&mut self, chat: &str, key: &str, machine: &str) {
-        let key = key.to_lowercase();
+    /// `send`'s copy to `machine` starts now, into `place`, a folder no copy
+    /// used before. Kept before anything is copied, and never handed out
+    /// again: a copy whose answer was lost (the push may have finished on
+    /// the machine), or one still running, is never written over, so a retry
+    /// copies into a new folder instead (`cmux link sync push` rewrites every
+    /// file the machine changed).
+    pub(crate) fn start_copy(&mut self, send: &Send, machine: &str, place: &str) {
         self.put(Entry {
-            key,
+            key: send.key.clone(),
+            account: send.account.clone(),
             machine_id: machine.to_string(),
+            place: Some(place.to_string()),
+            copied_chat: None,
+        });
+    }
+
+    /// `send`'s copy into `place` finished on `machine`, its chat's folder there `chat`.
+    pub(crate) fn record_copy(&mut self, chat: &str, send: &Send, machine: &str, place: &str) {
+        self.put(Entry {
+            key: send.key.clone(),
+            account: send.account.clone(),
+            machine_id: machine.to_string(),
+            place: Some(place.to_string()),
             copied_chat: Some(chat.to_string()),
         });
     }
 
-    /// Drops the send `key`'s pin (its machine is gone).
-    pub(crate) fn forget(&mut self, key: &str) {
-        let key = key.to_lowercase();
-        self.entries.retain(|entry| entry.key != key);
+    /// Takes in the sends the App kept before cmux-tui did (its user defaults'
+    /// `cmux.cloud.startChatDestinations`, oldest first): their pins, copies
+    /// and what made a creatorless machine the account's own carry over. A
+    /// send this ledger already has keeps its own; one kept under no account
+    /// (from before sends were kept per account) is left out, since it cannot
+    /// say whose it is. The newest [`LIMIT`] are kept, this ledger's last.
+    pub(crate) fn import(&mut self, kept: &[AppEntry]) -> usize {
+        let mut imported: Vec<Entry> = Vec::new();
+        for old in kept {
+            let Some((key, account)) = old.key.split_once('@') else { continue };
+            let send = Send::new(key, account);
+            if self.entry(&send).is_some() {
+                continue;
+            }
+            imported.retain(|entry| !entry.is(&send));
+            imported.push(Entry {
+                key: send.key,
+                account: send.account,
+                machine_id: old.machine_id.clone(),
+                place: old.place.clone(),
+                copied_chat: old.copied_chat.clone(),
+            });
+        }
+        let count = imported.len();
+        imported.append(&mut self.entries);
+        let over = imported.len().saturating_sub(LIMIT);
+        imported.drain(..over);
+        self.entries = imported;
+        count
+    }
+
+    /// Drops `send`'s pin (its machine is gone).
+    pub(crate) fn forget(&mut self, send: &Send) {
+        self.entries.retain(|entry| !entry.is(send));
+    }
+
+    fn entry(&self, send: &Send) -> Option<&Entry> {
+        self.entries.iter().rev().find(|entry| entry.is(send))
     }
 
     fn put(&mut self, entry: Entry) {
-        self.entries.retain(|kept| kept.key != entry.key);
+        self.entries.retain(|kept| kept.key != entry.key || kept.account != entry.account);
         self.entries.push(entry);
         let over = self.entries.len().saturating_sub(LIMIT);
         self.entries.drain(..over);
     }
 
     /// Reads the ledger at `path`, runs `change` on it and writes it back
-    /// when it changed, under the ledger's lock. A missing or unreadable
-    /// ledger reads as empty: a lost pin only makes a retry pick afresh.
+    /// when it changed, under the ledger's lock. A missing ledger reads as
+    /// empty. One that cannot be read refuses (see [`Self::read`]): it never
+    /// reads as empty, which would make a retry pick and copy afresh.
     pub(crate) fn update<T>(
         path: &Path,
         change: impl FnOnce(&mut Ledger) -> T,
@@ -175,7 +282,7 @@ impl Ledger {
             .open(path.with_extension("lock"))
             .with_context(|| format!("cannot open the lock of {}", path.display()))?;
         lock.lock().context("cannot lock the ledger")?;
-        let mut ledger = Self::read(path);
+        let mut ledger = Self::read(path)?;
         let before = ledger.clone();
         let value = change(&mut ledger);
         if ledger != before {
@@ -185,17 +292,43 @@ impl Ledger {
         Ok(value)
     }
 
-    fn read(path: &Path) -> Self {
-        let Some(bytes) = std::fs::read(path).ok() else { return Self::default() };
-        let file = serde_json::from_slice::<File>(&bytes)
-            .ok()
-            .or_else(|| {
-                serde_json::from_slice::<Vec<Entry>>(&bytes)
-                    .ok()
-                    .map(|sends| File { sends, workspaces: Vec::new() })
-            })
-            .unwrap_or_default();
-        Self { entries: file.sends, workspaces: file.workspaces }
+    /// The ledger at `path`; empty when there is none. A read that fails
+    /// refuses and leaves the file as it is (it may only be busy). A file
+    /// that is not a ledger (cut short, damaged, or another version's) also
+    /// refuses: it is moved aside with its bytes as they are ([`unreadable_path`]),
+    /// so the person can still start chats, and this send is not started.
+    fn read(path: &Path) -> anyhow::Result<Self> {
+        let bytes = match std::fs::read(path) {
+            Ok(bytes) => bytes,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                return Ok(Self::default());
+            }
+            Err(error) => {
+                return Err(error).with_context(|| format!("cannot read {}", path.display()));
+            }
+        };
+        let file = serde_json::from_slice::<File>(&bytes).or_else(|error| {
+            serde_json::from_slice::<Vec<Entry>>(&bytes)
+                .map(|sends| File { sends, workspaces: Vec::new() })
+                .map_err(|_| error)
+        });
+        match file {
+            Ok(file) => Ok(Self { entries: file.sends, workspaces: file.workspaces }),
+            Err(error) => {
+                let aside = unreadable_path(path);
+                std::fs::rename(path, &aside).with_context(|| {
+                    format!(
+                        "{} is not a ledger ({error}) and cannot be moved aside",
+                        path.display()
+                    )
+                })?;
+                anyhow::bail!(
+                    "{} is not a ledger ({error}); it is kept as {}",
+                    path.display(),
+                    aside.display()
+                )
+            }
+        }
     }
 
     fn write(&self, path: &Path) -> anyhow::Result<()> {
@@ -213,6 +346,14 @@ impl Ledger {
         file.sync_all()?;
         std::fs::rename(&part, path).with_context(|| format!("cannot write {}", path.display()))
     }
+}
+
+/// Where an unreadable ledger at `path` is kept: beside it, named for when it was moved.
+pub(crate) fn unreadable_path(path: &Path) -> PathBuf {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |since| since.as_nanos());
+    path.with_extension(format!("unreadable-{now}.json"))
 }
 
 /// Where this Mac keeps the ledger; None when it has no state folder.
