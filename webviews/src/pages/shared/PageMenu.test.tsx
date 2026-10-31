@@ -75,3 +75,49 @@ test("a page menu opens the app's native menu and runs the chosen row", async ()
   expect(ran).toEqual(["remove"]);
   expect(closed).toBe(1);
 });
+
+
+test.each([null, { ok: true, value: null }])(
+  "an older host's empty native-menu reply falls back to an actionable page menu (%#)",
+  async (reply) => {
+    const ran: string[] = [];
+    let closed = 0;
+    installNativeMenu(async () => reply);
+    root = createRoot(installDom());
+    await act(async () => {
+      root!.render(
+        <PageMenu
+          x={12}
+          y={34}
+          items={[{ id: "open", label: "Open", run: () => ran.push("open") }]}
+          onClose={() => closed++}
+        />,
+      );
+      await Promise.resolve();
+    });
+    expect(document.querySelector(".page-menu")).not.toBeNull();
+    expect(closed).toBe(0);
+    expect(ran).toEqual([]);
+  },
+);
+
+test("a native host cannot activate a disabled page action", async () => {
+  const ran: string[] = [];
+  let closed = 0;
+  installNativeMenu(async () => ({ picked: "remove" }));
+  root = createRoot(installDom());
+  await act(async () => {
+    root!.render(
+      <PageMenu
+        x={12}
+        y={34}
+        items={[{ id: "remove", label: "Remove", disabled: true, run: () => ran.push("remove") }]}
+        onClose={() => closed++}
+      />,
+    );
+    await Promise.resolve();
+  });
+  expect(document.querySelector(".page-menu")).toBeNull();
+  expect(closed).toBe(1);
+  expect(ran).toEqual([]);
+});
