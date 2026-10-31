@@ -3,6 +3,7 @@ import CmuxNextBridge
 import CmuxNextWakeups
 import CmuxNextDesign
 import QuartzCore
+import CmuxNextTabs
 
 /// The drag ghost: one borderless, non-activating panel that ignores the
 /// mouse and floats above every window. It draws the dragged tab's image

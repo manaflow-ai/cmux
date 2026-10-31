@@ -142,11 +142,14 @@ import Testing
         #expect(edit.title == "Edit Sidebar")
     }
 
-    /// Add Items' cards: Home, Notifications, History and Bookmarks beside the Chief's, each on when
-    /// the sidebar shows it (Home as the app it is now), Get and Remove the sidebar's own actions.
+    /// Add Items' cards: Home, Notifications, History, Bookmarks and the launchers (Search Chats, New
+    /// Terminal, New Browser Tab, New Agent Chat, Customize) beside the Chief's, each on when the
+    /// sidebar shows it (Home as the app it is now), Get and Remove the sidebar's own actions.
     @Test func theSidebarCategoryListsTheBuiltInItems() {
+        let builtIns: Set<String> = ["home", "notifications", "history", "bookmarks", "search_chats", "new_terminal", "new_browser",
+                                     "new_agent_chat", "customize"]
         let items = AppFeature.catalog.filter { $0.category == .sidebar }.compactMap(\.sidebarItem)
-        #expect(Set(items) == ["home", "notifications", "history", "bookmarks"])
+        #expect(Set(items) == builtIns)
 
         let registry = ActionRegistry(catalog: ActionCatalog.all, aliases: ActionCatalog.legacyAliases)
         var runs: [String] = []
@@ -154,7 +157,7 @@ import Testing
         registry.bind("sidebar.item.removeEverywhere", invoke: { runs.append("remove \($0.target?.id ?? "")") })
         let chief = SettingsAppFeatures.SidebarItems(names: ["chief"], isShown: { _ in true }, set: { _, _ in runs.append("chief"); return true })
         let store = SidebarSectionHandlers.storeItems(chief: chief, document: { .defaults }, registry: registry)
-        #expect(store.names == ["home", "notifications", "history", "bookmarks", "chief"])
+        #expect(store.names == builtIns.union(["chief"]))
         #expect(store.isShown("home"), "the default sidebar's Home (an app item) reads as off")
         #expect(!store.isShown("bookmarks"))
         #expect(store.isShown("chief"), "the Chief's own answer was lost")

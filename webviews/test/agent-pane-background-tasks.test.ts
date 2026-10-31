@@ -6,9 +6,11 @@
 // ("Background task finished: pytest -x"). The Inspector's Background tasks (Debug Settings
 // `agent.inspector`; with it off, the header's summary) lists the chat's background tasks with how
 // each stands, the ones only the transcript knows included (this daemon keeps no process registry).
-// A click on a note or a task's row opens the task's terminal (`chat.processTerminal`,
-// background-task-terminal-DESIGN.md). The page is the pane's dev entry with its browser
-// host, talking JSON-RPC to a stand-in acpmux daemon.
+// A click on a task's row in the Inspector or the summary opens the task's terminal
+// (`chat.processTerminal`, background-task-terminal-DESIGN.md). A click on a note opens it in place
+// (the whole command, how it ended), never a terminal; only its Open in terminal opens one (Leo
+// 2026-10-21). The page is the pane's dev entry with its browser host, talking JSON-RPC to a
+// stand-in acpmux daemon.
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -261,10 +263,22 @@ await requireBrowserLane("agent-pane-background-tasks.test.ts", async () => {
         .map((post) => post.params),
     );
 
-  test("clicking a background task's end opens its terminal beside the chat", async () => {
+  test("clicking a background task's end opens it in place; only Open in terminal opens its terminal", async () => {
     const page = await recordingPage();
     const note = page.getByRole("button", { name: /Background task finished: pytest -x/ });
+    const top = await note.evaluate((node) => node.getBoundingClientRect().top);
     await note.click();
+    expect(await note.getAttribute("aria-expanded")).toBe("true");
+    const card = page.locator(`[id="${await note.getAttribute("aria-controls")}"]`);
+    await card.waitFor({ timeout: 5_000 });
+    expect(await card.locator(".cv-shell__command").textContent()).toBe("$ pytest -x");
+    // acpmux's own words on the end.
+    expect(await card.locator(".cv-bgtask__detail").textContent()).toBe("Tests passed");
+    // The clicked line stays where it was (foldAnchor.ts).
+    expect(Math.abs((await note.evaluate((node) => node.getBoundingClientRect().top)) - top)).toBeLessThan(1);
+    // Opening it asked the host for nothing.
+    expect(await opened(page)).toEqual([]);
+    await card.getByRole("button", { name: "Open in terminal" }).click();
     await page.waitForFunction(() =>
       ((window as any).__posted as { method: string }[]).some((post) => post.method === "chat.processTerminal"),
     );
@@ -331,12 +345,24 @@ await requireBrowserLane("agent-pane-background-tasks.test.ts", async () => {
               items.map((item) => [item.querySelector(text)?.textContent, item.querySelector(meta)?.textContent]),
             { text: surface.text, meta: surface.meta },
           );
-      // The running one says how long it has run, with no Stop (the registry lists nothing); the
-      // ended ones wait behind one row.
+      // The running one says how long it has run, with no Stop (the registry lists nothing).
       const running = await rows();
-      expect(running.map(([command]) => command)).toEqual(["cargo watch -x test"]);
+      expect(running[0]![0]).toBe("cargo watch -x test");
       expect(running[0]![1]).toMatch(/^\d+[smh]/);
       expect(await section.locator("button.acpmux-chat-inspector-stop").count()).toBe(0);
+      if (name === "summary card") {
+        // The summary card keeps the finished ones as cards under it, folded only past five
+        // (49acdd1d589d: a finished task never hides behind a count).
+        expect(running.slice(1)).toEqual([
+          ["npm run dev", "Stopped"],
+          ["pytest -x", "Finished"],
+        ]);
+        expect(await section.locator(".acpmux-summary-finished").count()).toBe(0);
+        await page.close();
+        return;
+      }
+      // The Inspector's ended ones wait behind one row.
+      expect(running.length).toBe(1);
       const finished = section.getByRole("button", { name: "2 finished" });
       await finished.click();
       expect(await finished.getAttribute("aria-expanded")).toBe("true");

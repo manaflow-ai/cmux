@@ -79,6 +79,7 @@ if(CMUX_BUILD_TESTS)
     add_executable(cmux_cpp_tests
         tests/test_main.cpp
         tests/test_machine_catalog.cpp
+        tests/test_layout_rows.cpp
         tests/test_macro_collision.cpp
         tests/test_unix_transport.cpp
     )

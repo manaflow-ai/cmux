@@ -1,5 +1,6 @@
 public import AppKit
 public import CmuxTheme
+public import CmuxNextDesignTokens
 
 /// The nine group colors, shared by tab groups and workspace groups so
 /// both render identically. The raw value is the stable token the daemon

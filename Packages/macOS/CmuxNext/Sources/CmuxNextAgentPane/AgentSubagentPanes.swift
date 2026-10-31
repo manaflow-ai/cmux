@@ -1,9 +1,16 @@
+public import AppKit
+import CmuxNextCompat
+
 /// The agent panes a chat's subagents opened in (`chat.subagentPane`), one tracker per acpmux
 /// session, so every pane on that session asks the same one: each subagent's tab, so a second
-/// request shows the open pane instead of a second one, and the pane the next one stacks under.
-/// The first subagent's pane opens right of the chat; each later one opens below the newest pane
-/// still open, so the chat keeps its width and one column holds them all. Opens run one at a
-/// time: a later one stacks under the pane the earlier one moved into, so it waits for that move.
+/// request shows the open pane instead of a second one, and the pane the next one opens in.
+/// The first subagent's pane opens right of the chat and the second splits below it once, so the
+/// chat keeps its width; every later one is a tab in the pane of the newest subagent, never
+/// another split (leo-workspace design/pane-placement.md, Leo 2026-10-28: "I mean the right top
+/// pane, and then you split to the bottom once so that you get the three items. But you want four
+/// items."). A split that would leave the chat under ``minimumChatWidth`` or the right column
+/// under ``minimumRightColumnWidth`` opens a tab instead. Opens run one at a time: a later one
+/// opens beside the pane the earlier one moved into, so it waits for that move.
 ///
 /// A subagent pane is a tab on the chat's own acpmux session that shows the subagent's view: it
 /// stays a whole chat tab, so closing the chat leaves it working on the same session.
@@ -13,12 +20,23 @@ public final class AgentSubagentPanes {
     private var order: [String] = []
     private var opening: String?
     /// The subagent whose open runs without focus but that the person asked to see meanwhile (a
-    /// click while its pane opens on its own): its pane takes focus once it has opened.
-    private var focusOnceOpen: String?
+    /// click while its pane opens on its own), and when: its pane takes focus once it has opened,
+    /// unless the person did something else first (``userActed()``) or ``focusBound`` passed.
+    private var focusOnceOpen: (agent: String, at: ContinuousClock.Instant)?
+    /// Stops watching for the person's next action while focus is owed.
+    private var stopWatching: (() -> Void)?
+    /// How long an owed focus waits for its pane: one that lands later takes no focus, as the
+    /// person has moved on (an open can take 20 s).
+    public static let focusBound: Duration = .seconds(2)
+    /// The narrowest the chat stays after a subagent split (design/pane-placement.md).
+    public static let minimumChatWidth: CGFloat = 480
+    /// The narrowest a subagent split leaves the right column (design/pane-placement.md).
+    public static let minimumRightColumnWidth: CGFloat = 420
     private var queue: [Request] = []
 
-    /// A waiting request: the subagent, whether it takes focus, and the chat tab that asked.
-    public struct Request: Sendable { public var agent: String; public var focus: Bool; public var chat: String }
+    /// A waiting request: the subagent, whether it takes focus, the chat tab that asked, and when
+    /// focus was asked for (a focus owed like ``focusOnceOpen``).
+    public struct Request: Sendable { public var agent: String; public var focus: Bool; public var chat: String; public var at: ContinuousClock.Instant }
 
     public init() {}
 
@@ -39,27 +57,63 @@ public final class AgentSubagentPanes {
     }
 
     /// Starts opening subagent `agent`'s pane for chat tab `chat`; false when another open runs (the
-    /// request waits for ``finish()``; a repeat that asks for focus keeps that) or this one already runs.
-    public func begin(_ agent: String, focus: Bool, chat: String) -> Bool {
+    /// request waits for ``finish()``; a repeat that asks for focus keeps that, from `now`) or this one already runs.
+    public func begin(_ agent: String, focus: Bool, chat: String, now: ContinuousClock.Instant = .now) -> Bool {
         guard let opening else {
             self.opening = agent
             return true
         }
-        if opening == agent, focus { focusOnceOpen = agent }
-        if let index = queue.firstIndex(where: { $0.agent == agent }) { queue[index].focus = queue[index].focus || focus }
-        else if opening != agent { queue.append(Request(agent: agent, focus: focus, chat: chat)) }
+        if opening == agent, focus { focusOnceOpen = (agent, now) }
+        if let index = queue.firstIndex(where: { $0.agent == agent }) {
+            if focus { (queue[index].focus, queue[index].at) = (true, now) }
+        } else if opening != agent { queue.append(Request(agent: agent, focus: focus, chat: chat, at: now)) }
         return false
     }
 
-    /// Ends the open that runs; returns the next waiting request, if any.
-    public func finish() -> Request? {
+    /// Ends the open that runs; returns the next waiting request, if any, without focus once its
+    /// ``focusBound`` has passed at `now`.
+    public func finish(now: ContinuousClock.Instant = .now) -> Request? {
         opening = nil
         focusOnceOpen = nil
-        return queue.isEmpty ? nil : queue.removeFirst()
+        guard !queue.isEmpty else { return settled(nil) }
+        var next = queue.removeFirst()
+        if next.focus, now - next.at > Self.focusBound { next.focus = false }
+        return settled(next)
     }
 
-    /// Whether subagent `agent`'s running open owes the person focus (``begin(_:focus:chat:)``).
-    func owesFocus(_ agent: String) -> Bool { focusOnceOpen == agent }
+    /// Whether subagent `agent`'s running open still owes the person focus at `now`
+    /// (``begin(_:focus:chat:now:)``).
+    func owesFocus(_ agent: String, now: ContinuousClock.Instant = .now) -> Bool {
+        guard let focusOnceOpen, focusOnceOpen.agent == agent else { return false }
+        return now - focusOnceOpen.at <= Self.focusBound
+    }
+
+    /// The person clicked, pressed a key or moved focus after asking: their latest action wins, so
+    /// no owed focus lands.
+    public func userActed() {
+        focusOnceOpen = nil
+        for index in queue.indices { queue[index].focus = false }
+        _ = settled(nil)
+    }
+
+    /// Stops watching for the person's next action once no focus is owed; returns `request`.
+    private func settled(_ request: Request?) -> Request? {
+        if focusOnceOpen == nil, !queue.contains(where: { $0.focus }) {
+            stopWatching?()
+            stopWatching = nil
+        }
+        return request
+    }
+
+    /// Where a subagent's tab goes, beside the tab ``Hooks/place`` names.
+    public enum Placement: Sendable, Equatable {
+        /// A new split right of the anchor (the chat): the right column's first pane.
+        case right
+        /// A new split below the anchor (the first subagent pane): the column's one lower pane.
+        case down
+        /// A tab in the anchor's pane, no split.
+        case tab
+    }
 
     /// What ``open(_:focus:chat:hooks:)`` asks the app for.
     public struct Hooks {
@@ -67,25 +121,39 @@ public final class AgentSubagentPanes {
         public var isOpen: (String) -> Bool
         /// Focuses tab `key`; `script` for a focus the user did not ask for (a refocus).
         public var focus: (_ key: String, _ script: Bool) -> Void
-        /// Opens the pane beside tab `anchor` (below it with `down`, else right of it); calls
-        /// `created` with the new tab, then `finished` with whether it moved. False when nothing opened.
-        public var place: (_ anchor: String, _ down: Bool, _ created: @escaping @MainActor (String) -> Void,
+        /// Opens the subagent's tab beside tab `anchor` as `placement` says; calls `created` with
+        /// the new tab, then `finished` with whether it moved. False when nothing opened.
+        public var place: (_ anchor: String, _ placement: Placement, _ created: @escaping @MainActor (String) -> Void,
                            _ finished: @escaping @MainActor (Bool) -> Void) -> Bool
+        /// The pane that holds tab `key`, nil when unknown: tabs in one pane share an area.
+        public var pane: (String) -> String?
+        /// The width in points of the pane that holds tab `key`, nil when unknown (no limit).
+        public var width: (String) -> CGFloat?
         /// Runs a waiting request.
         public var again: (Request) -> Void
+        /// The time, for ``focusBound``.
+        public var now: () -> ContinuousClock.Instant
+        /// Calls `acted` on the person's next action (``watchUser(_:)``); returns what stops watching.
+        public var watchUser: (_ acted: @escaping @MainActor @Sendable () -> Void) -> () -> Void
 
         public init(isOpen: @escaping (String) -> Bool, focus: @escaping (String, Bool) -> Void,
-                    place: @escaping (String, Bool, @escaping @MainActor (String) -> Void, @escaping @MainActor (Bool) -> Void) -> Bool,
-                    again: @escaping (Request) -> Void) {
+                    place: @escaping (String, Placement, @escaping @MainActor (String) -> Void, @escaping @MainActor (Bool) -> Void) -> Bool,
+                    pane: @escaping (String) -> String? = { "pane:\($0)" }, width: @escaping (String) -> CGFloat? = { _ in nil },
+                    again: @escaping (Request) -> Void, now: @escaping () -> ContinuousClock.Instant = { .now },
+                    watchUser: @escaping (@escaping @MainActor @Sendable () -> Void) -> () -> Void = AgentSubagentPanes.watchUser) {
             self.isOpen = isOpen
             self.focus = focus
             self.place = place
+            self.pane = pane
+            self.width = width
             self.again = again
+            self.now = now
+            self.watchUser = watchUser
         }
     }
 
     /// Shows subagent `agent`'s pane for chat tab `chat`: focuses the open one (with `focus`), or
-    /// opens one right of the chat, or below the newest subagent pane; one open at a time. An
+    /// opens one where ``placement(chat:hooks:)`` says; one open at a time. An
     /// unfocused open moves the tab with the daemon's `keep_focus` (cx-3hw0i), so the chat keeps
     /// focus throughout. False when nothing opened.
     public func open(_ agent: String, focus: Bool, chat: String, hooks: Hooks) -> Bool {
@@ -93,24 +161,43 @@ public final class AgentSubagentPanes {
             if focus { hooks.focus(open, false) }
             return true
         }
-        guard begin(agent, focus: focus, chat: chat) else { return true }
+        guard begin(agent, focus: focus, chat: chat, now: hooks.now()) else {
+            if focus, stopWatching == nil {
+                stopWatching = hooks.watchUser { [weak self] in self?.userActed() }
+            }
+            return true
+        }
         let next: @MainActor (Bool) -> Void = { [weak self] _ in
             guard let self else { return }
-            // A click that came while this pane opened without focus: the pane takes it now.
-            if !focus, self.owesFocus(agent), let key = self.tab(for: agent, isOpen: hooks.isOpen) { hooks.focus(key, false) }
-            if let request = self.finish() { hooks.again(request) }
+            // A click that came while this pane opened without focus, with nothing done since and
+            // not too long ago: the pane takes it now.
+            if !focus, self.owesFocus(agent, now: hooks.now()), let key = self.tab(for: agent, isOpen: hooks.isOpen) { hooks.focus(key, false) }
+            if let request = self.finish(now: hooks.now()) { hooks.again(request) }
         }
-        let stack = stackAnchor(isOpen: hooks.isOpen)
+        let (anchor, placement) = placement(chat: chat, hooks: hooks)
         let created: @MainActor (String) -> Void = { [weak self] key in self?.record(agent, tab: key) }
-        let opened = hooks.place(stack ?? chat, stack != nil, created, next)
+        let opened = hooks.place(anchor, placement, created, next)
         if !opened { next(false) }
         return opened
     }
 
-    /// The tab a new subagent pane stacks under: the newest open one, or nil for none.
-    public func stackAnchor(isOpen: (String) -> Bool) -> String? {
-        prune(isOpen)
-        return order.last
+    /// Where the next subagent of chat tab `chat` opens: with no subagent pane beside the chat, a
+    /// split right of it; with one pane, a split below that pane; with two (the column is full), a
+    /// tab in the newest subagent's pane. A split that leaves the chat or the right column too
+    /// narrow is a tab in that same pane instead (the chat's own, for a first one).
+    public func placement(chat: String, hooks: Hooks) -> (anchor: String, placement: Placement) {
+        prune(hooks.isOpen)
+        let chatPane = hooks.pane(chat)
+        let beside = order.filter { hooks.pane($0) != chatPane }
+        guard let newest = beside.last else {
+            // A split right halves the chat's pane: both halves must stay wide enough.
+            let fits = hooks.width(chat).map { $0 / 2 >= Self.minimumChatWidth && $0 / 2 >= Self.minimumRightColumnWidth } ?? true
+            return (chat, fits ? .right : .tab)
+        }
+        let areas = Set(beside.compactMap(hooks.pane))
+        let fits = (hooks.width(chat).map { $0 >= Self.minimumChatWidth } ?? true)
+            && (hooks.width(newest).map { $0 >= Self.minimumRightColumnWidth } ?? true)
+        return (newest, areas.count < 2 && fits ? .down : .tab)
     }
 
     /// Records the tab that shows subagent `agent`.
@@ -123,6 +210,27 @@ public final class AgentSubagentPanes {
     private func prune(_ isOpen: (String) -> Bool) {
         tabs = tabs.filter { isOpen($0.value) }
         order.removeAll { !isOpen($0) }
+    }
+
+    /// Calls `acted` on the next click or key press in the app, or when another window takes the
+    /// keyboard or the app resigns active; returns what stops watching.
+    nonisolated public static func watchUser(_ acted: @escaping @MainActor @Sendable () -> Void) -> () -> Void {
+        let monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown]) { event in
+            guard Thread.isMainThread else { return event }
+            // main-proof: guarded by Thread.isMainThread above (AppKit calls local monitors on main)
+            MainActor.assumeIsolated { acted() }
+            return event
+        }
+        let center = NotificationCenter.default
+        let observers = [NSWindow.didBecomeKeyNotification, NSApplication.didResignActiveNotification].map { name in
+            MainActorObservation(name, center: center) {
+                acted()
+            }
+        }
+        return {
+            if let monitor { NSEvent.removeMonitor(monitor) }
+            observers.forEach { $0.cancel() }
+        }
     }
 
     /// The `revealTurn` value that opens a pane on subagent `agent`'s view (the page's

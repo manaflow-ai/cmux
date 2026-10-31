@@ -39,10 +39,29 @@ end of that turn, which can take an hour.
   This follows Claude's composer (Leo, 2026-10-18), and
   `composer-queued-placeholder.test.tsx` pins it. To change those keys is a
   separate product decision. It is not part of this change.
-- A steer that acpmux accepted reaches Claude Code only at its next tool
-  boundary. A tool that runs for a long time (for example, `cmux-ci wait`)
-  still delays it. A deadline that converts a pending steer into an
-  interrupt is possible follow-up work.
+- A steer that acpmux accepted reached Claude Code only at its next tool
+  boundary, so a tool that runs for a long time (for example, `cmux-ci
+  wait`) delayed it. Fixed 2026-10-26 (below).
+
+## Send now by default (2026-10-26)
+
+User (2026-10-26): Chief messages must reach the agent's ACP chat "with
+interrupt by default".
+
+- The Chief's default `tell` steers with `_meta.acpmux.steerNow` (optchat-chief
+  `AgentPort::steer_now`). acpmux (`Hub::steer_turn`) then stops the agent's
+  current step, as the pane's Send now (`_acpmux/queue_edit` `send_now`) does
+  for a waiting steer. The turn goes on, with its context, and reads the
+  message at once.
+- acpmux never stops a running subagent or a background shell for it
+  (claude_stdio `steer_now_tests.rs`); a foreground shell is stopped.
+- `queue: true`, a peer's message (`peer_tell`) and the restart steer of an
+  alive subagent (`control.rs`) still wait for the step.
+- An acpmux without `steerNow` ignores the key: the old steer.
+- Tests: acpmux `hub_integration/steer_now.rs`
+  `a_steer_sent_with_steer_now_stops_the_step_at_once`; optchat-chief
+  `tests/eval_acp.rs` (Chief fast eval group `acp`) and `acpmux_wire.rs`
+  `a_steer_sent_now_carries_steer_now_over_the_wire`.
 
 ## Tests
 

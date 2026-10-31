@@ -71,3 +71,16 @@ export function withoutDataUris(text: string, label: string): string {
     .replace(MARKDOWN_DATA_IMAGE, (_match, alt: string) => `[${alt.trim() || label}]`)
     .replace(BARE_DATA_URI, `[${label}]`);
 }
+
+/// Any markdown image (`![alt](src "title")`, whatever its source) outside code.
+const MARKDOWN_IMAGE = /!\[[^\]\n]*\]\([^()\n]*(?:\([^()\n]*\)[^()\n]*)*\)/g;
+
+/// `text` without its markdown images, for a paste that carries the image itself: a browser's or
+/// the transcript's copy puts the picture on the clipboard with `![…](…)` text or an `<img>` for
+/// it, and the composer takes the picture as a chip, so that text would only repeat it as markup
+/// (Leo 2026-10-21: "copying and pasting images straight puts weird things in composer").
+export function withoutMarkdownImages(text: string): string {
+  if (!text.includes("![")) return text;
+  const rest = outsideCode(text, (prose) => prose.replace(MARKDOWN_IMAGE, ""));
+  return rest.trim() ? rest : "";
+}

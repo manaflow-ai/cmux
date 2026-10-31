@@ -1,5 +1,6 @@
 import CoreGraphics
 @testable import CmuxNextSidebar
+import Foundation
 import Testing
 
 /// A group's fold splices its rows into the shown layout (`SidebarLayout.folding`) instead of laying the list out
@@ -78,6 +79,21 @@ import Testing
         var steps: [(GroupID, Bool)] = []
         for i in 0..<(SidebarLayoutKeyIndex.compactAfter * 2 + 5) { steps.append((GroupID("g\(i % 6)"), i % 12 < 6)) }
         try check(steps, active: WorkspaceID("g4-0"))
+    }
+
+    /// The chat history's Pinned and Earlier blocks sit where the full layout leaves room; a splice would move the
+    /// rows under Earlier (a click there resumed a chat) and leave a gap on close, so the list is laid out again.
+    @Test func chatHistoryLaysTheListOutAgain() throws {
+        let sections = Self.sections()
+        var o = SidebarLayoutOptions()
+        o.sessionTree = SidebarSessionTreeState()
+        let chats = (0..<3).map { SidebarHistoryChat(id: "c\($0)", title: "chat \($0)", updatedAt: .distantPast) }
+        o.chatHistory = SidebarChatHistoryState.make(newest: chats, chat: { id in chats.first { $0.id == id } }, live: [],
+                                                     pinned: ["c0"], limit: 20, folded: false)
+        let shown = SidebarLayout.make(sections: sections, metrics: .standard, options: o)
+        #expect(shown.earlierChatsY != nil)
+        let group = try #require(Self.group(GroupID("g1"), in: sections))
+        #expect(shown.folding(group, collapsed: true, in: sections[0], metrics: .standard, options: o) == nil)
     }
 
     @Test func aFilterLaysTheListOutAgain() {

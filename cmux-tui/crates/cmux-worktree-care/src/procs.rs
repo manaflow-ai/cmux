@@ -89,15 +89,18 @@ fn runs(_pid: u32) -> bool {
 }
 
 /// The first program working in `folder` or below it, other than this one.
-/// Registries record real paths, so `folder` is compared as given and as
-/// its real path (`/tmp` is `/private/tmp` on macOS).
+/// Both sides are compared as given and resolved through links: a registry
+/// may record a real path (`/tmp` is `/private/tmp` on macOS) or a linked
+/// one (a Claude Code session in `~/.cmux/worktrees/...`, which git records
+/// as `~/.cmux/worktrees.noindex/...`).
 pub fn inside<'a>(processes: &'a [Process], folder: &Path) -> Option<&'a Process> {
     let own = std::process::id();
-    let real = std::fs::canonicalize(folder).ok();
+    let real = crate::store::resolved(folder);
     processes.iter().find(|process| {
         process.pid != own
             && (process.cwd.starts_with(folder)
-                || real.as_deref().is_some_and(|real| process.cwd.starts_with(real)))
+                || process.cwd.starts_with(&real)
+                || crate::store::resolved(&process.cwd).starts_with(&real))
     })
 }
 

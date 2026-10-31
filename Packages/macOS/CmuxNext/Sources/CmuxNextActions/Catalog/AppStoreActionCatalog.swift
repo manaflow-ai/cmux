@@ -1,8 +1,10 @@
 // App platform (plans/cmux-next/app-platform.md section 3): the App Store
-// window. Titles live in AppStoreActions.xcstrings. Install and remove are
-// window buttons only (Lawrence 2026-10-02: no agent installs until the
-// actor stamp), so there is no install action; `appStore.show` with `app`
-// may open a listing but never installs.
+// window. Titles live in AppStoreActions.xcstrings. `app.install` and
+// `app.remove` (CLI `cmux apps install|remove`, palette, MCP) never install
+// by themselves: they show the App Store's own native consent card, and only
+// the person's click there installs or removes (docs/app-store-platonic-ideal.md
+// P13: agents propose, the person approves; Lawrence 2026-10-02: no agent
+// installs). `appStore.show` with `app` opens a listing and never installs.
 
 nonisolated enum AppStoreActionCatalog: ActionCatalogGroup {
     static func descriptors() -> [ActionDescriptor] {
@@ -12,7 +14,8 @@ nonisolated enum AppStoreActionCatalog: ActionCatalogGroup {
                 keywords: ["apps", "store", "extensions", "plugins", "install", "marketplace", "sidebar sections"],
                 category: .settings, symbol: "bag", surfaces: [.palette, .keyboard, .contextMenu],
                 arguments: [ActionArgument(name: "app", title: t("argument.appStore.app", "App"), kind: .string, isRequired: false),
-                            ActionArgument(name: "tab", title: t("argument.appStore.tab", "Tab"), kind: .string, isRequired: false)],
+                            ActionArgument(name: "tab", title: t("argument.appStore.tab", "Tab"), kind: .string, isRequired: false),
+                            ActionArgument(name: "category", title: t("argument.appStore.category", "Category"), kind: .string, isRequired: false)],
                 cliName: "app store",
                 surfacePlan: ActionSurfacePlan(
                     // A tab of the active window; automation opens it without
@@ -24,7 +27,7 @@ nonisolated enum AppStoreActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "appStore.showInstalled", title: t("action.appStore.showInstalled", "Installed Apps"),
                 keywords: ["apps", "installed", "extensions", "plugins", "permissions", "logs", "reload", "disable"],
-                category: .settings, symbol: "bag.badge.checkmark", surfaces: [.palette, .keyboard],
+                category: .settings, symbol: "checkmark.seal", surfaces: [.palette, .keyboard],
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
             ),
             // Hide is a per-user view preference (app-platform.md V9): the app keeps running
@@ -46,6 +49,31 @@ nonisolated enum AppStoreActionCatalog: ActionCatalogGroup {
                 cliName: "apps unhide",
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
             ),
+            // Install and remove behind the consent card (see the header). They wait for
+            // the person's answer, so the CLI and MCP get the result of the click.
+            {
+                var install = ActionDescriptor(
+                    id: "app.install", title: t("action.app.install", "Install App…"),
+                    keywords: ["apps", "install", "add", "store", "extensions", "plugins", "deploy", "self-hosted"],
+                    category: .settings, symbol: "arrow.down.app", surfaces: [.palette, .keyboard],
+                    arguments: [ActionArgument(name: "app", title: t("argument.appStore.app", "App"), kind: .string),
+                                ActionArgument(name: "deploy", title: t("argument.app.deploy", "Deploy To"), kind: .string, isRequired: false)],
+                    cliName: "apps install",
+                    surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject))
+                install.waitsForPerson = true
+                return install
+            }(),
+            {
+                var remove = ActionDescriptor(
+                    id: "app.remove", title: t("action.app.remove", "Remove App…"),
+                    keywords: ["apps", "remove", "uninstall", "delete", "extensions", "plugins"],
+                    category: .settings, symbol: "trash", surfaces: [.palette, .keyboard],
+                    arguments: [ActionArgument(name: "app", title: t("argument.appStore.app", "App"), kind: .string)],
+                    cliName: "apps remove",
+                    surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject))
+                remove.waitsForPerson = true
+                return remove
+            }(),
             // Opens an app's page as a tab (first-party apps: the sidebar label
             // item, for example CodeRouter below the App Store); `command` then
             // runs one of the app's commands (CodeRouter: connectAccount, the

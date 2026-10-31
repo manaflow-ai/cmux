@@ -24,11 +24,16 @@ pub(crate) mod machine_gate;
 pub(crate) mod machine_update;
 mod mesh;
 mod mesh_cloud;
+mod paired_streams;
 mod process_exit;
 mod state;
 
 #[cfg(test)]
 mod e2e_tests;
+#[cfg(test)]
+mod outgoing_revocation_tests;
+#[cfg(test)]
+mod revocation_tests;
 #[cfg(test)]
 mod tests;
 
@@ -357,6 +362,13 @@ async fn reload(socket: &Path) -> bool {
 }
 
 fn run_serve(flags: &Flags) -> anyhow::Result<()> {
+    // Before any setup: an update during it is still seen (`launchd_refresh.rs`).
+    #[cfg(target_os = "macos")]
+    let watch = launchd::plist_path()
+        .ok()
+        .and_then(|plist| crate::launchd_refresh::for_agent(launchd::LABEL, plist));
+    #[cfg(not(target_os = "macos"))]
+    let watch: Option<AgentWatch> = None;
     let state = state(flags)?;
     let session_socket = flags.get("--session-socket").map(PathBuf::from);
     // `server.json` is read once: the owner session is parsed from, and
@@ -372,7 +384,7 @@ fn run_serve(flags: &Flags) -> anyhow::Result<()> {
     // UDP bind: a second `serve` of the same state directory stops here.
     let _lock = serve_lock(&state)?;
     let served = ensure::Served::of(flags, config_path, config_bytes.as_deref());
-    tokio_runtime()?.block_on(serve(state, session_socket, owner, ready, served))
+    tokio_runtime()?.block_on(serve(state, session_socket, owner, ready, served, watch))
 }
 
 /// `<state>/link.lock`, held by a running `serve` (never blocks).
@@ -440,6 +452,7 @@ async fn serve(
     owner: Option<Arc<OwnerSession>>,
     ready: Option<ensure::ReadyPipe>,
     served: ensure::Served,
+    watch: Option<AgentWatch>,
 ) -> anyhow::Result<()> {
     let config = state.config().context("run `cmux link init --install ID` first")?;
     let private_key = state.private_key()?;
@@ -489,6 +502,7 @@ async fn serve(
         served = serve_local(local, overlay.clone(), peers.clone(), resolver, status) => served.map_err(anyhow::Error::from),
         () = serve_overlay(listener, peers.clone(), session_socket, owner) => Ok(()),
         signal = shutdown_signal() => signal,
+        outcome = launchd_agent_outcome(watch) => outcome,
     };
     registration::remove_if_owned(&state.registration_dir(), pid);
     let _ = std::fs::remove_file(&socket_path);
@@ -514,6 +528,38 @@ fn bind_local(path: &Path) -> anyhow::Result<tokio::net::UnixListener> {
     let listener = tokio::net::UnixListener::bind(path)?;
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
     Ok(listener)
+}
+
+/// This serve's launchd agent watch (`launchd_refresh.rs`), opened first thing in
+/// `run_serve`.
+#[cfg(target_os = "macos")]
+type AgentWatch = crate::launchd_refresh::Agent;
+#[cfg(not(target_os = "macos"))]
+type AgentWatch = std::convert::Infallible;
+
+/// When launchd runs this serve as `com.cmuxterm.link` (`watch`): resolves
+/// once an update replaced its binary (an error, so launchd starts the new
+/// one) or its app was deleted (the agent booted itself out and removed its
+/// plist). Never resolves otherwise.
+async fn launchd_agent_outcome(watch: Option<AgentWatch>) -> anyhow::Result<()> {
+    #[cfg(target_os = "macos")]
+    if let Some(agent) = watch {
+        // A thread of its own: a blocking task would hold the runtime's shutdown.
+        let (sender, receiver) = tokio::sync::oneshot::channel();
+        std::thread::spawn(move || {
+            let _ = sender.send(agent.wait());
+        });
+        return match receiver.await {
+            Ok(crate::launchd_refresh::Outcome::Replaced) => {
+                Err(anyhow!("an update replaced this cmux; launchd starts the new build"))
+            }
+            Ok(crate::launchd_refresh::Outcome::Removed) => Ok(()),
+            Err(_) => std::future::pending().await,
+        };
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = watch;
+    std::future::pending().await
 }
 
 async fn shutdown_signal() -> anyhow::Result<()> {

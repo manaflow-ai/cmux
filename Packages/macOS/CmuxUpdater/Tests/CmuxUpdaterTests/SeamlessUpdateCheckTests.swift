@@ -115,7 +115,19 @@ import Testing
 
         UpdateSettings().apply(to: defaults)
 
-        #expect(defaults.double(forKey: UpdateSettings.scheduledCheckIntervalKey) == 3600)
+        #expect(defaults.double(forKey: UpdateSettings.scheduledCheckIntervalKey) == 900)
+        #expect(defaults.bool(forKey: UpdateSettings.intervalMigrationKey))
+    }
+
+    @Test func staleHourlyIntervalUpgradesToTheFreshnessDefault() throws {
+        let (defaults, suite) = try freshDefaults()
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set(true, forKey: UpdateSettings.migrationKey)
+        defaults.set(3600, forKey: UpdateSettings.scheduledCheckIntervalKey)
+
+        UpdateSettings().apply(to: defaults)
+
+        #expect(defaults.double(forKey: UpdateSettings.scheduledCheckIntervalKey) == 900)
         #expect(defaults.bool(forKey: UpdateSettings.intervalMigrationKey))
     }
 

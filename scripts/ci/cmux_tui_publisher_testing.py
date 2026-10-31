@@ -3,7 +3,8 @@
 
 A published tree is promotable to nightly-next only with
 tree/<key>/daemon-tests.json, which its publisher writes once its
-"cmux_next_ daemon tests (macOS)" job passes. cmux-tui-artifacts.yml's
+"cmux_next_ daemon tests" job passes (older runs named it with a
+parenthesised runner suffix; every such name counts). cmux-tui-artifacts.yml's
 tree-preflight and tree-owner-wait let every later push of the same key skip
 those tests while that publisher is an active feat-cmux-next push. On
 2026-10-21 the publisher's job sat queued for hours on a pool pull requests
@@ -35,7 +36,12 @@ import os
 import subprocess
 import sys
 
-JOB_NAME = "cmux_next_ daemon tests (macOS)"
+JOB_NAME = "cmux_next_ daemon tests"
+
+
+def is_daemon_job(name: str | None) -> bool:
+    """The gate job by its name: bare now, with a "(...)" runner suffix in older runs."""
+    return name == JOB_NAME or (name or "").startswith(JOB_NAME + " (")
 
 
 def jobs(run_id: str) -> list[dict]:
@@ -51,7 +57,7 @@ def jobs(run_id: str) -> list[dict]:
 
 def verdict(all_jobs: list[dict], pool: str, max_queued_minutes: float, now: dt.datetime) -> tuple[bool, str]:
     """(publisher tests it, why)."""
-    job = next((j for j in all_jobs if j.get("name") == JOB_NAME), None)
+    job = next((j for j in all_jobs if is_daemon_job(j.get("name"))), None)
     if job is None:
         return True, "its daemon-test job is not created yet"
     status, conclusion = job.get("status"), job.get("conclusion")

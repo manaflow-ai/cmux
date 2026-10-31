@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextFilesUI
 
 /// The right sidebar's Find section and the Find pane's view: a search field
 /// over the focused terminal's folder and one row per matching line. Return
@@ -11,7 +12,7 @@ final class FindSectionView: NSView, RightSidebarRefreshing, NSTableViewDataSour
     let model: FindSectionModel
     private let rootFolder: @MainActor () -> URL
     private let effects: any FileExplorerEffects
-    let field = NSSearchField()
+    let field = NSSearchField() // text-focus-allow: no rounded control owns this sidebar field; its ring is the only focus cue (accessibility).
     private let status = NSTextField(labelWithString: "")
     let table = FindResultsTableView()
     private let scroll = NSScrollView()
@@ -41,9 +42,9 @@ final class FindSectionView: NSView, RightSidebarRefreshing, NSTableViewDataSour
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    // Each handle here is Sendable and stops from any thread: a release off main cleans up too.
     nonisolated deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated { observation?.cancel() }
+        observation?.cancel()
     }
 
     /// Searches the focused terminal's folder each time the section shows (again, when it changed).
@@ -56,12 +57,10 @@ final class FindSectionView: NSView, RightSidebarRefreshing, NSTableViewDataSour
     private func build() {
         field.placeholderString = FileExplorerStrings.findPlaceholder
         field.sendsWholeSearchString = true
-        field.focusRingType = .none
         field.target = self
         field.action = #selector(submit)
         field.delegate = self
         field.font = Typography.body
-        field.focusRingType = .none
         status.font = Typography.caption
         status.textColor = .secondaryLabelColor
         status.lineBreakMode = .byTruncatingMiddle
@@ -70,6 +69,9 @@ final class FindSectionView: NSView, RightSidebarRefreshing, NSTableViewDataSour
         table.headerView = nil
         table.rowHeight = 34
         table.style = .sourceList
+        // A source list paints the system sidebar gray; the section sits on the window's ground like
+        // the sidebar, so the search strip and the results read as one surface.
+        table.backgroundColor = .clear
         table.dataSource = self
         table.delegate = self
         table.target = self
@@ -122,12 +124,12 @@ final class FindSectionView: NSView, RightSidebarRefreshing, NSTableViewDataSour
     }
 
     private var selected: RipgrepMatch? {
-        let row = table.clickedRow >= 0 ? table.clickedRow : table.selectedRow
-        return row >= 0 && row < results.count ? results[row] : nil
+        guard let row = table.clickedRowIfValid ?? table.selectedRowIfValid, row < results.count else { return nil }
+        return results[row]
     }
 
     @objc private func openClicked() {
-        guard table.clickedRow >= 0 else { return }
+        guard table.clickedRowIfValid != nil else { return }
         openSelected()
     }
 

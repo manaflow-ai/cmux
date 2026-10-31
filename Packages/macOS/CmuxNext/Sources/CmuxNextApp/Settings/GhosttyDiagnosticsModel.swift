@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 import CmuxNextTerminal
+import CmuxNextCompat
 
 /// The R92 diagnostics of the applied Ghostty config, kept current: read
 /// again on every config change (`GhosttyRuntime.configDidChange`). The
@@ -14,18 +15,20 @@ final class GhosttyDiagnosticsModel {
     /// Nil until the first read finished (the page then shows nothing,
     /// never a false "everything applies").
     private(set) var diagnostics: [GhosttyConfigDiagnostic]?
+    /// The theme colors the user's Ghostty files set themselves, which no theme can change (the
+    /// Theme section's notice). Read with the config, so current at once.
+    private(set) var colorOverrides: [GhosttyColorOverride] = []
 
     @ObservationIgnored private let read: @MainActor () -> GhosttyConfigDiagnosticsSnapshot?
-    @ObservationIgnored private var observer: (any NSObjectProtocol)?
+    @ObservationIgnored private var observer: MainActorObservation?
     @ObservationIgnored private var generation = 0
 
     init(read: @escaping @MainActor () -> GhosttyConfigDiagnosticsSnapshot? = { GhosttyRuntime.shared.configDiagnosticsSnapshot },
          notifications: NotificationCenter = .default) {
         self.read = read
         refresh()
-        observer = notifications.addObserver(forName: GhosttyRuntime.configDidChange, object: nil, queue: .main) { [weak self] _ in
-            // main-proof: observer on queue: .main
-            MainActor.assumeIsolated { self?.refresh() }
+        observer = MainActorObservation(GhosttyRuntime.configDidChange, center: notifications) { [weak self] in
+            self?.refresh()
         }
     }
 
@@ -36,8 +39,10 @@ final class GhosttyDiagnosticsModel {
         let current = generation
         guard let snapshot = read() else {
             diagnostics = []
+            colorOverrides = []
             return
         }
+        if snapshot.colorOverrides != colorOverrides { colorOverrides = snapshot.colorOverrides }
         // task-owner: one read per config change; a newer read supersedes it (generation).
         Task { [weak self] in
             let found = await snapshot.diagnostics()

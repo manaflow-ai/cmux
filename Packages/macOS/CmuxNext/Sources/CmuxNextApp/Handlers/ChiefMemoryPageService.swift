@@ -80,10 +80,11 @@ final class ChiefMemoryPageService: InternalPageProvider {
     @discardableResult
     func open(_ route: ChiefMemoryRoute, in window: WindowController?, focus: Bool) -> String? {
         guard let services, let window, let content = window.workspaceContent else { return nil }
-        for pane in content.panes.values {
-            let keys = services.pages.tabIDs(in: pane.paneKey) + pane.pane.tabs.compactMap { services.pages.storeKey(of: $0.id) }
+        // The model's panes (a parked workspace's view may be behind the tree).
+        for model in content.modelPanes {
+            let keys = services.pages.tabIDs(in: model.id) + model.tabs.compactMap { services.pages.storeKey(of: $0.id) }
             if let shown = keys.first(where: { routes[$0] == route }) {
-                if focus {
+                if focus, let pane = content.controller(for: model) {
                     pane.select(services.pages.stripID(showing: shown, in: pane) ?? StripTabID(shown))
                     pane.focusContent()
                 }
@@ -94,6 +95,43 @@ final class ChiefMemoryPageService: InternalPageProvider {
         defer { nextRoute = nil }
         guard services.pages.openNew(.chiefMemory, in: window, focus: focus) != nil else { return nil }
         return routes.first { $0.value == route }?.key
+    }
+
+    /// Whether the workspace `window` names shows a Memory Inspector tab (the Home header's
+    /// Memory toggle is on). An observable read: the window's workspace, the tree's page tabs and
+    /// the app-only page tabs.
+    func isShown(in window: WindowController) -> Bool {
+        _ = window.state.workspaceID
+        guard let content = window.workspaceContent, let services else { return false }
+        if !Self.tabs(in: content.workspace).isEmpty { return true }
+        return services.pages.tab(of: .chiefMemory, inPanes: content.modelPanes.map(\.id)) != nil
+    }
+
+    /// Closes every Memory Inspector tab of the workspace `window` names; false when it shows none.
+    func closeShown(in window: WindowController) -> Bool {
+        guard let services, let content = window.workspaceContent else { return false }
+        var closed = false
+        // The model's panes, each closed through its controller (the one close path). A pane the
+        // daemon added while the workspace was parked off screen has no controller until it shows.
+        for model in content.modelPanes {
+            guard let pane = content.controller(for: model) else { continue }
+            let store = Self.tabs(in: model).map { StripTabID($0.id) }
+            let local = services.pages.tabIDs(in: model.id).filter { LocalPageTab.page(of: $0) == .chiefMemory }.map { StripTabID($0) }
+            guard !(store + local).isEmpty else { continue }
+            pane.close(store + local)
+            closed = true
+        }
+        return closed
+    }
+
+    /// The tree's Memory Inspector page tabs in `workspace` (any Chief's).
+    static func tabs(in workspace: WorkspaceModel) -> [TabModel] {
+        workspace.screens.flatMap(\.panes).flatMap { tabs(in: $0) }
+    }
+
+    /// The tree's Memory Inspector page tabs in `pane`.
+    static func tabs(in pane: PaneModel) -> [TabModel] {
+        pane.tabs.filter { $0.page == InternalPageID.chiefMemory.rawValue }
     }
 
     /// The daemon in front of `route`'s brain; nil while it is not connected.

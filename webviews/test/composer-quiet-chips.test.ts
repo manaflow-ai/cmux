@@ -13,6 +13,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("composer-quiet-chips.test.ts", async () => {
@@ -83,6 +84,7 @@ await requireBrowserLane("composer-quiet-chips.test.ts", async () => {
 
   const open = async (engine: string, entry: string, variant: string) => {
     const page = await browsers.get(engine)!.newPage({ viewport: { width: 760, height: 600 } });
+    await installPaintedFrames(page);
     await page.goto(stageURL(entry, variant));
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {
       timeout: 120_000,
@@ -91,8 +93,23 @@ await requireBrowserLane("composer-quiet-chips.test.ts", async () => {
     // At rest: nothing focused, the pointer off the composer.
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
     await page.mouse.move(1, 1);
-    await page.waitForTimeout(250);
+    await page.waitForFunction((controls) => !document.querySelector(`${controls}:hover`), CONTROLS);
+    await settle(page);
     return page;
+  };
+  /** Waits for a painted frame with the pointer's or focus's change and for every transition it
+   *  started to end, so a read sees what the page holds, not a fade on its way there. */
+  const settle = (page: Page) =>
+    page.evaluate(async () => {
+      await window.cmuxPaintFrame();
+      const transitions = document.getAnimations().filter((animation) => animation instanceof CSSTransition);
+      await Promise.all(transitions.map((transition) => transition.finished.catch(() => {})));
+      await window.cmuxPaintFrame();
+    });
+  /** Waits for the pointer to be over `selector`, then for the page to settle. */
+  const hovered = async (page: Page, selector: string) => {
+    await page.waitForFunction((selector) => document.querySelector(selector)?.matches(":hover"), selector);
+    await settle(page);
   };
   const look = (page: Page, selector: string) =>
     page
@@ -134,7 +151,7 @@ await requireBrowserLane("composer-quiet-chips.test.ts", async () => {
       const box = (await page.locator(".nt-box").boundingBox())!;
       // Over the box's own empty area, clear of the field's text and every control.
       await page.mouse.move(box.x + box.width - 24, box.y + 10);
-      await page.waitForTimeout(300);
+      await hovered(page, ".nt-box");
       expect(await look(page, ".nt-box")).toEqual(rest);
       await page.close();
     });
@@ -146,7 +163,7 @@ await requireBrowserLane("composer-quiet-chips.test.ts", async () => {
           const rest = await look(page, chip(name));
           const box = (await page.locator(chip(name)).first().boundingBox())!;
           await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-          await page.waitForTimeout(300);
+          await hovered(page, chip(name));
           const hover = await look(page, chip(name));
           // Hover lives under a fine pointer only; a headless engine may report a coarse one.
           const fine = await page.evaluate(() => matchMedia("(hover: hover) and (pointer: fine)").matches);
@@ -154,7 +171,8 @@ await requireBrowserLane("composer-quiet-chips.test.ts", async () => {
           await page.mouse.down();
           const pressed = await look(page, chip(name));
           await page.mouse.up();
-          await page.waitForTimeout(300);
+          await page.waitForSelector(`${chip(name)}[aria-expanded="true"]`);
+          await settle(page);
           const opened = await look(page, chip(name));
           expect(
             await page.locator(chip(name)).first().getAttribute("aria-expanded"),
@@ -184,33 +202,34 @@ await requireBrowserLane("composer-quiet-chips.test.ts", async () => {
           const name = stage.chips[0]!;
           const box = (await page.locator(chip(name)).first().boundingBox())!;
           await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-          await page.waitForTimeout(300);
-          const hovered = await pills();
-          const under = hovered.filter((each) => each.hovered).map((each) => each.label);
+          await hovered(page, chip(name));
+          const pilled = await pills();
+          const under = pilled.filter((each) => each.hovered).map((each) => each.label);
           expect(under.length, "the pointer is over one button").toBe(1);
           expect(
-            hovered.filter((each) => each.pill).map((each) => each.label),
+            pilled.filter((each) => each.pill).map((each) => each.label),
             "only the hovered button pills",
           ).toEqual(under);
         }
         await page.close();
       });
 
-    // Keyboard focus gives the focused button the hover's pill, with no edge, and keeps its outline:
-    // every bar button, + included (Leo 2026-10-19).
-    test(`${engine}: keyboard focus pills the focused button only, ringless, with its outline`, async () => {
+    // Keyboard focus gives the focused button the hover's pill, with no edge and no outline: every bar
+    // button, + included (Leo 2026-10-19). The outline went with #23745 (Leo 2026-10-21: no focus
+    // rings in the agent pane; the pill alone marks a focused button).
+    test(`${engine}: keyboard focus pills the focused button only, ringless, with no outline`, async () => {
       const page = await open(engine, "agent-pane.composer", "quiet-chips");
       for (const [name, selector] of Object.entries(BAR)) {
         // A key first, so a script focus counts as keyboard focus (:focus-visible) in both engines.
         await page.keyboard.press("Shift");
         await page.locator(selector).first().focus();
-        await page.waitForTimeout(250);
+        await settle(page);
         const controls = await pillsOf(page);
         const focused = controls.filter((each) => each.focused);
         expect(focused.length, `${name} has keyboard focus`).toBe(1);
         expect(focused[0]!.filled, `${name}: focus draws the pill`).toBe(true);
         expect(focused[0]!.edge, `${name}: no edge around the focused pill`).toBe("none");
-        expect(focused[0]!.outline, `${name}: the focus outline stays`).not.toBe("none");
+        expect(focused[0]!.outline, `${name}: no focus outline`).toBe("none");
         expect(
           controls.filter((each) => each.pill && !each.focused).map((each) => each.label),
           `${name}: no other button pills`,
@@ -246,16 +265,16 @@ await requireBrowserLane("composer-quiet-chips.test.ts", async () => {
         const eased = await button.evaluate((element) => getComputedStyle(element).transitionProperty);
         const box = (await button.boundingBox())!;
         await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-        await page.waitForTimeout(200);
+        await hovered(page, target.selector);
         const hover = await read();
         await page.mouse.down();
         const pressed = await read();
         // Held: a chip whose menu opened on pointerdown has lost :active by now, but keeps
         // data-press-active (popoverTrigger.ts) until the release.
-        await page.waitForTimeout(300);
+        await settle(page);
         const held = await read();
         await page.mouse.up();
-        await page.waitForTimeout(400);
+        await settle(page);
         const after = await read();
         await page.close();
         expect(eased, "no transform to ease").not.toContain("transform");

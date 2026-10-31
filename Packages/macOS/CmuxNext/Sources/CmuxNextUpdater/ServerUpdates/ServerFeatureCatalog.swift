@@ -16,7 +16,7 @@ public nonisolated struct ServerFeatureCatalog: Sendable {
         entries.filter { capabilities.contains($0.capability) }
     }
 
-    /// The catalog the app ships: cmux-tui capabilities the GUI gates on (`DaemonCapabilities`).
+    /// The catalog the app ships: cmux-tui capabilities the GUI gates on (`DaemonCapability`).
     public static var shipped: ServerFeatureCatalog {
         ServerFeatureCatalog(entries: [
             ServerFeature(capability: "tab-groups-v1", title: UpdaterStrings.text("server.feature.tabGroups", "Tab groups")),

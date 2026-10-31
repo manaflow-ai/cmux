@@ -16,11 +16,13 @@ public final class LiveFeed: FeedActions {
         public var workspaceID: String
         public var tabID: String
         public var workspaceTitle: String
+        public var tabTitle: String
 
-        public init(workspaceID: String, tabID: String, workspaceTitle: String) {
+        public init(workspaceID: String, tabID: String, workspaceTitle: String, tabTitle: String = "") {
             self.workspaceID = workspaceID
             self.tabID = tabID
             self.workspaceTitle = workspaceTitle
+            self.tabTitle = tabTitle
         }
     }
 
@@ -30,12 +32,23 @@ public final class LiveFeed: FeedActions {
     weak var terminal: TerminalFeed?
     var place: @MainActor (String) -> Place?
     let now: @MainActor () -> Date
+    /// The Mac this feed reads (`MacSession`): every item it makes names it.
+    var macID: String?
     /// Open asks per session (resolved when the session reports none pending).
     private(set) var openAsks: [String: Set<String>] = [:]
     /// Every ask's session, by Feed item id.
     private var askSessions: [String: String] = [:]
     /// Every open ask's kind, by Feed item id.
     private var askKinds: [String: WorkspaceTab.WaitingFor] = [:]
+    /// Each finished turn's whole reply, by Feed item id, read from the session's
+    /// transcript (`LiveFeed+FullReply.swift`): a session summary's `preview` is only
+    /// its first 160 characters with the line breaks flattened. Empty: read, and none found.
+    var fullReplies: [String: String] = [:]
+    /// The transcript read of each turn item whose reply is being read (one per item).
+    var replyReads: [String: Task<Void, Never>] = [:]
+
+    /// Whether `itemID` is an ask this feed put in the Feed (its Mac answers it).
+    func owns(_ itemID: String) -> Bool { askSessions[itemID] != nil }
 
     /// What each session with open asks waits for: a question wins over a permission.
     public var waitingFor: [String: WorkspaceTab.WaitingFor] {
@@ -74,11 +87,13 @@ public final class LiveFeed: FeedActions {
                 return
             }
             let id = "ask-\(permissionID)"
-            guard store.item(id: id) == nil else { return }
-            log.info("feed ask \(id, privacy: .public)")
+            // This Mac answers the ask even when the Feed already lists it (read
+            // again on a new link or a refresh), so its answer is routed here.
             openAsks[sessionID, default: []].insert(id)
             askSessions[id] = sessionID
             askKinds[id] = waits
+            guard store.item(id: id) == nil else { return }
+            log.info("feed ask \(id, privacy: .public)")
             store.upsert(item(id: id, kind: kind, sessionID: sessionID, session: session, markdown: markdown,
                               quote: session?.lastPrompt.map { FeedItem.Quote($0) }), atTop: true)
         case .sessionChanged(let session, let recordKind, let seq):
@@ -87,7 +102,9 @@ public final class LiveFeed: FeedActions {
                 for id in asks { store.resolveElsewhere(id, text: "Answered") }
             }
             guard recordKind == "turn_result" else { return }
-            store.upsert(turnItem(session, fallbackKey: "\(seq)", at: now()), atTop: true)
+            let item = turnItem(session, fallbackKey: "\(seq)", at: now())
+            store.upsert(item, atTop: true)
+            readFullReply(of: item, sessionID: session.id, turnID: session.lastTurnID, through: seq)
         case .permissionResolved:
             break
         case .sessionsLoaded(let sessions):
@@ -100,12 +117,18 @@ public final class LiveFeed: FeedActions {
     /// history. Each session's last finished turn becomes its Feed item, with
     /// the same id a live `turn_result` uses, at the time the turn ended.
     func hydrate(_ sessions: [AcpmuxSession]) {
-        let history = sessions.compactMap { session -> FeedItem? in
+        let turns = sessions.compactMap { session -> (FeedItem, AcpmuxSession)? in
             guard session.lastTurnStatus != nil, let turnID = session.lastTurnID else { return nil }
-            return turnItem(session, fallbackKey: turnID, at: session.lastTurnEndedAt ?? session.updatedAt ?? now())
+            return (turnItem(session, fallbackKey: turnID, at: session.lastTurnEndedAt ?? session.updatedAt ?? now()), session)
         }
-        log.info("feed history \(history.count, privacy: .public) turns")
-        store.mergeHistory(history)
+        log.info("feed history \(turns.count, privacy: .public) turns")
+        store.mergeHistory(turns.map(\.0))
+        // Replies of cards no longer in the Feed are let go.
+        let shown = Set(store.items.map(\.id))
+        fullReplies = fullReplies.filter { shown.contains($0.key) }
+        for (item, session) in turns {
+            readFullReply(of: item, sessionID: session.id, turnID: session.lastTurnID, through: session.lastSeq)
+        }
     }
 
     /// A finished turn's item: keyed by the turn (live and history agree).
@@ -117,9 +140,11 @@ public final class LiveFeed: FeedActions {
         let failure = failed ? session.lastTurnError.map {
             TurnFailureCopy(message: $0, harness: session.harness, harnessName: DaemonTree.agentName(session.harness)).sentence
         } : nil
-        let markdown = failure ?? session.preview.flatMap { $0.isEmpty ? nil : $0 }
+        let id = "turn-\(session.id)-\(session.lastTurnID ?? fallbackKey)"
+        // The whole reply once read; until then the preview stands in for it.
+        let markdown = failure ?? fullReplies[id].flatMap { $0.isEmpty ? nil : $0 } ?? session.preview.flatMap { $0.isEmpty ? nil : $0 }
             ?? (failed ? "The turn failed." : stopped ? "Stopped." : "Finished.")
-        var item = item(id: "turn-\(session.id)-\(session.lastTurnID ?? fallbackKey)", kind: failed ? .failed : .response,
+        var item = item(id: id, kind: failed ? .failed : .response,
                         sessionID: session.id, session: session, markdown: markdown,
                         quote: session.lastPrompt.map { FeedItem.Quote($0) })
         item.createdAt = date
@@ -129,12 +154,15 @@ public final class LiveFeed: FeedActions {
     func item(id: String, kind: FeedItem.Kind, sessionID: String, session: AcpmuxSession?, markdown: String, quote: FeedItem.Quote?) -> FeedItem {
         let place = place(sessionID)
         let harness = session?.harness ?? "agent"
-        return FeedItem(
+        var item = FeedItem(
             id: id, kind: kind, workspaceID: place?.workspaceID ?? "", tabID: place?.tabID ?? sessionID,
             agentName: session?.name.isEmpty == false ? session!.name : DaemonTree.agentName(harness), harness: harness,
             workspaceTitle: place?.workspaceTitle ?? (session?.cwd).map { ($0 as NSString).lastPathComponent } ?? "",
             markdown: markdown, quote: quote, createdAt: now()
         )
+        item.macID = macID
+        item.tabTitle = place?.tabTitle ?? ""
+        return item
     }
 
     // MARK: FeedActions
@@ -145,7 +173,7 @@ public final class LiveFeed: FeedActions {
     public func refresh() async throws {
         await terminal?.refresh()
         guard let hub else { throw AcpmuxConnection.RPCError(code: 0, message: "Not connected to your Mac", reason: nil) }
-        let watched = try await hub.request("_acpmux/watch", .object(["enabled": .bool(true)]))
+        let watched = try await hub.request("_acpmux/watch", .object(["enabled": .bool(true)]), timeout: .seconds(20))
         let sessions = (watched["sessions"]?.arrayValue ?? []).compactMap(AcpmuxSession.init)
         hydrate(sessions)
         let byID = Dictionary(sessions.map { ($0.id, $0) }, uniquingKeysWith: { _, last in last })
@@ -160,7 +188,7 @@ public final class LiveFeed: FeedActions {
                 "beforeSeq": .number(Double(session.lastSeq + 1)),
                 "limit": .number(200),
                 "kinds": .array([.string("permission_request"), .string("permission_decision")]),
-            ]))
+            ]), timeout: .seconds(20))
             for (permissionID, request) in Self.openRequests(page["events"]?.arrayValue ?? []) {
                 handle(.permissionPending(sessionID: session.id, permissionID: permissionID, request: request), sessions: byID)
             }

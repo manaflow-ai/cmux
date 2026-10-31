@@ -29,11 +29,16 @@ public nonisolated struct AgentPaneWakeState: Codable, Sendable, Equatable {
         public var pageCount: Int?
         /// A link chip's file or folder on this computer (Attach files or folders).
         public var path: String?
+        /// A normalized image preview's original file on the session machine.
+        public var originalPath: String?
+        public var originalName: String?
 
         public init(id: String, kind: String, name: String, mimeType: String, size: Double,
-                    data: String? = nil, text: String? = nil, pageCount: Int? = nil, path: String? = nil) {
+                    data: String? = nil, text: String? = nil, pageCount: Int? = nil, path: String? = nil,
+                    originalPath: String? = nil, originalName: String? = nil) {
             (self.id, self.kind, self.name, self.mimeType, self.size) = (id, kind, name, mimeType, size)
             (self.data, self.text, self.pageCount, self.path) = (data, text, pageCount, path)
+            (self.originalPath, self.originalName) = (originalPath, originalName)
         }
     }
 
@@ -69,9 +74,9 @@ extension AgentPaneView {
     /// answer within `limit`; empty when it holds nothing.
     public func wakeState(limit: Duration = .seconds(1)) async -> AgentPaneWakeState? {
         await agentPaneFirst(within: limit) { [weak self] in
-            guard let webView = self?.webView else { return nil }
+            guard let self else { return nil }
             let script = "const read = window.cmuxAcpmuxActions?.['pane.wakeState']; return read ? await read({}) : null;"
-            let value = try? await webView.callAsyncJavaScript(script, arguments: [:], in: nil, contentWorld: .page)
+            let value = try? await self.callPageScript(script)
             return AgentPaneWakeState(page: value)
         }
     }

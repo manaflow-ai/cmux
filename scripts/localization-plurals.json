@@ -646,14 +646,74 @@
       1
     ]
   },
-  "home.turn.steps": {
-    "source": "%lld steps",
+  "importSuggestions.facts.profiles": {
+    "source": "%lld profiles",
     "arguments": [
       1
     ]
   },
-  "home.turn.moreSteps": {
-    "source": "%lld more steps",
+  "importSuggestions.facts.sessions": {
+    "source": "%lld sessions",
+    "arguments": [
+      1
+    ]
+  },
+  "importSuggestions.facts.threads": {
+    "source": "%lld threads",
+    "arguments": [
+      1
+    ]
+  },
+  "importSuggestions.facts.workspaces": {
+    "source": "%lld saved workspaces",
+    "arguments": [
+      1
+    ]
+  },
+  "importSuggestions.count.pages": {
+    "source": "%lld pages",
+    "arguments": [
+      1
+    ]
+  },
+  "importSuggestions.count.bookmarks": {
+    "source": "%lld bookmarks",
+    "arguments": [
+      1
+    ]
+  },
+  "importSuggestions.count.cookies": {
+    "source": "%lld cookies",
+    "arguments": [
+      1
+    ]
+  },
+  "home.stopAll.couldNotStop": {
+    "source": "%lld could not be stopped",
+    "arguments": [
+      1
+    ]
+  },
+  "importSuggestions.status.importedSessions": {
+    "source": "Imported %lld sessions",
+    "arguments": [
+      1
+    ]
+  },
+  "home.list.unread": {
+    "source": "%lld unread",
+    "arguments": [
+      1
+    ]
+  },
+  "home.info.memberCount": {
+    "source": "%lld members",
+    "arguments": [
+      1
+    ]
+  },
+  "handlers.findWork.unread": {
+    "source": "%lld unread",
     "arguments": [
       1
     ]

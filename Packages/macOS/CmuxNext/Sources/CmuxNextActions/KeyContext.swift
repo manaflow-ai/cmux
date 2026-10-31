@@ -77,6 +77,9 @@ public nonisolated struct KeyContext: Hashable, Sendable {
     /// The sidebar list has the keyboard with two or more rows selected: Cmd-W closes them
     /// (Chrome's Cmd-W on several selected tabs).
     public static let sidebarMultiSelection = "sidebar.multiSelection"
+    /// Workspaces as tabs is on (`sidebar.workspacesAsTabs`, a Debug tunable): Cmd-Shift-[ / ]
+    /// step workspaces instead of a pane's tabs (`KeyBindingDefaults.workspacesAsTabs`).
+    public static let workspacesAsTabs = "sidebar.workspacesAsTabs"
     /// The focused React page's id (`cmux.markdown`, `cmux.keybindings`).
     public static let pageID = "pageId"
     /// The top page the window shows (`home`), which fills the content area
@@ -121,6 +124,7 @@ extension ActionContext {
         (.omnibarFocused, "omnibarFocused"), (.codeEditorFocused, "codeEditorFocused"),
         (.homeChannelsEnabled, "homeChannelsEnabled"), (.webViewFocused, "webViewFocused"),
         (.markdownReadOnlyFocused, "markdownReadOnlyFocused"), (.markdownEditorFocused, "markdownEditorFocused"),
+        (.sideSessions, "sideSessions"),
     ]
 
     /// The bits a window's focus decides; the rest are app-wide facts.

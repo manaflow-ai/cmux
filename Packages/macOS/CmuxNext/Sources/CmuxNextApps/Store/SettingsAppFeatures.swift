@@ -62,7 +62,27 @@ public final class SettingsAppFeatures: AppFeatureSettings {
         guard let settings = settings(), let descriptor = SettingsSchema.descriptor(for: feature.path) else {
             throw SettingRefused(key: feature.setting, value: Self.onValue(feature))
         }
-        try await settings.setSetting(descriptor, to: Self.value(feature, on: on, default: descriptor.defaultValue), by: .user)
+        let value = Self.value(feature, on: on, default: descriptor.defaultValue)
+        try await settings.setSetting(descriptor, to: value, by: .user)
+        // A cleared key lets what is under the file apply (an MDM recommended value, a team default);
+        // when that disagrees with the press, the file says what the person asked for. A key with no
+        // value to say it (Glass Window has no default) refuses the press, so the card shows why.
+        if case .none = value, isOn(feature) != on {
+            guard let explicit = Self.explicitValue(feature, on: on, default: descriptor.defaultValue) else {
+                throw AppFeatureKeptOn(key: feature.setting)
+            }
+            try await settings.setSetting(descriptor, to: explicit, by: .user)
+        }
+    }
+
+    /// The value that states `on` outright: the on value, or off (`false`, or a choice key's default).
+    nonisolated static func explicitValue(_ feature: AppFeature, on: Bool, default defaultValue: JSONValue?) -> JSONValue? {
+        if on { return onValue(feature) }
+        switch feature.on {
+        case .toggle: return .bool(false)
+        case .choice: return defaultValue
+        case .sidebarItem: return nil
+        }
     }
 
     /// The value that means on: `true`, or the feature's choice.
@@ -75,12 +95,24 @@ public final class SettingsAppFeatures: AppFeatureSettings {
 
     /// What Get (`on`) or Remove writes. Remove takes a choice key out of the file, so its
     /// default (off) applies; a toggle whose default is off leaves the file too, and one whose
-    /// default is on is written `false`.
+    /// default is on is written `false`. Get of a feature that is on by default takes the key
+    /// out the same way, so Remove then Get leaves the file as it was.
     nonisolated static func value(_ feature: AppFeature, on: Bool, default defaultValue: JSONValue?) -> JSONValue? {
-        if on { return onValue(feature) }
+        if on {
+            // `cond ? nil : onValue(feature)` would type as `JSONValue`, whose nil literal is `.null`.
+            if onValue(feature) == defaultValue { return Optional<JSONValue>.none }
+            return onValue(feature)
+        }
         switch feature.on {
         case .toggle: return defaultValue == .bool(true) ? .bool(false) : nil
         case .choice, .sidebarItem: return nil
         }
     }
+}
+
+/// A press the settings file cannot carry out: a recommended value under the file keeps the card on,
+/// and its key has no off value to write over it (Glass Window under a recommended "glass").
+public struct AppFeatureKeptOn: Error, Sendable, CustomStringConvertible {
+    public let key: String
+    public var description: String { AppsStrings.featureKeptOn }
 }

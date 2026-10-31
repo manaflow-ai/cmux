@@ -1,11 +1,15 @@
 import CmuxNextFiles
 import Foundation
 import Observation
+import CmuxNextFilesUI
 
 /// The right sidebar's file explorer (classic's Files mode): a folder tree
 /// rooted at the focused terminal's folder, folders first, hidden items left
-/// out, with one selected row. Listing runs off the main actor through the
-/// injected ``DirectoryListing``, so tests drive it against a temp folder.
+/// out, with one selected row, each row with its git state. Listing runs off
+/// the main actor through the injected ``DirectoryListing`` and git through
+/// the injected runner, so tests drive it against a temp folder and a fake git.
+/// A file-system watch on the root and its repository's `.git` folder
+/// (``FileTreeWatching``) lists the tree again after a change made outside cmux.
 @MainActor
 @Observable
 final class FileExplorerModel {
@@ -19,12 +23,47 @@ final class FileExplorerModel {
     private(set) var failure: String?
 
     @ObservationIgnored private let lister: any DirectoryListing
+    @ObservationIgnored private let git: any MarkdownGitRunning
     @ObservationIgnored private var children: [URL: [FileEntry]] = [:]
+    /// Git states by the item's absolute path (symlinks resolved, as git prints them).
+    @ObservationIgnored private var gitStates: [String: FileGitState] = [:]
+    /// Folders (absolute, resolved) with a changed item inside.
+    @ObservationIgnored private var changedFolders: Set<String> = []
+    /// The root with symlinks resolved, the prefix git's paths share.
+    @ObservationIgnored private var resolvedRoot = ""
     @ObservationIgnored private var expanded: Set<URL> = []
     @ObservationIgnored private var generation = 0
+    @ObservationIgnored private let watcher: any FileTreeWatching
+    /// The folders the running watch covers, and its task.
+    @ObservationIgnored private var watched: [URL] = []
+    @ObservationIgnored private var watching: Task<Void, Never>?
 
-    init(lister: any DirectoryListing = DirectoryLister()) {
+    init(lister: any DirectoryListing = DirectoryLister(), git: any MarkdownGitRunning = ProcessMarkdownGitRunner(),
+         watcher: any FileTreeWatching = FileTreeWatcher()) {
         self.lister = lister
+        self.git = git
+        self.watcher = watcher
+    }
+
+    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    // Each handle here is Sendable and stops from any thread: a release off main cleans up too.
+    nonisolated deinit {
+        watching?.cancel()
+    }
+
+    /// Watches `folders` (the root, and the repository's `.git` folder): each burst of changes
+    /// lists the tree again. The same folders keep the running watch.
+    private func watch(_ folders: [URL]) {
+        guard folders != watched else { return }
+        watched = folders
+        watching?.cancel()
+        let changes = watcher.changes(under: folders)
+        watching = Task { [weak self] in
+            for await _ in changes {
+                guard let self else { return }
+                await self.reload()
+            }
+        }
     }
 
     /// Shows the tree of `folder`; the same folder only re-reads it.
@@ -55,10 +94,45 @@ final class FileExplorerModel {
             return
         }
         for folder in expanded { listed[folder] = (try? await lister.list(folder)) ?? [] }
+        let status = await readGit(root)
         guard mine == generation else { return }
         failure = nil
         children = listed
+        (resolvedRoot, gitStates, changedFolders) = (status.root, status.states, status.folders)
         rebuild()
+        watch([root] + (status.top.map { [URL(fileURLWithPath: $0, isDirectory: true).appendingPathComponent(".git", isDirectory: true)] } ?? []))
+    }
+
+    /// Expands `folder` when it is collapsed (a new item goes inside it).
+    func expand(_ folder: URL) async {
+        if !expanded.contains(folder) { await toggle(folder) }
+    }
+
+    /// `git status` of the repository holding `root` (read-only, no optional locks): nothing outside one.
+    private func readGit(_ root: URL) async -> (root: String, states: [String: FileGitState], folders: Set<String>, top: String?) {
+        let resolved = root.resolvingSymlinksInPath().path
+        guard let top = await git.run(["rev-parse", "--show-toplevel"], in: root.path), top.status == 0 else { return (resolved, [:], [], nil) }
+        let topPath = URL(fileURLWithPath: top.output.trimmingCharacters(in: .whitespacesAndNewlines)).resolvingSymlinksInPath().path
+        guard !topPath.isEmpty, let output = await git.run(["status", "--porcelain=v1", "-z", "--untracked-files=all"], in: topPath),
+              output.status == 0 else { return (resolved, [:], [], nil) }
+        var states: [String: FileGitState] = [:]
+        var folders: Set<String> = []
+        for (relative, state) in FileGitState.parse(output.output) {
+            let path = (topPath as NSString).appendingPathComponent(relative)
+            states[path] = state
+            var parent = (path as NSString).deletingLastPathComponent
+            while parent.count > topPath.count, folders.insert(parent).inserted {
+                parent = (parent as NSString).deletingLastPathComponent
+            }
+        }
+        return (resolved, states, folders, topPath)
+    }
+
+    /// The git state of the item at `url` (under the root).
+    private func gitState(of url: URL, isFolder: Bool) -> FileGitState? {
+        let path = (resolvedRoot as NSString).appendingPathComponent(relativePath(of: url))
+        if let state = gitStates[path] { return state }
+        return isFolder && changedFolders.contains(path) ? .containsChanges : nil
     }
 
     /// Expands a collapsed folder (listing it) or collapses an expanded one.
@@ -94,7 +168,8 @@ final class FileExplorerModel {
                 let url = entry.url.standardizedFileURL
                 let isFolder = entry.kind == .folder
                 let open = isFolder && expanded.contains(url)
-                out.append(FileExplorerRow(url: url, name: entry.name, depth: depth, isFolder: isFolder, isExpanded: open))
+                out.append(FileExplorerRow(url: url, name: entry.name, depth: depth, isFolder: isFolder, isExpanded: open,
+                                           git: gitState(of: url, isFolder: isFolder)))
                 if open { add(url, depth: depth + 1) }
             }
         }

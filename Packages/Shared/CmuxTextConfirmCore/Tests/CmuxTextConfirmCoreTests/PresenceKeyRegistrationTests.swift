@@ -1,4 +1,8 @@
+#if canImport(CryptoKit)
 import CryptoKit
+#else
+import Crypto
+#endif
 import Foundation
 import Testing
 @testable import CmuxTextConfirmCore
@@ -51,11 +55,12 @@ final class MemoryPendingStore: PendingAttestationStore, @unchecked Sendable {
     let presenceKey = P256.Signing.PrivateKey()
 
     func install(der: Bool = false) -> PresenceKeyInstall {
-        let key = installKey
+        // The closure captures the key's raw bytes: swift-crypto's P256 keys are not Sendable on Linux.
+        let keyBytes = installKey.rawRepresentation
         return PresenceKeyInstall(user: "user_1", install: "inst_1", environment: "staging",
                                   token: { "install-token" },
                                   sign: { message in
-                                      let s = try key.signature(for: message)
+                                      let s = try P256.Signing.PrivateKey(rawRepresentation: keyBytes).signature(for: message)
                                       return der ? s.derRepresentation : s.rawRepresentation
                                   })
     }

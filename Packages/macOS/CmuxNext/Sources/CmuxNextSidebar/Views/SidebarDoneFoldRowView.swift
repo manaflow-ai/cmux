@@ -1,0 +1,64 @@
+import AppKit
+import CmuxNextDesign
+import CmuxNextIcons
+
+/// The "Done (N)" and "Show N more" rows at the end of a list (`SidebarLayout+DoneFold`): a chevron and the count in
+/// the folder header's quiet style. A click opens or folds the rows it holds; it is no drop target and has no menu of
+/// its own (its list's menu shows).
+final class SidebarDoneFoldRowView: SidebarRowView {
+    private let chevron = DecorativeImageView()
+    private let name = SidebarRowView.label(font: SidebarStyle.headerFont)
+    var onToggle: (() -> Bool)?
+
+    required init(key: SidebarRowKey) {
+        super.init(key: key)
+        addSubview(chevron)
+        addSubview(name)
+    }
+
+    func configure(_ row: SidebarRow) {
+        if case .showMore = row.key {
+            name.setString(row.isCollapsed ? Strings.showMore(row.childCount) : Strings.showFewer)
+        } else {
+            name.setString(Strings.doneFold(row.childCount))
+        }
+        name.setFont(SidebarStyle.headerFont)
+        chevron.image = NSImage.icon(row.isCollapsed ? .disclosureCollapsed : .disclosureExpanded,
+                                     size: .iconRowSize(forLabelPointSize: Metrics.smallIconSize - Metrics.space2))
+        setAccessibilityElement(true)
+        setAccessibilityRole(.disclosureTriangle)
+        setAccessibilityLabel(name.stringValue)
+        setAccessibilityExpanded(!row.isCollapsed)
+        needsLayout = true
+    }
+
+    override func accessibilityPerformPress() -> Bool {
+        guard !isHiddenOrHasHiddenAncestor else { return false }
+        return onToggle?() ?? false
+    }
+
+    override func prepareForReuse(key: SidebarRowKey) {
+        super.prepareForReuse(key: key)
+        onToggle = nil
+    }
+
+    override func layout() {
+        super.layout()
+        let b = layoutBounds
+        let h = ceil(name.intrinsicContentSize.height)
+        let icon = chevron.image?.size ?? .zero
+        // The chevron starts where a row's title does, the count right after it.
+        let start = SidebarStyle.titleLeading - SidebarStyle.labelCellPadding
+        chevron.frame = NSRect(x: start, y: (b.height - icon.height) / 2, width: icon.width, height: icon.height)
+        let x = chevron.frame.maxX + Metrics.space1
+        name.frame = NSRect(x: x, y: (b.height - h) / 2, width: max(0, b.width - x - Metrics.space2), height: h)
+        needsDisplay = true
+    }
+
+    override func updateLayer() {
+        performWithTheme {
+            name.setColor(Palette.textSecondary)
+            chevron.contentTintColor = Palette.textSecondary
+        }
+    }
+}

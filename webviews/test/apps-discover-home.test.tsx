@@ -9,7 +9,7 @@ import type { Strings } from "../src/pages/shared/i18n";
 import { AppsPage } from "../src/pages/apps/AppsPage";
 import type { AppsSnapshot, AppsStore } from "../src/pages/apps/store";
 import type { CatalogApp } from "../src/pages/apps/types";
-import { UiProvider } from "../src/ui/UiProvider";
+import { languageDirection, UiProvider } from "../src/ui/UiProvider";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT"] as const;
@@ -145,7 +145,7 @@ test("tabs are a roving keyboard stop and arrow keys move with focus", () => {
   expect(document.activeElement).toBe(installed);
 });
 
-test("tabs wrap backward, jump with Home/End, and mirror arrows in RTL", () => {
+test("tabs wrap backward and jump with Home/End", () => {
   const calls: string[] = [];
   const current = snapshot({ tab: "discover" });
   const store = {
@@ -170,16 +170,11 @@ test("tabs wrap backward, jump with Home/End, and mirror arrows in RTL", () => {
   expect(calls.at(-1)).toBe("discover");
   act(() => void installed.dispatchEvent(new window.KeyboardEvent("keydown", { key: "End", bubbles: true })));
   expect(calls.at(-1)).toBe("installed");
+});
 
-  act(() =>
-    root!.render(
-      <UiProvider container={host} dir="rtl">
-        <AppsPage store={store} strings={strings} />
-      </UiProvider>,
-    ),
-  );
-  const rtlPage = host;
-  const rtlDiscover = rtlPage.querySelector<HTMLButtonElement>('[role="tab"][aria-selected="true"]')!;
-  act(() => void rtlDiscover.dispatchEvent(new window.KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true })));
-  expect(calls.at(-1)).toBe("installed");
+test("languageDirection matches the shared document RTL locale set", () => {
+  expect(languageDirection("ar")).toBe("rtl");
+  expect(languageDirection("ug-CN")).toBe("rtl");
+  expect(languageDirection("fa")).toBe("rtl");
+  expect(languageDirection("en")).toBe("ltr");
 });

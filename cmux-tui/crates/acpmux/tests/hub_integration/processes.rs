@@ -212,6 +212,25 @@ async fn kill_sends_stop_task_and_the_process_ends_killed_by_the_person() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
+/// A kill that names its chat (the agent pane names it, and its host allows
+/// only a chat in the pane's scope) stops only a process of that chat: one of
+/// another chat is refused, and its Claude Code is asked nothing.
+#[tokio::test]
+async fn a_kill_that_names_another_chat_is_refused() {
+    let (hub, mut c, root) = claude_hub(&[]).await;
+    let id = chat(&mut c, "bg-running").await;
+    let other_chat = chat(&mut c, "bg-probe").await;
+    let pid = format!("{id}/r1");
+    let refused = c.request(KILL, json!({"processId": pid, "sessionId": other_chat})).await;
+    assert!(refused.as_ref().is_err_and(|e| e.contains("not a process of")), "{refused:?}");
+    assert_eq!(stop_tasks(&hub, &id), Vec::<Value>::new());
+    let named = json!({"processId": pid, "sessionId": id});
+    assert_eq!(c.request(KILL, named).await.unwrap(), json!({}));
+    assert_eq!(stop_tasks(&hub, &id).len(), 1);
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 /// Claude Code may report a stopped task twice (its task_updated and its
 /// task_notification): the process ends once.
 #[tokio::test]

@@ -2,7 +2,8 @@
 // A background shell in the transcript. Its call's own "Ran" row says how it stands
 // (BackgroundMark.tsx): running in the background, then finished, failed or stopped, wherever the
 // call sits. A shell whose call is not in the transcript is noted where it ended
-// (BackgroundTaskNote.tsx, cx-ncc.84), its command cut to the working step.
+// (BackgroundTaskNote.tsx, cx-ncc.84), its command cut to the working step; opened, it shows the
+// whole command and its output (BackgroundTaskNoteOpen.gallery.tsx).
 import { agentPaneEntry } from "../../../gallery/format";
 import { activity, assistant, chat, row, summary, tool, user } from "../../../gallery/fixtures/acpmux";
 import { minutesAgo } from "../../../gallery/clock";
@@ -61,7 +62,7 @@ export default agentPaneEntry({
       ]),
     },
     ended: {
-      note: "Shells whose calls are not in the transcript, each ending where it happened: the command cut to its working step (the whole of it on hover), finished, failed, and stopped with the agent's reason.",
+      note: "Shells whose calls are not in the transcript, each ending where it happened: the command cut to its working step, finished, failed, and stopped with the agent's reason. A click opens one in place (agent-pane.background-task-note-open).",
       snapshot: chat([
         user("Stop the dev server and check the watchers", 5),
         row("backgroundTask", 4, {

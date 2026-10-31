@@ -8,6 +8,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { HarnessesScreen } from "../src/agent-session/acpmux/harnesses/HarnessesScreen";
+import { INSTALL_COMMANDS } from "../src/agent-session/acpmux/harnesses/harnessRows";
 import { buildPickerCatalog, BUNDLED_MODEL_CATALOG } from "../src/agent-session/acpmux/modelCatalogData";
 import { NewTabScreen } from "../src/agent-session/acpmux/newtab/NewTabScreen";
 import type { HarnessHealth } from "../src/agent-session/acpmux/HarnessHealthNotice";
@@ -69,6 +70,7 @@ type Page = {
   update?: HarnessHealth["update"];
   checking?: boolean;
   refreshed?: string[];
+  openTerminal?(): Promise<unknown>;
 };
 
 async function renderPage(calls: Call[] = [], closed: string[] = [], page: Page = {}) {
@@ -77,6 +79,7 @@ async function renderPage(calls: Call[] = [], closed: string[] = [], page: Page 
   let reads = 0;
   const native = (method: string, params: Record<string, unknown> = {}) => {
     calls.push({ method, params });
+    if (method === "tab.open" && params.kind === "terminal" && page.openTerminal) return page.openTerminal();
     if (method === "harness.health")
       return Promise.resolve({
         health: {
@@ -123,11 +126,20 @@ async function renderPage(calls: Call[] = [], closed: string[] = [], page: Page 
   return container;
 }
 
-async function settle(ms = 0) {
+async function settle() {
   await act(async () => {
-    await new Promise((resolve) => setTimeout(resolve, ms));
+    await new Promise((resolve) => setTimeout(resolve, 0));
   });
 }
+
+/// Yields to the page until `ready()` holds, and fails with what it waited for if it never does.
+async function until(ready: () => boolean, what: string) {
+  for (let tries = 0; tries < 200 && !ready(); tries++) await settle();
+  if (!ready()) throw new Error(`timed out waiting for ${what}`);
+}
+
+const status = (container: HTMLElement, name: string) =>
+  row(container, name)?.querySelector(".acpmux-harness-status")?.textContent;
 
 const row = (container: HTMLElement, name: string) =>
   [...container.querySelectorAll<HTMLElement>("[data-harness-row]")].find(
@@ -166,6 +178,52 @@ test("Sign In runs the CLI's login in a terminal tab in the chat's folder", asyn
   ]);
 });
 
+test("a failed sign-in terminal launch shows its error and retries the same login", async () => {
+  const calls: Call[] = [];
+  let attempts = 0;
+  const container = await renderPage(calls, [], {
+    openTerminal: () => {
+      attempts += 1;
+      return attempts === 1 ? Promise.reject(new Error("Terminal could not open")) : Promise.resolve({});
+    },
+  });
+  const codex = row(container, "Codex")!;
+  await act(async () => codex.querySelector<HTMLButtonElement>("button")!.click());
+  expect(status(container, "Codex")).toBe("Failed: Terminal could not open");
+  expect(codex.querySelector(".acpmux-harness-spinner")).toBeNull();
+  expect(codex.querySelector("button")?.textContent).toBe("Sign In");
+  await act(async () => codex.querySelector<HTMLButtonElement>("button")!.click());
+  expect(attempts).toBe(2);
+  expect(codex.dataset.harnessStatus).toBe("waiting");
+  const logins = calls.filter((call) => call.method === "tab.open");
+  expect(logins[1]).toEqual(logins[0]);
+  expect(calls.some((call) => call.method === "chat.new" || call.method === "chat.send")).toBe(false);
+});
+
+test("a failed sign-in retries its saved login after health refresh marks the row ready", async () => {
+  const calls: Call[] = [];
+  let attempts = 0;
+  const auth: Record<string, HarnessHealth["auth"]> = { codex: "signedOut" };
+  const container = await renderPage(calls, [], {
+    auth,
+    openTerminal: () => {
+      attempts += 1;
+      return attempts === 1 ? Promise.reject(new Error("Terminal could not open")) : Promise.resolve({});
+    },
+  });
+  const codex = row(container, "Codex")!;
+  await act(async () => codex.querySelector<HTMLButtonElement>("button")!.click());
+  expect(status(container, "Codex")).toBe("Failed: Terminal could not open");
+  auth.codex = "signedIn";
+  // The page's own Event: jsdom refuses the runtime's global one.
+  await act(async () => window.dispatchEvent(new window.Event("focus")));
+  await until(() => codex.dataset.harnessStatus === "ready", "the refreshed ready row");
+  expect(codex.querySelector("button")?.textContent).toBe("Start Chat");
+  await act(async () => codex.querySelector<HTMLButtonElement>("button")!.click());
+  expect(attempts).toBe(1);
+  expect(calls.filter((call) => call.method === "chat.new")).toHaveLength(1);
+});
+
 test("Start Chat starts a chat on that harness in this tab", async () => {
   const calls: Call[] = [];
   const closed: string[] = [];
@@ -199,16 +257,16 @@ test("Install runs the install command in place, shows its progress, then checks
   // In place: no terminal or browser tab, and the row says it is installing.
   expect(calls.filter((call) => call.method === "tab.open")).toEqual([]);
   expect(calls.find((call) => call.method === "shell.run")?.params).toEqual({
-    command: "npm install -g opencode-ai",
+    command: INSTALL_COMMANDS.opencode,
     cwd: "/Users/you/src/cmux",
   });
-  await settle(20);
+  await until(() => status(container, "OpenCode") === "added 1 package in 3s", "the second output line");
   const installing = row(container, "OpenCode")!;
   expect(installing.dataset.harnessStatus).toBe("installing");
   expect(installing.querySelector(".acpmux-harness-status")?.textContent).toBe("added 1 package in 3s");
   expect(installing.querySelectorAll("button").length).toBe(0);
   end();
-  await settle(20);
+  await until(() => refreshed.length > 0, "the catalog read after the install");
   // Done: acpmux looks for harnesses again (`rescan`) and the page reads its catalog again.
   expect(calls.filter((call) => call.method === "harness.health" && call.params.id === "opencode")).toEqual([
     { method: "harness.health", params: { id: "opencode", refresh: true, rescan: true } },
@@ -219,7 +277,7 @@ test("Install runs the install command in place, shows its progress, then checks
 test("an install acpmux still cannot find afterwards says so, never offers Install again", async () => {
   const container = await renderPage([], [], { shell: { output: ["added 1 package in 3s\n"], code: 0 } });
   await act(async () => row(container, "OpenCode")!.querySelector<HTMLButtonElement>("button")!.click());
-  await settle(20);
+  await until(() => row(container, "OpenCode")!.dataset.harnessStatus === "failed", "the install to end");
   const after = row(container, "OpenCode")!;
   expect(after.dataset.harnessStatus).toBe("failed");
   expect(after.querySelector(".acpmux-harness-status")?.textContent).toBe("Finished, but cmux can't run it yet");
@@ -234,11 +292,12 @@ test("unmounting the page stops an install it started", async () => {
     shell: { output: ["fetching\n"], code: 0, ends, endsWithOutput: true },
   });
   await act(async () => row(container, "OpenCode")!.querySelector<HTMLButtonElement>("button")!.click());
-  await settle(20);
+  // The second read waits on the command, which is still running.
+  await until(() => calls.filter((call) => call.method === "shell.read").length === 2, "the second read");
   await act(async () => root!.unmount());
   root = undefined;
   end();
-  await new Promise((resolve) => setTimeout(resolve, 20));
+  await until(() => calls.some((call) => call.method === "shell.stop"), "the command to stop");
   expect(calls.some((call) => call.method === "shell.stop")).toBe(true);
   expect(calls.some((call) => call.params.rescan === true)).toBe(false);
 });
@@ -249,7 +308,7 @@ test("an install that fails says why and offers one fix: the setup page", async 
     shell: { output: ["npm error code EACCES\n", "npm error permission denied\n"], code: 243 },
   });
   await act(async () => row(container, "OpenCode")!.querySelector<HTMLButtonElement>("button")!.click());
-  await settle(20);
+  await until(() => row(container, "OpenCode")!.dataset.harnessStatus === "failed", "the install to fail");
   const failed = row(container, "OpenCode")!;
   expect(failed.dataset.harnessStatus).toBe("failed");
   expect(failed.querySelector(".acpmux-harness-status")?.textContent).toContain("npm error permission denied");
@@ -267,11 +326,15 @@ test("after Sign In the row waits for the sign-in and turns ready by itself", as
   const container = await renderPage(calls, [], { auth });
   await act(async () => row(container, "Codex")!.querySelector<HTMLButtonElement>("button")!.click());
   expect(row(container, "Codex")!.dataset.harnessStatus).toBe("waiting");
-  await settle(20);
+  // A poll starts only after the one before it answered: two polls means one signed-out answer landed.
+  const polls = () =>
+    calls.filter((call) => call.method === "harness.health" && call.params.id === "codex" && call.params.refresh)
+      .length;
+  await until(() => polls() >= 2, "a signed-out answer");
   expect(row(container, "Codex")!.dataset.harnessStatus).toBe("waiting");
   // The login finishes in its terminal tab; no focus change needed.
   auth.codex = "signedIn";
-  await settle(20);
+  await until(() => row(container, "Codex")!.dataset.harnessStatus === "ready", "the row to turn ready");
   expect(row(container, "Codex")!.dataset.harnessStatus).toBe("ready");
   const checks = calls.filter((call) => call.method === "harness.health" && call.params.id === "codex");
   expect(checks.at(-1)?.params).toEqual({ id: "codex", refresh: true });

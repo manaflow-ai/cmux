@@ -21,6 +21,7 @@ extension UpdaterService {
             defaults.removeObject(forKey: Self.pinnedTestFeedKey)
             controller?.feedOverride = nil
             log.append("test feed cleared")
+            refreshReleasePush()
             return
         }
         guard Self.acceptsTestFeed(url) else { throw UpdaterUnavailable.testFeedRefused }
@@ -32,6 +33,8 @@ extension UpdaterService {
         }
         controller?.feedOverride = url
         log.append("test feed \(url)\(pinned ? " (pinned)" : "")")
+        // A test feed is never one the release push serves: the socket closes.
+        refreshReleasePush()
     }
 
     /// https anywhere, or http on a loopback host (a local test server).

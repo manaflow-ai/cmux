@@ -1,7 +1,9 @@
 import CmuxNextAgentPane
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextOnboarding
+import CmuxNextSidebar
 import CmuxNextWakeups
 import Foundation
 
@@ -38,9 +40,10 @@ extension AppOnboardingServices {
 
     /// Runs Import Workspaces from Classic cmux: every classic workspace not
     /// already open here (the migration ledger knows which ones came over),
-    /// with its window, group, color and pin. See ``migrateClassic(_:firstWorkspace:confirmation:)``.
-    func importClassicSessions() async throws -> ClassicImportSummary? {
-        let outcome = try await migrateClassic(.manual, confirmation: confirmClassicImport)
+    /// with its window, group, color and pin. `progress` hears the share of classic workspaces
+    /// handled, 0...1. See ``migrateClassic(_:firstWorkspace:confirmation:progress:)``.
+    func importClassicSessions(progress: (@MainActor (Double) -> Void)? = nil) async throws -> ClassicImportSummary? {
+        let outcome = try await migrateClassic(.manual, confirmation: confirmClassicImport, progress: progress)
         return outcome.confirmed ? outcome.summary : nil
     }
 
@@ -78,7 +81,7 @@ extension AppOnboardingServices {
         }
         // A workspace with nothing that comes over (only a markdown viewer, or
         // only pages on a daemon without browser tabs) is not opened.
-        let browsers = daemon.supports(DaemonCapabilities.shared.frontendBrowserTabs)
+        let browsers = daemon.supports(DaemonCapability.frontendBrowserTabs.rawValue)
         if saved.leftOutPanels { summary.leftTabs = true }
         guard let layout = saved.layout.keeping({ browsers || $0.url == nil }) else { return nil }
         if saved.remote != nil, layout.tabs.contains(where: { $0.scrollback != nil }) { summary.leftSSHScrollback = true }
@@ -90,6 +93,9 @@ extension AppOnboardingServices {
             // `workspaces.newPlacement` slot (after the current workspace by default).
             var spawn = WorkspaceSpawn(cwd: saved.workingDirectory, name: saved.name)
             spawn.slot = .bottom(anchor: nil)
+            // That slot goes through the personal placement queue once the daemon lists the workspace.
+            let listed = FirstOutcome<Void>()
+            spawn.onListed = { _, _ in listed.resolve(()) }
             // The workspace's first terminal is the first tab's.
             if case .terminal(_, let replay?)? = node.tabs.first { spawn.env = [WorkspaceBlueprintBuilder.replayKey: replay] }
             let id = try await windows.createWorkspace(spawn, on: daemon, into: target, frame: frame)
@@ -100,6 +106,9 @@ extension AppOnboardingServices {
             // Adopted chats run in this Mac's acpmux, which has only this
             // Mac's sessions: an SSH workspace's agent stays a terminal.
             if daemon.isLocal { await openClassicChats(placed, on: daemon, connection: connection) }
+            // The run sets the workspace's classic group next. A slot placement still queued would land after
+            // that, take the workspace out of the group again and delete the group it emptied (#26153).
+            await Self.placementLanded(listed, queue: services.personalPlacements)
             summary.opened += 1
             return id
         } catch {
@@ -109,6 +118,25 @@ extension AppOnboardingServices {
             throw error
         }
     }
+
+    /// Waits for a new workspace's slot placement: listed (queued) within 5 s, then
+    /// through the queue. A workspace whose window went away is never listed. On the
+    /// sidebar document the slot is a document move instead (`sidebar.apply`, not the
+    /// queue): its reply must come before the group write too (#28425).
+    private static func placementLanded(_ listed: FirstOutcome<Void>, queue: PersonalPlacementQueue) async {
+        let bound = DemandTimer(owner: "ClassicImport.placementLanded")
+        bound.schedule(after: .seconds(5)) { listed.resolve(()) }
+        await listed.value()
+        bound.cancel()
+        await queue.drained()
+        let started = ContinuousClock.now
+        await SidebarDocStore.current?.settled()
+        // The wait this adds per imported workspace, recorded only while a DEBUG bench runs (ClassicUpgradeSimulationPerfTests).
+        BenchSpans.mark(Self.documentSettledSpan, milliseconds: BenchSpans.ms(.now - started))
+    }
+
+    /// The bench span of ``placementLanded(_:queue:)``'s wait for the sidebar document.
+    static let documentSettledSpan = "classicImport.documentSettled"
 
     /// The daemon a classic workspace opens on: this Mac's, or the one for
     /// its SSH host once connected. Classic's identity file and SSH options

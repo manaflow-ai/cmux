@@ -79,6 +79,41 @@ extension LiveWorkspaceCreationBackend: WorkspaceArrangementBackend, Notificatio
         _ = try? await sync.listNow()
     }
 
+    /// Move Workspace to Top / to Bottom and each step of Sort Workspaces: the Mac's
+    /// `set-personal-workspace {index}` right before or after `anchor` in the person's order,
+    /// or `move-workspace {index}` to the anchor's place on a Mac without personal order.
+    public func place(_ workspace: Workspace, next anchor: Workspace, after: Bool) async throws {
+        let client = try daemonClient(workspace.macID)
+        if let arrangement = sync.arrangement, arrangement.rows != nil, let registry = sync.tree?.registryID {
+            guard let index = arrangement.personalIndex(placing: workspace, next: anchor, after: after, registryID: registry) else {
+                throw WorkspaceCreationError("The Mac doesn't list this workspace's place yet. Try again in a moment.", isForPerson: true)
+            }
+            // The next step of a sort reads the order this move made (the list below reads it again).
+            try await run(client, "set-personal-workspace", ["session_id": registry, "workspace_key": workspace.id, "index": index])
+        } else {
+            guard let tree = sync.tree, let from = tree.workspaces.firstIndex(where: { $0.id == workspace.id }),
+                  let to = tree.workspaces.firstIndex(where: { $0.id == anchor.id }) else {
+                throw WorkspaceCreationError("The Mac doesn't list this workspace yet")
+            }
+            // The daemon's index counts the list with the workspace still in it.
+            let index = Self.daemonIndex(from: from, anchor: to, after: after)
+            var params: [String: Any] = ["index": index]
+            Self.address(workspace, into: &params)
+            try await run(client, "move-workspace", params)
+            _ = try? await sync.listNow()
+            return
+        }
+        sync.invalidateArrangement()
+        _ = try? await sync.listNow()
+    }
+
+    /// `move-workspace`'s index for a workspace at `from` going right before or after the row at
+    /// `anchor` (indices in the list that still holds it).
+    nonisolated static func daemonIndex(from: Int, anchor: Int, after: Bool) -> Int {
+        let target = after ? anchor + 1 : anchor
+        return target > from ? target - 1 : target
+    }
+
     public func setIcon(_ workspace: Workspace, _ icon: String?) async throws {
         let client = try daemonClient(workspace.macID)
         try await metadata(client, workspace, ["icon": icon.map { $0 as Any } ?? NSNull()])
@@ -97,6 +132,24 @@ extension LiveWorkspaceCreationBackend: WorkspaceArrangementBackend, Notificatio
     public func clearAllNotifications(on macID: String) async throws {
         let client = try daemonClient(macID)
         try await resource(client, "notification.clear", [:], key: "cmux-next-ios-notification-clear")
+    }
+
+    /// The Mac's Mark All Notifications as Read (`markAllNotificationsRead`): each tab whose
+    /// notification is unread is read with `ack-tab-notifications`, as the Mac's handler acks
+    /// every unread tab. Its notifications stay in the ledger (Clear All removes them).
+    public func markAllNotificationsRead(on macID: String) async throws -> Int {
+        let client = try daemonClient(macID)
+        let surfaces = Self.unreadNotificationSurfaces(sync.tree)
+        for surface in surfaces {
+            try await run(client, "ack-tab-notifications", ["surface": surface])
+        }
+        if !surfaces.isEmpty { _ = try? await sync.listNow() }
+        return surfaces.count
+    }
+
+    /// Every tab the Mac shows with an unread notification, in surface order.
+    nonisolated static func unreadNotificationSurfaces(_ tree: DaemonTree?) -> [Int] {
+        (tree?.notificationMarkers ?? [:]).filter(\.value.unread).map(\.key).sorted()
     }
 
     // MARK: Lines

@@ -49,7 +49,11 @@ fn terminals_created_across_kitty_budget_buckets_start_fast_with_kitty_enabled()
                 "name": format!("kitty-create-{index}"),
             }),
         );
-        if started.elapsed() > slowest.1 {
+        // Terminal #1 has no other terminal to shrink, so it never waits on
+        // the budget; its time is the first host start (on macOS the first
+        // exec of the host binary, 1-3 s on a loaded fleet box), not the
+        // wait under test.
+        if index > 0 && started.elapsed() > slowest.1 {
             slowest = (index + 1, started.elapsed());
         }
         created.push(reply["surface"].as_u64().unwrap());

@@ -1,6 +1,7 @@
 //! Agent reports: raw socket and resource agent reports, the sequence-locked commit, and the agent list.
 
 use super::*;
+use cmux_json::JsonSet as _;
 
 impl Mux {
     pub fn report_agent(
@@ -116,6 +117,7 @@ impl Mux {
     /// publish its upsert or delete. Hook reports carry the agent's native
     /// session id into `extra.agent_session_id`.
     #[allow(clippy::too_many_arguments)]
+    #[track_caller]
     pub(super) fn commit_agent_report(
         &self,
         target: AgentReportTarget<'_>,
@@ -351,7 +353,7 @@ impl Mux {
             "extra":extra,
         });
         let mut public_value = value.clone();
-        public_value["source_session"] = serde_json::json!(record.session.as_deref());
+        public_value.set("source_session", serde_json::json!(record.session.as_deref()));
         let deltas = if effective_hook_state.is_some_and(|state| state.ended) {
             serde_json::json!([{
                 "kind":"delete",
@@ -413,6 +415,10 @@ impl Mux {
         if matches!(agent.state, AgentState::Done) {
             self.forget_agent_prompt(&agent.terminal_id);
         }
+        // Working, idle or done: the agent no longer waits on its question.
+        if !matches!(agent.state, AgentState::Blocked) {
+            self.forget_agent_question(&agent.terminal_id);
+        }
         let agent = AgentRecord { last_prompt: self.agent_prompt(&agent.terminal_id), ..agent };
         if !commit.replayed {
             self.publish_resource_event();
@@ -446,6 +452,7 @@ impl Mux {
         Ok((commit, Some(agent)))
     }
 
+    #[track_caller]
     pub fn list_agents(
         &self,
         surface: Option<SurfaceId>,
@@ -486,7 +493,11 @@ impl Mux {
                     })?;
                 // The roster's own clock, so `since_ms <= updated_at_ms` holds.
                 let since_ms = entry.since_ms();
-                let last_prompt = prompts.get(&terminal_id).cloned();
+                // The hover card's folded cut; the whole prompt is the phone Feed's.
+                let last_prompt = prompts
+                    .get(&terminal_id)
+                    .and_then(|prompt| crate::agent_hooks::live_prompt_text(prompt))
+                    .map(Arc::from);
                 let agent_session_id = agent_session_ids.get(&terminal_id).cloned();
                 Some(AgentRecord {
                     surface: representative,

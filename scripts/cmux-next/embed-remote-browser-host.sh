@@ -42,12 +42,15 @@ OPT_OUT_FILE="RemoteBrowserHostOptOut.txt"
 app="${TARGET_BUILD_DIR:?}/${WRAPPER_NAME:?}"
 dest="$app/Contents/Helpers/$RBH_NAME.app"
 stamp="${TARGET_TEMP_DIR:-$TARGET_BUILD_DIR}/embed-remote-browser-host.stamp"
+rm -f "$stamp"
 opt_out="$app/Contents/Resources/$OPT_OUT_FILE"
 rm -f "$opt_out"
 
 skip() { # <reason>
   echo "note: not embedding the remote browser host: $1"
-  rm -rf "$dest" "$stamp"
+  rm -rf "$dest"
+  mkdir -p "$(dirname "$stamp")"
+  printf 'skipped:%s\n' "$1" > "$stamp"
   rmdir "$app/Contents/Helpers" 2>/dev/null || true
   exit 0
 }

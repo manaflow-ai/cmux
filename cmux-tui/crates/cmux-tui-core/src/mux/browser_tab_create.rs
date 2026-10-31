@@ -129,6 +129,10 @@ impl Mux {
             index: tab_strip::tab_slot::effect_index(fields),
         };
         let transaction = effect_transaction(fields);
+        // `pinned-dock-v1`: a pinned column that takes no tabs refuses
+        // before the page starts, and again when the tab attaches.
+        let operation = ResourceOperation::TabCreateBrowser.wire_name();
+        self.with_state(|state| ensure_pane_takes_tabs(operation, state, pane))?;
         self.new_browser_tab_reserved(url, Some(pane), size, identity, None, placement, transaction)
     }
 
@@ -379,6 +383,14 @@ impl Mux {
         let joins;
         let attached = {
             let mut state = self.state.lock().unwrap();
+            // `pinned-dock-v1`: the column may have become pinned meanwhile.
+            let operation = ResourceOperation::TabCreateBrowser.wire_name();
+            if let Err(error) = ensure_pane_takes_tabs(operation, &state, target) {
+                state.surfaces.remove(&surface.id);
+                drop(state);
+                surface.kill();
+                return Err(error);
+            }
             let slot = match strip_index {
                 Some(_) => {
                     joins = None;

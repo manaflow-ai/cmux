@@ -11,24 +11,37 @@
 // cmux.json `agentPane.editedFiles.*` (turnChanges/settings.ts): `show` always, collapsed (the
 // header only, a chevron shows the rows) or never (the plain tool rows); `maxRows` rows before
 // "Show N more"; `scope` turn, or session (one card, at the session's latest edit).
-import { useContext, useMemo, useState } from "react";
-import { turnFiles, turnPathsOnly, type TurnFile } from "../diff";
+import { useContext, useMemo, useState, type ReactNode } from "react";
+import { commonDirectory, turnFiles, turnPathsOnly, type PathRef, type TurnFile } from "../diff";
 import { ChevronDown } from "../changeIcons";
 import { Counts } from "../changes/Counts";
 import { TurnCountsContext } from "../changes/TurnCountsContext";
-import { outsideRepository, turnCounts } from "../changes/turnCheckpoint";
-import { useT, type Translate } from "../i18n";
-import { plainEditLabels, type AcpmuxRow } from "../model";
+import { namesCheckpointFile, outsideRepository, turnCounts } from "../changes/turnCheckpoint";
+import { usePaneLanguage, useT, type Translate } from "../i18n";
+import { pathKey, plainEditLabels, type AcpmuxRow } from "../model";
 import { turnChanges, type EditedFile, type UndoStatus } from "../turnChanges/model";
 import { SessionEditsContext } from "../turnChanges/sessionRows";
 import { useEditedFilesSettings } from "../turnChanges/settings";
 import { applyUndo, cancelUndo, checkUndo, useUndoState, type UndoState } from "../turnChanges/undoStore";
 import { setCardOpen, useCardOpen } from "../turnChanges/openStore";
+import { FindReveal, isRevealRow } from "./chatFind";
 import { EditDiff } from "./EditDiff";
 import { Undo } from "./icons";
 import { ToolRows } from "./TurnRows";
+import { useAnchoredCollapse } from "./useAnchoredCollapse";
 
 /// `onOpenDiff` opens the turn's changes, at `path` when given; focus returns to `opener`.
+/// Find in Chat's reveal for `row` only: the card draws outside ToolRows (which passes the reveal to
+/// its match's row alone), under the transcript-wide one, and a diff opens on the reveal it sees.
+function OwnFindReveal({ row, children }: { row: AcpmuxRow; children: ReactNode }) {
+  const reveal = useContext(FindReveal);
+  return (
+    <FindReveal.Provider value={reveal && isRevealRow(row, reveal) ? reveal : undefined}>
+      {children}
+    </FindReveal.Provider>
+  );
+}
+
 export function EditedFilesCard({
   row,
   sessionId,
@@ -69,7 +82,9 @@ function Card({
   // A one-file card's diff, open or not, kept by row like the rows' open state.
   const diffKey = `${row.id}\u0000diff`;
   const diffOpen = useCardOpen(diffKey);
-  const toggleDiff = () => setCardOpen(diffKey, !diffOpen);
+  // It opens and closes in the transcript's fold, the card's line held where it was clicked.
+  const diff = useAnchoredCollapse({ open: diffOpen, onOpenChange: (next) => setCardOpen(diffKey, next) });
+  const toggleDiff = diff.toggle;
   const edits = rows.flatMap((one) =>
     (one.items ?? []).filter((item) => item.tool?.kind === "edit" || item.tool?.kind === "fileChange"),
   );
@@ -88,20 +103,41 @@ function Card({
   // Undo works from the tool calls' full texts, by the paths the agent wrote.
   const changes = useMemo(() => turnChanges(row.id, rows, toolFiles), [row.id, rows, toolFiles]);
   const undoState = useUndoState(row.id);
-  // Those list unless a listed file is that path. Once the checkpoint loads, its files are the
-  // repository's: only a path outside it stays (a /tmp file), as for the tool calls' diffs.
+  // Those list unless a listed file is that file: the same canonical path (model.ts `pathKey`), or
+  // the same path when acpmux recorded none. Once the checkpoint loads, its files are the
+  // repository's: only a path outside it stays (a /tmp file), as for the tool calls' diffs, and a
+  // failed call's, which no checkpoint file covers unless a later call changed that same file: a
+  // call that succeeded on that file lists wherever its file lists, and any other path is that
+  // file only by `namesCheckpointFile` (/tmp/x is /private/tmp/x, but docs/x is not x).
+  const same = (entry: PathRef) => (file: PathRef) => pathKey(file) === pathKey(entry);
   const plain =
     counts.files === toolFiles
-      ? labels.filter(({ path }) => !path || !files.some((file) => file.path === path))
-      : outsideRepository(
-          labels.flatMap((entry) => (entry.path ? [{ ...entry, path: entry.path }] : [])),
-          counts.root,
-          files,
-        );
-  const entries: { key: string; file?: TurnFile; path?: string }[] = [
+      ? labels.filter((entry) => !entry.path || !files.some(same({ ...entry, path: entry.path })))
+      : [
+          ...outsideRepository(
+            labels.flatMap((entry) => (entry.path && !entry.failed ? [{ ...entry, path: entry.path }] : [])),
+            counts.root,
+            files,
+          ),
+          ...labels.filter((entry) => {
+            if (!entry.failed) return false;
+            if (!entry.path) return true;
+            const named = { ...entry, path: entry.path };
+            return !(
+              toolFiles.some(same(named)) ||
+              pathsOnly.some(same(named)) ||
+              files.some((file) => namesCheckpointFile(named, file, counts.root))
+            );
+          }),
+        ];
+  const entries: { key: string; file?: TurnFile; path?: string; failed?: true }[] = [
     ...files.map((file) => ({ key: file.path, file })),
-    ...plain.map((entry) => ({ key: `plain-${entry.key}`, path: entry.path })),
+    ...plain.map((entry) => ({ key: `plain-${entry.key}`, path: entry.path, failed: entry.failed })),
   ];
+  // Undo leaves the paths listed without counts as they are: the page never had their old text.
+  const kept = pathsOnly
+    .filter((entry) => !toolFiles.some((file) => pathKey(file) === pathKey(entry)))
+    .map((entry) => entry.path);
   const total = entries.length;
   const single = total === 1 && files.length === 1 ? files[0] : undefined;
   const limit = settings.maxRows;
@@ -114,7 +150,10 @@ function Card({
     : total === 1
       ? t("edited.one")
       : t("tools.edited.files", { n: total });
-  const status = (path: string) => fileStatus(undoState, path);
+  // The host answers for the path Undo sent (turnChanges/model.ts `undoPath`), which may be another
+  // spelling of the row's.
+  const status = (file: TurnFile) =>
+    fileStatus(undoState, changes.files.find((edited) => edited.key === pathKey(file))?.path ?? file.path);
   return (
     <div className="acpmux-edited">
       <div className="acpmux-edited-head">
@@ -125,6 +164,7 @@ function Card({
         {/* oxlint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */}
         <div
           className={single ? "acpmux-edited-title acpmux-edited-title--toggle" : "acpmux-edited-title"}
+          data-interactive={single ? "" : undefined}
           onClick={single ? toggleDiff : undefined}
         >
           <div>{title}</div>
@@ -146,6 +186,7 @@ function Card({
         {single && (
           <button
             type="button"
+            ref={diff.headerRef}
             className="acpmux-edited-toggle"
             aria-expanded={diffOpen}
             aria-label={diffOpen ? t("changes.collapseFile") : t("changes.expandFile")}
@@ -169,17 +210,22 @@ function Card({
       {undoState.phase === "confirm" && (
         <UndoConfirm
           summary={undoState.summary}
+          kept={kept}
           onUndo={() => void applyUndo(row.id, changes.files)}
           onCancel={() => cancelUndo(row.id)}
           t={t}
         />
       )}
       {single && undoState.phase === "done" && (
-        <FileStatus status={status(single.path)} path={single.path} rowId={row.id} onOpenDiff={onOpenDiff} t={t} />
+        <FileStatus status={status(single)} path={single.path} rowId={row.id} onOpenDiff={onOpenDiff} t={t} />
       )}
-      {single && diffOpen && (
-        <div className="acpmux-edited-diff">
-          <EditDiff file={single} />
+      {single && diff.present && (
+        <div {...diff.bodyProps}>
+          <div className="acpmux-edited-diff">
+            <OwnFindReveal row={row}>
+              <EditDiff file={single} />
+            </OwnFindReveal>
+          </div>
         </div>
       )}
       {shown.map((entry) => {
@@ -197,6 +243,7 @@ function Card({
               ) : (
                 <span className="acpmux-edited-path">{t("edited.unknownFile")}</span>
               )}
+              {entry.failed && <span className="acpmux-edited-failed">{t("tools.failed")}</span>}
             </div>
           );
         }
@@ -211,7 +258,7 @@ function Card({
             <Counts additions={file.additions} deletions={file.deletions} />
           </>
         );
-        const done = undoState.phase === "done" ? status(file.path) : undefined;
+        const done = undoState.phase === "done" ? status(file) : undefined;
         return (
           <div className="acpmux-edited-entry" key={entry.key}>
             {onOpenDiff ? (
@@ -289,15 +336,21 @@ function UndoButton({
 
 function UndoConfirm({
   summary,
+  kept,
   onUndo,
   onCancel,
   t,
 }: {
   summary: { undo: number; changed: number; cannot: number };
+  kept: readonly string[];
   onUndo: () => void;
   onCancel: () => void;
   t: Translate;
 }) {
+  const language = usePaneLanguage();
+  // Named from their shared directory, as the card's rows are: a/x.ts and b/x.ts, not x.ts twice.
+  const base = commonDirectory([...kept]).length;
+  const names = kept.map((path) => path.slice(base));
   return (
     <div className="acpmux-edited-confirm" role="alertdialog" aria-label={t("edited.undo")}>
       <div className="acpmux-edited-confirm-text">
@@ -320,6 +373,15 @@ function UndoConfirm({
             {summary.cannot === 1
               ? t("edited.undoSkip.cannot.one")
               : t("edited.undoSkip.cannot.other", { n: summary.cannot })}
+          </div>
+        )}
+        {names.length > 0 && (
+          <div className="acpmux-edited-confirm-skip acpmux-edited-confirm-kept">
+            {names.length === 1
+              ? t("edited.undoSkip.unknown.one", { file: names[0]! })
+              : t("edited.undoSkip.unknown.other", {
+                  files: new Intl.ListFormat(language, { type: "conjunction" }).format(names),
+                })}
           </div>
         )}
       </div>

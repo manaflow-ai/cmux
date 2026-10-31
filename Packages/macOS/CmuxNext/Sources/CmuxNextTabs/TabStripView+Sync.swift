@@ -10,7 +10,16 @@ extension TabStripView {
     /// observation's echo of the same change do the work once (I6). A tab switch
     /// updates the two cells whose selection changed; geometry never moves
     /// (`TabLayoutEngine` lays tabs out without reading the selection).
+    ///
+    /// A strip in a window but out of sight (a parked workspace's, a hidden screen bar) lays
+    /// nothing out and animates nothing: a script that reorders, renames or moves tabs in
+    /// background workspaces costs it no work until it shows, then one sync to the final state
+    /// (``syncShown(_:)``; CLAUDE.md "Go past Chrome where cmux is scripted").
     public func syncFromModel() {
+        if window != nil, !isShownInWindow {
+            modelChangedWhileHidden = true
+            return
+        }
         let input = ModelSnapshot(model)
         if hasSynced, window != nil, let last = lastSyncedInput, isAtRest {
             if input == last { return }
@@ -160,6 +169,7 @@ extension TabStripView {
             newTabButton.isHidden = !model.showsNewTabButton
             needsLayout = true
         }
+        newTabMenuButton.isHidden = !model.showsNewTabButton || !showsNewTabMenuButton
 
         relayout(animated: animated || (styleChanged && !reduceMotion), added: added, growsAdded: cellsAnimate && adding,
                  token: cellsAnimate && removing && !adding ? .tabClose : nil)
@@ -183,6 +193,7 @@ extension TabStripView {
         cell.scale = window?.backingScaleFactor ?? 2
         cell.isWindowMain = windowMain.isMain
         cell.isWindowVisible = windowVisibility.isVisible
+        cell.isStripShown = isShownInWindow
         let id = item.id
         cell.accessibility.setAccessibilityParent(self)
         cell.accessibility.onPress = { [weak self] in self?.model.send(.select(id)) }

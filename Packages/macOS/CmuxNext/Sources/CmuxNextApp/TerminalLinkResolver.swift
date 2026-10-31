@@ -69,6 +69,24 @@ nonisolated enum TerminalLinkResolver {
         return text[text.index(after: colon)...].first.map { !$0.isNumber } ?? false
     }
 
+    /// The `:line` or `:line:col` after a printed path (`src/app.ts:3:5` is line 3, column 5),
+    /// as surrounding quotes and punctuation are trimmed; nil without one, or for a URL.
+    static func location(_ text: String) -> (line: Int, column: Int?)? {
+        let trimmed = trim(text)
+        guard !hasScheme(trimmed) else { return nil }
+        var numbers: [Int] = []
+        var value = Substring(trimmed)
+        for _ in 0..<2 {
+            guard let colon = value.lastIndex(of: ":"), colon != value.startIndex else { break }
+            let digits = value[value.index(after: colon)...]
+            guard !digits.isEmpty, digits.count < 10, digits.allSatisfy({ $0.isASCII && $0.isNumber }), let number = Int(digits) else { break }
+            numbers.insert(number, at: 0)
+            value = value[..<colon]
+        }
+        guard let line = numbers.first, line > 0 else { return nil }
+        return (line, numbers.count > 1 ? numbers[1] : nil)
+    }
+
     /// `path` without a trailing `:line` or `:line:col`.
     private static func withoutLocation(_ path: String) -> String {
         var value = Substring(path)

@@ -93,7 +93,12 @@ await requireBrowserLane("agent-pane-turn-footer.test.ts", async () => {
     await page.goto(url());
     await page.getByText("Meanwhile the PR checks").waitFor();
     await page.mouse.move(0, 0);
-    await page.waitForTimeout(300);
+    // The footers' fade has ended: every footer is fully shown or fully hidden.
+    await page.waitForFunction(() =>
+      [...document.querySelectorAll(".cv-turn-actions")].every((node) =>
+        ["0", "1"].includes(getComputedStyle(node).opacity),
+      ),
+    );
     return page;
   };
   beforeAll(async () => {
@@ -142,16 +147,28 @@ await requireBrowserLane("agent-pane-turn-footer.test.ts", async () => {
   /// Each footer's opacity as drawn, first turn first.
   const footers = (page: Page) =>
     page.locator(".cv-turn-actions").evaluateAll((nodes) => nodes.map((node) => getComputedStyle(node).opacity));
+  /// Waits for the footers to be drawn at `opacities` (a fade runs in between), then reads them.
+  const footersReach = async (page: Page, opacities: string[]) => {
+    await page
+      .waitForFunction(
+        (want) =>
+          JSON.stringify(
+            [...document.querySelectorAll(".cv-turn-actions")].map((node) => getComputedStyle(node).opacity),
+          ) === JSON.stringify(want),
+        opacities,
+        { timeout: 5_000 },
+      )
+      .catch(() => undefined);
+    return footers(page);
+  };
 
   test("no footer shows at rest; pointing at a reply shows its own only", async () => {
     const page = await open();
     expect(await footers(page)).toEqual(["0", "0"]);
     await page.getByText("Not yet: the hosted test run").hover();
-    await page.waitForTimeout(250);
-    expect(await footers(page)).toEqual(["1", "0"]);
+    expect(await footersReach(page, ["1", "0"])).toEqual(["1", "0"]);
     await page.mouse.move(0, 0);
-    await page.waitForTimeout(250);
-    expect(await footers(page)).toEqual(["0", "0"]);
+    expect(await footersReach(page, ["0", "0"])).toEqual(["0", "0"]);
     await page.close();
   });
 

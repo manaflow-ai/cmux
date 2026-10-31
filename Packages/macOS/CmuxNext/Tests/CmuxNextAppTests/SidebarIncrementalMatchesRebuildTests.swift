@@ -68,12 +68,13 @@ import Testing
         }
 
         /// The sections the daemon's echo shows; a group keeps the fold the window shows.
-        func sections(_ model: SidebarModel, adding added: (group: GroupID, id: String)? = nil) -> [SidebarSection] {
+        func sections(_ model: SidebarModel, adding added: (group: GroupID, id: String, index: Int?)? = nil) -> [SidebarSection] {
             let nodes = nodes.map { node -> SidebarNode in
                 switch node {
                 case let .workspace(id): return .workspace(SidebarIncrementalMatchesRebuildTests.ws(id))
                 case let .group(id, members):
-                    let all = members + (added.flatMap { $0.group == id ? [$0.id] : nil } ?? [])
+                    var all = members
+                    if let added, added.group == id { all.insert(added.id, at: min(added.index ?? all.count, all.count)) }
                     let (name, color): (String, GroupColor) = switch id {
                     case work: ("Work", .blue)
                     case infra: ("Infra", .green)
@@ -93,9 +94,9 @@ import Testing
     // MARK: The two lists
 
     /// A sidebar in a window of the list's size, drawn from `model`.
-    static func sidebar(_ model: SidebarModel) -> (SidebarView, NSWindow) {
+    static func sidebar(_ model: SidebarModel, design: DesignSettings = DesignSettings()) -> (SidebarView, NSWindow) {
         _ = NSApplication.shared
-        let sidebar = SidebarView(model: model, design: DesignSettings())
+        let sidebar = SidebarView(model: model, design: design)
         sidebar.frame = NSRect(x: 0, y: 0, width: 240, height: 700)
         let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 240, height: 700), styleMask: [.borderless],
                               backing: .buffered, defer: false)
@@ -121,14 +122,16 @@ import Testing
             case let .group(group): "g_\(group.rawValue)"
             default: nil
             }
-        }, section: { _ in section }, begin: { [doc] _ in
+        }, section: { _ in section }, begin: { [doc] items in
+            // A dragged group goes before or after a group, never into one or among its members.
+            let group = items.contains { $0.hasPrefix("g_") }
             var table: [String: SidebarDocAcceptance] = [section: SidebarDocAcceptance(before: false, into: true, after: false)]
             for node in doc.nodes {
                 switch node {
                 case let .workspace(id): table["w_\(id)"] = SidebarDocAcceptance(before: true, into: false, after: true)
                 case let .group(id, members):
-                    table["g_\(id.rawValue)"] = SidebarDocAcceptance(before: true, into: true, after: true)
-                    for member in members { table["w_\(member)"] = SidebarDocAcceptance(before: true, into: false, after: true) }
+                    table["g_\(id.rawValue)"] = SidebarDocAcceptance(before: true, into: !group, after: true)
+                    for member in members { table["w_\(member)"] = SidebarDocAcceptance(before: !group, into: false, after: !group) }
                 }
             }
             return table
@@ -136,15 +139,23 @@ import Testing
         return sidebar(model)
     }
 
-    /// A list built fresh from a copy of `model` (its own model, so `model`'s callbacks stay with the list under test).
-    static func rebuilt(from model: SidebarModel) -> (SidebarView, NSWindow) {
+    /// A list built fresh from a copy of `model` and `design` (its own model, so `model`'s callbacks stay with the list under test).
+    static func rebuilt(from model: SidebarModel, design: DesignSettings) -> (SidebarView, NSWindow) {
         let copy = SidebarModel(sections: model.sections, activeWorkspaceID: model.activeWorkspaceID)
         copy.selectedItem = model.selectedItem
         copy.selection = model.selection
         copy.showWorkspaceTabs = model.showWorkspaceTabs
         copy.collapsedWorkspaces = model.collapsedWorkspaces
         copy.revealedMembers = model.revealedMembers
-        return sidebar(copy)
+        copy.filterText = model.filterText
+        copy.collapsedSections = model.collapsedSections
+        copy.collapsedLayoutSections = model.collapsedLayoutSections
+        copy.layout = model.layout
+        copy.itemInfo = model.itemInfo
+        copy.docDrag = model.docDrag // the document's blocks draw only on the document
+        let settings = DesignSettings()
+        settings.sidebarSections = design.sidebarSections // Group by Folder
+        return sidebar(copy, design: settings)
     }
 
     // MARK: Snapshot
@@ -214,7 +225,18 @@ import Testing
         return Snapshot(layout: layout, rowViews: rowViews, rails: rails, railModel: railModel, state: state)
     }
 
-    /// Lets the list's completions run (a landing's end, a deferred reload), then compares it with a fresh rebuild.
+    /// Whether a spring, fade or flight still runs in `view`'s layer tree.
+    static func animates(_ view: NSView) -> Bool {
+        func runs(_ layer: CALayer) -> Bool { !(layer.animationKeys() ?? []).isEmpty || (layer.sublayers ?? []).contains(where: runs) }
+        return view.layer.map(runs) ?? false
+    }
+
+    /// Lets the list's completions run (a landing's end, a deferred reload) and, with motion on, its springs and fades
+    /// end (a rebuild draws ends, not flights), then compares it with a fresh rebuild. A row's spring
+    /// (`NSAnimationContext` with a SwiftUI spring) writes its frame on each display frame and leaves no layer
+    /// animation to see, so the list waits until it equals the rebuild, no layer animation runs and no row fades
+    /// (at most 10 s: a list stuck mid-flight still differs). Two equal looks 50 ms apart are no sign of an end: on a
+    /// loaded runner a spring can miss every display frame between them and stop half a point short.
     static func expectMatchesRebuild(_ sidebar: SidebarView, _ when: String) async {
         let list = sidebar.list
         for _ in 0..<3 {
@@ -222,9 +244,13 @@ import Testing
             sidebar.renderNow()
             try? await Task.sleep(for: .milliseconds(30))
         }
-        let (fresh, window) = rebuilt(from: list.model)
+        let (fresh, window) = rebuilt(from: list.model, design: sidebar.design)
         defer { window.close() }
-        let mine = snapshot(list), theirs = snapshot(fresh.list)
+        let theirs = snapshot(fresh.list)
+        for _ in 0..<200 where snapshot(list) != theirs || animates(list) || !list.fadingRows.isEmpty {
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+        let mine = snapshot(list)
         #expect(mine == theirs, "\(when): the list differs from a fresh rebuild (+ only on screen, - only in the rebuild):\n\(mine.diff(theirs))")
     }
 
@@ -286,13 +312,18 @@ import Testing
             let web = try row(list, workspace("web"))
             _ = list.externalDragMoved(windowPoint: list.convert(NSPoint(x: 80, y: web.y), to: nil), sourceMachine: nil)
             let drop = list.externalDragEnded()
+            // The gap showed on web's top edge: the tab lands in Work between docs and web.
+            #expect(drop == .newWorkspace(section: .machine(.local), group: work, index: 1), "the tab drag proposed \(String(describing: drop))")
             switch drop {
-            case let .newWorkspace(_, group?, _): model.sections = doc.sections(model, adding: (group, "moved"))
-            case let .intoGroup(group): model.sections = doc.sections(model, adding: (group, "moved"))
+            case let .newWorkspace(_, group?, index): model.sections = doc.sections(model, adding: (group, "moved", index))
+            case let .intoGroup(group): model.sections = doc.sections(model, adding: (group, "moved", nil))
             default: break
             }
-            #expect(drop != nil, "the tab drag proposed no drop")
             sidebar.renderNow()
+            let landed = list.displayed.rows.filter { $0.group == work }.compactMap { row -> String? in
+                if case let .workspace(id) = row.key { id.rawValue } else { nil }
+            }
+            #expect(landed == ["docs", "moved", "web", "api"], "the tab's workspace landed in Work as \(landed)")
             return
         }
         #expect(!doc.drops.isEmpty, "\(operation.rawValue): the drag dropped nothing: \(snapshot(list).layout)")
@@ -308,8 +339,14 @@ import Testing
 
     @Test(arguments: Operation.allCases)
     func theListMatchesAFreshRebuildAfterEachOperation(_ operation: Operation) async throws {
+        // The spring's end at once; a rebuild draws ends, not flights. `SidebarIncrementalMatchesRebuildGapsTests` runs motion.
+        try await Self.check(operation, reduceMotion: true)
+    }
+
+    /// `operation` from rest, then each group's fold and a click in and out of a group, each matched against a rebuild.
+    static func check(_ operation: Operation, reduceMotion: Bool) async throws {
         let previousMotion = Motion.reduceMotionOverride
-        Motion.reduceMotionOverride = true // the spring's end at once; a rebuild draws ends, not flights
+        Motion.reduceMotionOverride = reduceMotion
         defer { Motion.reduceMotionOverride = previousMotion }
         let doc = Doc()
         let (sidebar, window) = Self.fixture(doc)
@@ -317,16 +354,20 @@ import Testing
         await Self.expectMatchesRebuild(sidebar, "at rest")
         try await Self.run(operation, sidebar, doc)
         await Self.expectMatchesRebuild(sidebar, "after \(operation.rawValue)")
-        // Then each group folds and opens, and a click selects a row in a group and one outside.
-        for group in Self.allGroups where sidebar.list.model.group(group) != nil {
+        await Self.foldsAndClicks(sidebar, after: operation.rawValue, clicking: ["web", "f1", "scratch"])
+    }
+
+    /// Each of `groups` folds and opens, then each of `ids` is clicked, each matched against a rebuild.
+    static func foldsAndClicks(_ sidebar: SidebarView, after: String, groups: [GroupID] = allGroups, clicking ids: [String]) async {
+        for group in groups where sidebar.list.model.group(group) != nil {
             sidebar.list.model.send(.toggleCollapse(.group(group)))
-            await Self.expectMatchesRebuild(sidebar, "after \(operation.rawValue), then \(group.rawValue) toggles")
+            await Self.expectMatchesRebuild(sidebar, "after \(after), then \(group.rawValue) toggles")
             sidebar.list.model.send(.toggleCollapse(.group(group)))
-            await Self.expectMatchesRebuild(sidebar, "after \(operation.rawValue), then \(group.rawValue) toggles back")
+            await Self.expectMatchesRebuild(sidebar, "after \(after), then \(group.rawValue) toggles back")
         }
-        for id in ["web", "f1", "scratch"] {
+        for id in ids where sidebar.list.model.workspace(WorkspaceID(id)) != nil {
             sidebar.list.model.click(WorkspaceID(id))
-            await Self.expectMatchesRebuild(sidebar, "after \(operation.rawValue), then a click on \(id)")
+            await Self.expectMatchesRebuild(sidebar, "after \(after), then a click on \(id)")
         }
     }
 }

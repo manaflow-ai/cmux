@@ -4,6 +4,130 @@
 use super::*;
 
 use crate::config::check_preset_args;
+use cmux_json::JsonSet as _;
+
+fn pi_session_for(root: &Path, agent_id: &str) -> std::io::Result<Option<PathBuf>> {
+    let Ok(entries) = std::fs::read_dir(root) else { return Ok(None) };
+    for entry in entries {
+        let entry = entry?;
+        let path = entry.path();
+        let meta = std::fs::symlink_metadata(&path)?;
+        if !meta.file_type().is_file() || path.extension().and_then(|e| e.to_str()) != Some("jsonl")
+        {
+            continue;
+        }
+        let bytes = std::fs::read(&path)?;
+        let first = bytes.splitn(2, |b| *b == 10).next().unwrap_or_default();
+        let Ok(header) = serde_json::from_slice::<Value>(first) else { continue };
+        if header.get("type").and_then(Value::as_str) == Some("session")
+            && header.get("id").and_then(Value::as_str) == Some(agent_id)
+            && header.get("cwd").and_then(Value::as_str).is_some()
+        {
+            return Ok(Some(path));
+        }
+    }
+    Ok(None)
+}
+
+fn copy_legacy_tree(src: &Path, dst: &Path) -> std::io::Result<()> {
+    let meta = std::fs::symlink_metadata(src)?;
+    if meta.file_type().is_symlink() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "legacy durable state is symlinked",
+        ));
+    }
+    if meta.file_type().is_dir() {
+        std::fs::create_dir_all(dst)?;
+        for entry in std::fs::read_dir(src)? {
+            let entry = entry?;
+            copy_legacy_tree(&entry.path(), &dst.join(entry.file_name()))?;
+        }
+        std::fs::File::open(dst)?.sync_all()?;
+    } else if meta.file_type().is_file() {
+        if std::fs::symlink_metadata(dst).is_ok() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::AlreadyExists,
+                "new durable state is occupied",
+            ));
+        }
+        std::fs::copy(src, dst)?;
+        std::fs::File::open(dst)?.sync_all()?;
+    } else {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "legacy durable state is not a file or directory",
+        ));
+    }
+    Ok(())
+}
+
+fn copy_legacy_atomic(src: &Path, dst: &Path) -> std::io::Result<()> {
+    if std::fs::symlink_metadata(dst).is_ok() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::AlreadyExists,
+            "migration destination is occupied",
+        ));
+    }
+    let name = dst.file_name().and_then(|n| n.to_str()).unwrap_or("state");
+    let tmp = dst.with_file_name(format!(".{name}.migrating"));
+    if let Ok(meta) = std::fs::symlink_metadata(&tmp) {
+        if meta.file_type().is_dir() {
+            std::fs::remove_dir_all(&tmp)?;
+        } else {
+            std::fs::remove_file(&tmp)?;
+        }
+    }
+    copy_legacy_tree(src, &tmp)?;
+    if let Some(parent) = dst.parent() {
+        std::fs::File::open(parent)?.sync_all()?;
+    }
+    std::fs::rename(&tmp, dst)?;
+    if let Some(parent) = dst.parent() {
+        std::fs::File::open(parent)?.sync_all()?;
+    }
+    Ok(())
+}
+
+fn migrate_legacy_harness_state(
+    new_root: &Path,
+    agent_id: &str,
+    home: &Path,
+) -> std::io::Result<()> {
+    let legacy_root = home.join(".cmux-harness").join("sessions");
+    let legacy_store = home.join(".cmux-harness").join("durable").join(agent_id);
+    if new_root == legacy_root {
+        return Ok(());
+    }
+    if pi_session_for(new_root, agent_id)?.is_none()
+        && let Some(old_pi) = pi_session_for(&legacy_root, agent_id)?
+    {
+        std::fs::create_dir_all(new_root)?;
+        let target = new_root.join(old_pi.file_name().ok_or_else(|| {
+            std::io::Error::new(std::io::ErrorKind::InvalidData, "legacy Pi filename missing")
+        })?);
+        copy_legacy_atomic(&old_pi, &target)?;
+    }
+    let new_store = new_root.join(agent_id);
+    if std::fs::symlink_metadata(&new_store).is_err()
+        && std::fs::symlink_metadata(&legacy_store).is_ok()
+    {
+        copy_legacy_atomic(&legacy_store, &new_store)?;
+    }
+    let legacy_events = home.join(".cmux-harness").join("events");
+    let new_events = new_root.parent().unwrap_or(new_root).join("events");
+    for suffix in ["continuity.jsonl", "events.jsonl"] {
+        let source = legacy_events.join(format!("{agent_id}.{suffix}"));
+        if std::fs::symlink_metadata(&source).is_ok() {
+            std::fs::create_dir_all(&new_events)?;
+            let target = new_events.join(format!("{agent_id}.{suffix}"));
+            if std::fs::symlink_metadata(&target).is_err() {
+                copy_legacy_atomic(&source, &target)?;
+            }
+        }
+    }
+    Ok(())
+}
 
 impl Hub {
     /// `session/new` or `session/load` params for acpmux session `id`'s ACP
@@ -23,9 +147,10 @@ impl Hub {
         child.all_tools.store(all, std::sync::atomic::Ordering::Relaxed);
         let servers =
             crate::agent_tools::acp_servers_for(meta.remote_origin, &profile.env, id, all);
+        *child.given_servers.lock().unwrap_or_else(|e| e.into_inner()) = Some(servers.clone());
         let mut params = json!({"cwd": meta.cwd, "mcpServers": servers});
         if let Some(id) = session_id {
-            params["sessionId"] = json!(id);
+            params.set("sessionId", json!(id));
         }
         params
     }
@@ -48,9 +173,11 @@ impl Hub {
     ) -> Result<Spawn, RpcError> {
         // A fork resumes its parent's conversation: it runs in the parent's folder.
         let forking = session.fork_from.lock().unwrap_or_else(|e| e.into_inner()).is_some();
+        let meta = session.meta();
+        let opencode = super::policy_mode::is_opencode(&meta, profile);
         let (profile, preset_digest, account_home) =
-            self.spawn_profile_read(&session.meta(), forking, profile, defaults_env).await?;
-        Ok(Spawn { profile, preset_digest, account_home })
+            self.spawn_profile_read(&meta, forking, profile, defaults_env).await?;
+        Ok(Spawn { profile, preset_digest, account_home, opencode })
     }
 
     /// `spawn_profile` for a session's meta, also before the session exists
@@ -132,6 +259,28 @@ impl Hub {
         for (k, v) in &meta.session_env {
             p.env.insert(k.clone(), v.clone());
         }
+        // cmux-harness writes its durable journal into acpmux's session store.
+        // Bind this after profile and session env so a profile cannot redirect
+        // the journal into an arbitrary path; MemoryStore intentionally has no
+        // transferable directory and therefore leaves the bridge disabled.
+        if p.family.as_deref() == Some("cmux-harness") {
+            p.env.remove("CMUX_HARNESS_SESSION_STORE_DIR");
+            if let Some(dir) =
+                self.store.session_dir(&meta.id).and_then(|dir| dir.parent().map(Path::to_path_buf))
+            {
+                let root = dir.to_string_lossy().into_owned();
+                if let Some(agent_id) = meta.agent_session_id.as_deref() {
+                    migrate_legacy_harness_state(&dir, agent_id, &home).map_err(|e| {
+                        RpcError::internal(format!("cmux-harness state migration: {e}"))
+                    })?;
+                }
+                // Keep Pi's ACP JSONL and cmux-harness's durable journal in the
+                // same transferable root. The harness session id is learned from
+                // ACP and is independent of cmux's outer session id.
+                p.env.insert("CMUX_HARNESS_SESSION_DIR".to_owned(), root.clone());
+                p.env.insert("CMUX_HARNESS_SESSION_STORE_DIR".to_owned(), root);
+            }
+        }
         // The workspace picks the computer use display (agent_displays.rs);
         // `agent/command.rs` removes the key before the harness starts.
         crate::agent_displays::mark(&mut p.env, meta.workspace_id.as_deref());
@@ -184,7 +333,38 @@ impl Hub {
                 p.env.insert(crate::agent_tools::OFF_ENV.to_owned(), off.join(","));
             }
         }
+        // OpenCode asked to ask (`opencode_ask.rs`, `policy_mode.rs`), never by a profile's own marker.
+        p.env.remove(crate::opencode_ask::MARKER);
+        let default_policy = self.config.read().await.permission_policy;
+        if super::policy_mode::asks_opencode(meta, profile, default_policy) {
+            p.env.insert(crate::opencode_ask::MARKER.to_owned(), "1".to_owned());
+        }
         Ok((p, digest, account_home))
+    }
+
+    /// `spawn` with OpenCode asked to ask as `session`'s policy stands now (`policy_mode.rs`),
+    /// or `None` when it already is: `ensure_child` reads it again under the spawn lock, so a
+    /// narrowing after `spawn_profile` read the policy (`ask_opencode` then finds no agent
+    /// running) still holds for this start.
+    pub(super) async fn opencode_ask_now(&self, session: &Session, spawn: &Spawn) -> Option<Spawn> {
+        let default = self.config.read().await.permission_policy;
+        let asks =
+            spawn.opencode && super::policy_mode::narrow_policy(&session.meta(), default).is_some();
+        if asks == spawn.env.contains_key(crate::opencode_ask::MARKER) {
+            return None;
+        }
+        let mut profile = spawn.profile.clone();
+        if asks {
+            profile.env.insert(crate::opencode_ask::MARKER.to_owned(), "1".to_owned());
+        } else {
+            profile.env.remove(crate::opencode_ask::MARKER);
+        }
+        Some(Spawn {
+            profile,
+            preset_digest: spawn.preset_digest.clone(),
+            account_home: spawn.account_home.clone(),
+            opencode: spawn.opencode,
+        })
     }
 }
 
@@ -195,6 +375,8 @@ pub(super) struct Spawn {
     pub preset_digest: Option<String>,
     /// The account home a new chat starts in (route_account.rs `record`).
     pub account_home: Option<std::path::PathBuf>,
+    /// Whether the harness is OpenCode, from the profile as configured (`policy_mode::is_opencode`).
+    pub opencode: bool,
 }
 
 impl std::ops::Deref for Spawn {

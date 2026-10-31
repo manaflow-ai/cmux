@@ -224,6 +224,51 @@ pub fn named_use(id: &str, procs: &[Proc]) -> Option<LiveUse> {
     Some(LiveUse::Process { pid: p.pid, command })
 }
 
+/// An agent host of this acpmux home (`agent_host::HostRecord`): the acpmux
+/// session it runs, its pid and its harness's pid.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OwnHost {
+    pub session_id: String,
+    pub host_pid: u32,
+    pub harness_pid: Option<u32>,
+}
+
+/// The acpmux session whose agent host, one of `hosts` (this home's), runs
+/// `pid` as its harness: the harness pid the host recorded, or a process the
+/// host started through wrapper shells only. Claude Code registers every
+/// running session in one registry that every acpmux home on the Mac shares
+/// (the app's, Chief's, a dev build's), so a registry entry alone cannot tell
+/// this acpmux's own harness from one open elsewhere; the host that runs it
+/// can. A `claude` that a harness itself started (a tool call, a nested
+/// daemon) is not the host's harness: the walk stops at any process that is
+/// not a wrapper shell.
+pub fn own_host_session(pid: u32, hosts: &[OwnHost], procs: &[Proc]) -> Option<String> {
+    if let Some(host) = hosts.iter().find(|h| h.harness_pid == Some(pid)) {
+        return Some(host.session_id.clone());
+    }
+    let by_pid: HashMap<u32, &Proc> = procs.iter().map(|p| (p.pid, p)).collect();
+    let mut seen = HashSet::new();
+    let mut at = by_pid.get(&pid).map(|p| p.ppid);
+    while let Some(ancestor) = at.filter(|&a| a > 1 && seen.insert(a)) {
+        if let Some(host) = hosts.iter().find(|h| h.host_pid == ancestor) {
+            return Some(host.session_id.clone());
+        }
+        let proc = by_pid.get(&ancestor)?;
+        if !is_wrapper_shell(&proc.command) {
+            return None;
+        }
+        at = Some(proc.ppid);
+    }
+    None
+}
+
+/// Whether `command` runs a shell or `env`, which a host may start its harness through.
+fn is_wrapper_shell(command: &str) -> bool {
+    let exe = command.split_whitespace().next().unwrap_or_default();
+    let name = Path::new(exe).file_name().and_then(|n| n.to_str()).unwrap_or_default();
+    matches!(name.trim_start_matches('-'), "sh" | "bash" | "zsh" | "dash" | "env")
+}
+
 /// Every pid in the subtree of a process whose executable is `acpmux`.
 fn acpmux_tree(procs: &[Proc]) -> HashSet<u32> {
     let mut children: HashMap<u32, Vec<u32>> = HashMap::new();
@@ -245,4 +290,86 @@ fn acpmux_tree(procs: &[Proc]) -> HashSet<u32> {
         }
     }
     tree
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn procs(rows: &[(u32, u32, &str)]) -> Vec<Proc> {
+        rows.iter()
+            .map(|&(pid, ppid, command)| Proc { pid, ppid, command: command.to_owned() })
+            .collect()
+    }
+
+    fn host(session_id: &str, host_pid: u32, harness_pid: Option<u32>) -> OwnHost {
+        OwnHost { session_id: session_id.to_owned(), host_pid, harness_pid }
+    }
+
+    /// The machine this was seen on: the app's acpmux, Chief's acpmux and a dev build's
+    /// each run Claude Code under their own agent hosts, and all of them register in
+    /// one `~/.claude/sessions`. A registered `claude` under one of this home's hosts is
+    /// this acpmux's own chat; one under another home's host is open elsewhere.
+    fn machine() -> Vec<Proc> {
+        procs(&[
+            (30816, 1, "/Applications/cmux NIGHTLY.app/Contents/Resources/bin/acpmux daemon run"),
+            (
+                70686,
+                30816,
+                "/Applications/cmux NIGHTLY.app/Contents/Resources/bin/acpmux __agent-host",
+            ),
+            (70701, 70686, "/opt/homebrew/bin/claude -p --input-format stream-json --resume abc"),
+            // A host the previous daemon started: reparented to launchd, this home's still.
+            (1887, 1, "/Applications/cmux NIGHTLY.app/Contents/Resources/bin/acpmux __agent-host"),
+            (1900, 1887, "/bin/sh -c claude"),
+            (1906, 1900, "/opt/homebrew/bin/claude -p --input-format stream-json"),
+            // Chief's acpmux: another home.
+            (50849, 1, "/Applications/cmux NIGHTLY.app/Contents/Resources/bin/acpmux daemon run"),
+            (
+                38030,
+                50849,
+                "/Applications/cmux NIGHTLY.app/Contents/Resources/bin/acpmux __agent-host",
+            ),
+            (38031, 38030, "/opt/homebrew/bin/claude -p --input-format stream-json"),
+            // A `claude` that chat-a's harness ran from its Bash tool.
+            (70800, 70701, "/bin/zsh -c claude -p --resume other"),
+            (70801, 70800, "/opt/homebrew/bin/claude -p --resume other"),
+            // A `claude` in a terminal.
+            (2523, 2400, "claude"),
+        ])
+    }
+
+    #[test]
+    fn own_host_session_finds_this_homes_harness_by_its_host() {
+        let hosts = [host("chat-a", 70686, None), host("chat-b", 1887, None)];
+        let procs = machine();
+        assert_eq!(own_host_session(70701, &hosts, &procs), Some("chat-a".to_owned()));
+        // Under a wrapper, under a host whose daemon restarted.
+        assert_eq!(own_host_session(1906, &hosts, &procs), Some("chat-b".to_owned()));
+    }
+
+    #[test]
+    fn own_host_session_matches_the_recorded_harness_pid_without_a_process_table() {
+        let hosts = [host("chat-a", 70686, Some(70701))];
+        assert_eq!(own_host_session(70701, &hosts, &[]), Some("chat-a".to_owned()));
+    }
+
+    #[test]
+    fn own_host_session_leaves_another_homes_harness_and_a_terminal_claude_live() {
+        let hosts = [host("chat-a", 70686, Some(70701)), host("chat-b", 1887, None)];
+        let procs = machine();
+        // Chief's acpmux runs it: open elsewhere, though an acpmux runs it.
+        assert_eq!(own_host_session(38031, &hosts, &procs), None);
+        assert_eq!(own_host_session(2523, &hosts, &procs), None);
+        // A `claude` that this home's harness started is not that host's harness.
+        assert_eq!(own_host_session(70801, &hosts, &procs), None);
+        // No host of this home at all.
+        assert_eq!(own_host_session(70701, &[], &procs), None);
+    }
+
+    #[test]
+    fn own_host_session_ends_on_a_parent_cycle() {
+        let procs = procs(&[(10, 11, "a"), (11, 10, "b")]);
+        assert_eq!(own_host_session(10, &[host("x", 99, None)], &procs), None);
+    }
 }

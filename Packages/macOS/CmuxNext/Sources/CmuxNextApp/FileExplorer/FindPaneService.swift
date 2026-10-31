@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextFilesUI
 
 extension InternalPageID {
     /// Open Find as Pane: the right sidebar's Find section in a tab.
@@ -47,7 +48,7 @@ final class FindPaneService: InternalPageProvider {
     func makeView(for key: String, in window: WindowController?) -> NSView {
         let folder = roots[key] ?? pendingFolder ?? FileManager.default.homeDirectoryForCurrentUser
         roots[key] = folder
-        let effects = services?.fileExplorers.effects ?? NullEffects()
+        let effects = services?.fileExplorers.effects ?? NullFileExplorerEffects()
         let view = FindSectionView(model: FindSectionModel(), rootFolder: { [weak self] in
             self?.roots[key] ?? folder
         }, effects: effects)
@@ -59,14 +60,4 @@ final class FindPaneService: InternalPageProvider {
         views.removeValue(forKey: key)
         roots.removeValue(forKey: key)
     }
-}
-
-/// Effects for a Find tab made after the App's services went away (never shown).
-@MainActor
-private final class NullEffects: FileExplorerEffects {
-    func openInCmux(_ file: URL, at position: FilePosition?) -> Bool { false }
-    func openInDefaultApp(_ item: URL) {}
-    func revealInFinder(_ item: URL) {}
-    func copy(_ text: String) {}
-    func open(_ item: URL, withApp app: String) async throws {}
 }

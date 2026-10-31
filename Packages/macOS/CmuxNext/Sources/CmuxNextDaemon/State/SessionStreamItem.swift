@@ -9,8 +9,10 @@ public enum SessionStateChange: Sendable, Hashable {
     case workspaceRemoved(ResourceID)
     case screen(ResourceID, SessionStateMirror.ScreenState?)
     case tab(ResourceID, SessionStateMirror.TabRecord?)
-    /// A terminal's OSC 9;4 progress, OSC 7501 program status records and running shell command.
-    case terminal(ResourceID, TerminalProgressReport?, programStatus: [ProgramStatusRecord] = [], busySinceMs: UInt64? = nil)
+    /// A terminal's OSC 9;4 progress, OSC 7501 program status records, running shell command, prompt
+    /// and last output.
+    case terminal(ResourceID, TerminalProgressReport?, programStatus: [ProgramStatusRecord] = [], busySinceMs: UInt64? = nil,
+                  promptSinceMs: UInt64? = nil, lastOutputMs: UInt64? = nil)
     case closed(ClosedItem)
     case closedRemoved(String)
     case status(WorkspaceStatus)
@@ -158,7 +160,8 @@ enum SessionWire {
             if case .number(let value)? = extra?["zoom"] { zoom = value }
             return SessionStateMirror.TabRecord(zoom: zoom, back: urls("back"), forward: urls("forward"),
                                                 icon: extra?["icon"]?.stringValue, emulation: extra?["emulation"],
-                                                markedUnread: extra?["marked_unread"] == .bool(true))
+                                                markedUnread: extra?["marked_unread"] == .bool(true),
+                                                attention: TabAttention(extra?["attention"]))
         }
 
         var progress: TerminalProgressReport? {
@@ -179,6 +182,26 @@ enum SessionWire {
             if case .object(let activity)? = extra?["activity"], activity["state"]?.stringValue != "running" { return nil }
             guard case .object(let busy)? = extra?["busy"] else { return nil }
             return busy["since_ms"]?.stringValue.flatMap { UInt64($0, radix: 10) }
+        }
+
+        /// Since when the shell sits at its prompt (`extra.prompt.since_ms`: OSC 133 A until C), nil
+        /// while a command runs and for a shell without integration.
+        var promptSinceMs: UInt64? { ms(extra?["prompt"], "since_ms") }
+
+        /// When the terminal last printed (`extra.last_output.at_ms`); pushed at most every 5 s while
+        /// output streams.
+        var lastOutputMs: UInt64? { ms(extra?["last_output"], "at_ms") }
+
+        /// The decimal ms string at `key` of `record`.
+        private func ms(_ record: JSONValue?, _ key: String) -> UInt64? {
+            guard case .object(let object)? = record else { return nil }
+            return object[key]?.stringValue.flatMap { UInt64($0, radix: 10) }
+        }
+
+        /// The terminal's change as the mirror applies it.
+        func terminalChange(_ id: ResourceID) -> SessionStateChange {
+            .terminal(id, progress, programStatus: programStatus, busySinceMs: busySinceMs, promptSinceMs: promptSinceMs,
+                      lastOutputMs: lastOutputMs)
         }
     }
 
@@ -217,8 +240,7 @@ enum SessionWire {
             for screen in screens?.compactMap(\.value) ?? [] { mirror.screens.updateValue(screen.screenState, forKey: screen.id) }
             for tab in tabs?.compactMap(\.value) ?? [] where !tab.tabRecord.isEmpty { mirror.tabs.updateValue(tab.tabRecord, forKey: tab.id) }
             for terminal in terminals?.compactMap(\.value) ?? [] {
-                mirror.apply(.terminal(terminal.id, terminal.progress, programStatus: terminal.programStatus,
-                                       busySinceMs: terminal.busySinceMs))
+                mirror.apply(terminal.terminalChange(terminal.id))
             }
             mirror.closed = Array((state.closed?.compactMap(\.value) ?? []).prefix(SessionStateMirror.closedLimit))
             for status in state.workspaceStatus?.compactMap(\.value) ?? [] { mirror.workspaceStatus.updateValue(status, forKey: status.workspaceID) }
@@ -252,8 +274,7 @@ enum SessionWire {
             case ("upsert", "tab"): change = .tab(rid, try c.decode(Entity.self, forKey: .value).tabRecord)
             case ("delete", "tab"): change = .tab(rid, nil)
             case ("upsert", "terminal"):
-                let terminal = try c.decode(Entity.self, forKey: .value)
-                change = .terminal(rid, terminal.progress, programStatus: terminal.programStatus, busySinceMs: terminal.busySinceMs)
+                change = try c.decode(Entity.self, forKey: .value).terminalChange(rid)
             case ("delete", "terminal"): change = .terminal(rid, nil)
             case ("state_upsert", "closed"): change = .closed(try c.decode(ClosedItem.self, forKey: .value))
             case ("state_delete", "closed"): change = .closedRemoved(id)

@@ -11,41 +11,60 @@ import Testing
 /// local create path that hands `harness: "unii"` to this Mac's Chief owner.
 @Suite struct ChiefBackendTests {
     @Test func theOfficialBackendsAreClaudeCodexAndUniiChatInThatOrder() {
-        #expect(ChiefBackend.official.map(\.id) == ["claude", "codex", "unii"])
+        #expect(ChiefBackend.official.map(\.id) == ["claude", "codex", "muse", "unii"])
         #expect(ChiefBackend.official.filter(\.isDefault) == [.claude])
         // Claude stays on the cloud path; UniiChat's sign-in is this Mac's, so its Chiefs are too.
         #expect(!ChiefBackend.claude.createsOnThisMac)
         #expect(ChiefBackend.unii.createsOnThisMac)
         #expect(ChiefBackend.codex.createsOnThisMac)
+        #expect(ChiefBackend.muse.createsOnThisMac)
     }
 
-    @Test func titlesNameEachBackendAndShowAnUnknownIdAsItIs() {
+    /// An id that is not an official engine reads as a name, never as the raw id (#89).
+    @Test func titlesNameEachBackendAndShowAnUnknownIdByName() {
         #expect(ChiefBackend.title(for: "claude") == ChiefBackend.claude.title)
         #expect(ChiefBackend.title(for: "unii") == ChiefBackend.unii.title)
         #expect(!ChiefBackend.unii.title.isEmpty && ChiefBackend.unii.title != "unii")
-        #expect(ChiefBackend.title(for: "claude-cr") == "claude-cr")
-        #expect(ChiefBackend.title(for: "gemini") == "gemini")
+        #expect(ChiefBackend.title(for: "claude-cr") == "\(ChiefBackend.claude.title) (CodeRouter)")
+        #expect(ChiefBackend.title(for: "gemini") == "Gemini CLI")
         #expect(ChiefBackend(id: "unii") == .unii)
         #expect(ChiefBackend(id: "claude-sr") == nil)
         #expect(ChiefBackend.unii.hint != nil)
+        #expect(ChiefBackend(id: "muse") == .muse)
+        #expect(ChiefBackend.title(for: "muse") == ChiefBackend.muse.title && ChiefBackend.muse.title != "muse")
+        #expect(ChiefBackend.muse.hint != nil)
         #expect(ChiefBackend.claude.hint == nil)
     }
 
     @Test func onlyAChiefOffTheDefaultEngineGetsABadge() {
         #expect(ChiefBackend.badge(for: "unii") == ChiefBackend.unii.title)
         #expect(ChiefBackend.badge(for: "codex") == ChiefBackend.codex.title)
-        #expect(ChiefBackend.badge(for: "gemini") == "gemini")
+        #expect(ChiefBackend.badge(for: "muse") == ChiefBackend.muse.title)
+        #expect(ChiefBackend.badge(for: "gemini") == "Gemini CLI")
         for harness in [nil, "", "default", "claude", "claude-cr", "claude-sr"] as [String?] {
             #expect(ChiefBackend.badge(for: harness) == nil, "\(String(describing: harness))")
         }
     }
 
     @MainActor @Test func theHarnessPickerOffersUniiChatWithAndWithoutTheCodeRouterRoute() {
-        #expect(HomeChiefSettingsView.harnesses(routeConfigured: false) == ["claude", "codex", "unii"])
-        #expect(HomeChiefSettingsView.harnesses(routeConfigured: true) == ["claude", "claude-cr", "codex", "unii"])
+        #expect(HomeChiefSettingsView.harnesses(routeConfigured: false) == ["claude", "codex", "muse", "unii"])
+        #expect(HomeChiefSettingsView.harnesses(routeConfigured: true) == ["claude", "claude-cr", "codex", "muse", "unii"])
         let items = HomeChiefSettingsView.harnessItems(routeConfigured: true)
         #expect(items.first { $0.value == "unii" }?.title == ChiefBackend.unii.title)
-        #expect(items.first { $0.value == "claude-cr" }?.title == "claude-cr")
+        // The route reads as a name, not its id (#89).
+        #expect(items.first { $0.value == "claude-cr" }?.title == "\(ChiefBackend.claude.title) (CodeRouter)")
+    }
+
+    /// Lawrence 2026-10-23: "chief can choose between literally all the acpmux stuff". After the
+    /// official engines, the picker offers every harness this Mac's acpmux lists, once each.
+    @MainActor @Test func theHarnessPickerOffersEveryAcpmuxHarness() {
+        let listed = ["claude", "codex", "opencode", "pi", "gemini", "claude-sr", "claude-cr", "muse", "unii"]
+        #expect(HomeChiefSettingsView.harnesses(routeConfigured: false, listed: listed)
+            == ["claude", "codex", "muse", "unii", "opencode", "pi", "gemini", "claude-sr", "claude-cr"])
+        #expect(HomeChiefSettingsView.harnesses(routeConfigured: true, listed: listed)
+            == ["claude", "claude-cr", "codex", "muse", "unii", "opencode", "pi", "gemini", "claude-sr"])
+        let items = HomeChiefSettingsView.harnessItems(routeConfigured: false, listed: ["gemini"])
+        #expect(items.last?.value == "gemini" && items.last?.title == "Gemini CLI")
     }
 
     @MainActor @Test func theNewChiefSheetHandsTheChosenBackendToItsCreate() async throws {
@@ -127,6 +146,21 @@ import Testing
         let harnesses = await reader.read(chiefs: ["agent_mux", "agent_scout01", "agent_plain01"])
         #expect(harnesses == ["agent_mux": "codex", "agent_scout01": "unii"])
         #expect(HomeChiefHarnesses.recordHarnesses(nil).isEmpty)
+    }
+
+    /// Delete Chief on one of this Mac's Chiefs: the same `chief.profile.list` read names the deleted
+    /// ids (Home hides their conversations); an owner that does not list them, or an unread list,
+    /// changes nothing (nil keeps the ids known).
+    @Test func theOwnersListNamesThisMacsDeletedChiefs() async {
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-chief-deleted-\(UUID().uuidString)", isDirectory: true)
+        let listed: JSONValue = .object(["chiefs": .array([.object(["id": .string("agent_mux")])]),
+                                         "deleted": .array([.string("agent_gone01")])])
+        let read = await HomeChiefHarnesses(muxHome: home, list: { listed }).readWithDeleted(chiefs: ["agent_mux", "agent_gone01"])
+        #expect(read.deleted == ["agent_gone01"])
+        let older = await HomeChiefHarnesses(muxHome: home, list: { .object(["chiefs": .array([])]) }).readWithDeleted(chiefs: [])
+        #expect(older.deleted == nil)
+        let unread = await HomeChiefHarnesses(muxHome: home, list: { nil }).readWithDeleted(chiefs: [])
+        #expect(unread.deleted == nil)
     }
 }
 

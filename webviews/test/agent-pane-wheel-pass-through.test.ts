@@ -11,6 +11,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { papercutPane } from "./support/papercutChat";
+import { installPaintedFrames } from "./support/paintedFrames";
 
 await requireBrowserLane("agent-pane-wheel-pass-through.test.ts", async () => {
   setDefaultTimeout(300_000);
@@ -45,6 +46,35 @@ await requireBrowserLane("agent-pane-wheel-pass-through.test.ts", async () => {
     await pane?.close();
   });
 
+  /// The pane at its latest message, with the painted-frame helpers.
+  async function open(): Promise<Page> {
+    const page = await pane!.open();
+    await installPaintedFrames(page);
+    return page;
+  }
+
+  /// Resolves once the transcript's offset, the draft's offset and the composer card's box have held
+  /// for 6 painted frames (Linux WebKit animates a wheel step over several frames).
+  const still = (page: Page) =>
+    page.evaluate(async () => {
+      const read = () => {
+        const card = document.querySelector(".acpmux-composer-box")?.getBoundingClientRect();
+        return [
+          document.querySelector(".acpmux-scroll")?.scrollTop,
+          document.querySelector(".acpmux-md-field")?.scrollTop,
+          card?.y,
+          card?.height,
+        ].join(" ");
+      };
+      let last = read();
+      for (let held = 0, frames = 0; held < 6 && frames < 600; frames += 1) {
+        await window.cmuxPaintFrame();
+        const now = read();
+        held = now === last ? held + 1 : 0;
+        last = now;
+      }
+    });
+
   const scrollTop = (page: Page) =>
     page.evaluate(() => document.querySelector<HTMLElement>(".acpmux-scroll")!.scrollTop);
 
@@ -59,7 +89,7 @@ await requireBrowserLane("agent-pane-wheel-pass-through.test.ts", async () => {
     await page.mouse.move(x, y);
     const before = await scrollTop(page);
     await page.mouse.wheel(0, deltaY);
-    await page.waitForTimeout(400);
+    await still(page);
     return (await scrollTop(page)) - before;
   }
 
@@ -67,24 +97,35 @@ await requireBrowserLane("agent-pane-wheel-pass-through.test.ts", async () => {
     describe(name, () => {
       test("the wheel over Jump to latest scrolls the transcript, and a click still jumps", async () => {
         current = browsers.get(name);
-        const page = await pane!.open();
+        const page = await open();
         // Up from the latest message, so the button shows.
         expect(await wheelOver(page, ".acpmux-scroll", -1200)).toBeLessThan(0);
         await page.locator(".acpmux-jump-latest[data-shown]").waitFor();
-        // The bottom fade reaches past the button, so rows pass out of sight behind it (layout pass,
-        // hq#2696: "overlaps the date line, with no fade").
+        // The jump control keeps its own glass without washing out extra transcript lines.
         const fade = await page.evaluate(() =>
           getComputedStyle(document.querySelector(".acpmux-scroll")!).getPropertyValue("--acpmux-fade-bottom").trim(),
         );
-        expect(fade).toBe("56px");
+        expect(fade).toBe("18px");
         expect(await wheelOver(page, ".acpmux-jump-latest", -300)).toBeLessThan(-100);
         expect(await wheelOver(page, ".acpmux-jump-latest", 200)).toBeGreaterThan(100);
         await page.locator(".acpmux-jump-latest").click();
-        await page.waitForTimeout(900);
-        const end = await page.evaluate(() => {
-          const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
-          return scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop;
-        });
+        const distance = () =>
+          page.evaluate(() => {
+            const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+            return scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop;
+          });
+        // The jump glides to the latest message.
+        await page
+          .waitForFunction(
+            () => {
+              const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+              return scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop < 2;
+            },
+            undefined,
+            { timeout: 5_000 },
+          )
+          .catch(() => {});
+        const end = await distance();
         expect(end).toBeLessThan(2);
         await page.close();
       });
@@ -94,7 +135,7 @@ await requireBrowserLane("agent-pane-wheel-pass-through.test.ts", async () => {
       // transcript nor the stack; the wheel in the gutter beside the card scrolls the transcript.
       test("the wheel over the composer's card scrolls nothing, and beside it scrolls the transcript", async () => {
         current = browsers.get(name);
-        const page = await pane!.open();
+        const page = await open();
         // Up from the latest message, so the transcript can scroll either way.
         expect(await wheelOver(page, ".acpmux-scroll", -1200)).toBeLessThan(0);
         const card = (await page.locator(".acpmux-composer-box").first().boundingBox())!;
@@ -116,11 +157,11 @@ await requireBrowserLane("agent-pane-wheel-pass-through.test.ts", async () => {
       // either end, and the wheel after that, moves neither the transcript nor the box.
       test("the wheel over a long draft stops at its ends and moves nothing else", async () => {
         current = browsers.get(name);
-        const page = await pane!.open();
+        const page = await open();
         const prompt = page.locator(".acpmux-md-field").first();
         await prompt.click();
         await page.keyboard.insertText(Array.from({ length: 40 }, (_, i) => `draft line ${i + 1}`).join("\n"));
-        await page.waitForTimeout(200);
+        await still(page);
         const field = () =>
           page.evaluate(() => {
             const box = document.querySelector<HTMLElement>(".acpmux-md-field")!;
@@ -154,7 +195,7 @@ await requireBrowserLane("agent-pane-wheel-pass-through.test.ts", async () => {
         // ↑ and ↓ past the draft's first and last lines move only the caret and the draft.
         const transcript = await scrollTop(page);
         for (let step = 0; step < 45; step++) await page.keyboard.press("ArrowUp");
-        await page.waitForTimeout(200);
+        await still(page);
         // The first line's text shows in full (the browser's own caret reveal may tuck the line
         // box's leading under the edge on Linux, the glyphs stay in view).
         const firstLine = await page.evaluate(() => {
@@ -165,7 +206,7 @@ await requireBrowserLane("agent-pane-wheel-pass-through.test.ts", async () => {
         });
         expect(firstLine).toBeGreaterThanOrEqual(0);
         for (let step = 0; step < 45; step++) await page.keyboard.press("ArrowDown");
-        await page.waitForTimeout(200);
+        await still(page);
         after = await field();
         const lastLine = await page.evaluate(() => {
           const box = document.querySelector(".acpmux-md-field")!;

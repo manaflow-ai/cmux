@@ -189,7 +189,25 @@ await requireBrowserLane("markdown-wide-width-layout.test.ts", async () => {
         await input.waitFor();
         await input.fill("300");
         await input.press("Enter");
-        await page.waitForTimeout(100);
+        // The typed width reaches the column; one that never does fails below.
+        await page
+          .waitForFunction(
+            () => {
+              const doc = document.querySelector<HTMLElement>(".md-doc")!;
+              const style = getComputedStyle(doc);
+              const probe = document.createElement("div");
+              probe.style.cssText = "position:absolute;visibility:hidden;width:100ch";
+              doc.append(probe);
+              const ch = probe.getBoundingClientRect().width / 100;
+              probe.remove();
+              const content =
+                doc.getBoundingClientRect().width - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+              return Math.abs(content - 300 * ch) < 2;
+            },
+            null,
+            { timeout: 5_000 },
+          )
+          .catch(() => {});
         let box = await layout(page);
         expect(Math.abs(box.content - 300 * box.ch)).toBeLessThan(2);
         expect(await input.inputValue()).toBe("300");

@@ -3,7 +3,7 @@
 
 use std::collections::BTreeMap;
 
-#[derive(Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Flags {
     pub values: BTreeMap<String, String>,
     pub words: Vec<String>,

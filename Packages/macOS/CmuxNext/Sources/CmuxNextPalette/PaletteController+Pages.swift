@@ -3,10 +3,12 @@ import CmuxNextActions
 extension PaletteController {
     // MARK: Pages
 
-    /// The root command list: every catalog action plus workspaces, tabs,
-    /// directories, and settings once the user types.
+    /// Common intents and command families on the empty root; every catalog action plus
+    /// workspaces, tabs, directories, and settings once the user types.
     public func commandsPage() -> PalettePageSpec {
-        var providers: [any PaletteProvider] = [makeRegistryProvider()]
+        let registryProvider = makeRegistryProvider()
+        registryProvider.curatesEmptyRoot = true
+        var providers: [any PaletteProvider] = [registryProvider]
         if let source = sources.workspaces {
             providers.append(WorkspacePaletteProvider(source: source, showsItemsForEmptyQuery: false))
         }
@@ -167,6 +169,7 @@ extension PaletteController {
     /// inline rename entries backed by the sources.
     func makeRegistryProvider() -> RegistryPaletteProvider {
         let provider = RegistryPaletteProvider(registry: registry)
+        provider.hiddenIDs.formUnion(hiddenActionIDs?() ?? [])
         if shortcutRecorder.editor != nil { provider.editShortcut = { [weak self] in self?.shortcutRecorder.begin($0) } }
         provider.targets = sources.targets
         provider.capturedTargets = capturedTargets

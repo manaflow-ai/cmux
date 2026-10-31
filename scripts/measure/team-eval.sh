@@ -3,7 +3,7 @@
 # knowledge/inspiration/coordinator-mode-eval.md): one task, one arm, a real
 # Chief through a credential-free Claude route, alone on a worker:
 #   cmux-ci run --class exclusive --script scripts/measure/team-eval.sh --ref SHA \
-#     --arg=base_url=http://HOST:PORT --arg=task=composer-scroll --arg=arm=A|B|B2|L \
+#     --arg=base_url=http://HOST:PORT --arg=task=composer-scroll --arg=arm=A|A-steer|B|B2|L \
 #     [--arg=budget=25] \
 #     [--arg=minutes=60] [--arg=claude=2.1.300] \
 #     --artifact .build/team-eval/out.tgz --timeout 7200
@@ -43,7 +43,7 @@ for arg in "$@"; do
 done
 [[ "$base_url" =~ ^https?://[A-Za-z0-9.-]+(:[0-9]{1,5})?$ ]] || { echo "team-eval.sh: base_url=http://HOST[:PORT] is required" >&2; exit 2; }
 [[ "$task" =~ ^[a-z0-9-]{1,40}$ ]] || { echo "team-eval.sh: task=ID (see team_eval_tasks.json)" >&2; exit 2; }
-[[ "$arm" =~ ^(A|B|B2|L)$ ]] || { echo "team-eval.sh: arm=A|B|B2|L" >&2; exit 2; }
+[[ "$arm" =~ ^(A|A-steer|B|B2|L)$ ]] || { echo "team-eval.sh: arm=A|A-steer|B|B2|L" >&2; exit 2; }
 [[ "$budget" =~ ^[1-9][0-9]{0,2}$ ]] || { echo "team-eval.sh: budget is whole dollars, at least 1" >&2; exit 2; }
 [[ "$minutes" =~ ^[1-9][0-9]{0,2}$ ]] || { echo "team-eval.sh: minutes is whole minutes, at least 1" >&2; exit 2; }
 [[ "$claude_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "team-eval.sh: claude=X.Y.Z" >&2; exit 2; }
@@ -88,10 +88,11 @@ r = json.load(open(sys.argv[1])) if have else {"flags": ["no run.json"]}
 started = have or os.path.exists(os.path.join(os.path.dirname(sys.argv[1]), "driver.log"))
 if not started:
     r["cost_usd"] = {"all": 0, "live": 0}
+    r["tokens"] = {"input": 0, "output": 0, "cache_write": 0, "cache_read": 0, "total": 0}
 r["checks"] = json.load(open(sys.argv[2]))
 keep = ("task", "arm", "end", "minutes", "cost_usd", "turns", "spawns", "receipts", "chief_messages",
         "diff_lines", "stub_calls", "leaks", "flags", "timeline", "checks", "acpmux_left", "pin",
-        "followup_skew_s")
+        "followup_skew_s", "stall", "tokens", "ratelimit")
 line = {k: r.get(k) for k in keep}
 line["failed"] = sys.argv[3:] + ([] if have else ["no run.json"])
 line["ok"] = not line["failed"]
@@ -179,8 +180,11 @@ ln -s "$work/cc/node_modules/.bin/claude" "$home/.local/bin/claude"
 echo "TEAM-EVAL-BIN claude $(HOME="$home" "$home/.local/bin/claude" --version)"
 
 status=0
+# fd 3 is the step's stdout: each TEAM-EVAL-RATELIMIT line goes there as it
+# comes (cmux-ci streams it to the campaign's headroom gate mid-run).
+exec 3>&1
 HOME="$home" python3 Native/OptChat/optchat-chief/measure/team_eval.py run --task "$task" --arm "$arm" \
-  --bins "$work/bin" --repo "$root" --out "$work/out" --keep-repo "$repo" \
+  --bins "$work/bin" --repo "$root" --out "$work/out" --keep-repo "$repo" --live-fd 3 \
   --budget-usd "$budget" --max-minutes "$minutes" \
   --env "ANTHROPIC_BASE_URL=$base_url" --env "ANTHROPIC_API_KEY=sk-ant-placeholder-the-route-signs" \
   --env "CLAUDE_CONFIG_DIR=$home/.claude" --env "DISABLE_AUTOUPDATER=1" \

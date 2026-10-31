@@ -107,7 +107,10 @@ pub(super) fn parse_resource_layout_document(
                 None => kept,
             };
             changed_dock |= dock.is_some() && dock != kept;
-            let rows = kept_layout_rows(current, id);
+            let rows = match column.get("rows") {
+                None => kept_layout_rows(current, id),
+                Some(value) => parse_layout_rows(state, screen_slot, current, id, value)?,
+            };
             kept_rows.push((id, rows.len()));
             parsed.push(LayoutColumn { dock, rows, ..LayoutColumn::new(id, width, root, None) });
         }
@@ -192,10 +195,87 @@ pub(super) fn parse_resource_layout_document(
     Ok(ParsedResourceLayout { workspace_index, screen_index, snapshot, tab_orders })
 }
 
+/// Row 1 id of a column that gets rows from a document: the apply replaces
+/// it with a fresh id ([`apply_resource_layout_document`]). Never stored.
+const FRESH_ROW_ID: SplitId = SplitId::MAX;
+
+/// The `rows` of a document column (`rows-v1`), top to bottom: `[]` for one
+/// row, else two or more `{row_id?, height}`. Row 1's `row_id` is the
+/// column's current row 1 id, or omitted (the column's current row 1, else a
+/// new id). Rows 2..n name the compat chain splits of the column's `root`;
+/// the caller checks that the tree holds that chain.
+fn parse_layout_rows(
+    state: &State,
+    screen: ScreenId,
+    current: &Screen,
+    column: SplitId,
+    value: &Value,
+) -> anyhow::Result<Vec<crate::model::LayoutRow>> {
+    let entries = value.as_array().context("layout column rows must be an array")?;
+    if entries.is_empty() {
+        return Ok(Vec::new());
+    }
+    anyhow::ensure!(
+        entries.len() >= 2,
+        "layout column rows must be empty or hold two or more rows"
+    );
+    let current_first = current
+        .layout_columns
+        .iter()
+        .find(|candidate| candidate.id == column)
+        .and_then(|candidate| candidate.rows.first())
+        .map(|row| row.id);
+    let mut rows = Vec::with_capacity(entries.len());
+    for (index, entry) in entries.iter().enumerate() {
+        let entry = entry.as_object().context("layout row must be an object")?;
+        if let Some(field) = entry.keys().find(|key| !matches!(key.as_str(), "row_id" | "height")) {
+            anyhow::bail!("layout row has unknown field {field:?}");
+        }
+        let height = entry
+            .get("height")
+            .and_then(Value::as_u64)
+            .and_then(|height| u16::try_from(height).ok())
+            .filter(|height| crate::model::ROW_HEIGHT_PERMILLE.contains(height))
+            .context("layout row height must be an integer from 100 to 1000")?;
+        let row_id = entry.get("row_id").filter(|value| !value.is_null());
+        let id = if index == 0 {
+            match row_id {
+                None => current_first.unwrap_or(FRESH_ROW_ID),
+                Some(value) => {
+                    let id = SplitPublicId::parse(
+                        value.as_str().context("row id must be a string")?.to_string(),
+                    )
+                    .map_err(anyhow::Error::new)?;
+                    let slot = state.resource_indexes.splits.get(&id).copied();
+                    current_first.filter(|first| slot == Some(*first)).with_context(|| {
+                        format!("layout row 1 id must be the column's current row 1 id ({id})")
+                    })?
+                }
+            }
+        } else {
+            let value =
+                row_id.with_context(|| format!("layout row {} omitted row_id", index + 1))?;
+            let id = parse_layout_split(state, screen, value)?;
+            anyhow::ensure!(
+                id != column && Some(id) != current_first,
+                "layout row {} must name a split of the column's tree",
+                index + 1
+            );
+            id
+        };
+        anyhow::ensure!(
+            rows.iter().all(|row: &crate::model::LayoutRow| row.id != id),
+            "layout row appears more than once"
+        );
+        rows.push(crate::model::LayoutRow::new(id, height));
+    }
+    Ok(rows)
+}
+
 /// The rows of viewport column `column` after a layout document
-/// (`rows-v1`): the rows the column with that id has now. Documents carry no
-/// rows, so a column keeps its rows and their heights; the ratio of a compat
-/// chain split follows those heights (`set-row-heights` changes them).
+/// (`rows-v1`) that omits its `rows`: the rows the column with that id has
+/// now, with their heights; the ratio of a compat chain split follows those
+/// heights.
 fn kept_layout_rows(current: &Screen, column: SplitId) -> Vec<crate::model::LayoutRow> {
     current
         .layout_columns
@@ -371,12 +451,17 @@ pub(super) fn parse_layout_split(
 }
 
 pub(super) fn apply_resource_layout_document(
-    _mux: &Mux,
+    mux: &Mux,
     state: &mut State,
     slots: EffectSlots,
     document: &Value,
 ) -> anyhow::Result<()> {
-    let parsed = parse_resource_layout_document(state, slots.workspace, document)?;
+    let mut parsed = parse_resource_layout_document(state, slots.workspace, document)?;
+    for column in &mut parsed.snapshot.layout_columns {
+        if let Some(first) = column.rows.first_mut().filter(|row| row.id == FRESH_ROW_ID) {
+            first.id = mux.next_id();
+        }
+    }
     for (pane, tabs, active) in parsed.tab_orders {
         let record = state.panes.get_mut(&pane).context("layout pane disappeared")?;
         record.tabs = tabs;

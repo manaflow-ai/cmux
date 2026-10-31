@@ -14,6 +14,9 @@
 //! record, which watchers hear as `_acpmux/session_changed` kind `git`. An
 //! attach or a detach signals too, so the watch follows the chats clients
 //! hold, and a checkout made while none held a chat shows on its next attach.
+//! A new daemon compares a session's first read with the last `git` record in
+//! its log, so a restart tells nothing the log already told; a purge forgets
+//! the session.
 
 use super::*;
 
@@ -79,14 +82,30 @@ impl Hub {
                 let Some(hub) = hub.upgrade() else { break };
                 let held = hub.held_sessions();
                 let cwds: Vec<PathBuf> = held.iter().map(|(_, cwd)| cwd.clone()).collect();
+                // A session with no branch kept yet (this daemon just started)
+                // starts from the last one its log told.
+                let unseeded: Vec<Option<String>> = {
+                    let now = hub.git_watch.now.lock().unwrap_or_else(|p| p.into_inner());
+                    held.iter()
+                        .map(|(s, _)| (!now.contains_key(&s.id)).then(|| s.id.clone()))
+                        .collect()
+                };
                 let watched = watched.clone();
-                let Ok(read) =
-                    tokio::task::spawn_blocking(move || read_and_watch(&watched, cwds)).await
+                let reader = hub.clone();
+                let Ok((read, told)) = tokio::task::spawn_blocking(move || {
+                    let read = read_and_watch(&watched, cwds);
+                    let told: Vec<_> = unseeded
+                        .into_iter()
+                        .map(|id| id.and_then(|id| reader.git_branch_told(&id)))
+                        .collect();
+                    (read, told)
+                })
+                .await
                 else {
                     break;
                 };
-                for ((session, _), branch) in held.iter().zip(read) {
-                    hub.git_branch_read(session, branch);
+                for (((session, _), branch), told) in held.iter().zip(read).zip(told) {
+                    hub.git_branch_read(session, told, branch);
                 }
             }
         });
@@ -113,6 +132,13 @@ impl Hub {
         now.get(&m.id).cloned().unwrap_or_else(|| m.git_branch.clone())
     }
 
+    /// Whether the watch keeps a branch for session `id` (tests: a purged
+    /// session's is dropped).
+    #[doc(hidden)]
+    pub fn git_branch_tracked(&self, id: &str) -> bool {
+        self.git_watch.now.lock().unwrap_or_else(|p| p.into_inner()).contains_key(id)
+    }
+
     /// The sessions some client holds, with their folders.
     fn held_sessions(&self) -> Vec<(Arc<Session>, PathBuf)> {
         let held: Vec<Arc<Session>> = {
@@ -127,13 +153,55 @@ impl Hub {
             .collect()
     }
 
+    /// Forgets a purged session's branch.
+    pub(super) fn git_branch_forget(&self, id: &str) {
+        self.git_watch.now.lock().unwrap_or_else(|p| p.into_inner()).remove(id);
+    }
+
+    /// The startup history fold already reads open chats. Keep its last reported branch
+    /// (or the initial branch when none was reported), including an explicit detached HEAD,
+    /// so the first attach does not start another full history scan. A live read wins.
+    pub(super) fn restore_git_branch(&self, session: &Session, branch: Option<String>) {
+        let mut now = self.git_watch.now.lock().unwrap_or_else(|p| p.into_inner());
+        if !session.purged.load(Ordering::SeqCst) {
+            now.entry(session.id.clone()).or_insert(branch);
+        }
+    }
+
+    /// The branch the last `git` record in session `id`'s log told, if any.
+    /// Reads the log: call off the runtime.
+    fn git_branch_told(&self, id: &str) -> Option<Option<String>> {
+        let mut told = None;
+        let _ = self.store.scan_kinds(id, &["git"], &mut |rec| {
+            if rec.dir == "mux" {
+                told = Some(rec.msg.get("gitBranch").and_then(Value::as_str).map(str::to_owned));
+            }
+            true
+        });
+        told
+    }
+
     /// Keeps `branch`, read from `session`'s folder, and tells the watchers
-    /// when it is not the branch they were last told.
-    fn git_branch_read(&self, session: &Session, branch: Option<String>) {
+    /// when it is not the branch they were last told: the one kept, else the
+    /// one its log `told`, else the one it started on.
+    fn git_branch_read(
+        &self,
+        session: &Session,
+        told: Option<Option<String>>,
+        branch: Option<String>,
+    ) {
         let started = session.meta.lock().unwrap_or_else(|p| p.into_inner()).git_branch.clone();
         let before = {
             let mut now = self.git_watch.now.lock().unwrap_or_else(|p| p.into_inner());
-            now.insert(session.id.clone(), branch.clone()).unwrap_or(started)
+            // Checked under the lock `git_branch_forget` takes after the
+            // purge, so a read that raced it keeps nothing.
+            if session.purged.load(Ordering::SeqCst) {
+                return;
+            }
+            match now.insert(session.id.clone(), branch.clone()) {
+                Some(kept) => kept,
+                None => told.unwrap_or(started),
+            }
         };
         if before != branch {
             self.append(session, "mux", "git", json!({"gitBranch": branch}));

@@ -40,20 +40,16 @@ await requireBrowserLane("settings-open-frames.test.ts", async () => {
     server = spawn(
       path.join(webviews, "node_modules/.bin/vp"),
       ["dev", "--config", "vite.config.settings-page.mjs", "--port", String(port), "--strictPort"],
-      { cwd: webviews, stdio: ["ignore", "ignore", "ignore"] },
+      { cwd: webviews, stdio: ["ignore", "pipe", "pipe"] },
     );
     base = `http://127.0.0.1:${port}`;
-    const deadline = Date.now() + 60_000;
-    let listening = false;
-    while (!listening && Date.now() < deadline) {
-      try {
-        listening = (await fetch(`${base}/`)).ok;
-      } catch {
-        // Not listening yet.
-      }
-      if (!listening) await new Promise((resolve) => setTimeout(resolve, 250));
-    }
-    if (!listening) throw new Error("settings dev server did not start");
+    // The server prints its address once it listens.
+    await new Promise<void>((resolve, reject) => {
+      const onData = (chunk: Buffer) => (String(chunk).includes(`${port}`) ? resolve() : undefined);
+      server!.stdout!.on("data", onData);
+      server!.stderr!.on("data", onData);
+      server!.on("exit", (code) => reject(new Error(`settings dev server exited ${code}`)));
+    });
     await warmDevServer(base, "/");
     browser = await chromium.launch({ headless: true });
     // A cold dev server compiles on the first load: load once untimed.
@@ -160,8 +156,11 @@ await requireBrowserLane("settings-open-frames.test.ts", async () => {
     const page = await browser!.newPage({ viewport: { width: 1100, height: 760 } });
     await installPaintedFrames(page);
     await page.goto(`${base}/?mock&latency=30&parked`);
-    // The spare sits parked (built, its calls held) until the host claims it.
-    await page.waitForTimeout(800);
+    // The spare sits parked (built, its calls held) until the host claims it: it is built once its
+    // store has started and handed the paint gate its first screen to wait for at the claim.
+    await page.waitForFunction(
+      () => typeof (window as unknown as { __cmuxPageClaimReady?: unknown }).__cmuxPageClaimReady === "function",
+    );
     await page.evaluate(SAMPLER);
     await page.evaluate(() => {
       const scope = window as unknown as { __cmuxSettingsClaim(): void; showAfterGate(): void };

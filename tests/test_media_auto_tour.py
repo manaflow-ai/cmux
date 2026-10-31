@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
-"""scripts/ci/media_auto_tour.py decides whether a pull request gets a native media tour
-without the `media-tour` label: when it changes cmux-next Swift UI that a specific tour
-covers (path_map.py: new-tab, agent-pane, now-playing, glass). The catch-all `core` tour,
-web-only changes (the gallery advisory covers those) and drafts get none, so the owned
-Macs' gui runners only take the pull requests a tour can show."""
+"""scripts/ci/media_auto_tour.py decides whether a pull request event gets a native media tour.
+
+A tour holds an owned Mac's gui runner for up to two hours, so a pull request tours once,
+when someone adds the `media-tour` label, and never on its own: no tour is picked from the
+changed paths, and a later push of a labeled pull request does not tour again. To tour a
+newer head, remove and re-add the label or run `cmux-ci capture`.
+`no-media-tour` always wins."""
 
 from pathlib import Path
 import subprocess
@@ -15,49 +17,50 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts/ci"))
 import media_auto_tour  # noqa: E402
 
-AGENT_PANE_SWIFT = "Packages/macOS/CmuxNext/Sources/CmuxNextApp/AgentPane/AgentPaneHost.swift"
-CORE_SWIFT = "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Workspace/SplitTree.swift"
-NEW_TAB_WEB = "webviews/src/agent-session/acpmux/newtab/NewTabScreen.tsx"
 
-
-def decide(paths, labels=(), draft=False, action="synchronize"):
-    return media_auto_tour.decide(labels=list(labels), action=action, draft=draft, paths=list(paths))
+def decide(labels=(), action="synchronize", label=""):
+    return media_auto_tour.decide(labels=list(labels), action=action, label=label)
 
 
 class DecideTests(unittest.TestCase):
-    def test_swift_ui_a_tour_covers_tours_without_a_label(self):
-        wanted, why = decide([AGENT_PANE_SWIFT, "README.md"])
+    def test_adding_the_label_tours(self):
+        wanted, why = decide(["media-tour"], action="labeled", label="media-tour")
         self.assertTrue(wanted)
-        self.assertIn("agent-pane", why)
+        self.assertIn("media-tour", why)
 
-    def test_swift_that_only_the_core_tour_covers_does_not(self):
-        wanted, why = decide([CORE_SWIFT])
+    def test_a_draft_tours_when_labeled_too(self):
+        self.assertTrue(decide(["media-tour"], action="labeled", label="media-tour")[0])
+
+    def test_a_later_push_of_a_labeled_pull_request_does_not_tour_again(self):
+        wanted, why = decide(["media-tour"], action="synchronize")
         self.assertFalse(wanted)
-        self.assertIn("media-tour", why)  # says how to ask for one
+        self.assertIn("re-add", why)  # says how to tour the newer head
 
-    def test_web_only_changes_do_not(self):
-        self.assertFalse(decide([NEW_TAB_WEB])[0])
+    def test_no_tour_is_picked_without_the_label(self):
+        for action in ("opened", "synchronize", "reopened", "ready_for_review"):
+            self.assertFalse(decide(["dev-build"], action=action)[0], action)
 
-    def test_the_label_always_tours(self):
-        self.assertTrue(decide([CORE_SWIFT], labels=["media-tour"])[0])
-        self.assertTrue(decide([], labels=["media-tour"], draft=True)[0])
+    def test_adding_another_label_does_not_tour(self):
+        self.assertFalse(decide(["media-tour", "dev-build"], action="labeled", label="dev-build")[0])
+        # media-tour-mac only moves a tour to a Mac; it never starts one by itself.
+        self.assertFalse(decide(["media-tour-mac"], action="labeled", label="media-tour-mac")[0])
 
-    def test_a_draft_or_the_opt_out_label_does_not(self):
-        self.assertFalse(decide([AGENT_PANE_SWIFT], draft=True)[0])
-        self.assertFalse(decide([AGENT_PANE_SWIFT], labels=["no-media-tour"])[0])
-        self.assertFalse(decide([AGENT_PANE_SWIFT], labels=["no-media-tour", "media-tour"])[0])
+    def test_the_opt_out_label_wins(self):
+        self.assertFalse(decide(["no-media-tour", "media-tour"], action="labeled", label="media-tour")[0])
+        self.assertFalse(decide(["no-media-tour"], action="labeled", label="no-media-tour")[0])
 
     def test_cli_writes_outputs(self):
         with tempfile.TemporaryDirectory() as tmp:
             changed, out = Path(tmp) / "changed.txt", Path(tmp) / "out"
-            changed.write_text(AGENT_PANE_SWIFT + "\n")
-            out.write_text("")
-            subprocess.run([sys.executable, str(ROOT / "scripts/ci/media_auto_tour.py"), "--changed", str(changed)],
-                           check=True, capture_output=True,
-                           env={"LABELS": '["dev-build"]', "ACTION": "opened", "DRAFT": "false",
-                                "GITHUB_OUTPUT": str(out)})
-            lines = dict(line.split("=", 1) for line in out.read_text().splitlines())
-            self.assertEqual(lines["wanted"], "true")
+            changed.write_text("Packages/macOS/CmuxNext/Sources/CmuxNextApp/AgentPane/AgentPaneHost.swift\n")
+            for action, label, want in (("labeled", "media-tour", "true"), ("synchronize", "", "false")):
+                out.write_text("")
+                subprocess.run([sys.executable, str(ROOT / "scripts/ci/media_auto_tour.py"), "--changed", str(changed)],
+                               check=True, capture_output=True,
+                               env={"LABELS": '["media-tour"]', "ACTION": action, "LABEL": label,
+                                    "DRAFT": "false", "GITHUB_OUTPUT": str(out)})
+                lines = dict(line.split("=", 1) for line in out.read_text().splitlines())
+                self.assertEqual(lines["wanted"], want, action)
 
 
 if __name__ == "__main__":

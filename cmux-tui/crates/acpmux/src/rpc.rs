@@ -3,6 +3,7 @@
 //! acpmux keeps every message as a `serde_json::Value` so that unknown
 //! methods, `_meta` blocks, and vendor extensions pass through untouched.
 
+use crate::no_panic::JsonExt;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
@@ -59,6 +60,25 @@ impl RpcError {
     }
 }
 
+/// The most one JSON-RPC message takes on any acpmux transport: under the 16 MiB WebSocket frame
+/// every acpmux build reads with, with room for a daemon that relays it to add its peer's name. A
+/// larger frame resets the whole connection on the side that reads it, with every chat on it: a
+/// 32.8 MB history reply did that to a peer link at 2026-10-21 06:23Z.
+pub const MAX_MESSAGE_BYTES: usize = 15 << 20;
+
+impl RpcError {
+    /// A message over [`MAX_MESSAGE_BYTES`]: it fails alone, the connection stays.
+    pub fn too_large(bytes: usize) -> Self {
+        Self::new(
+            -32000,
+            format!("message too large to send: {bytes} bytes, the limit is {MAX_MESSAGE_BYTES}"),
+        )
+        .with_data(
+            json!({"reason": "message.too_large", "bytes": bytes, "limit": MAX_MESSAGE_BYTES}),
+        )
+    }
+}
+
 impl std::fmt::Display for RpcError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{} (code {})", self.message, self.code)
@@ -106,14 +126,14 @@ impl Message {
             Message::Request { id, method, params } => {
                 let mut v = json!({"jsonrpc": "2.0", "id": id, "method": method});
                 if let Some(p) = params {
-                    v["params"] = p.clone();
+                    v.set("params", p.clone());
                 }
                 v
             }
             Message::Notification { method, params } => {
                 let mut v = json!({"jsonrpc": "2.0", "method": method});
                 if let Some(p) = params {
-                    v["params"] = p.clone();
+                    v.set("params", p.clone());
                 }
                 v
             }
@@ -130,6 +150,22 @@ impl Message {
         let mut s = self.to_value().to_string();
         s.push('\n');
         s
+    }
+
+    /// The line to send when it fits in [`MAX_MESSAGE_BYTES`]. A reply that does not is sent as
+    /// the error reply for its id instead; a request or notification that does not is `Err`, with
+    /// its size, for its sender to fail alone.
+    pub fn bounded_line(&self) -> Result<String, usize> {
+        let line = self.to_line();
+        if line.len() <= MAX_MESSAGE_BYTES {
+            return Ok(line);
+        }
+        match self {
+            Message::Response { id, .. } => {
+                Ok(Message::err(id.clone(), RpcError::too_large(line.len())).to_line())
+            }
+            _ => Err(line.len()),
+        }
     }
 
     pub fn request(id: impl Into<Id>, method: &str, params: Value) -> Self {
@@ -184,6 +220,9 @@ pub mod method {
     /// Turn one of a chat's tools on or off (`hub/tools.rs`): `{sessionId,
     /// id, enabled}`.
     pub const MUX_SET_TOOLS: &str = "_acpmux/set_tools";
+    /// Reconnect one of a Claude Code chat's MCP servers (`hub/tools.rs`):
+    /// `{sessionId, server}`.
+    pub const MUX_MCP_RECONNECT: &str = "_acpmux/mcp/reconnect";
     pub const SESSION_UPDATE: &str = "session/update";
     pub const SESSION_REQUEST_PERMISSION: &str = "session/request_permission";
     pub const CANCEL_REQUEST: &str = "$/cancel_request";
@@ -208,31 +247,85 @@ pub mod method {
     pub const MUX_ATTACH: &str = "_acpmux/attach";
     pub const MUX_VIEW: &str = "_acpmux/view";
     pub const MUX_MARK_UNREAD: &str = "_acpmux/markUnread";
+    /// A person in an attached chat starts or stops typing (`hub/presence.rs`).
+    pub const MUX_TYPING: &str = "_acpmux/typing";
+    /// Who has a chat open and who types in it, to its attached connections.
+    pub const MUX_PRESENCE: &str = "_acpmux/presence";
     pub const MUX_DETACH: &str = "_acpmux/detach";
     pub const MUX_WATCH: &str = "_acpmux/watch";
     pub const MUX_RENAME: &str = "_acpmux/rename";
     pub const MUX_KILL: &str = "_acpmux/kill";
+    pub const MUX_KEEP: &str = "_acpmux/keep";
     pub const MUX_WATCH_TAKE_OVER: &str = "_acpmux/watch_take_over";
     /// Stop one of a session's background subagents (a Claude background
     /// agent or workflow): `{sessionId, subagentSessionId}`.
     pub const MUX_SUBAGENT_STOP: &str = "_acpmux/subagent_stop";
+    /// One of a session's subagents' transcripts, a page at a time, from the
+    /// files Claude Code writes (a workflow agent's, a background agent's):
+    /// `{sessionId, runId?, agentId, before?, after?, limit?}`
+    /// (`claude_stdio/agent_transcript.rs`).
+    pub const MUX_SUBAGENT_TRANSCRIPT: &str = "_acpmux/subagent_transcript";
+    /// A chat's older turns, read from its Claude Code transcript a page at a time:
+    /// `{sessionId, before}` → `{events, before, turns, read}`, `before` a `native_history`
+    /// cursor (`hub/native_history.rs`).
+    pub const MUX_NATIVE_HISTORY: &str = "_acpmux/native_history";
+    /// Every Claude workflow of this daemon's chats: `{includeEnded?}` →
+    /// `{workflows}` (`hub/workflow_index.rs`).
+    pub const MUX_WORKFLOWS: &str = "_acpmux/workflows";
+    /// The app pane's reply in place, checked and signed (`server/app_reply.rs`).
+    pub const MUX_APP_REPLY: &str = "_acpmux/app_reply";
     pub const MUX_QUEUE_REMOVE: &str = "_acpmux/queue_remove";
     pub const MUX_QUEUE_EDIT: &str = "_acpmux/queue_edit";
+    /// One queued prompt's whole text and blocks, `{sessionId, promptId}` →
+    /// `{sessionId, promptId, turnId, text, prompt, fromAgent, fromSessionId, fromHarness}`
+    /// (`hub/queue_text.rs`); the queue list carries a 200-character preview only.
+    pub const MUX_QUEUE_TEXT: &str = "_acpmux/queue_text";
     /// To the agent adapter, `{sessionId}`: stop the agent's current step so it reads the steers
     /// that wait for it, and keep the turn (Send now on a steer, `hub/queue_edit.rs`). Answers
     /// `{interrupted}`, false when no steer waits; an agent without it answers an error.
     pub const MUX_STEP_NOW: &str = "_acpmux/step_now";
+    /// To the agent adapter, `{sessionId, promptId}`: take back that prompt's steer while the
+    /// agent has not read it (the X on a waiting steer, `hub/queue_edit.rs` `withdraw`). Answers
+    /// `{withdrawn}`, false once it was read; an agent without it answers an error.
+    pub const MUX_STEER_WITHDRAW: &str = "_acpmux/steer_withdraw";
     /// An agent message's sender takes it back (`hub/withdraw.rs`).
     pub const MUX_PROMPT_WITHDRAW: &str = "_acpmux/prompt_withdraw";
+    /// `acpmux session inbox NAME --digest`: the agent messages waiting go in as one digest
+    /// (`hub/inbox_digest.rs`).
+    pub const MUX_INBOX_DIGEST: &str = "_acpmux/inbox_digest";
+    /// `acpmux send --no-wait`: queue a prompt for this daemon to deliver (`hub/outbox.rs`).
+    pub const MUX_SEND_QUEUE: &str = "_acpmux/send_queue";
+    pub const MUX_SEND_STATUS: &str = "_acpmux/send_status";
+    /// Local socket: enqueue or read a mesh lifecycle control receipt.
+    pub const MUX_MESH_CONTROL: &str = "_acpmux/mesh_control";
     /// Resume agent message pairs the runaway guard paused (`hub/agent_pairs.rs`).
     pub const MUX_AGENT_PAIR_RESUME: &str = "_acpmux/agent_pair_resume";
+    /// Retry a chat's failed last turn now (`hub/auto_resume/retry_turn.rs`).
+    pub const MUX_RETRY: &str = "_acpmux/retry";
+    /// What this daemon knows of a chat's sign-in (`hub/session_auth.rs`).
+    pub const MUX_SESSION_AUTH: &str = "_acpmux/session/auth";
     pub const MUX_INFO: &str = "_acpmux/info";
+    /// Sign a daemon-owned proof for the currently live turn.
+    pub const MUX_TURN_ATTESTATION: &str = "_acpmux/turn_attestation";
+    /// Metadata-only paths for a session's config and state files; local Unix socket only.
+    pub const MUX_SESSION_FILES: &str = "_acpmux/session_files";
     pub const MUX_EVENTS: &str = "_acpmux/events";
+    /// One GitHub action for an agent on a machine the person added, run by the Mac that lends it
+    /// its `gh` login; never a credential (`github_broker.rs`).
+    pub const MUX_GITHUB_ACTION: &str = "_acpmux/github_action";
+    /// The app lends this daemon its cmux sign-in for GitHub App tokens, or takes it back
+    /// (`github_app_token.rs`); the unix socket only.
+    pub const MUX_GITHUB_APP_LEASE: &str = "_acpmux/github_app_lease";
     /// Durable inter-session mailbox: send, page/wait, and recipient-only ack.
     pub const MUX_MAIL_SEND: &str = "_acpmux/mail/send";
     pub const MUX_MAIL_READ: &str = "_acpmux/mail/read";
     pub const MUX_MAIL_WAIT: &str = "_acpmux/mail/wait";
     pub const MUX_MAIL_ACK: &str = "_acpmux/mail/ack";
+    /// Team-scoped relay messaging (Labs gated): send and inspect durable inbox entries.
+    pub const MUX_TEAM_SEND: &str = "_acpmux/team/send";
+    pub const MUX_TEAM_INBOX: &str = "_acpmux/team/inbox";
+    pub const MUX_TEAM_READ: &str = "_acpmux/team/read";
+    pub const MUX_TEAM_ACK: &str = "_acpmux/team/ack";
     /// An image a session's prompt sent, by its id (`hub/prompt_images.rs`).
     pub const MUX_ATTACHMENT: &str = "_acpmux/attachment";
     pub const MUX_PERMISSION_RESPOND: &str = "_acpmux/permission_respond";
@@ -243,6 +336,11 @@ pub mod method {
     /// The person proof for this connection's challenge (`hub/person.rs`).
     pub const MUX_PERSON_PROVE: &str = "_acpmux/person_prove";
     pub const MUX_PERSON_HOLDS: &str = "_acpmux/person_holds";
+    /// Explicit person-only controls for the daemon-owned embedded tailnet.
+    pub const MUX_TAILNET_START: &str = "_acpmux/tailnet/start";
+    pub const MUX_TAILNET_LOGIN: &str = "_acpmux/tailnet/login";
+    pub const MUX_TAILNET_STATE: &str = "_acpmux/tailnet/state";
+    pub const MUX_TAILNET_LOGOUT: &str = "_acpmux/tailnet/logout";
     /// The person's phones that may sign an allow (`hub/approvers.rs`).
     pub const MUX_APPROVERS_SET: &str = "_acpmux/approvers_set";
     /// The person's app: the folders of the workspaces its daemon lists now,
@@ -253,11 +351,25 @@ pub mod method {
     /// shows a remote device so its New Agent Chat starts where the app's does.
     pub const MUX_NEW_CHAT_PICKS_SET: &str = "_acpmux/new_chat_picks_set";
     pub const MUX_APPROVERS: &str = "_acpmux/approvers";
+    /// The person's app: this machine's own approver key, which `host enroll`
+    /// enrolls on a peer (`hub/mac_approvers.rs`).
+    pub const MUX_MAC_APPROVER_SET: &str = "_acpmux/mac_approver_set";
+    /// The Macs enrolled here and this machine's own key; `reload` reads the file again.
+    pub const MUX_MAC_APPROVERS: &str = "_acpmux/mac_approvers";
     pub const MUX_PERMISSION_GROUPS: &str = "_acpmux/permission_groups";
     pub const MUX_PERMISSION_GROUP_RESPOND: &str = "_acpmux/permission_group_respond";
     pub const MUX_PERMISSION_CHAT_REVOKE: &str = "_acpmux/permission_chat_revoke";
     pub const MUX_SET_POLICY: &str = "_acpmux/set_policy";
     pub const MUX_SET_RULES: &str = "_acpmux/set_rules";
+    /// A session's turn cap (`hub/turn_cap.rs`): `{sessionId, turnCapMs?}`, a number sets it
+    /// (0 turns it off), null clears it, absent reads it.
+    pub const MUX_SET_TURN_CAP: &str = "_acpmux/set_turn_cap";
+    /// A chat's inbox threads (`hub/inbox.rs`): `{sessionId}`.
+    pub const MUX_INBOX_THREADS: &str = "_acpmux/inbox_threads";
+    /// One inbox thread's messages: `{sessionId, threadId, markRead?}`.
+    pub const MUX_INBOX_THREAD: &str = "_acpmux/inbox_thread";
+    /// An answer in an inbox thread, to its sender's inbox: `{sessionId, threadId, text}`.
+    pub const MUX_INBOX_REPLY: &str = "_acpmux/inbox_reply";
     pub const MUX_TAG: &str = "_acpmux/tag";
     /// The chat menu's Archive (`archived: true`) or Unarchive of one session:
     /// the `archived` tag, valued with when (milliseconds), set or removed.
@@ -266,6 +378,9 @@ pub mod method {
     /// `side` tag, valued with that session), which keeps it off the lists.
     pub const MUX_SIDE: &str = "_acpmux/side";
     pub const MUX_WAIT: &str = "_acpmux/wait";
+    pub const MUX_WATCH_ADD: &str = "_acpmux/watch_add";
+    pub const MUX_WATCH_LS: &str = "_acpmux/watch_ls";
+    pub const MUX_WATCH_RM: &str = "_acpmux/watch_rm";
     /// Start the agent children for the most recent project sessions.
     pub const MUX_WARM: &str = "_acpmux/warm";
     /// The harness the pane is about to switch to: a hidden session for it
@@ -294,6 +409,28 @@ pub mod method {
     pub const MUX_PROTOCOL: &str = "_acpmux/protocol";
     pub const MUX_EXPORT: &str = "_acpmux/export";
     pub const MUX_IMPORT: &str = "_acpmux/import";
+    /// A file the person dropped into a chat, saved on the machine that runs it
+    /// (`hub/file_uploads.rs`).
+    pub const MUX_FILE_PUT: &str = "_acpmux/file_put";
+    pub const MUX_FILE_PUT_BEGIN: &str = "_acpmux/file_put_begin";
+    pub const MUX_FILE_PUT_CHUNK: &str = "_acpmux/file_put_chunk";
+    pub const MUX_FILE_PUT_FINISH: &str = "_acpmux/file_put_finish";
+    pub const MUX_FILE_PUT_CANCEL: &str = "_acpmux/file_put_cancel";
+    pub const MUX_FILE_PUT_STATUS: &str = "_acpmux/file_put_status";
+    /// A binary data frame's method (`server/upload_frames.rs`); never a text request.
+    pub const MUX_FILE_PUT_DATA: &str = "_acpmux/file_put_data";
+    pub const MUX_DISPATCH: &str = "_acpmux/dispatch";
+    pub const MUX_STEER: &str = "_acpmux/steer";
+    pub const MUX_BRIEFS: &str = "_acpmux/briefs";
+    pub const MUX_REPORT: &str = "_acpmux/report";
+    /// A brief for a session already on this daemon, and a session's tasks (`hub/tasks.rs`).
+    pub const MUX_TASK_NEW: &str = "_acpmux/task_new";
+    pub const MUX_TASKS: &str = "_acpmux/tasks";
+    /// The session an agent link, id or name names, here or on a peer (`hub/locate.rs`).
+    pub const MUX_RESOLVE: &str = "_acpmux/resolve";
+    /// A chat's image or video, read on the machine that runs it (`hub/media_read.rs`).
+    pub const MUX_MEDIA_OPEN: &str = "_acpmux/media_open";
+    pub const MUX_MEDIA_RANGE: &str = "_acpmux/media_range";
     pub const MUX_SHUTDOWN: &str = "_acpmux/shutdown";
     /// Fork a session through its latest completed turn (`server/fork_through.rs`).
     pub const ACP_SESSION_FORK: &str = "acp.session.fork";
@@ -316,6 +453,10 @@ pub mod method {
     /// the profile at it (`{id, key, value}`; the value is never echoed).
     /// The unix socket only.
     pub const MUX_HARNESS_SECRET_SET: &str = "_acpmux/harness/secret/set";
+    /// Set the icon of a profile in the user's harness folder (`{id, icon}`,
+    /// `{id, data, ext}` for image bytes, or `{id, clear: true}`); the unix
+    /// socket and the local app (Settings), never Web or peer.
+    pub const MUX_HARNESS_ICON: &str = "_acpmux/harness/icon";
     /// The ACP Registry's agents and how each can start here.
     pub const MUX_REGISTRY: &str = "_acpmux/registry";
     /// Agent CLI health (hq #1875; `hub/health_view.rs`): the unix socket
@@ -376,8 +517,12 @@ pub mod method {
     pub const MUX_SUBSESSION_GET: &str = "_acpmux/subsession/get";
     pub const MUX_SUBSESSION_SEND: &str = "_acpmux/subsession/send";
     pub const MUX_SUBSESSION_STOP: &str = "_acpmux/subsession/stop";
+    /// Answers a descendant's pending question (never a permission prompt).
+    pub const MUX_SUBSESSION_ANSWER: &str = "_acpmux/subsession/answer";
     /// Sets a session's limits: the person, or an ancestor session.
     pub const MUX_SUBSESSION_LIMITS: &str = "_acpmux/subsession/limits";
+    /// Retries a descendant's failed last turn, as `_acpmux/retry` does.
+    pub const MUX_SUBSESSION_RETRY: &str = "_acpmux/subsession/retry";
     /// Forum announcements (`forum.rs`, `hub/forum.rs`, `server/forum.rs`):
     /// post a rule by key, read the current rules, ack one.
     pub const MUX_FORUM_ANNOUNCE: &str = "_acpmux/forum/announce";
@@ -392,12 +537,34 @@ pub mod method {
     /// Ctrl-B: move a chat's running work to the background, `{sessionId,
     /// toolCallId?}` -> `{backgrounded}`. Claude Code only.
     pub const MUX_PROCESS_BACKGROUND: &str = "_acpmux/process/background";
+    /// Background tasks the daemon owns (`hub/bg_tasks.rs`): start one for a chat, list a
+    /// chat's, read one's output, stop one.
+    pub const MUX_BG_START: &str = "_acpmux/bg/start";
+    pub const MUX_BG_LIST: &str = "_acpmux/bg/list";
+    pub const MUX_BG_OUTPUT: &str = "_acpmux/bg/output";
+    pub const MUX_BG_STOP: &str = "_acpmux/bg/stop";
     /// Worktree cleanup (`server/worktrees.rs`).
     pub const MUX_WORKTREE_REPORT: &str = "_acpmux/worktree/report";
     pub const MUX_WORKTREE_CLEAN: &str = "_acpmux/worktree/clean";
     pub const MUX_WORKTREE_RESTORE: &str = "_acpmux/worktree/restore";
+    /// Compact closed chats' event logs (`hub/retention.rs`): `{dryRun?, archive?,
+    /// olderThanDays?, only?}` -> the pass's report.
+    pub const MUX_RETENTION: &str = "_acpmux/retention";
+    // Pairing (`crate::pairing`, `server/pairing.rs`).
+    pub const MUX_PAIR_TICKET_NEW: &str = "_acpmux/pair_ticket_new";
+    pub const MUX_PAIR_LIST: &str = "_acpmux/pair_list";
+    pub const MUX_PAIR_REVOKE: &str = "_acpmux/pair_revoke";
+    pub const MUX_PAIR_ISSUE: &str = "_acpmux/pair_issue";
+    pub const MUX_MACHINE_CONSENT_SET: &str = "_acpmux/machine_consent_set";
+    pub const MUX_MACHINE_CONSENT_REFUSED: &str = "_acpmux/machine_consent_refused";
+    pub const MUX_MACHINE_CONSENT_GET: &str = "_acpmux/machine_consent_get";
+    pub const MUX_PAIR_SET: &str = "_acpmux/pair_set";
+    pub const MUX_PAIR_REDEEM: &str = "_acpmux/pair_redeem";
     // Notifications from acpmux to attached clients.
     pub const MUX_EVENT: &str = "_acpmux/event";
+    /// A persisted session-to-session message, projected separately so chat clients can render
+    /// incoming and outgoing bubbles without decoding the generic event stream.
+    pub const MUX_MESSAGE: &str = "_acpmux/message";
     pub const MUX_SESSION_CHANGED: &str = "_acpmux/session_changed";
     pub const MUX_PERMISSION_PENDING: &str = "_acpmux/permission_pending";
     /// To watchers when a harness profile source changed and the catalog
@@ -406,10 +573,39 @@ pub mod method {
     /// To local watchers when a new chat's start mode may have changed (a
     /// mode pick, a config reload): ask `_acpmux/start_mode` again. `{}`.
     pub const MUX_START_MODE_CHANGED: &str = "_acpmux/start_mode_changed";
+    /// To watchers on each change of a peer link's state: `{peer, state, lastSeen, error, at}`
+    /// (`protocol/peer_state.rs`).
+    pub const MUX_PEER_STATE_CHANGED: &str = "_acpmux/peer_state_changed";
     /// Sent to the prompting connection as soon as a `session/prompt` is
     /// recorded, before the turn ends: `{sessionId, promptId, turnId, queued}`.
     pub const MUX_PROMPT_ACCEPTED: &str = "_acpmux/prompt_accepted";
+    /// To the connection whose `session/cancel` notification was refused, which has no answer to
+    /// read: `{sessionId, message, reason?, peer?}` (`server/requests/cancel_refused.rs`).
+    pub const MUX_CANCEL_REFUSED: &str = "_acpmux/cancel_refused";
     /// To attached and watching clients when a background process starts or
     /// ends: `{process}` (`server/processes.rs`).
     pub const MUX_PROCESS_UPDATE: &str = "_acpmux/process_update";
+}
+
+#[cfg(test)]
+mod bounded_tests {
+    use super::*;
+
+    /// A reply too large for one frame goes as the error reply for its id; a request or a
+    /// notification that large is its sender's to fail. Neither goes out whole.
+    #[test]
+    fn a_message_too_large_for_one_frame_never_goes_out_whole() {
+        let big = json!({"text": "x".repeat(MAX_MESSAGE_BYTES)});
+        let reply = Message::ok(json!(7), big.clone()).bounded_line().unwrap();
+        assert!(reply.len() < 1024, "{} bytes", reply.len());
+        let Message::Response { id, error: Some(e), .. } = Message::parse(&reply).unwrap() else {
+            panic!("not an error reply: {reply}");
+        };
+        assert_eq!(id, json!(7));
+        assert_eq!(e.data.unwrap()["reason"], "message.too_large");
+        assert!(Message::request(8, "session/prompt", big.clone()).bounded_line().is_err());
+        assert!(Message::notification("_acpmux/event", big).bounded_line().is_err());
+        let small = Message::ok(json!(9), json!({"ok": true}));
+        assert_eq!(small.bounded_line().unwrap(), small.to_line());
+    }
 }

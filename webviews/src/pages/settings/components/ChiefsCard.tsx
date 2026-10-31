@@ -3,13 +3,32 @@
 // no daemon connection of its own: it reads and writes through the host's page relay to the Chief
 // owner (`cmux.chief.profile.*`) and the host's harness center (`cmux.chief.backend.*`), as Home's
 // editor does; the person's click on Save, Undo or a backend is the gesture the host confirms.
+// A Chief with no picture of its own wears the chosen pet character (`home.chiefPetMascot`, orb
+// by default, whether or not the pet floats), as every other Chief surface does: never a letter.
+// The Engine row (`home.chiefEngine`, Leo's list 89(3)) leads the card: which Chief Home opens,
+// Auto (this Mac's optchat-chief while it runs, else Hosted; #64), This Mac or Hosted. Each
+// Chief's own harness stays in its editor.
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ChiefPage } from "../../home-channels/ChiefPage";
 import { ChiefHost, HostChiefEditor } from "../../home-channels/chiefEditing";
-import { chiefBackend, chiefBackendLabel, DEFAULT_CHIEF_BACKEND, type HomeChief } from "../../home-channels/types";
+import { chiefEffortName, chiefModelName } from "../../home-channels/chiefNames";
+import {
+  chiefBackend,
+  chiefBackendLabel,
+  DEFAULT_CHIEF_BACKEND,
+  type HomeChief,
+  type HomeChiefBackend,
+} from "../../home-channels/types";
 import { formatString, type Strings } from "../../shared/i18n";
-import { useStore } from "../context";
+import { useRowState, useStore } from "../context";
+import { rowsByKey } from "../schema";
 import { locale, t } from "../strings";
+import { CHIEF_PET_MASCOT, CHIEF_PET_MASCOTS } from "./ChiefPetCard";
+import { SettingRow } from "./SettingRow";
+
+export const CHIEF_ENGINE = "home.chiefEngine";
+/** The rows this card draws in place of their group. */
+export const CHIEFS_ROWS: ReadonlySet<string> = new Set([CHIEF_ENGINE]);
 
 type Open = { kind: "new" } | { kind: "edit"; id: string } | null;
 
@@ -19,22 +38,34 @@ function settingsStrings(): Strings {
 }
 
 /** A row's backend: the engine's name as Home's chip shows it (an absent or "default" harness
- * is the default engine), then its model and effort. The default engine with neither reads
- * `chief.backend.default` ("Default (Chief's usual)"), as the editor's backend picker does. */
-function backendLine(chief: HomeChief): string {
+ * is the default engine), then its model and effort by name (chiefNames.ts: "Opus 5.5", "Extra
+ * High"), never by id. The default engine with neither reads `chief.backend.default` ("Default
+ * (Chief's usual)"), as the editor's backend picker does. */
+function backendLine(chief: HomeChief, backends: readonly HomeChiefBackend[], strings: Strings): string {
   const engine = chief.engine;
   if (chiefBackend(engine?.harness) === DEFAULT_CHIEF_BACKEND && !engine?.model && !engine?.effort)
     return t("chief.backend.default");
-  return [chiefBackendLabel(t, engine?.harness), engine?.model, engine?.effort].filter(Boolean).join(" · ");
+  const models = backends.find((backend) => backend.id === chiefBackend(engine?.harness))?.models;
+  return [
+    chiefBackendLabel(t, engine?.harness),
+    engine?.model && chiefModelName(engine.model, models, strings),
+    engine?.effort && chiefEffortName(engine.effort, strings),
+  ]
+    .filter(Boolean)
+    .join(" · ");
 }
 
-export function ChiefsCard() {
+export function ChiefsCard({ focus = null }: { focus?: string | null }) {
   const store = useStore();
   const host = useMemo(() => new ChiefHost(store.chiefCalls), [store]);
   const strings = useMemo(settingsStrings, []);
+  const character = useRowState(CHIEF_PET_MASCOT).value;
+  const mascot = (CHIEF_PET_MASCOTS.find((entry) => entry.id === character) ?? CHIEF_PET_MASCOTS[0]!).art;
   const [chiefs, setChiefs] = useState<HomeChief[] | undefined>();
   const [pictures, setPictures] = useState<ReadonlyMap<string, string>>(new Map());
   const [unavailable, setUnavailable] = useState(false);
+  // The harnesses' model catalogs, for the rows' model names; none yet (or none listed) reads ids.
+  const [backends, setBackends] = useState<readonly HomeChiefBackend[]>([]);
   const [error, setError] = useState<string | undefined>();
   const [open, setOpen] = useState<Open>(null);
   const load = useCallback(async () => {
@@ -62,6 +93,16 @@ export function ChiefsCard() {
   useEffect(() => {
     void load();
   }, [load]);
+  useEffect(() => {
+    let live = true;
+    host.backends().then(
+      (list) => live && setBackends(list),
+      () => undefined,
+    );
+    return () => {
+      live = false;
+    };
+  }, [host]);
   const editor = useMemo(
     () =>
       new HostChiefEditor(
@@ -77,7 +118,7 @@ export function ChiefsCard() {
   const editing = open?.kind === "edit" ? chiefs?.find((chief) => chief.id === open.id) : undefined;
   if (open && (open.kind === "new" || editing))
     return (
-      <section className="group chiefs-card editing" data-card="chiefs">
+      <section className="group chiefs-card editing ui-glass" data-card="chiefs">
         <ChiefPage
           key={editing?.id ?? "new"}
           service={editor}
@@ -94,7 +135,7 @@ export function ChiefsCard() {
       </section>
     );
   return (
-    <section className="group chiefs-card" data-card="chiefs">
+    <section className="group chiefs-card ui-glass" data-card="chiefs">
       <div className="accounts-header">
         <h3 className="group-title m-0 flex-1">{t("chief.settings.title")}</h3>
         <button
@@ -112,6 +153,7 @@ export function ChiefsCard() {
       <p className="row-help" data-intro="">
         {t(unavailable ? "chief.settings.unavailable" : "chief.settings.intro")}
       </p>
+      <EngineRow focused={focus === CHIEF_ENGINE} />
       {chiefs && chiefs.length === 0 && !unavailable && <p className="row-help">{t("chief.settings.empty")}</p>}
       {chiefs && chiefs.length > 0 && (
         <div className="rows" data-chiefs="">
@@ -127,11 +169,11 @@ export function ChiefsCard() {
               }}
             >
               <span className="chiefs-picture" aria-hidden="true">
-                {pictures.get(chief.id) ? (
-                  <img src={pictures.get(chief.id)} alt="" />
-                ) : (
-                  <span className="chiefs-initial">{(chief.name.trim()[0] ?? "?").toUpperCase()}</span>
-                )}
+                <img
+                  src={pictures.get(chief.id) ?? mascot}
+                  alt=""
+                  data-mascot={pictures.has(chief.id) ? undefined : ""}
+                />
               </span>
               <span className="row-main">
                 <span className="row-label">
@@ -139,7 +181,7 @@ export function ChiefsCard() {
                   {chief.role && <span className="row-help">{chief.role}</span>}
                 </span>
               </span>
-              <span className="row-help chiefs-backend">{backendLine(chief)}</span>
+              <span className="row-help chiefs-backend">{backendLine(chief, backends, strings)}</span>
               {chief.locked && <span className="badge">{t("chief.settings.locked")}</span>}
             </button>
           ))}
@@ -147,4 +189,14 @@ export function ChiefsCard() {
       )}
     </section>
   );
+}
+
+/** The Engine row, as the page's group list would draw it (a search result's `?focus=` reveals it). */
+function EngineRow({ focused }: { focused: boolean }) {
+  const row = rowsByKey.get(CHIEF_ENGINE);
+  return row ? (
+    <div className="rows" data-engine="">
+      <SettingRow row={row} focused={focused} />
+    </div>
+  ) : null;
 }

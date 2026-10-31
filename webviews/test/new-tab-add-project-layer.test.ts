@@ -1,6 +1,7 @@
 // New Tab > project chip > New project opens the Add project dialog over the page. The shipped
 // pane's page color is transparent (agent-session/shared/styles.css, so the window glass shows),
-// and the dialog must still be solid: the composer under it never shows through its search field.
+// and the dialog must still hide the composer under its search field. Since the liquid glass (Leo
+// 2026-10-21: every popover is glass, never solid) it does that with the frost, not a solid fill.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
@@ -37,7 +38,7 @@ await requireBrowserLane("new-tab-add-project-layer.test.ts", async () => {
     await vite?.close();
   });
 
-  test("the Add project dialog is solid over the New Tab composer", async () => {
+  test("the Add project dialog is frosted glass over the New Tab composer, never solid or bare", async () => {
     const port = (vite!.httpServer!.address() as { port: number }).port;
     const page = await browser!.newPage({ viewport: { width: 760, height: 560 } });
     await page.goto(`http://127.0.0.1:${port}${galleryFrame("agent-pane.new-tab", { variant: "empty" })}`);
@@ -49,15 +50,18 @@ await requireBrowserLane("new-tab-add-project-layer.test.ts", async () => {
     await page.getByRole("option", { name: "Add project" }).click();
     const dialog = page.locator(".acpmux-add-project-dialog");
     await dialog.waitFor({ state: "visible" });
-    const alpha = await dialog.evaluate((element) => {
+    const material = await dialog.evaluate((element) => {
       const probe = document.createElement("canvas").getContext("2d")!;
+      const style = getComputedStyle(element);
       // Start transparent, so a color the canvas rejects reads as see-through, never as solid black.
       probe.fillStyle = "transparent";
-      probe.fillStyle = getComputedStyle(element).backgroundColor;
+      probe.fillStyle = style.backgroundColor;
       probe.fillRect(0, 0, 1, 1);
-      return probe.getImageData(0, 0, 1, 1).data[3];
+      const alpha = probe.getImageData(0, 0, 1, 1).data[3]!;
+      const backdrop = style.getPropertyValue("backdrop-filter") || style.getPropertyValue("-webkit-backdrop-filter");
+      return { tinted: alpha > 0, opaque: alpha === 255, frosted: /blur\(/.test(backdrop) };
     });
     await page.close();
-    expect(alpha).toBe(255);
+    expect(material).toEqual({ tinted: true, opaque: false, frosted: true });
   });
 });

@@ -8,6 +8,7 @@ import { AGENT_DIFF_THEME, AGENT_DIFF_THEME_LIGHT, diffUnsafeCSS, registerAgentD
 import { isHighlighted } from "../shikiLanguages";
 import { useT } from "../i18n";
 import { paneHighlightPool } from "./highlightPool";
+import { PIERRE_BLOCK_CSS } from "./sideways";
 
 /// The pane's theme (applyAgentTheme) is light or dark; syntax colors follow it.
 const paneThemeType = () =>
@@ -16,11 +17,19 @@ const paneThemeType = () =>
 /// Pierre paints its host in the page color; here it is clear, so the card's fill and ring show
 /// around the lines. Changed lines keep their tints, which mix with transparent.
 const cardUnsafeCSS = `${diffUnsafeCSS}
-:host { --diffs-dark-bg: transparent; --diffs-light-bg: transparent; background: transparent; }
-`;
+:host {
+  --diffs-dark-bg: transparent;
+  --diffs-light-bg: transparent;
+  --diffs-font-size: var(--cv-codeblock-size, var(--cmux-diff-font-size, var(--text-detail)));
+  --diffs-line-height: var(--cv-codeblock-line-height, var(--cmux-diff-line-height, 18px));
+  --diffs-font-family: var(--cv-mono);
+  background: transparent;
+}
+${PIERRE_BLOCK_CSS}`;
 
-/// Pierre's options for an edit placed in its file (numbered) and for a bare fragment.
-function diffOptions(numbered: boolean, themeType: "light" | "dark") {
+/// Pierre's options for an edit placed in its file (numbered) and for a bare fragment; `wrap` wraps
+/// long lines (a hanging indent, `PIERRE_BLOCK_CSS`) instead of scrolling them sideways.
+function diffOptions(numbered: boolean, themeType: "light" | "dark", wrap: boolean) {
   return {
     theme: { dark: AGENT_DIFF_THEME, light: AGENT_DIFF_THEME_LIGHT },
     themeType,
@@ -28,7 +37,7 @@ function diffOptions(numbered: boolean, themeType: "light" | "dark") {
     diffIndicators: "bars" as const,
     hunkSeparators: "line-info" as const,
     lineDiffType: "none" as const,
-    overflow: "scroll" as const,
+    overflow: wrap ? ("wrap" as const) : ("scroll" as const),
     // A fragment edit has no known place in its file, so its numbers would be made up.
     disableLineNumbers: !numbered,
     // The bundled page allows no WebAssembly.
@@ -38,8 +47,9 @@ function diffOptions(numbered: boolean, themeType: "light" | "dark") {
   };
 }
 
-/// `patches` are the file's edits as patch text (`editPatch`), one per edit.
-export function EditDiffHunks({ file, patches }: { file: TurnFile; patches: string[] }) {
+/// `patches` are the file's edits as patch text (`editPatch`), one per edit; `wrap` is the block's
+/// Wrap lines (blockWrap.ts).
+export function EditDiffHunks({ file, patches, wrap }: { file: TurnFile; patches: string[]; wrap: boolean }) {
   const t = useT();
   registerAgentDiffTheme();
   // The pane's theme can switch while the card is open; syntax colors follow it.
@@ -50,8 +60,8 @@ export function EditDiffHunks({ file, patches }: { file: TurnFile; patches: stri
     return () => theme.disconnect();
   }, []);
   const options = useMemo(
-    () => ({ numbered: diffOptions(true, themeType), fragment: diffOptions(false, themeType) }),
-    [themeType],
+    () => ({ numbered: diffOptions(true, themeType, wrap), fragment: diffOptions(false, themeType, wrap) }),
+    [themeType, wrap],
   );
   // A tool call's update (its status, say) rebuilds the file; compared by text, an unchanged
   // edit keeps its parsed diff and does not paint again.

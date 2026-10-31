@@ -8,7 +8,8 @@
 //! `_acpmux/handoff_start` that sends a capsule as a prompt, and the
 //! `_acpmux/btw` that opens a side session and prompts it) for a session in
 //! that folder is refused with `data.reason`:
-//! - `trust.pending`: no answer yet (the question is open);
+//! - `trust.pending`: no answer yet (the question is open), except for a chat whose agent
+//!   already runs (`pending_passes`): its prompts, mode and tools go through;
 //! - `trust.untrusted`: the user answered Don't trust.
 //!
 //! The level is `trust::session_level`: acpmux's decision, else the session's
@@ -87,7 +88,9 @@ pub(super) async fn check(
         | method::MUX_BTW
         | method::SESSION_SET_MODE
         | method::SESSION_SET_CONFIG_OPTION
-        | method::MUX_SET_TOOLS => session_key(params).ok().map(str::to_owned),
+        | method::MUX_SET_TOOLS
+        // A reconnect starts the server's configured command again, in the chat's folder.
+        | method::MUX_MCP_RECONNECT => session_key(params).ok().map(str::to_owned),
         method::MUX_HANDOFF_START => params
             .get("handoffId")
             .and_then(Value::as_str)
@@ -105,7 +108,40 @@ pub(super) async fn check(
     let fork_cwd = params.get("cwd").and_then(Value::as_str).filter(|_| m == method::SESSION_FORK);
     let cwd = fork_cwd.map_or_else(|| meta.cwd.to_string_lossy().into_owned(), str::to_owned);
     let family = meta.family.clone().unwrap_or_else(|| meta.harness.clone());
-    folder_answered(paths, cwd, family, web).await
+    let answered = folder_answered(paths, cwd, family, web).await;
+    // A fork, a side session and a handoff start an agent of their own: not a running chat's.
+    let same_agent = matches!(
+        m,
+        method::SESSION_PROMPT
+            | method::SESSION_SET_MODE
+            | method::SESSION_SET_CONFIG_OPTION
+            | method::MUX_SET_TOOLS
+            | method::MUX_MCP_RECONNECT
+    );
+    if same_agent && !web && running(&session) { pending_passes(answered) } else { answered }
+}
+
+/// Whether the chat already works in its folder: a turn of it ran or runs (`last_turn`, which a
+/// chat moved or imported from another daemon keeps). A chat only made (its agent started, no
+/// prompt yet) is not one, nor are the turns of a conversation it adopted (replayed, not run, so
+/// no `last_turn`) or a fork's copy of its parent's: the pane's first prompt still waits.
+fn running(session: &crate::hub::Session) -> bool {
+    session.meta().last_turn.is_some() || session.turn().is_some()
+}
+
+/// A chat whose agent already runs is never held up by an open trust question (a lane a
+/// coordinator started over the unix socket, in a folder nobody answered for, on 2026-10-21):
+/// its agent works in the folder whatever the answer. Only Don't trust refuses its prompts. A
+/// Web client still waits: its folder needs a person's decision.
+fn pending_passes(answered: Result<(), RpcError>) -> Result<(), RpcError> {
+    match answered {
+        Err(e)
+            if e.data.as_ref().and_then(|d| d.get("reason")) == Some(&json!("trust.pending")) =>
+        {
+            Ok(())
+        }
+        answered => answered,
+    }
 }
 
 /// `web`: the prompt came from a Web client or a peer forwarding for one.
@@ -120,13 +156,14 @@ pub(crate) async fn check_dispatch(
     }
     let Some(paths) = hub.trust_gate() else { return Ok(()) };
     let meta = session.meta();
-    folder_answered(
+    let answered = folder_answered(
         paths,
         meta.cwd.to_string_lossy().into_owned(),
         meta.family.clone().unwrap_or(meta.harness.clone()),
         web,
     )
-    .await
+    .await;
+    if !web && running(session) { pending_passes(answered) } else { answered }
 }
 
 async fn check_new(
@@ -173,6 +210,10 @@ async fn check_prewarm(
     web: bool,
 ) -> Result<(), RpcError> {
     let Some(cwd) = params.get("cwd").and_then(Value::as_str) else { return Ok(()) };
+    // A release starts nothing: it only takes a hint back.
+    if params.get("release").and_then(Value::as_bool) == Some(true) {
+        return Ok(());
+    }
     let family = params.get("harness").and_then(Value::as_str).unwrap_or_default();
     let family = resolve_family(hub, family).await;
     folder_answered(paths.clone(), cwd.to_owned(), family, web).await
@@ -207,7 +248,9 @@ pub(super) fn gated(origin: Origin, params: &Value) -> bool {
     match origin {
         Origin::LocalApp | Origin::Web => true,
         Origin::Peer => matches!(via, Some("web" | "app")),
-        Origin::Local => false,
+        // Native inline /btw uses the app marker on the local status socket so the
+        // daemon applies the same folder-trust gate as a LocalApp WebSocket.
+        Origin::Local => via == Some("app"),
     }
 }
 
@@ -275,4 +318,17 @@ pub(super) async fn answer(hub: &Arc<Hub>, m: &str, params: &Value) -> Result<Va
         crate::trust::Failure::Invalid(message) => RpcError::invalid_params(message),
         crate::trust::Failure::Record(message) => RpcError::internal(message),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn local_inline_btw_app_marker_is_trust_gated() {
+        let params = serde_json::json!({"_meta": {"acpmux": {"via": "app"}}});
+        assert!(gated(Origin::Local, &params));
+        assert!(!gated(Origin::Local, &serde_json::json!({})));
+        assert!(gated(Origin::LocalApp, &serde_json::json!({})));
+    }
 }

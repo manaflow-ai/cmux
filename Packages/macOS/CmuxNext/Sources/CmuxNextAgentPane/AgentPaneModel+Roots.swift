@@ -27,11 +27,20 @@ extension AgentPaneModel {
     /// An agent-home folder (a terminal the user moved there) is no workspace folder either: the
     /// chat still starts in agent-home, and the page still offers Choose Folder….
     func primaryRoot() -> String? {
+        primaryRootChoice().resolve()
+    }
+
+    /// What ``primaryRoot()`` chooses from, read without touching the disk; choosing may
+    /// (`standardizingPath`), so a caller off the main actor resolves it there.
+    func primaryRootChoice() -> AgentPanePrimaryRoot {
         // The store's answer when it gave one (cx-9aps): a real folder, else agent-home (nil).
-        if startFolders.answer != nil { return chosenFolder ?? startFolders.current(of: self) }
+        if startFolders.answer != nil {
+            return AgentPanePrimaryRoot(answered: true, candidates: [chosenFolder ?? startFolders.current(of: self)].compactMap { $0 })
+        }
         // Compatibility only (a daemon without workspace-agent-start-v1). Remove with cx-6bf9.
         let candidates = [handshakeCwd, chosenFolder] + (workspaceRoots?() ?? []).map(Optional.some) + [newTab?.cwd]
-        return candidates.lazy.compactMap { $0 }.first { !isHomeOrAbove($0) && !isAgentHome($0) }
+        return AgentPanePrimaryRoot(answered: false, candidates: candidates.compactMap { $0 }, home: transport.homeFolder,
+                                    agentHome: workspaceAgentHome?()?.home)
     }
 
     /// Whether `path` is in an agent-home folder: this workspace's base, else the standard one.
@@ -50,6 +59,39 @@ extension AgentPaneModel {
         return cwd
     }
 
+    /// The chat's exact folder, the one a terminal opened from it inherits (Cmd-D, Cmd-T, Cmd-N,
+    /// the header's Terminal, a shell block's Open in Terminal): the folder acpmux reported for the
+    /// chat's session, else the one the chat starts in. Read without asking the page, so a
+    /// terminal made in the key's frame gets it too. Nil for agent-home (``folderForOtherTabs(_:)``).
+    public var terminalFolder: String? {
+        let session = sessionId.flatMap(transport.sessions.folder(of:))
+        return folderForOtherTabs(session ?? pickedFolder ?? chosenFolder ?? startFolders.current(of: self) ?? handshakeCwd)
+    }
+
+    /// Starts a `workspace.useFolder` pick or a folder choice: picks still in flight no longer count.
+    func beginPick() -> Int {
+        pickSequence += 1
+        return pickSequence
+    }
+
+    /// Keeps a `workspace.useFolder` pick as the terminal folder (Ctrl-` before the first send,
+    /// #22225) when the chat may start there: an `ok` for a folder that is a root of this pane, or
+    /// one the person's click granted. An `ok` for any other folder drops an earlier pick, so a
+    /// page script can only send the terminal back to the pane's own folder, never choose one.
+    /// A pick that finishes after a later pick or choice changes nothing.
+    func notePicked(_ pick: Int, _ reply: [String: Any]) async -> [String: Any] {
+        guard let value = reply["value"] as? [String: Any], value["status"] as? String == "ok",
+              let cwd = value["cwd"] as? String else { return reply }
+        // The reply to the person's click waits for it.
+        let canonical = await Task.detached(priority: .userInitiated) { AcpmuxPathPolicy.canonical(cwd) }.value
+        guard pick == pickSequence else { return reply }
+        let allowed = transport.roots() + transport.addedRoots
+        // An agent-home pick replaces an earlier project: it gives no terminal folder (``folderForOtherTabs(_:)``).
+        let usable = isAgentHome(cwd) || allowed.contains(cwd) || canonical.map(allowed.contains) == true
+        pickedFolder = usable ? cwd : nil
+        return reply
+    }
+
     /// "Choose Folder…" (`workspace.chooseFolder`): the native sheet only after a real gesture (it
     /// spends the gesture's grant credit), then the pick as the folder of this pane's new chats.
     func chooseFolder() async -> [String: Any] {
@@ -58,6 +100,15 @@ extension AgentPaneModel {
         switch await onChooseFolder() {
         case .chosen(let folder):
             chosenFolder = folder
+            pickedFolder = nil
+            _ = beginPick()
+            let homeFolder = transport.homeFolder
+            let (picked, home) = await Task.detached(priority: .userInitiated) {
+                (AcpmuxPathPolicy.canonical(folder), homeFolder.flatMap(AcpmuxPathPolicy.canonical))
+            }.value
+            if let picked, !AgentHome.isHomeOrAbove(picked, home: home) {
+                await transport.grantPicked(picked)
+            }
             return AgentPaneReply.success(["cwd": folder])
         case .cancelled:
             return AgentPaneReply.success()
@@ -80,7 +131,11 @@ extension AgentPaneModel {
         switch result {
         case .adopt(let adopt, let cwd):
             seed?.folderNeeded = nil
-            if let cwd { handshakeCwd = cwd }
+            if let cwd {
+                handshakeCwd = cwd
+                pickedFolder = nil
+                _ = beginPick()
+            }
             var value: [String: Any] = ["adopt": adopt.reply]
             if let cwd { value["cwd"] = cwd }
             return AgentPaneReply.success(value)
@@ -100,4 +155,23 @@ extension AgentPaneModel {
         AgentHome.isHomeOrAbove(path, home: transport.homeFolder)
     }
 
+}
+
+/// The pane's workspace root before it is chosen (``AgentPaneModel/primaryRootChoice()``): the
+/// store's answer as it is, or the first candidate that is neither the home folder or above it nor
+/// an agent-home folder.
+nonisolated struct AgentPanePrimaryRoot: Equatable, Sendable {
+    /// The store answered: its folder is the root (none: agent-home).
+    var answered: Bool
+    var candidates: [String]
+    var home: String? = NSHomeDirectory()
+    /// The workspace's agent home; nil: the standard one, looked up when it is chosen.
+    var agentHome: AgentHome?
+
+    /// The root. May read the disk (`standardizingPath`, the standard agent home's lookup).
+    func resolve() -> String? {
+        if answered { return candidates.first }
+        let agentHome = agentHome ?? AgentHome.standard
+        return candidates.first { !AgentHome.isHomeOrAbove($0, home: home) && agentHome?.contains($0) != true }
+    }
 }

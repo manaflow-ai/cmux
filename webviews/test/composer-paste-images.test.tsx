@@ -5,7 +5,7 @@
 // `data:` URI (it goes as an ACP image block), and a bubble never draws one.
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { act, createRef } from "react";
+import { act, createRef, type RefObject } from "react";
 import type { Root } from "react-dom/client";
 import { noChat } from "../src/gallery/fixtures/acpmux";
 import type { ComposerHandle } from "../src/agent-session/acpmux/Composer";
@@ -28,6 +28,8 @@ const keys = [
   "requestAnimationFrame",
   "cancelAnimationFrame",
   "localStorage",
+  "createImageBitmap",
+  "OffscreenCanvas",
 ] as const;
 const saved = keys.map((key) => [key, key in scope, scope[key]] as const);
 let dom: JSDOM;
@@ -55,6 +57,7 @@ beforeAll(() => {
     requestAnimationFrame: (run: (time: number) => void) => setTimeout(() => run(0), 0),
     cancelAnimationFrame: (id: number) => clearTimeout(id),
     localStorage: window.localStorage,
+    ...imageEngine(),
   });
   host = window.document.getElementById("root")!;
 });
@@ -95,18 +98,67 @@ const PNG = Uint8Array.from([
   0x48,
   0x44,
   0x52,
-  ...Array(512).fill(7),
+  // Its size, 640x480 (the composer reads it before it decodes the picture), then filler.
+  0,
+  0,
+  2,
+  0x80,
+  0,
+  0,
+  1,
+  0xe0,
+  ...Array(504).fill(7),
 ]);
+/// The engine's image decoder and canvas, which jsdom lacks. Every attached image is decoded and
+/// re-encoded to strip its metadata (composer/imageWork.ts prepareImage, since #24652); with no
+/// engine to draw it is no image. This one reads the file's bytes as a real decode does, and each
+/// canvas encodes back to the screenshot's own PNG.
+function imageEngine() {
+  return {
+    createImageBitmap: async (source: Blob) => {
+      await source.arrayBuffer();
+      return { width: 640, height: 480, close() {} };
+    },
+    OffscreenCanvas: class {
+      constructor(
+        public width: number,
+        public height: number,
+      ) {}
+      getContext() {
+        return { drawImage() {}, fillRect() {}, fillStyle: "" };
+      }
+      async convertToBlob({ type }: { type: string }) {
+        return new Blob([PNG], { type });
+      }
+    },
+  };
+}
+
 const pngBase64 = btoa(String.fromCharCode(...PNG));
 const dataUri = `data:image/png;base64,${pngBase64}`;
 /// What Chrome's Copy Image (or a copied transcript image) puts on the clipboard beside the file.
 const imageHtml = (count: number) =>
   Array.from({ length: count }, (_, index) => `<img src="${dataUri}" alt="Screenshot · 778×69${index}">`).join("");
 
+/// Yields to React until `ready()` holds; fails after 2 s with what it waited for.
+async function until(ready: () => boolean, what: string) {
+  const deadline = performance.now() + 2_000;
+  while (!ready()) {
+    if (performance.now() > deadline) throw new Error(`timed out waiting for ${what}`);
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+  }
+}
+
+/// The open composer's handle, for `paste` to read its chips.
+let opened: RefObject<ComposerHandle | null> | undefined;
+
 async function openComposer(sent: { text: string; attachments: ComposerAttachment[] }[] = []) {
   const { createRoot } = await import("react-dom/client");
   const { Composer } = await import("../src/agent-session/acpmux/Composer");
   const handle = createRef<ComposerHandle>();
+  opened = handle;
   const snapshot = noChat([], {
     sessionId: "chat-a",
     summary: { sessionId: "chat-a", harness: "codex", cwd: "/Users/you/src/app", turnCount: 0 },
@@ -153,10 +205,8 @@ async function paste(clipboard: { files?: File[]; html?: string; plain?: string 
   await act(async () => {
     field().dispatchEvent(event);
   });
-  // The chips are read from the files after the event.
-  await act(async () => {
-    await new Promise((resolve) => setTimeout(resolve, 50));
-  });
+  // The chips are read from the files after the event, all of one paste's at once.
+  await until(() => (opened!.current!.wakeState().attachments ?? []).length > 0, "the pasted chips");
 }
 
 const screenshot = (index: number) => new File([PNG], "image.png", { type: "image/png", lastModified: index });
@@ -241,6 +291,63 @@ test("re-dropping the same local link replaces the chip instead of duplicating i
   expect(appendAttachments([first], [replacement, other])).toEqual([replacement, other]);
 });
 
+test("re-attaching design selection chips replaces both stable ids", async () => {
+  const { appendAttachments } = await import("../src/agent-session/acpmux/composer/attachmentIntake");
+  const { designSelectionChips } = await import("../src/agent-session/acpmux/designSelection");
+  const selection = { id: "card-1", name: "Card", text: "hello", image: { mimeType: "image/png", data: "AA==" } };
+  const chips = designSelectionChips(selection);
+  expect(appendAttachments(appendAttachments([], chips), chips)).toEqual(chips);
+});
+
+test("attachment intake wires local link deduplication through its hook state", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { useAttachmentIntake } = await import("../src/agent-session/acpmux/composer/attachmentIntake");
+  let held: ComposerAttachment[] = [];
+  function Field() {
+    const result = useAttachmentIntake({
+      allowImages: true,
+      pasteTarget: () => undefined,
+      localPaths: async (_kind, files) => files.map(() => ({ path: "/Users/you/assets", folder: true })),
+    });
+    held = result.attachments;
+    return <output data-count={held.length} />;
+  }
+  root ??= createRoot(host);
+  await act(async () => root!.render(<Field />));
+  const files = [new File([], "assets", { type: "" }), new File([], "assets-copy", { type: "" })];
+  for (const file of files)
+    Object.defineProperty(file, "arrayBuffer", { value: () => Promise.reject(new Error("folder")) });
+  const event = new dom.window.Event("drop", { bubbles: true, cancelable: true });
+  Object.defineProperty(event, "dataTransfer", { value: { files, types: ["Files"] } });
+  await act(async () => {
+    host.dispatchEvent(event);
+  });
+  await new Promise<void>((resolve, reject) => {
+    if (host.querySelector('output[data-count="1"]')) return resolve();
+    let frames = 0;
+    const observer = new MutationObserver(() => {
+      if (host.querySelector('output[data-count="1"]')) {
+        observer.disconnect();
+        resolve();
+      }
+    });
+    const check = () => {
+      if (host.querySelector('output[data-count="1"]')) {
+        observer.disconnect();
+        resolve();
+      } else if (++frames < 120) requestAnimationFrame(check);
+      else {
+        observer.disconnect();
+        reject(new Error("attachment intake did not render a deduplicated link"));
+      }
+    };
+    observer.observe(host, { childList: true, subtree: true, attributes: true });
+    requestAnimationFrame(check);
+  });
+  await act(async () => {});
+  expect(held.map((chip) => chip.path)).toEqual(["/Users/you/assets"]);
+});
+
 test("an image copied as HTML into a plain text field comes in as a chip and the text still goes in", async () => {
   const { createRoot } = await import("react-dom/client");
   const { useAttachmentIntake } = await import("../src/agent-session/acpmux/composer/attachmentIntake");
@@ -265,8 +372,8 @@ test("an image copied as HTML into a plain text field comes in as a chip and the
   });
   await act(async () => {
     host.querySelector("textarea")!.dispatchEvent(event);
-    await new Promise((resolve) => setTimeout(resolve, 50));
   });
+  await until(() => held.length > 0, "the pasted chip");
   // The textarea's own paste still inserts the text; the spacer GIF is no chip.
   expect(event.defaultPrevented).toBe(false);
   expect(held.map((chip) => chip.kind)).toEqual(["image"]);
@@ -304,8 +411,8 @@ test("the same text pasted into a plain text field leaves its text there without
   });
   await act(async () => {
     textarea.dispatchEvent(event);
-    await new Promise((resolve) => setTimeout(resolve, 50));
   });
+  await until(() => held.length > 0, "the pasted chip");
   expect(event.defaultPrevented).toBe(true);
   expect(textarea.value).toBe("see:  ok");
   expect(held.map((chip) => chip.kind)).toEqual(["image"]);

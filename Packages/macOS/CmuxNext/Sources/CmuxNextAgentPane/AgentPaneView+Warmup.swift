@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextPages
 import WebKit
 
 /// Starts WebKit for the agent pages once the first window frame is committed
@@ -34,10 +35,14 @@ extension AgentPaneView {
 
     public static func startWarmup() {
         guard warmupView == nil, !warmupNoLongerNeeded else { return }
+        // The bundled agent page normally runs in Chromium. Its unused WebKit fallback needs
+        // no renderer until a fallback actually happens; keep the real engine policy's blockers.
+        let options = PageEngineOptions(chromiumAgentChat: AgentPaneTunables.chromium.value)
+        guard PageWebView.engineDecision(for: .agent, options: options).engine == .webKit else { return }
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = sharedDataStore
         configuration.processPool = processPool
-        // webview-allow: agent chat warm-up process; agent chat needs WebKit
+        // webview-allow: WebKit warm-up for the old agent host and a page host that falls back to WebKit
         let view = WKWebView(frame: .zero, configuration: configuration)
         view.loadHTMLString("<!doctype html><title></title>", baseURL: nil)
         warmupView = view

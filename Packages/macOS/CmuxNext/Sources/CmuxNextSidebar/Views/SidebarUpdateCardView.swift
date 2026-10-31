@@ -7,7 +7,7 @@ import QuartzCore
 /// in cmux's colors): the composer's surface (`CardSurfaceView`, shared by
 /// every sidebar card), "Update
 /// Ready", the short version and date ("nightly 3845050 · Oct 13", whole at the
-/// sidebar's default width), the Automatic Updates checkbox and one full-width
+/// sidebar's default width), the Automatic Updates switch and one full-width
 /// Restart to Update button (one click installs and relaunches; disabled,
 /// Installing…, once taken). Hovering the card shows what it leaves out (Leo
 /// 2026-10-13): the full build, the highlights and "See all changes", in the
@@ -28,7 +28,7 @@ final class SidebarUpdateCardView: NSView {
     private let titleLabel = ChromeLabel(labelWithString: "")
     /// The short version and build date.
     let detailLabel = ChromeLabel(labelWithString: "")
-    let checkbox = SidebarUpdateCheckbox()
+    let toggle = SidebarUpdateToggle()
     let button = SidebarUpdateButton()
     /// "Hide": one click hides this version's card (``SidebarUpdateCard/closeAction``).
     let closeButton = SidebarCardTextButton()
@@ -117,13 +117,13 @@ final class SidebarUpdateCardView: NSView {
         titleLabel.maximumNumberOfLines = 1
         detailLabel.lineBreakMode = .byTruncatingTail
         detailLabel.maximumNumberOfLines = 1
-        [titleLabel, detailLabel, checkbox, button, closeButton].forEach(addSubview)
-        checkbox.setAccessibilityIdentifier("cmux.sidebar.update.automatic")
+        [titleLabel, detailLabel, toggle, button, closeButton].forEach(addSubview)
+        toggle.setAccessibilityIdentifier("cmux.sidebar.update.automatic")
         button.setAccessibilityIdentifier("cmux.sidebar.update.install")
         closeButton.setAccessibilityIdentifier("cmux.sidebar.update.hide")
         button.onPress = { [weak self] in self?.onInstall?() }
         closeButton.onPress = { [weak self] in self?.closePressed() }
-        checkbox.onToggle = { [weak self] on in self?.onAutomaticUpdates?(on) }
+        toggle.onToggle = { [weak self] on in self?.onAutomaticUpdates?(on) }
         setAccessibilityElement(false)
         isHidden = true
         pointerHover = PointerHover(self) { [weak self] hovering in self?.setHovered(hovering) }
@@ -163,7 +163,7 @@ final class SidebarUpdateCardView: NSView {
         detailLabel.isHidden = card.detail == nil
         closeButton.isHidden = card.closeTitle == nil || card.closeAction == nil
         closeButton.configure(title: card.closeTitle ?? "", help: card.closeLabel)
-        checkbox.configure(title: card.automaticUpdatesTitle, isOn: card.automaticUpdates)
+        toggle.configure(title: card.automaticUpdatesTitle, isOn: card.automaticUpdates, animated: wasShowing)
         button.configure(title: card.buttonTitle, enabled: card.isEnabled,
                          help: [card.notes.headline, card.notes.keepsRunning].joined(separator: " "))
         // The popup with "See all changes" opens on hover only: VoiceOver reaches it here.
@@ -187,12 +187,12 @@ final class SidebarUpdateCardView: NSView {
     private static var captionHeight: CGFloat { ceil(Typography.caption.boundingRectForFont.height) }
 
     /// The card's height for `card`: padding, title, the detail line when
-    /// present, the checkbox row, the button, padding.
+    /// present, the switch row, the button, padding.
     static func height(for card: SidebarUpdateCard) -> CGFloat {
         let title = ceil(titleFont.boundingRectForFont.height)
         let detail = card.detail == nil ? 0 : Metrics.space1 / 2 + captionHeight
         return ceil(padding + title + detail + Metrics.space2
-            + SidebarUpdateCheckbox.height + Metrics.space2 + SidebarUpdateButton.height + padding)
+            + SidebarUpdateToggle.height + Metrics.space2 + SidebarUpdateButton.height + padding)
     }
 
     override func layout() {
@@ -215,15 +215,16 @@ final class SidebarUpdateCardView: NSView {
             detailLabel.frame = NSRect(x: pad, y: y, width: width, height: caption)
             y += caption
         }
-        checkbox.frame = NSRect(x: pad, y: y + Metrics.space2, width: width, height: SidebarUpdateCheckbox.height)
-        button.frame = NSRect(x: pad, y: checkbox.frame.maxY + Metrics.space2, width: width, height: SidebarUpdateButton.height)
+        toggle.frame = NSRect(x: pad, y: y + Metrics.space2, width: width, height: SidebarUpdateToggle.height)
+        button.frame = NSRect(x: pad, y: toggle.frame.maxY + Metrics.space2, width: width, height: SidebarUpdateButton.height)
         presence.didLayout()
     }
 
     override func updateLayer() {
         performWithTheme {
             titleLabel.textColor = Palette.textPrimary
-            detailLabel.textColor = Palette.textSecondary
+            // The version line is quiet: the card's title and its action carry it.
+            detailLabel.textColor = Palette.textTertiary
         }
     }
 

@@ -213,7 +213,7 @@ extension MainPaneGutterSuites {
         /// trailing, bottom, and the leading edge with the sidebar hidden) exactly one rounded outline
         /// shows, the window's own, over wallpaper art and on an opaque theme, with the sidebar on
         /// either side or hidden.
-        @Test(arguments: [BackdropArt?.some(.goyaSaturn), nil])
+        @Test(arguments: [BackdropArt?.some(.friedrichForestMoonlight), nil])
         func whereThePaneMeetsTheWindowOneOutlineShows(art: BackdropArt?) throws {
             try #require(Metrics.mainPaneCurved, "the curved main pane is on by default")
             try MainPaneGutterSuites.withGutter(0) {

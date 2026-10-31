@@ -104,7 +104,8 @@ import Testing
         #expect(seven.mergeable == "conflicting")
         #expect(seven.checks == .init(state: "failing", passed: 1, total: 2))
         #expect((seven.additions, seven.deletions) == (120, 8))
-        #expect(SidebarSessionTreeFeed.item(seven).state == .conflict)
+        // Conflicting with a failed check: the failure reads first (`eachPullRequestGetsItsPill`).
+        #expect(SidebarSessionTreeFeed.item(seven).state == .failing)
         let eight = try #require(read["https://github.com/o/r/pull/8"] ?? nil)
         #expect(eight.state == "merged")
         #expect(eight.checks.state == "none")

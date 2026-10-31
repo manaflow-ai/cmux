@@ -1,6 +1,7 @@
 public import AppKit
 import CmuxNextWakeups
 import Observation
+public import CmuxNextDesignTokens
 
 /// Launch load-in, region by region: a view held for a region stays clear
 /// on the window glass until that region's data is ready, then fades in
@@ -14,7 +15,8 @@ import Observation
 /// launch that cannot produce a region (daemon unavailable) calls
 /// `markAllReady`. A region whose data never arrives (no tabs, a pane
 /// that never draws) is released by the deadline, which the first `hold`
-/// arms: a missed producer costs a short delay, never a blank window.
+/// arms (a region made after the window: its own first hold): a missed
+/// producer costs a short delay, never a blank window.
 ///
 /// Call `markReady` where real data lands, not on an empty placeholder
 /// model (unless nothing is coming before the first frame: a fresh
@@ -32,12 +34,16 @@ public final class LaunchReveal {
     @ObservationIgnored private var held: [LaunchRegion: NSHashTable<NSView>] = [:]
     @ObservationIgnored private var waiters: [LaunchRegion: [@MainActor () -> Void]] = [:]
     @ObservationIgnored private let deadlineTimer: DemandTimer
+    /// The deadlines of regions made after the window (`LaunchRegion.hasOwnDeadline`).
+    @ObservationIgnored private var ownDeadlines: [LaunchRegion: DemandTimer] = [:]
+    @ObservationIgnored private let clock: any Clock<Duration>
     @ObservationIgnored private let deadline: Duration
 
     /// - Parameter deadline: How long after the first `hold` every region
     ///   shows anyway.
     public init(clock: any Clock<Duration> = ContinuousClock(), deadline: Duration = .milliseconds(1500)) {
         deadlineTimer = DemandTimer(owner: "launch.reveal-deadline", clock: clock)
+        self.clock = clock
         self.deadline = deadline
     }
 
@@ -51,9 +57,21 @@ public final class LaunchReveal {
         // a defaulted subscript would go to a temporary.
         let table = held[region] ?? NSHashTable<NSView>.weakObjects()
         held[region] = table
+        // Held alone (the views held before it went away): a region with its own deadline waits from here.
+        let alone = table.allObjects.allSatisfy { $0 === view }
         table.add(view)
-        deadlineTimer.scheduleIfIdle(after: deadline) { @MainActor [weak self] in
-            self?.markAllReady()
+        guard region.hasOwnDeadline else {
+            deadlineTimer.scheduleIfIdle(after: deadline) { @MainActor [weak self] in
+                for region in LaunchRegion.allCases where !region.hasOwnDeadline { self?.markReady(region) }
+            }
+            return
+        }
+        let timer = ownDeadlines[region] ?? DemandTimer(owner: "launch.reveal-deadline.\(region.rawValue)", clock: clock)
+        ownDeadlines[region] = timer
+        if alone {
+            timer.schedule(after: deadline) { @MainActor [weak self] in self?.markReady(region) }
+        } else {
+            timer.scheduleIfIdle(after: deadline) { @MainActor [weak self] in self?.markReady(region) }
         }
     }
 
@@ -87,6 +105,7 @@ public final class LaunchReveal {
     /// Every region is ready (or will never be): nothing stays held.
     public func markAllReady() {
         deadlineTimer.cancel()
+        for timer in ownDeadlines.values { timer.cancel() }
         for region in LaunchRegion.allCases { markReady(region) }
     }
 }

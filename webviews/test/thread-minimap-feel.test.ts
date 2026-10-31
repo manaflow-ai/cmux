@@ -4,8 +4,9 @@
 // measured worse than Codex in a 60-turn chat:
 // - a jump lands the prompt's bubble 35 px below the top, also when the rows it crosses were never
 //   drawn (it landed 262 px above the view, for a prompt 50 turns up);
-// - the hover card opens 250 ms after the pointer reaches the rail, as Codex's does (it took 465 ms),
-//   while the tick magnifies at once;
+// - the hover card opens with the tick's magnification, on the pointer's own commit (Leo,
+//   2026-10-29: "faster scrttoll/hover over"; it waited Codex's 250 ms, and 465 ms before that);
+// - a click lands the prompt in the frame of the click, with no glide;
 // - the band of lit rows follows the scroll on the scroll's own frame (it lagged 1-2 frames and lit
 //   a turn still below the view), with the turns on screen as Codex counts them;
 // - older turns that load above the reader leave the band where it is on screen (it moved 150 px in
@@ -80,9 +81,9 @@ await requireBrowserLane("thread-minimap-feel.test.ts", async () => {
     return (fastest * distance * 1000) / 60;
   };
 
-  async function open(rows: unknown[], top: number, count = COUNT): Promise<Page> {
+  async function open(rows: unknown[], top: number, count = COUNT, height = 820): Promise<Page> {
     const { port } = vite!.httpServer!.address() as { port: number };
-    const page = await browser!.newPage({ viewport: { width: 1280, height: 820 } });
+    const page = await browser!.newPage({ viewport: { width: 1280, height } });
     await installPaintedFrames(page);
     await page.goto(`http://127.0.0.1:${port}/test/browser/thread-minimap.html`);
     await page.waitForFunction(() => "__showRows" in window);
@@ -177,7 +178,8 @@ await requireBrowserLane("thread-minimap-feel.test.ts", async () => {
   describe("thread minimap feel (Chromium)", () => {
     test("a click lands the prompt's bubble 35 px down, near or far, drawn or not", async () => {
       const page = await open(turns(0, COUNT), 9000);
-      // Near: a drawn prompt about 600 px down, on the smooth scroll.
+      // Near: a drawn prompt about 600 px down. It lands with the click itself, before any frame of
+      // motion (no glide: Leo, 2026-10-29, "faster scrttoll").
       const near = await page.evaluate(() => {
         const view = document.querySelector<HTMLElement>(".acpmux-scroll")!.getBoundingClientRect();
         const prompt = [...document.querySelectorAll<HTMLElement>(".acpmux-row.acpmux-user")].find(
@@ -187,6 +189,7 @@ await requireBrowserLane("thread-minimap-feel.test.ts", async () => {
       });
       let point = await tickPoint(page, near);
       await page.mouse.click(point.x, point.y);
+      expect(Math.abs((await landing(page, near))! - 35)).toBeLessThanOrEqual(1);
       expect(Math.abs((await landed(page, near))! - 35)).toBeLessThanOrEqual(1);
       // Far: a prompt well up the chat, never drawn, whose rows' heights are estimates.
       const far = await firstVisibleTick(page);
@@ -203,7 +206,7 @@ await requireBrowserLane("thread-minimap-feel.test.ts", async () => {
       await page.close();
     });
 
-    test("hovering magnifies at once and opens the card 250 ms after the pointer reaches the rail", async () => {
+    test("hovering magnifies and opens the card at once", async () => {
       const page = await open(turns(0, COUNT), 9000);
       const point = await tickPoint(page, 30);
       await page.mouse.move(point.x + 400, point.y);
@@ -255,10 +258,9 @@ await requireBrowserLane("thread-minimap-feel.test.ts", async () => {
       const growsAt = frames.filter((frame) => frame.t >= hovering).indexOf(grows!);
       expect(growsAt).toBeGreaterThanOrEqual(0);
       expect(growsAt).toBeLessThan(4);
-      // The card: Codex's 250 ms (its frames show 267-283 ms with the render), not the app's 450,
-      // painted by the second frame after.
-      expect(carded - over).toBeGreaterThan(230);
-      expect(carded - over).toBeLessThan(400);
+      // The card: no dwell. It commits before the second painted frame after the pointer arrives, as
+      // the hover does, and paints by the second frame after its commit.
+      expect(frames.filter((frame) => frame.t >= over && frame.t < carded).length).toBeLessThanOrEqual(1);
       const opensAt = frames.filter((frame) => frame.t >= carded).indexOf(opens!);
       expect(opensAt).toBeGreaterThanOrEqual(0);
       expect(opensAt).toBeLessThan(2);
@@ -279,7 +281,7 @@ await requireBrowserLane("thread-minimap-feel.test.ts", async () => {
       });
       for (let index = 0; index < 80; index += 1) {
         await page.mouse.wheel(0, index < 40 ? 60 : -60);
-        await page.waitForTimeout(8);
+        await page.evaluate(() => window.cmuxPaintFrame());
       }
       await page.evaluate(() => (window as any).__still(10));
       const frames = await page.evaluate(() => {
@@ -299,22 +301,25 @@ await requireBrowserLane("thread-minimap-feel.test.ts", async () => {
       // [turns loaded, turns that arrive above them, the transcript's offset]:
       // - 30, then 30 more: the rail grows from 300 px to its 57-row cap and glides back to center;
       // - 20, then 10 more: a rail that grows and stays under its cap;
-      // - 60, then 30 more: a rail that already scrolls, with the band in its top third: its own
-      //   scroll takes the new rows and the band does not move at all.
+      // - 90, then 30 more: a rail that already scrolls (past the default rail's 92% cap,
+      //   46c2c649311e), with the band in its top third: its own scroll takes the new rows and the
+      //   band does not move at all.
       for (const [loaded, more, offset] of [
         [30, 30, 3000],
         [20, 10, 3000],
-        [60, 30, 300],
+        [90, 30, 300],
       ] as const) {
         const total = loaded + more;
         const page = await open(turns(total - loaded, total), offset, total);
         const before = await page.evaluate(() => {
           const lit = (window as any).__lit() as string;
           const first = Number(lit.split(",")[0]);
+          const list = document.querySelector<HTMLElement>(".acpmux-minimap__list");
           return {
             lit,
             first,
             y: document.querySelector<HTMLElement>(`[data-tick="${first}"]`)!.getBoundingClientRect().top,
+            scrolls: !!list && list.scrollHeight > list.clientHeight + 1,
           };
         });
         // The page's animations run 10 times slower, so the glide spans enough frames to be seen on
@@ -326,7 +331,10 @@ await requireBrowserLane("thread-minimap-feel.test.ts", async () => {
           async ({ rows, key, total: count, sampleMs }) => {
             const probe = window as any;
             const seen: { y: number; lit: string; t: number }[] = [];
-            const ticks = () => document.querySelectorAll(".acpmux-minimap__tick").length;
+            // The rail draws only the ticks in its view (tickWindow.ts, 8c3dac1aad59), so a long one
+            // never draws all of them: each entry carries the count of the rail it was drawn for.
+            const ticks = () =>
+              Number(document.querySelector(".acpmux-minimap__entry")?.getAttribute("aria-setsize") ?? 0);
             probe.__showRows(rows);
             // From the first frame that draws the new rows.
             for (let wait = 0; wait < 30 && ticks() !== count; wait += 1) await window.cmuxPaintFrame();
@@ -366,9 +374,43 @@ await requireBrowserLane("thread-minimap-feel.test.ts", async () => {
         const steps = frames.map((frame) => Math.abs(yAt(frame.t + 1000 / 60) - frame.y));
         expect(Math.max(...steps)).toBeLessThanOrEqual(glideStep(Math.abs(frames.at(-1)!.y - frames[0]!.y)) + 1);
         // A rail that already scrolled holds the band still.
-        if (loaded * 10 > 574) expect(Math.abs(frames.at(-1)!.y - before.y)).toBeLessThanOrEqual(1);
+        expect(before.scrolls).toBe(loaded === 90);
+        if (before.scrolls) expect(Math.abs(frames.at(-1)!.y - before.y)).toBeLessThanOrEqual(1);
         await page.close();
       }
+    });
+
+    // Leo, 2026-10-22: "it wouldn't show the highlighted bottom text where I was scrolling at the
+    // bottom ... It didn't show the bottom bits being highlighted." The rail sits inside the
+    // transcript, whose mask fades rows out under its top and above its foot; in a short window the
+    // rail filled the view less 8 px each end, so its first and last lit ticks drew inside those fades.
+    test("in a short window every lit tick stays clear of the transcript's faded edges, at any offset", async () => {
+      const page = await open(turns(0, COUNT), 0, COUNT, 420);
+      const clipped = await page.evaluate(async () => {
+        const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+        const probe = window as unknown as { __still(frames?: number): Promise<void> };
+        const px = (name: string) => Number.parseFloat(getComputedStyle(scroller).getPropertyValue(name)) || 0;
+        const end = scroller.scrollHeight - scroller.clientHeight;
+        const found: string[] = [];
+        for (const share of [0, 0.02, 0.1, 0.5, 0.9, 0.97, 0.99, 1]) {
+          scroller.scrollTop = Math.round(end * share);
+          await probe.__still();
+          const view = scroller.getBoundingClientRect();
+          // The mask's opaque band (conversation.css): below the top fade, above the foot's.
+          const top = view.top + px("--acpmux-fade-top");
+          const bottom = view.top + view.height - px("--acpmux-dock-space") - px("--acpmux-fade-bottom");
+          for (const tick of document.querySelectorAll<HTMLElement>('.acpmux-minimap__tick[aria-current="true"]')) {
+            const box = tick.getBoundingClientRect();
+            if (box.top < top - 0.5 || box.bottom > bottom + 0.5)
+              found.push(
+                `${share}: tick ${tick.dataset.tick} at ${box.top - view.top}..${box.bottom - view.top} of ${top - view.top}..${bottom - view.top}`,
+              );
+          }
+        }
+        return found;
+      });
+      expect(clipped).toEqual([]);
+      await page.close();
     });
   });
 });

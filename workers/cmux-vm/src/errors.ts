@@ -82,6 +82,9 @@ export class QuotaExceeded extends Schema.TaggedError<QuotaExceeded>()(
         "aclApply.perMeshPerMinute",
         "enrollmentCode.perMeshPerHour",
         "address.perDevice",
+        // An agent key's own budget: its live VMs, and their estimated USD per hour.
+        "agent_vms",
+        "agent_usd_per_hour",
       ),
     ),
   },

@@ -28,7 +28,12 @@ export type Source = {
 };
 
 /// Content shown beside the options while one is highlighted (a code sample, a layout sketch).
-export type Preview = { text: string; format: "markdown" | "monospace" };
+/// `html` is a fragment with inline styles (Claude Code launched with
+/// `CLAUDE_CODE_QUESTION_PREVIEW_FORMAT=html`, acpmux hub/questions.rs): the card draws it in a
+/// frame that runs no script and loads nothing, never into the pane's own document.
+export type Preview = { text: string; format: PreviewFormat };
+export type PreviewFormat = "markdown" | "monospace" | "html";
+const PREVIEW_FORMATS: readonly PreviewFormat[] = ["markdown", "monospace", "html"];
 
 export type Option = {
   /// Stable within its item: the harness's option id, else the label.
@@ -68,6 +73,9 @@ export type Respondent = {
   device?: string;
   /// True when the answer came through the remote relay from a paired device.
   isRemote: boolean;
+  /// True when an agent session above this one answered (acpmux `subsession_answer.rs`): its
+  /// `displayName` is that session's name, which its agent may choose, so it never reads as a person.
+  isSession?: boolean;
 };
 
 /// A person's answer, harness-neutral: one selection per item id.
@@ -78,8 +86,17 @@ export type Answer = {
   answeredAtMs?: number;
 };
 
+/// Why an ask ended unanswered, when its record says: `skipped`, the person declined it (Skip sent
+/// the ask's reject option); `stopped`, acpmux cancelled it without an answer (the turn was stopped,
+/// or the chat closed or restarted) on an ask whose Skip would have sent the reject option instead.
+/// Absent when the record can't tell the two apart.
+export type CancelReason = "skipped" | "stopped";
+
 /// Where the ask stands. Only the owner moves it out of `pending`; clients render it.
-export type State = { kind: "pending" } | { kind: "answered"; answer: Answer } | { kind: "cancelled" };
+export type State =
+  | { kind: "pending" }
+  | { kind: "answered"; answer: Answer }
+  | { kind: "cancelled"; reason?: CancelReason };
 
 /// One ask: one to four items, the source that decides the answer's shape, and its state.
 export type AgentQuestion = {
@@ -115,6 +132,10 @@ export type QuestionReply = {
   optionId?: string;
   /// The harness-shaped answers acpmux puts into the tool's input.
   answers?: Record<string, unknown>;
+  /// Claude Code's AskUserQuestion `annotations`, keyed by question text: the chosen option's
+  /// preview, so the agent reads which mockup the person picked. acpmux checks the preview
+  /// against the question's options and hands the agent its own text.
+  annotations?: Record<string, { preview?: string; notes?: string }>;
 };
 
 // MARK: JSON reading (AgentQuestionJSON)
@@ -156,10 +177,34 @@ const selectionIsEmpty = (value: Selection | undefined) => !value || (value.opti
 /// option's preview beside the list.
 export const hasPreviews = (item: Item): boolean => item.options.some((option) => option.preview !== undefined);
 
+/// The two buttons a yes-or-no ask draws as (QuestionCard), as indexes into its one item's options:
+/// one single-choice question offering exactly the permission's own Allow and Deny (`answerOption`,
+/// `rejectOption`), with no Other and no previews, like the daemon's folder trust card. Undefined
+/// for any other ask, which keeps its option list, Skip and Submit.
+export function consentChoice(question: AgentQuestion): { accept: number; reject: number } | undefined {
+  const [item, ...more] = question.items;
+  if (!item || more.length > 0 || item.multiSelect || item.allowsOther || item.options.length !== 2) return undefined;
+  if (hasPreviews(item)) return undefined;
+  const { answerOption, rejectOption } = question.source;
+  const accept = item.options.findIndex((option) => option.id === answerOption);
+  const reject = item.options.findIndex((option) => option.id === rejectOption);
+  return accept < 0 || reject < 0 || accept === reject ? undefined : { accept, reject };
+}
+
 export const isPending = (question: AgentQuestion): boolean => question.state.kind === "pending";
 
 /// The first item's prompt, for notifications, previews and search.
 export const questionSummary = (question: AgentQuestion): string => question.items[0]?.prompt ?? "";
+
+/// The catalog key of the line Copy gives an unanswered ask (its `{prompt}` is `questionSummary`): how
+/// it ended when the record says (`CancelReason`), else "Not answered". The card says the same
+/// outcome (`question.outcome.*`) under the question.
+export const cancelledKey = (
+  question: AgentQuestion,
+): "question.skipped" | "question.stopped" | "question.cancelled" => {
+  const reason = question.state.kind === "cancelled" ? question.state.reason : undefined;
+  return reason === "skipped" ? "question.skipped" : reason === "stopped" ? "question.stopped" : "question.cancelled";
+};
 
 // MARK: Mapping a permission request (AgentQuestion+Permission.swift)
 
@@ -251,8 +296,9 @@ function decodeOption(value: Json): Option | undefined {
   if (preview !== undefined && preview !== null) {
     const previewText = string(field(preview, "text"));
     const format = field(preview, "format");
-    if (previewText === undefined || (format !== "markdown" && format !== "monospace")) return undefined;
-    decodedPreview = { text: previewText, format };
+    const known = PREVIEW_FORMATS.find((candidate) => candidate === format);
+    if (previewText === undefined || !known) return undefined;
+    decodedPreview = { text: previewText, format: known };
   }
   return compact({ id, label, detail: string(detail), preview: decodedPreview });
 }
@@ -406,7 +452,15 @@ export function reply(question: AgentQuestion, answer: Answer): QuestionReply {
       // comma-separated string.
       const answers: Record<string, string> = {};
       for (const item of question.items) answers[item.prompt] = labels(item, answer.selections[item.id]).join(", ");
-      return { session, permissionId: permission, optionId: answerOption ?? "allow_once", answers };
+      const sent: QuestionReply = {
+        session,
+        permissionId: permission,
+        optionId: answerOption ?? "allow_once",
+        answers,
+      };
+      // Only Claude Code reads annotations; the Chief's answers stay as they were.
+      const annotations = harness === "claude" ? chosenPreviews(question, answer) : undefined;
+      return annotations ? { ...sent, annotations } : sent;
     }
     case "codex": {
       // Codex reads `{id: {answers: [String]}}`.
@@ -415,6 +469,27 @@ export function reply(question: AgentQuestion, answer: Answer): QuestionReply {
       return { session, permissionId: permission, optionId: answerOption ?? "allow_once", answers };
     }
   }
+}
+
+/// The most UTF-8 bytes of one annotation string the pane relay passes (`policy.json`
+/// `question_answers.maximum_annotation_bytes`, Swift `maximumAnnotationBytes`).
+const MAX_ANNOTATION_BYTES = 65536;
+
+const utf8Bytes = (text: string): number => new TextEncoder().encode(text).length;
+
+/// The preview of each single-select item's chosen option, keyed by question text, or undefined
+/// when no chosen option has one (or each is over the relay's bound). Claude Code shows previews
+/// only for single-select questions.
+function chosenPreviews(question: AgentQuestion, answer: Answer): QuestionReply["annotations"] {
+  const previews: NonNullable<QuestionReply["annotations"]> = {};
+  for (const item of question.items) {
+    const chosen = answer.selections[item.id];
+    if (item.multiSelect || !chosen || chosen.other) continue;
+    const preview = item.options.find((option) => option.id === chosen.optionIDs[0])?.preview?.text;
+    // Left out past the relay's bound, which would refuse the whole answer for it.
+    if (preview !== undefined && utf8Bytes(preview) <= MAX_ANNOTATION_BYTES) previews[item.prompt] = { preview };
+  }
+  return Object.keys(previews).length > 0 ? previews : undefined;
 }
 
 /// The reply that declines the question: the harness's reject option, else a cancel. Never an allow.
@@ -431,6 +506,7 @@ export function replyParams(sent: QuestionReply): Record<string, unknown> {
     permissionId: sent.permissionId,
     optionId: sent.optionId,
     answers: sent.answers,
+    annotations: sent.annotations,
   });
 }
 

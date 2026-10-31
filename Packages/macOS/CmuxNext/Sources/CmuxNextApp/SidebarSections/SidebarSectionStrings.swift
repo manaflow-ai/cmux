@@ -24,6 +24,11 @@ enum SidebarSectionStrings {
         String(localized: "sidebarSections.workspaceListStays", defaultValue: "the workspace list cannot be moved or removed",
                table: "SidebarSections", bundle: .module)
     }
+    /// A Priority row action named a chat no acpmux lists any more.
+    static var noSuchPriorityChat: String {
+        String(localized: "sidebarSections.priority.noSuchChat", defaultValue: "that chat is no longer in the Priority view",
+               table: "SidebarSections", bundle: .module)
+    }
     static var noSuchSection: String {
         String(localized: "sidebarSections.noSuchSection", defaultValue: "no such sidebar section", table: "SidebarSections", bundle: .module)
     }

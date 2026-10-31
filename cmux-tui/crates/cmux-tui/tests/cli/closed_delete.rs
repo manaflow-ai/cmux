@@ -258,7 +258,24 @@ fn closed_reopen_publishes_the_reopened_tab_in_its_screen_like_a_tab_create() {
 /// closed split tab is restored through the public CLI.
 #[test]
 fn split_close_and_restore_survive_a_daemon_restart() {
-    let mut server = HeadlessServer::start("split-close-restore-restart");
+    split_close_and_restore_after_a_restart("split-close-restore-restart", &[]);
+}
+
+/// The restarted daemon answers before it adopted its surviving terminals
+/// (81577dcd4b3, #23561): a reopen that comes while the kept terminal still
+/// adopts takes that terminal once it is adopted, never a new shell.
+#[test]
+fn a_closed_split_reopened_while_its_kept_terminal_adopts_takes_that_terminal() {
+    split_close_and_restore_after_a_restart(
+        "split-close-restore-adopting",
+        &[("CMUX_TUI_TEST_ADOPTION_DELAY_MS", "3000")],
+    );
+}
+
+/// Splits, keeps the split's terminal, closes its pane, restarts the daemon
+/// (with `restart_env`) and reopens the closed group.
+fn split_close_and_restore_after_a_restart(name: &str, restart_env: &[(&str, &str)]) {
+    let mut server = HeadlessServer::start(name);
     state_cli(&server, None, &["workspace", "create", "--name", "survivor"]);
     let before = state_cli_topology(&server);
     let workspace = workspace_id_named(&server, "survivor");
@@ -347,6 +364,7 @@ fn split_close_and_restore_survive_a_daemon_restart() {
         .arg("--state")
         .arg(&server.state)
         .env("CMUX_TUI_CONFIG", server.dir.join("config.json"))
+        .envs(restart_env.iter().copied())
         .env_remove("SSH_CONNECTION")
         .env_remove("SSH_CLIENT")
         .env_remove("SSH_TTY")
@@ -388,7 +406,24 @@ fn split_close_and_restore_survive_a_daemon_restart() {
         .find(|tab| tab["id"] == restored_tab.as_str())
         .expect("reopened tab is present in the snapshot");
     assert_eq!(tab["content_id"], split_terminal.as_str(), "{restored}");
-    assert_eq!(tab["pane_id"], source_pane.as_str(), "{restored}");
+    // A closed pane reopens in its own split off the pane it was split from
+    // (3abf55fce6b, #21009): a new pane on the source screen, not the
+    // source pane.
+    let reopened_pane = tab["pane_id"].as_str().expect("reopened tab has a pane").to_string();
+    assert_ne!(reopened_pane, source_pane, "{restored}");
+    let restored_panes = pane_ids(&restored);
+    assert_eq!(restored_panes.len(), 2, "{restored}");
+    assert!(restored_panes.contains(&source_pane), "{restored}");
+    let screen_of = |pane: &str| {
+        restored["panes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|candidate| candidate["id"] == pane)
+            .and_then(|candidate| candidate["screen_id"].as_str())
+            .map(str::to_string)
+    };
+    assert_eq!(screen_of(&reopened_pane), Some(source_screen), "{restored}");
     assert_eq!(workspace_of_terminal(&restored, &split_terminal), workspace);
     assert!(tab_ids(&server).contains(&source_tab), "{restored}");
     assert_eq!(restored["terminals"].as_array().unwrap().len(), 2, "{restored}");

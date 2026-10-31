@@ -35,7 +35,7 @@ pub(super) fn descriptor() -> Value {
             "properties": {
                 "html": {"type": "string", "minLength": 1, "description": "At most 1 MiB of UTF-8."},
                 "title": {"type": "string", "maxLength": MAX_TITLE_CHARS},
-                "id": {"type": "string", "description": "The id an earlier render returned: its card shows this page in place."}
+                "id": {"type": "string", "description": "The id an earlier render in this session returned: its card shows this page in place. After the cmux server restarts (a resumed chat) an earlier id is refused; leave id out then."}
             }
         },
         "annotations": {"readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false},

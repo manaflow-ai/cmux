@@ -7,6 +7,8 @@ nonisolated enum AppsStrings {
     }
 
     static var windowTitle: String { t("store.window.title", "App Store") }
+    /// An app mount failed and the supervisor gave no reason.
+    static var mountFailed: String { t("apps.mount.failed", "The app could not start") }
     static var discover: String { t("store.tab.discover", "Discover") }
     static var installed: String { t("store.tab.installed", "Installed") }
     static var features: String { t("store.tab.features", "Features") }
@@ -15,6 +17,7 @@ nonisolated enum AppsStrings {
     static var featureOn: String { t("store.feature.badge.on", "On") }
     static var featureNotChanged: String { t("store.feature.notChanged", "Not changed") }
     static var featureManaged: String { t("store.feature.managed", "Managed by your organization") }
+    static var featureKeptOn: String { t("store.feature.keptOn", "Your organization recommends this, so it stays on") }
     static func featureSetting(_ key: String) -> String { String(format: t("store.feature.setting", "Setting: %@"), key) }
     static var featureSettingsLink: String { t("store.feature.settingsLink", "Settings…") }
     static func featureSettingsHelp(_ name: String) -> String { String(format: t("store.feature.settingsLink.help", "Open %@ in Settings"), name) }
@@ -23,11 +26,15 @@ nonisolated enum AppsStrings {
     static func featureCategory(_ category: AppFeature.Category) -> String {
         switch category {
         case .backgrounds: t("store.feature.category.backgrounds", "Backgrounds")
+        case .appearance: t("store.feature.category.appearance", "Appearance")
         case .chief: t("store.feature.category.chief", "Chief")
         case .newTab: t("store.feature.category.newTab", "New Tab")
         case .sidebar: t("store.feature.category.sidebar", "Sidebar")
         case .media: t("store.feature.category.media", "Media")
+        case .editor: t("store.feature.category.editor", "Editor")
+        case .devices: t("store.feature.category.devices", "Mac & Phone")
         case .browser: t("store.feature.category.browser", "Browser")
+        case .layout: t("store.feature.category.layout", "Layout")
         }
     }
     static var search: String { t("store.search", "Search apps") }

@@ -39,11 +39,15 @@ struct HomeScreen: View {
     var body: some View {
         @Bindable var shell = shell
         NavigationStack(path: $shell.homePath) {
-            ConversationsHome(store: shell.store, open: { route in
+            ConversationsHome(store: shell.store, macFilter: shell.macFilter,
+                              reconnect: shell.live.map { live in { macID in await live.reconnectFeed(macID: macID) } },
+                              selectMac: shell.live.map { live in { live.select(macID: $0) } }, open: { route in
                 if let chief = route.chiefRoute {
                     shell.homePath.append(chief)
                 } else if case let .agent(destination) = route {
                     shell.homePath.append(destination)
+                } else if case let .mac(conversation) = route {
+                    shell.homePath.append(conversation)
                 }
             }) {
                 SidebarToolbarItem(sidebar: shell.sidebar)
@@ -70,25 +74,28 @@ struct WorkspacesScreen: View {
                 },
                 linking: shell.live.map { live in
                     MacLinking(link: { live.select(macID: $0) }, canLink: { live.canLink(macID: $0) },
-                               isLinkTarget: { live.link.target?.macID == $0 })
+                               isLinkTarget: { live.isLinked(macID: $0) })
                 },
-                refresh: shell.live.map { live in { await live.workspaces.refresh() } },
+                refresh: shell.live.map { live in { await live.refreshWorkspaces() } },
+                retryLoad: { await shell.retryWorkspaces() },
                 switchTeam: { shell.switchTeam(to: $0) },
                 openAccount: {
                     shell.tab = .settings
                     shell.settingsPath = [.account]
-                }
+                },
+                filter: shell.macFilter
             ) { shell.workspacesPath.append($0) }
                 .background(theme.colors.bg.color.ignoresSafeArea())
                 .navigationBarTitleDisplayMode(.inline)
                 .navigationDestination(for: Workspace.self) { ws in
-                    WorkspaceScreen(store: shell.store, workspaceID: ws.id, terminal: shell.terminalTabs, creator: shell.creator)
+                    WorkspaceScreen(store: shell.store, workspaceID: ws.id, terminal: shell.terminalTabs, creator: shell.creator,
+                                    openWorkspace: { shell.show(workspace: $0) })
                 }
                 .toolbar {
                     // WorkspacesList owns the title and the Mac chip row.
                     SidebarToolbarItem(sidebar: shell.sidebar)
                 }
-                .cmuxMobileBanner(shell.banner)
+                .cmuxMobileBanner(shell.banner, retry: shell.live.map { live in { live.retryConnection() } })
         }
     }
 }

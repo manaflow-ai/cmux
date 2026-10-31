@@ -11,17 +11,26 @@ import { GalleryDialog } from "./GalleryDialog";
 import { chatGallery } from "./chatGallery";
 import { useScrollEdges } from "./scrollEdges";
 import { sessionSummary } from "./sessionSummary";
-import { SubagentStatusList, subagentStatus, waitingSubagents } from "./SubagentStatusList";
+import type { SubsessionRow } from "../subagents/subsessions";
+import { SUBSESSION_STATUS, SubagentStatusList, subagentStatus, waitingSubagents } from "./SubagentStatusList";
+import { sessionStatus } from "../inspector/ChildSessionRows";
+import { sessionRetry } from "../subagents/retryState";
 import { SubagentsTab } from "./SubagentsTab";
 import { SummaryBody, type SummaryChanges } from "./SummaryBody";
+import type { ChatToolsControl } from "./SourcesAddMenu";
 import type { SummaryCardControl } from "./cardState";
 import { backgroundCommands } from "../inspector/processes";
 import type { SummaryBackgroundTask } from "./sessionSummary";
 import type { ProcessRegistry } from "../inspector/processes";
+import type { WorkflowActions } from "./WorkflowSummary";
+import type { WorkflowSummary } from "./workflow";
+import type { WorkflowCapacitySignal } from "./foldWorkflows";
 
 const NO_SESSIONS: readonly StartedSession[] = [];
 const NO_TASKS: readonly SummaryBackgroundTask[] = [];
 const NO_REGISTRY: ProcessRegistry = { processes: [], listed: false };
+
+const NO_SUBSESSIONS: readonly SubsessionRow[] = [];
 
 /// What the chat has produced so far. A wide pane reserves a quiet right column; a narrow pane
 /// uses a popover that dismisses on outside click or Escape. Folded popovers keep their header line,
@@ -30,25 +39,36 @@ const NO_REGISTRY: ProcessRegistry = { processes: [], listed: false };
 /// A subagent row shows that subagent (`subagents.onOpen`). The Subagents section's title opens a
 /// Subagents tab beside the Summary (SubagentsTab.tsx), as the ChatGPT desktop app's right pane
 /// does; its close button goes back to the summary.
-/// Background work shows live: the chat's background commands (`background`, the process
-/// registry's merged with the transcript's, backgroundWork.ts) with Stop, and the chats its agent
-/// started (`sessions`) under Subagents. The header's counts include the running ones.
+/// Background work shows as compact task cards: the chat's background commands (`background`, the
+/// process registry's merged with the transcript's, backgroundWork.ts) keep their description,
+/// running/completed/failed state and Stop affordance, and the chats its agent started (`sessions`)
+/// stay under Subagents. The header's counts include the running ones.
 export function SummaryCard({
   card,
   rows,
+  cwd,
   onOpenOutput,
   onOpenImage,
   changes,
   onOpenChanges,
   subagents,
+  subsessions,
   onAttach,
   background,
   sessions,
+  tools,
+  workflow,
+  workflowActions,
+  workflows,
+  workflowActionsFor,
+  workflowCapacity,
 }: {
   card: SummaryCardControl;
   rows: readonly AcpmuxRow[];
+  /// The chat's project folder; Outputs excludes files outside it.
+  cwd?: string;
   onOpenOutput?: (path: string) => void;
-  onOpenImage?: (src: string, alt: string) => void;
+  onOpenImage?: (src: string, alt: string, path?: string) => void;
   /// The last turn that edited files, with its counts and files; the Changes rows open its diff,
   /// or a file's.
   changes?: SummaryChanges;
@@ -64,6 +84,9 @@ export function SummaryCard({
     /// Whether new subagents open in panes of their own, and its switch; none where no pane opens.
     autoOpen?: { on: boolean; set: (on: boolean) => void };
   };
+  /// The chat's sub-sessions (subagents/subsessions.ts `subsessionRows`), listed after its
+  /// subagents, and how a row opens one's chat beside this one.
+  subsessions?: { rows: readonly SubsessionRow[]; onOpen: (sessionId: string) => void };
   /// Sources' + (Attach files or folders), for a chat on this computer.
   onAttach?: () => void;
   /// The chat's background commands: the process registry's records, the transcript's tasks still
@@ -74,6 +97,14 @@ export function SummaryCard({
   };
   /// The chats this chat's agent started, and how one opens.
   sessions?: { list: readonly StartedSession[]; onOpen: (sessionId: string) => void };
+  /// Sources' Use tools: the chat's tools, where acpmux can change them (cx-thur3).
+  tools?: ChatToolsControl;
+  /// Labs-only workflow data from the optional acpmux adapter.
+  workflow?: WorkflowSummary;
+  workflowActions?: WorkflowActions;
+  workflows?: readonly WorkflowSummary[];
+  workflowActionsFor?: (workflow: WorkflowSummary) => WorkflowActions;
+  workflowCapacity?: WorkflowCapacitySignal;
 }) {
   const t = useT();
   const [gallery, setGallery] = useState(false);
@@ -91,7 +122,7 @@ export function SummaryCard({
   const asks = subagents.asks;
   const waiting = useMemo(() => (drawn ? waitingSubagents(asks, views) : new Set<string>()), [drawn, asks, views]);
   const galleryRow = useRef<HTMLElement | null>(null);
-  const summary = useMemo(() => (open ? sessionSummary(rows) : undefined), [open, rows]);
+  const summary = useMemo(() => (open ? sessionSummary(rows, undefined, cwd) : undefined), [open, rows, cwd]);
   const galleryCount = useMemo(() => (open ? chatGallery(rows).length : 0), [open, rows]);
   const registry = background ?? NO_REGISTRY;
   const running = background?.running ?? NO_TASKS;
@@ -125,17 +156,23 @@ export function SummaryCard({
     const away = (event: Event) => {
       const target = event.target instanceof Element ? event.target : null;
       if (!target || panel.current?.contains(target)) return;
-      if (target.closest(".acpmux-summary-button, .acpmux-chat-gallery")) return;
+      // The card's own menus (Sources' +, SourcesAddMenu.tsx) draw in the page's portal, outside it.
+      if (target.closest(".acpmux-summary-button, .acpmux-chat-gallery, .acpmux-summary-menu")) return;
       close();
     };
     document.addEventListener("pointerdown", away, true);
     return () => document.removeEventListener("pointerdown", away, true);
   }, [close, popover]);
-  useEscapeCloses(popover && !gallery, () => {
-    const button = panel.current?.closest(".acpmux-stage")?.querySelector<HTMLElement>(".acpmux-summary-button");
-    card.close();
-    button?.focus();
-  });
+  // Escape in one of the card's menus closes that menu only.
+  useEscapeCloses(
+    popover && !gallery,
+    () => {
+      const button = panel.current?.closest(".acpmux-stage")?.querySelector<HTMLElement>(".acpmux-summary-button");
+      card.close();
+      button?.focus();
+    },
+    ".acpmux-summary-menu",
+  );
   if (!drawn) {
     // Keep the inline column's width stable before the first summary row arrives. The rail is
     // intentionally invisible until it has content, but removing it from the flex row would make
@@ -144,17 +181,27 @@ export function SummaryCard({
       <aside className="acpmux-summary-card acpmux-summary-card--reserve" aria-hidden="true" data-placement="inline" />
     ) : null;
   }
-  const children = sessions?.list ?? NO_SESSIONS;
-  const count = (status: string) => agents.filter((agent) => subagentStatus(agent, waiting) === status).length;
+  const subsessionRows = subsessions?.rows ?? NO_SUBSESSIONS;
+  // A started chat that is also a sub-session shows once, as its sub-session row.
+  const children = (sessions?.list ?? NO_SESSIONS).filter(
+    (child) => !subsessionRows.some((row) => row.sessionId === child.sessionId),
+  );
+  const count = (status: string) =>
+    agents.filter((agent) => subagentStatus(agent, waiting) === status).length +
+    subsessionRows.filter(
+      (session) =>
+        (sessionRetry(session).kind === "retrying" ? SUBSESSION_STATUS.working : SUBSESSION_STATUS[session.state]) ===
+        status,
+    ).length;
   // A started chat waiting on the person is counted with the waiting subagents.
-  const waitingCount = count("waiting") + children.filter((child) => child.state === "waiting").length;
+  const waitingCount = count("waiting") + children.filter((child) => sessionStatus(child) === "waiting").length;
   const runningCommands = commands.filter((command) => command.state === "running").length;
-  const runningSessions = children.filter((child) => child.state === "running").length;
+  // A started chat whose turn runs is a running subagent too: one word, as the tray says.
+  const runningCount = count("running") + children.filter((child) => sessionStatus(child) === "running").length;
   const counts = [
     waitingCount > 0 && t("summary.subagents.waiting", { n: waitingCount }),
-    count("running") > 0 && t("summary.subagents.running", { n: count("running") }),
+    runningCount > 0 && t("summary.subagents.running", { n: runningCount }),
     runningCommands > 0 && t("turn.working.commands", { n: runningCommands }),
-    runningSessions > 0 && t("turn.working.sessions", { n: runningSessions }),
     count("failed") > 0 && t("summary.subagents.failed", { n: count("failed") }),
     count("stopped") > 0 && t("summary.subagents.stopped", { n: count("stopped") }),
     count("done") > 0 && t("summary.subagents.done", { n: count("done") }),
@@ -162,7 +209,7 @@ export function SummaryCard({
   const title = t("summary.open");
   const foldLabel = card.collapsed ? t("summary.expand") : t("summary.collapse");
   const onSubagents = tab === "subagents";
-  const hasSubagents = agents.length > 0 || children.length > 0;
+  const hasSubagents = agents.length > 0 || children.length > 0 || subsessionRows.length > 0;
   return (
     <>
       <aside
@@ -171,7 +218,10 @@ export function SummaryCard({
           panel.current = node;
           presence.props.ref(node);
         }}
-        className="acpmux-summary-card"
+        // The popover floats over the chat, so it is the shared glass (ui/glass/glass.css), never the
+        // solid popup surface (Leo 2026-10-30: "I don't like the non-glassness"). The inline column is
+        // part of the pane and keeps the page color.
+        className={card.column ? "acpmux-summary-card" : "ui-glass ui-glass-floats acpmux-summary-card"}
         inert={presence.leaving}
         // ui-allow: focusable from script only, the last place closing the Subagents tab can leave focus.
         tabIndex={-1}
@@ -263,7 +313,7 @@ export function SummaryCard({
         )}
         {summary && !onSubagents && (
           <div className="acpmux-summary-card__body" ref={edges}>
-            {/* The subagents and started chats first: they are what the card follows while a turn runs. */}
+            {/* The subagents, sub-sessions and started chats first: they are what the card follows while a turn runs. */}
             {hasSubagents && (
               <SubagentStatusList
                 agents={agents}
@@ -271,9 +321,11 @@ export function SummaryCard({
                 current={subagents.current}
                 onOpen={subagents.onOpen}
                 autoOpen={agents.length > 0 ? subagents.autoOpen : undefined}
+                // The tab lists subagents only; a chat with only sub-sessions or started chats has none to show there.
                 onShowAll={agents.length > 0 ? () => setTab("subagents") : undefined}
+                subsessions={subsessionRows}
                 sessions={children}
-                onOpenSession={sessions?.onOpen}
+                onOpenSession={sessions?.onOpen ?? subsessions?.onOpen}
                 stack={agents.length === 0 ? summary.subagents : undefined}
               />
             )}
@@ -289,8 +341,14 @@ export function SummaryCard({
               subagents={hasSubagents ? <></> : undefined}
               onOpenOutput={onOpenOutput}
               onAttach={onAttach}
+              tools={tools}
               commands={commands}
               onStopCommand={background?.onStop}
+              workflow={workflow}
+              workflowActions={workflowActions}
+              workflows={workflows}
+              workflowActionsFor={workflowActionsFor}
+              workflowCapacity={workflowCapacity}
             />
           </div>
         )}
@@ -306,9 +364,9 @@ export function SummaryCard({
           }}
           onOpenImage={
             onOpenImage &&
-            ((src, alt) => {
+            ((src, alt, path) => {
               setGallery(false);
-              onOpenImage(src, alt);
+              onOpenImage(src, alt, path);
             })
           }
         />

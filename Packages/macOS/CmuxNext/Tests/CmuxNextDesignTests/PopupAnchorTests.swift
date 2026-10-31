@@ -56,6 +56,23 @@ import Testing
         #expect(window.contains(card), "card \(card) in window \(window)")
     }
 
+    /// With no screen to read (`NSScreen.main` is nil on a fleet mini with no display), a card
+    /// still keeps to the window it opens over: SidebarMenuAnchorTests' group editor hung 80 pt
+    /// past the window's leading edge on the fleet (base red, 2026-10-21).
+    @Test func aCardWithNoScreenStillKeepsToItsWindow() {
+        let window = CGRect(x: 100, y: 200, width: 900, height: 600)
+        let button = CGRect(x: 242, y: 700, width: 20, height: 20)
+        let card = PopupAnchor(rect: button, edge: .trailing, gap: 2, margin: 4).cardFrame(size: size, visible: nil, window: window)
+        #expect(window.contains(card), "card \(card) leaves the window \(window)")
+        #expect(card.minX == 242, "card \(card) is not on the button's leading edge")
+        // A window narrower than the card bounds nothing on that axis (as the screen would).
+        let narrow = CGRect(x: 100, y: 200, width: 200, height: 600)
+        let wide = PopupAnchor(rect: button, edge: .trailing, gap: 2, margin: 4).cardFrame(size: size, visible: nil, window: narrow)
+        #expect(wide.maxX == 262 && wide.maxY == 698, "card \(wide) is not under the button's trailing edge")
+        // With neither, the card is placed as anchored.
+        #expect(PopupAnchor(rect: button, edge: .trailing, gap: 2, margin: 4).cardFrame(size: size, visible: nil).minX == 22)
+    }
+
     /// A window too small for the card keeps the card on the screen instead.
     @Test func aCardWiderThanItsWindowKeepsToTheScreen() {
         let window = CGRect(x: 200, y: 100, width: 200, height: 600)

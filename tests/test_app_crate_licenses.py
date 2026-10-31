@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The app-linked crate license gate (plans/cmux-next/remote-desktop-c7.md 3):
 x264, cmux-rd-host and OpenH264 source never enter an app-linked crate graph,
-and every crate in it carries an allowed license or is one of the six named
+and every crate in it carries an allowed license or is one of the ten named
 first-party GPL crates. Runs on synthetic `cargo metadata` output, no cargo."""
 
 import importlib.util
@@ -83,7 +83,7 @@ class AppCrateLicenseGate(unittest.TestCase):
         self.assertFalse(gate.license_allowed("MIT AND GPL-2.0"))
         self.assertFalse(gate.license_allowed(None))
 
-    def test_the_seven_first_party_gpl_crates_are_named_exactly(self):
+    def test_the_ten_first_party_gpl_crates_are_named_exactly(self):
         self.assertEqual(
             sorted(gate.FIRST_PARTY_GPL),
             sorted(
@@ -94,6 +94,10 @@ class AppCrateLicenseGate(unittest.TestCase):
                     "cmux-rd-proto",
                     "cmux-layout-reducer",
                     "cmux-layout-reducer-ffi",
+                    # 83755ce18d22 (cmux-focus-core over the app FFI) named these three in the gate.
+                    "cmux-focus-core",
+                    "cmux-tasks-core",
+                    "cmux-palette-ranker",
                     "cmux-remote-browser",
                 ]
             ),

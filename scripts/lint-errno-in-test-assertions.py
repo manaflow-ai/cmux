@@ -45,13 +45,34 @@ from typing import Dict, List, Optional, Tuple
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
-# Swift test sources: the macOS and iOS package tests, and the iOS app's
-# keyboard UI tests (the cmuxUITests target of ios/cmux-ios.xcodeproj). The
+# Where Swift tests live, as path prefixes (`**` spans directories). The
 # quality-determinism guard group runs this lint; the router reaches it for the
 # ios/ paths through its run-every-group fallback.
-TEST_PATH = re.compile(
-    r"^(?:Packages/.*/Tests/|ios/CmuxiOS/Tests/|ios/cmuxUITests/).*\.swift$"
+TEST_ROOTS = (
+    "Packages/**/Tests/",  # macOS, iOS and shared package tests
+    "ios/CmuxiOS/Tests/",
+    "ios/cmuxUITests/",  # the cmuxUITests target of ios/cmux-ios.xcodeproj
+    "cmux-next-ios/CmuxMobileKit/Tests/",
+    "cmux-next-ios/UITests/",  # CmuxMobileAppUITests in cmux-next-ios/project.yml
+    "cmux-tui/**/Tests/",  # TerminalBytesDemo and the cmux-mobile-ffi Swift tests
+    "vendor/**/Tests/",  # vendored SDKs' tests, which carry cmux changes
+    "Packages/Shared/CmuxMessagesLab/Harness/",  # copied into a gitignored test target at harness time
+    "Prototypes/**/Tests/",  # prototype SwiftPM packages' tests (UiLayerHost)
 )
+
+# Swift files that import a test framework but are not scanned, each with why.
+# Empty: every test source is ours to keep errno-safe.
+NOT_SCANNED: Tuple[str, ...] = ()
+
+
+def _prefixes(roots: Tuple[str, ...]) -> str:
+    return "|".join(re.escape(root).replace(r"\*\*/", "(?:.*/)?") for root in roots)
+
+
+TEST_PATH = re.compile(rf"^(?:{_prefixes(TEST_ROOTS)}).*\.swift$")
+EXCLUDED_PATH = re.compile(rf"^(?:{_prefixes(NOT_SCANNED)})") if NOT_SCANNED else None
+# A Swift file with tests in it: it imports Swift Testing or XCTest.
+TEST_IMPORT = re.compile(r"^\s*(?:@testable\s+)?import\s+(?:Testing|XCTest)\b", re.MULTILINE)
 
 ASSERTION = re.compile(r"(#expect|#require|\bXCTAssert[A-Za-z]*|\bXCTUnwrap)\s*\(")
 ERRNO = re.compile(r"\berrno\b")
@@ -317,14 +338,33 @@ def scan_source(text: str, path: str) -> List[Finding]:
     return [by_line[line] for line in sorted(by_line)]
 
 
-def tracked_test_sources(root: Path) -> List[str]:
+def tracked_swift_sources(root: Path) -> List[str]:
     listed = subprocess.run(
         ["git", "ls-files", "-z", "--", "*.swift"],
         cwd=root,
         capture_output=True,
         check=True,
     ).stdout.decode("utf-8").split("\0")
-    return sorted(path for path in listed if path and TEST_PATH.match(path))
+    return sorted(path for path in listed if path)
+
+
+def tracked_test_sources(root: Path) -> List[str]:
+    return [path for path in tracked_swift_sources(root) if TEST_PATH.match(path)]
+
+
+def unscanned_test_sources(root: Path) -> List[str]:
+    """Swift files with tests in them that no root in TEST_ROOTS or NOT_SCANNED covers."""
+    unscanned = []
+    for path in tracked_swift_sources(root):
+        if TEST_PATH.match(path) or (EXCLUDED_PATH and EXCLUDED_PATH.match(path)):
+            continue
+        try:
+            text = (root / path).read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        if TEST_IMPORT.search(text):
+            unscanned.append(path)
+    return unscanned
 
 
 def main(argv: Optional[List[str]] = None) -> int:
@@ -343,6 +383,17 @@ def main(argv: Optional[List[str]] = None) -> int:
     )
     args = parser.parse_args(argv)
     root = args.root.resolve()
+    if not args.paths:
+        unscanned = unscanned_test_sources(root)
+        if unscanned:
+            for path in unscanned:
+                print(f"{path}: Swift tests outside every scanned root", file=sys.stderr)
+            print(
+                "\nAdd the test target's directory to TEST_ROOTS in "
+                "scripts/lint-errno-in-test-assertions.py, or to NOT_SCANNED with the reason.",
+                file=sys.stderr,
+            )
+            return 1
     paths = args.paths or tracked_test_sources(root)
 
     findings: List[Finding] = []

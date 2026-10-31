@@ -43,7 +43,8 @@ struct MachineIconTests {
         let paths = CloudPaths(root: root), binary = URL(fileURLWithPath: "/usr/bin/false"), api = services.cloud.api
         let hub = CloudTunnelHub(api: api, paths: paths, binary: binary, deviceName: "cn-icon-test")
         let link = CloudMachineLink(machineID: id, api: api, hub: hub, paths: paths, binary: binary, deviceName: "cn-icon-test")
-        let session = CloudMachineSession(machine: CloudMachine(id: id, displayName: "Icon VM"), link: link)
+        let session = CloudMachineSession(machine: CloudMachine(id: id, displayName: "Icon VM"), link: link,
+                                          mainWork: services.mainWork)
         services.machines.add(session)
         return session
     }
@@ -83,8 +84,8 @@ struct MachineIconTests {
         #expect(try sent(nil)["icon"] is NSNull, "a clear sends null, never leaves the key out")
         #expect(SetSessionIconRequest.command == "set-session-icon")
         #expect(SetSessionIconRequest.requiredCapability == "session-icon-v1")
-        #expect(DaemonCapabilities.shared.optional.contains("session-icon-v1"))
-        #expect(DaemonCapabilities.shared.homeOnly.contains("session-icon-v1"))
+        #expect(DaemonCapability.optional.contains("session-icon-v1"))
+        #expect(DaemonCapability.homeOnly.contains("session-icon-v1"))
     }
 
     // MARK: The sidebar header
@@ -192,11 +193,12 @@ struct MachineIconTests {
         func iconRuns() throws -> [(id: ActionID, target: ActionTargetRef?)] {
             let menu = SidebarContextMenus.machineMenu(MachineRegistry.localID, services: services)
             let background = services.registry.makeContextMenu(for: .sidebarBackground)
-            #expect(menu.items.filter { !$0.isSeparatorItem }.count <= 12, "a menu keeps at most 12 top-level rows")
+            // Customize Menu… (Settings > Menus) ends every menu; the limit counts the menu's own rows.
+            #expect(menu.items.filter { !$0.isSeparatorItem && !ActionRegistry.isCustomizeItem($0) }.count <= 12, "a menu keeps at most 12 top-level rows")
             #expect(menu.items.filter { !$0.isSeparatorItem }.count >= background.items.filter { !$0.isSeparatorItem }.count,
                     "the sidebar's own rows stay")
             return allItems(menu.items).compactMap { ActionRegistry.menuRun(of: $0) }
-                .filter { $0.id.rawValue.hasPrefix("machine.") }.map { (id: $0.id, target: $0.target) }
+                .filter { $0.id.rawValue.hasPrefix("machine.") && $0.id.rawValue.hasSuffix("Icon") }.map { (id: $0.id, target: $0.target) }
         }
         Self.record(services, icon: nil)
         let plain = try iconRuns()
@@ -273,7 +275,7 @@ struct MachineIconTests {
             let menu = try #require(SidebarContextMenus.menu(for: .section(.machine(.local)), model: model, services: services,
                                                              scope: ThemeScope(level: .room)))
             func all(_ items: [NSMenuItem]) -> [NSMenuItem] { items.flatMap { [$0] + ($0.submenu.map { all($0.items) } ?? []) } }
-            return all(menu.items).compactMap { ActionRegistry.menuRun(of: $0)?.id }.filter { $0.rawValue.hasPrefix("machine.") }
+            return all(menu.items).compactMap { ActionRegistry.menuRun(of: $0)?.id }.filter { $0.rawValue.hasPrefix("machine.") && $0.rawValue.hasSuffix("Icon") }
         }
         let local = CmuxNextSidebar.SidebarSection(kind: .machine(SidebarMachine(id: .local, name: "This Mac", kind: .local)), nodes: [])
         let cloud = CmuxNextSidebar.SidebarSection(kind: .machine(SidebarMachine(id: CmuxNextSidebar.MachineID("vm-1"), name: "cloud-a1", kind: .cloud)),

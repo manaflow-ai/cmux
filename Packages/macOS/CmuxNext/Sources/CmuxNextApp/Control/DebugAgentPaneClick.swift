@@ -1,4 +1,4 @@
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 import AppKit
 import CmuxNextAgentPane
 import CmuxNextSettings
@@ -8,41 +8,11 @@ import WebKit
 /// found by `selector` (CSS) or by `text` (its visible text or accessible name, such as a chip's label; the
 /// smallest element that matches). Its center goes from page coordinates to the window, and a real mouse down and
 /// up go there as ``DebugNativeInput`` delivers them, so the pane's gesture monitor records the user's gesture,
-/// also in a window that was never activated. Never moves the user's pointer.
+/// also in a window that was never activated. A chat shown in Chromium gets a trusted DevTools press instead,
+/// after its native mouse down in the Chromium page window went through the pane's gesture monitor
+/// (``judgeChromiumClick(x:y:pane:view:services:)``), so it counts as the person's click there too. Never moves the user's pointer.
 @MainActor
 enum DebugAgentPaneClick {
-    /// Finds the element, scrolls it into view and returns its center in CSS pixels.
-    private static let locate = """
-        const visible = (el) => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
-        let target = null;
-        if (selector) {
-            target = [...document.querySelectorAll(selector)].find(visible) ?? null;
-        } else {
-            const want = text.trim();
-            let area = Infinity;
-            for (const el of document.querySelectorAll('body *')) {
-                if (!(el instanceof HTMLElement) || !visible(el)) continue;
-                const label = (el.innerText || el.getAttribute('aria-label') || '').trim();
-                if (label !== want) continue;
-                const r = el.getBoundingClientRect();
-                if (r.width * r.height < area) { area = r.width * r.height; target = el; }
-            }
-        }
-        if (!target) return JSON.stringify({ error: 'no visible element matches' });
-        // What the page sees of the click (`page_events` in the result).
-        const seen = [];
-        window.__cmuxDebugClick = seen;
-        for (const type of ['pointerdown', 'mousedown', 'mouseup', 'click']) {
-            window.addEventListener(type, function note(e) {
-                if (window.__cmuxDebugClick !== seen) return window.removeEventListener(type, note, true);
-                seen.push(type + (e.isTrusted ? '' : '?'));
-            }, true);
-        }
-        target.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-        const r = target.getBoundingClientRect();
-        return JSON.stringify({ x: r.left + r.width / 2, y: r.top + r.height / 2, tag: target.tagName.toLowerCase() });
-        """
-
     /// Whether the page has seen the click's mouse down, waiting up to `ms` for it.
     private static let arrived = """
         for (const until = Date.now() + ms; Date.now() < until; await new Promise((resolve) => setTimeout(resolve, 20))) {
@@ -63,23 +33,31 @@ enum DebugAgentPaneClick {
         guard !selector.isEmpty || !text.isEmpty else {
             return .object(["pane": .string(pane), "error": .string("pass selector or text")])
         }
-        let found: [String: Any]
-        do {
-            let result = try await view.webView.callAsyncJavaScript(
-                locate, arguments: ["selector": selector, "text": text], in: nil, contentWorld: .page)
-            guard let json = result as? String,
-                  let object = (try? JSONSerialization.jsonObject(with: Data(json.utf8))) as? [String: Any] else {
-                return .object(["pane": .string(pane), "error": .string("the page returned no JSON")])
-            }
-            found = object
-        } catch {
-            return .object(["pane": .string(pane), "error": .string(String(describing: error))])
-        }
+        // In the page the chat shows: on the shared page host, the pane's own web view holds no document.
+        let found = await view.debugLocate(selector: selector, text: text)
         if let error = found["error"] as? String { return .object(["pane": .string(pane), "error": .string(error)]) }
-        guard let x = found["x"] as? Double, let y = found["y"] as? Double, let window = view.window else {
+        guard let x = found["x"] as? Double, let y = found["y"] as? Double else {
+            return .object(["pane": .string(pane), "error": .string("the page returned no point")])
+        }
+        // A chat in Chromium takes a trusted DevTools click: no AppKit click reaches its page in a window
+        // that never activates (a capture slot).
+        if view.debugShowsChromium {
+            // The pane's gesture monitor judges a real click in the page window before Chromium gets it; the
+            // DevTools press is the page's half only, so the monitor gets its native mouse down first.
+            judgeChromiumClick(x: x, y: y, pane: pane, view: view, services: services)
+            let pressed = await view.debugPress(x: x, y: y)
+            let page = (try? await view.callPageScript(report)) as? String
+            let pageObject = page.flatMap { (try? JSONSerialization.jsonObject(with: Data($0.utf8))) as? [String: Any] }
+            return .object([
+                "pane": .string(pane), "clicked": .bool(pressed), "tag": (found["tag"] as? String).map(JSONValue.string) ?? .null,
+                "x": .number(x), "y": .number(y), "delivered": .string("devtools"),
+                "gesture_available": .bool(view.model.transport.gestures.debugState.available),
+                "page_events": .array(((pageObject?["events"] as? [String]) ?? []).map(JSONValue.string)),
+            ])
+        }
+        guard let webView = view.debugPageWebView, let window = webView.window else {
             return .object(["pane": .string(pane), "error": .string("the pane is not in a window")])
         }
-        let webView = view.webView
         let scale = webView.pageZoom * webView.magnification
         let (cssX, cssY) = (CGFloat(x) * scale, CGFloat(y) * scale)
         let local = NSPoint(x: cssX, y: webView.isFlipped ? cssY : webView.bounds.height - cssY)
@@ -104,7 +82,7 @@ enum DebugAgentPaneClick {
             // Automation makes a window key without the app being frontmost, and AppKit then holds a first click back from a
             // view that does not accept first mouse (the web view): when the click was this page's and the page never saw it,
             // it goes to the web view as for a window that is not key. A click AppKit gave another view stays there.
-            let pageSawIt = (try? await webView.callAsyncJavaScript(arrived, arguments: ["ms": 500], in: nil, contentWorld: .page)) as? Bool
+            let pageSawIt = (try? await view.callPageScript(arrived, arguments: ["ms": 500])) as? Bool
             if path != "app", pageSawIt == false, hit?.isDescendant(of: webView) == true {
                 webView.mouseDown(with: down); webView.mouseUp(with: up)
                 delivered = "app, then view"
@@ -119,7 +97,7 @@ enum DebugAgentPaneClick {
             delivered = "view"
         }
         let gestures = view.model.transport.gestures.debugState
-        let page = (try? await webView.callAsyncJavaScript(report, arguments: [:], in: nil, contentWorld: .page)) as? String
+        let page = (try? await view.callPageScript(report)) as? String
         let pageObject = page.flatMap { (try? JSONSerialization.jsonObject(with: Data($0.utf8))) as? [String: Any] }
         return .object([
             "pane": .string(pane), "clicked": .bool(true), "tag": (found["tag"] as? String).map(JSONValue.string) ?? .null,
@@ -131,6 +109,17 @@ enum DebugAgentPaneClick {
             "page_visibility": (pageObject?["visibility"] as? String).map(JSONValue.string) ?? .null,
             "page_focus": (pageObject?["focus"] as? Bool).map(JSONValue.bool) ?? .null,
         ])
+    }
+
+    /// A native left mouse down at `x`,`y` (CSS pixels) in the Chromium page window of `pane` (``DebugKey/pageWindow(of:in:)``,
+    /// the window `debug.key {target: page}` delivers to), judged by the pane's gesture monitor as a real one is.
+    private static func judgeChromiumClick(x: Double, y: Double, pane: String, view: AgentPaneView, services: AppServices) {
+        guard let controller = services.windows.controllers.first(where: { $0.window === view.window }),
+              let page = DebugKey.pageWindow(of: pane, in: controller), let screen = view.debugChromiumScreenPoint(x: x, y: y),
+              let down = NSEvent.mouseEvent(with: .leftMouseDown, location: page.convertPoint(fromScreen: screen), modifierFlags: [],
+                                            timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: page.windowNumber,
+                                            context: nil, eventNumber: 0, clickCount: 1, pressure: 1) else { return }
+        view.judge(down, eventWindow: page)
     }
 
     /// Moves the page's pointer to `x`,`y` in CSS pixels: pointer and mouse out of the element it
@@ -160,15 +149,15 @@ enum DebugAgentPaneClick {
         guard let window = view.window, let x = params["x"]?.doubleValue, let y = params["y"]?.doubleValue else {
             return .object(["pane": .string(pane), "error": .string("pass x and y; the pane must be in a window")])
         }
-        let webView = view.webView
+        // The view that shows the chat: the page host's (WebKit or Chromium) or the pane's own.
+        let shown = view.focusTarget
         let height = window.contentView?.bounds.height ?? window.frame.height
-        let local = webView.convert(NSPoint(x: x, y: height - y), from: nil)
-        let scale = max(webView.pageZoom * webView.magnification, 0.01)
+        let local = shown.convert(NSPoint(x: x, y: height - y), from: nil)
+        let scale = max(view.debugPageZoom, 0.01)
         let cssX = local.x / scale
-        let cssY = (webView.isFlipped ? local.y : webView.bounds.height - local.y) / scale
+        let cssY = (shown.isFlipped ? local.y : shown.bounds.height - local.y) / scale
         do {
-            let hit = try await webView.callAsyncJavaScript(
-                hoverScript, arguments: ["x": Double(cssX), "y": Double(cssY)], in: nil, contentWorld: .page) as? String
+            let hit = try await view.callPageScript(hoverScript, arguments: ["x": Double(cssX), "y": Double(cssY)]) as? String
             return .object(["pane": .string(pane), "x": .number(x), "y": .number(y), "element": .string(hit ?? "")])
         } catch {
             return .object(["pane": .string(pane), "error": .string(String(describing: error))])

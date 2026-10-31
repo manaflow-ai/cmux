@@ -8,6 +8,7 @@ use serde_json::{Value, json};
 
 use super::*;
 use crate::terminal_end::TerminalEnd;
+use cmux_json::JsonSet as _;
 
 impl Mux {
     #[cfg(test)]
@@ -202,16 +203,21 @@ impl Mux {
             .and_then(|generation| self.capture_terminal_exit_replay(terminal_id, generation));
         // The host's loss breadcrumbs are read before the commit, so the
         // exit and its cause become visible in the same locked section
-        // (a client never reads a host_lost end without its cause).
+        // (a client never reads a host_lost end without its cause), and
+        // logged before it, so the cause is durable once the exit is
+        // visible: an owner stopped right then still names it after its
+        // restart (the dead tab's cause comes back from the log).
         #[cfg(any(unix, windows))]
         let host_loss =
             self.surface_options.lock().unwrap().terminal_host_root.clone().map(|root| {
-                crate::terminal_loss_log::HostLoss::read(
+                let mut loss = crate::terminal_loss_log::HostLoss::read(
                     &root.join(format!("{terminal_id}.json")),
                     terminal_id,
                     incarnation,
                     end,
-                )
+                );
+                loss.log();
+                loss
             });
         // cx-6so.49: whether this loss may respawn, checked before the locks.
         #[cfg(any(unix, windows))]
@@ -301,8 +307,8 @@ impl Mux {
             // this revision derives `tab_id: null, tab_ids: []` from topology;
             // a delta that disagrees leaves clients with a graph that no
             // snapshot at the same cursor can confirm.
-            terminal_snapshot["tab_id"] = Value::Null;
-            terminal_snapshot["tab_ids"] = serde_json::json!([]);
+            terminal_snapshot.set("tab_id", Value::Null);
+            terminal_snapshot.set("tab_ids", serde_json::json!([]));
         }
         let topology = detach_projection.as_ref().map(|projection| {
             (&projection.patch, &projection.changes, projection.workspace_close.as_ref())
@@ -387,9 +393,10 @@ impl Mux {
                     );
                 }
             }
-            // A host loss is logged once, with the signals its host recorded
-            // (cx-6so.49); best effort, after the exit latch. Its cause is
-            // on the tab already (recorded with the commit above).
+            // A host loss was logged before the commit, with the signals its
+            // host recorded (cx-6so.49); its breadcrumbs go after the exit
+            // latch, best effort. Its cause is on the tab already (recorded
+            // with the commit above).
             #[cfg(any(unix, windows))]
             {
                 #[cfg(debug_assertions)]

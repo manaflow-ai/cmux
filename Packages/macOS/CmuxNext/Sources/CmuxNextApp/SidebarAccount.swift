@@ -34,7 +34,10 @@ struct SidebarAccount: Hashable {
         self.init(name: user.displayName, email: user.primaryEmail, imageData: picture, team: team)
     }
 
-    var avatar: SidebarAvatar { .account(name: name, imageData: imageData) }
+    var avatar: SidebarAvatar { .account(name: name, email: email, imageData: imageData) }
+
+    /// The menu bar menu's account rows: the name, then the email, then the team.
+    var menuBarAccount: MenuBarMenuState.Account { MenuBarMenuState.Account(lines: [name, email].compactMap(\.self), team: team) }
 
     /// Adds the account rows to the profile menu (`ProfileMenuBuilder.addAccountRows`).
     @MainActor static func addRows(to menu: NSMenu, account: SidebarAccount?, registry: ActionRegistry) {

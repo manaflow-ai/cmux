@@ -15,8 +15,11 @@
 //! Nothing else is inherited: a decision for a plain folder covers that folder alone, and a
 //! repository at or above home (or with home unknown) is never answered as a whole.
 //!
-//! A folder the app made for a new chat (agent-home, `made_by_cmux`) is
-//! trusted by construction when acpmux has no record for it: nobody is asked.
+//! A folder the app made for a new chat (agent-home, `made_by_cmux`), and a worktree cmux made
+//! (`~/.cmux/worktrees/<project>/<name>`, `cmux_worktree`), is trusted by construction when
+//! acpmux has no record for it: nobody is asked. An agent's own untrusted level, for the
+//! worktree or its repository, still holds a cmux worktree, and for a Web client it counts as
+//! an auto-trust rule does: no person's answer.
 //! A folder under the person's project roots, or in a repository whose remotes are all the
 //! person's own organizations, is trusted the same way (`trust_auto.rs`, switchable in Settings);
 //! an explicit "Don't trust" or an agent's own untrusted level still wins.
@@ -74,6 +77,9 @@ pub struct Paths {
     /// The folder that holds cmux's agent-home folders (`agent_home_root`): the private folder
     /// cmux makes for each new chat in a workspace without a folder. None: no such folder.
     pub agent_home: Option<PathBuf>,
+    /// The folder cmux makes its worktrees in (`cmux_worktrees_root`): a linked worktree at
+    /// `<root>/<project>/<name>` is one cmux made. None: no such folder.
+    pub cmux_worktrees: Option<PathBuf>,
 }
 
 impl Paths {
@@ -85,6 +91,7 @@ impl Paths {
             codex_config: user.join(".codex").join("config.toml"),
             record: crate::config::home().join("trust.json"),
             agent_home: agent_home_root(),
+            cmux_worktrees: cmux_worktrees_root(),
         })
     }
 }
@@ -93,6 +100,12 @@ impl Paths {
 /// the app makes each workspace's agent-home folder there.
 pub fn agent_home_root() -> Option<PathBuf> {
     dirs::data_dir().map(|data| data.join("cmux").join("agent-home"))
+}
+
+/// `~/.cmux/worktrees` (`cmux_git::worktree_root`), where cmux makes the worktrees for its chats
+/// and lanes, on every host.
+pub fn cmux_worktrees_root() -> Option<PathBuf> {
+    dirs::home_dir().map(|home| cmux_git::worktree_root::worktree_root_path(&home))
 }
 
 /// The file the app writes in each agent-home folder it makes (`AgentHome.ensure`).
@@ -109,6 +122,31 @@ pub fn normalize_cwd(cwd: &str) -> Result<String, String> {
     let path = resolved.unwrap_or_else(|_| cwd.to_owned());
     let without_slash = path.trim_end_matches('/');
     Ok(if without_slash.is_empty() { "/".to_owned() } else { without_slash.to_owned() })
+}
+
+/// A recorded key as its folder's key now (`normalize_cwd`, the form every lookup uses): the
+/// key is the folder's spelling when the decision was made, and the folder may since have moved
+/// behind a link, been made under a link, or (on a volume that ignores case) been renamed to
+/// another letter case. A key that is not an absolute path stays as written.
+fn current_key(key: &str) -> String {
+    normalize_cwd(key).unwrap_or_else(|_| key.to_owned())
+}
+
+/// The record as lookups read it: each key as its folder's key now (`current_key`). When two
+/// keys name one folder the stricter decision holds, so a no is never hidden by a yes recorded
+/// under another spelling.
+fn canonical_record(record: BTreeMap<String, String>) -> BTreeMap<String, String> {
+    let mut out: BTreeMap<String, String> = BTreeMap::new();
+    for (key, level) in record {
+        let key = current_key(&key);
+        let merged = match (out.get(&key).and_then(|l| Level::parse(l)), Level::parse(&level)) {
+            (Some(held), Some(new)) => held.stricter(new).as_str().to_owned(),
+            (Some(held), None) => held.as_str().to_owned(),
+            (None, _) => level,
+        };
+        out.insert(key, merged);
+    }
+    out
 }
 
 /// `cwd` and its parent folders, nearest first: an agent that trusts a folder
@@ -263,20 +301,34 @@ fn get_at(paths: &Paths, cwd: &str, home: Option<&Path>) -> Result<Value, Failur
     let codex =
         codex_level(&std::fs::read_to_string(&paths.codex_config).unwrap_or_default(), &cwd);
     let repo = repository(Path::new(&cwd));
-    let found = decision(&read_record(&paths.record)?, &cwd, repo.as_ref(), home);
+    let record = canonical_record(read_record(&paths.record)?);
+    let found = decision(&record, &cwd, repo.as_ref(), home);
     let decided = found.as_ref().map(|(_, level)| *level);
     // The folder the decision was made for, when it is not this one: Undo forgets it there.
     let via = found.map(|(folder, _)| folder).filter(|folder| *folder != cwd);
+    // A worktree cmux made, unless an agent already holds it, or its repository, as untrusted.
+    let worktree = claude.stricter(codex) != Level::Untrusted
+        && paths.cmux_worktrees.as_deref().is_some_and(|root| cmux_worktree(root, repo.as_ref()))
+        && repo.as_ref().is_some_and(|repo| agents_level(paths, &repo.root) != Level::Untrusted);
     // The repository the pane offers to trust as a whole.
     let repo = repo.filter(|repo| answerable_whole(&repo.root, home));
     let agent_home = paths.agent_home.as_deref().is_some_and(|root| made_by_cmux(root, &cwd));
     // The person's own folders (project roots, own organizations) need no question, unless an
     // agent already holds the folder as untrusted: the rule widens an unknown, never a refusal.
+    // A worktree cmux made is answered the same way: like a rule, it is no person's answer for a
+    // Web client (`level_in`), since it holds its repository's content.
     let auto = (decided.is_none() && !agent_home && claude.stricter(codex) != Level::Untrusted)
-        .then(|| crate::trust_auto::AutoTrust::current().reason(&cwd))
+        .then(|| {
+            if worktree {
+                Some(WORKTREE)
+            } else {
+                crate::trust_auto::AutoTrust::current().reason(&cwd).map(|r| r.label())
+            }
+        })
         .flatten();
-    // acpmux's own decision answers first; then a folder cmux made for a chat or one of the
-    // person's own (trusted by construction); then the stricter of the agents' levels.
+    // acpmux's own decision answers first; then a folder cmux made (for a chat, or a worktree)
+    // or one of the person's own (trusted by construction); then the stricter of the agents'
+    // levels.
     let level = decided.unwrap_or_else(|| {
         if agent_home || auto.is_some() { Level::Trusted } else { claude.stricter(codex) }
     });
@@ -284,11 +336,11 @@ fn get_at(paths: &Paths, cwd: &str, home: Option<&Path>) -> Result<Value, Failur
         "cwd": cwd,
         "level": level.as_str(),
         "harnesses": {"claude": claude.as_str(), "codex": codex.as_str()},
-        // acpmux answered (its record, its agent-home rule, or an auto-trust rule): `level`
-        // holds for every agent.
+        // acpmux answered (its record, its rule for folders cmux made, or an auto-trust rule):
+        // `level` holds for every agent.
         "decided": decided.is_some() || agent_home || auto.is_some(),
-        // Why no question was asked (`root` or `org`); absent otherwise.
-        "auto": auto.as_ref().map(crate::trust_auto::Reason::label),
+        // Why no question was asked (`root`, `org` or `worktree`); absent otherwise.
+        "auto": auto,
         // The folder acpmux's decision was made for (a worktree's root, or its repository).
         "via": via,
         // The repository holding the folder: what "Trust this repo" records.
@@ -297,6 +349,14 @@ fn get_at(paths: &Paths, cwd: &str, home: Option<&Path>) -> Result<Value, Failur
             "worktree": repo.worktree.is_some(),
         })),
     }))
+}
+
+/// The person's own decision for `cwd` in acpmux's record, or None: never an
+/// agent's level, and never the agent-home rule.
+pub fn person_decision(paths: &Paths, cwd: &str) -> Result<Option<Level>, Failure> {
+    let cwd = normalize_cwd(cwd).map_err(Failure::Invalid)?;
+    let record = canonical_record(read_record(&paths.record)?);
+    Ok(record.get(&cwd).and_then(|level| Level::parse(level)))
 }
 
 /// Whether `cwd` (normalized: canonical when it exists) is an agent-home folder the app made: a
@@ -315,6 +375,28 @@ fn made_by_cmux(root: &Path, cwd: &str) -> bool {
     let marker = std::fs::symlink_metadata(path.join(AGENT_HOME_MARKER))
         .is_ok_and(|meta| meta.file_type().is_file());
     canonical && folder && marker
+}
+
+/// `get`'s `auto` for a worktree cmux made (`cmux_worktree`).
+pub const WORKTREE: &str = "worktree";
+
+/// The stricter of the agents' own levels for `folder`.
+fn agents_level(paths: &Paths, folder: &Path) -> Level {
+    let folder = folder.to_string_lossy();
+    let read = |path: &Path| std::fs::read_to_string(path).unwrap_or_default();
+    claude_level(&read(&paths.claude_json), &folder)
+        .stricter(codex_level(&read(&paths.codex_config), &folder))
+}
+
+/// Whether `repo` is a linked worktree cmux made: one git wrote (`repository`) directly at
+/// `<root>/<project>/<name>`, the canonical `root` being cmux's worktree folder. A plain folder
+/// there is not one, nor is a folder inside a repository's main working tree.
+fn cmux_worktree(root: &Path, repo: Option<&Repository>) -> bool {
+    let Ok(root) = std::fs::canonicalize(root) else { return false };
+    repo.and_then(|repo| repo.worktree.as_deref())
+        .and_then(Path::parent)
+        .and_then(Path::parent)
+        .is_some_and(|parent| parent == root)
 }
 
 /// A folder's trust for a session of one agent, read once: with the auto-trust rules
@@ -403,10 +485,12 @@ pub fn set(paths: &Paths, cwd: &str, level: &str) -> Result<Value, Failure> {
     })?;
     let _serialized = RECORD_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     let mut record = read_record(&paths.record)?;
-    match level {
-        Level::Unknown => record.remove(&cwd),
-        decided => record.insert(cwd.clone(), decided.as_str().to_owned()),
-    };
+    // Every key that names this folder now (`canonical_record`) gives way to the new decision,
+    // so `unknown` forgets the folder under every spelling it was recorded under.
+    record.retain(|key, _| current_key(key) != cwd);
+    if level != Level::Unknown {
+        record.insert(cwd.clone(), level.as_str().to_owned());
+    }
     if let Some(parent) = paths.record.parent() {
         std::fs::create_dir_all(parent)
             .map_err(|e| Failure::Record(format!("trust record: {e}")))?;
@@ -439,6 +523,7 @@ mod security_tests {
             codex_config: root.join("config.toml"),
             record,
             agent_home: None,
+            cmux_worktrees: None,
         };
         let error =
             get(&paths, &cwd.to_string_lossy()).expect_err("a linked trust decision loaded");
@@ -466,6 +551,7 @@ mod scope_tests {
             codex_config: root.join("state/config.toml"),
             record: root.join("state/trust.json"),
             agent_home: None,
+            cmux_worktrees: None,
         };
         (root, paths)
     }
@@ -513,6 +599,65 @@ mod scope_tests {
         // Forgetting the repository's answer asks again everywhere.
         set(&paths, &main.to_string_lossy(), "unknown").unwrap();
         assert_eq!(read(&paths, &tree, &home)["level"], "unknown");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// A worktree cmux made (`~/.cmux/worktrees/<project>/<name>`) is trusted by construction,
+    /// whatever its repository's answer is, unless a person or an agent said Don't trust. Only a
+    /// linked worktree git wrote at that depth is one: a plain folder there is not.
+    #[test]
+    fn a_worktree_cmux_made_is_trusted_with_no_question() {
+        let (root, mut paths) = scratch("cmux-worktree");
+        let home = root.join("home");
+        let worktrees = home.join(".cmux/worktrees");
+        paths.cmux_worktrees = Some(worktrees.clone());
+        let main = home.join("Projects/app");
+        let tree = worktrees.join("app/directional-motion");
+        repo_with_worktree(&main, &tree);
+        for folder in [tree.clone(), tree.join("src")] {
+            let reply = read(&paths, &folder, &home);
+            assert_eq!(reply["level"], "trusted", "{folder:?}: {reply}");
+            assert_eq!(reply["decided"], true, "{folder:?}: {reply}");
+            assert_eq!(
+                session_level(&paths, &folder.to_string_lossy(), "codex").unwrap().1,
+                Level::Trusted
+            );
+            // A Web client still needs a person's answer: the worktree holds the repository's
+            // content.
+            assert_eq!(
+                web_session_level(&paths, &folder.to_string_lossy(), "claude").unwrap().1,
+                Level::Unknown
+            );
+        }
+        // The repository itself is still asked about.
+        assert_eq!(read(&paths, &main, &home)["level"], "unknown");
+        // A plain folder under the root is no worktree cmux made.
+        let plain = worktrees.join("app/plain");
+        std::fs::create_dir_all(&plain).unwrap();
+        assert_eq!(read(&paths, &plain, &home)["level"], "unknown");
+        // A person's Don't trust, for the repository or the worktree, still wins.
+        set(&paths, &main.to_string_lossy(), "untrusted").unwrap();
+        assert_eq!(read(&paths, &tree, &home)["level"], "untrusted");
+        set(&paths, &main.to_string_lossy(), "unknown").unwrap();
+        set(&paths, &tree.to_string_lossy(), "untrusted").unwrap();
+        assert_eq!(read(&paths, &tree.join("src"), &home)["level"], "untrusted");
+        set(&paths, &tree.to_string_lossy(), "unknown").unwrap();
+        // So does an agent's own untrusted level, for the repository or the worktree.
+        std::fs::write(
+            &paths.codex_config,
+            format!("[projects.\"{}\"]\ntrust_level = \"untrusted\"\n", main.display()),
+        )
+        .unwrap();
+        assert_eq!(read(&paths, &tree, &home)["level"], "unknown");
+        std::fs::write(
+            &paths.codex_config,
+            format!("[projects.\"{}\"]\ntrust_level = \"untrusted\"\n", tree.display()),
+        )
+        .unwrap();
+        assert_eq!(
+            session_level(&paths, &tree.to_string_lossy(), "codex").unwrap().1,
+            Level::Untrusted
+        );
         let _ = std::fs::remove_dir_all(&root);
     }
 
@@ -579,6 +724,34 @@ mod scope_tests {
         assert_eq!(reply["level"], "trusted", "{reply}");
         assert_eq!(reply["via"], main.to_string_lossy().as_ref(), "{reply}");
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_decision_holds_and_is_forgotten_under_every_spelling_of_its_folder() {
+        let (root, paths) = scratch("spelling");
+        let home = root.join("home");
+        let real = root.join("real");
+        std::fs::create_dir_all(&real).unwrap();
+        std::os::unix::fs::symlink(&real, root.join("link")).unwrap();
+        // Recorded under an old spelling (a record written before keys were canonical), and a
+        // stricter decision under the real one: the no holds for both spellings.
+        let old = root.join("link/app");
+        std::fs::create_dir_all(real.join("app")).unwrap();
+        let app = real.join("app");
+        let raw = json!({(old.to_string_lossy()): "trusted", (app.to_string_lossy()): "untrusted"});
+        std::fs::write(&paths.record, raw.to_string()).unwrap();
+        for cwd in [&old, &app] {
+            assert_eq!(read(&paths, cwd, &home)["level"], "untrusted", "{}", cwd.display());
+            let own = person_decision(&paths, &cwd.to_string_lossy()).unwrap();
+            assert_eq!(own, Some(Level::Untrusted), "{}", cwd.display());
+        }
+        // Forgetting it under one spelling forgets every key that names the folder.
+        set(&paths, &old.to_string_lossy(), "unknown").unwrap();
+        assert_eq!(read_record(&paths.record).unwrap(), BTreeMap::new());
+        // A decision for a folder that does not exist yet, under a link, keys the folder it will be.
+        set(&paths, &root.join("link/later").to_string_lossy(), "untrusted").unwrap();
+        std::fs::create_dir_all(real.join("later")).unwrap();
+        assert_eq!(read(&paths, &real.join("later"), &home)["level"], "untrusted");
     }
 
     #[test]

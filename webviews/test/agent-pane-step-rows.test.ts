@@ -1,8 +1,12 @@
 // l10n-allow-file: test fixture prompts, thoughts and commands, not shipped UI.
 // The steps of a turn read as one list (Leo 2026-10-13, cmux NEXT on macOS 27): tool calls,
-// thoughts and a background shell's end all draw as one 26px row style on one rhythm, whether
-// they share a transcript row or not. A thought shows in full, wrapped, with no tooltip, and a
-// row shows nothing more on hover: its disclosure chevron is there at rest.
+// thoughts and a background shell's end all draw on one rhythm (22px since #24565), whether
+// they share a transcript row or not. An opened run's steps sit in one card (`.cv-steps`,
+// #27896, the card the message groups draw, #27864): each is still one 22px row, the card's steps
+// on one equal pitch of their own, and the rows outside cards keep the rhythm with no gap. A
+// finished thought is one quiet row like the others that opens to its full text, wrapped, with no
+// tooltip (Leo 2026-10-20), and a row shows nothing more on hover: its disclosure chevron is there
+// at rest.
 //
 // Before: the background task's end used a smaller font in a 22px row with its own margins, a
 // step in the next transcript row sat 10px further down than one in the same row, a thought was
@@ -13,6 +17,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -116,17 +121,31 @@ await requireBrowserLane("agent-pane-step-rows.test.ts", async () => {
     const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
     await page.goto(url());
     await page.getByText("build-acpmux.sh").first().waitFor();
-    // Rows place by their drawn heights a frame after they mount.
-    await page.waitForTimeout(300);
+    // Rows place by their drawn heights a frame after they mount: two painted frames later they have.
+    await installPaintedFrames(page);
+    await page.evaluate(() => window.cmuxPaintFrame().then(() => window.cmuxPaintFrame()));
     return page;
   };
-  /// Opens the run of the first two commands and the thought between them ("Ran commands",
-  /// conversation/ToolRun.tsx), so each step in it draws its own row.
+  /// Opens the group of the first two commands and the thought between them ("Ran 2 commands",
+  /// conversation/ToolGroupRow.tsx; the thought stays in the group, toolGroups.ts), so each step in
+  /// it draws its own row.
   const openRun = async (page: Page) => {
-    await page.locator(".acpmux-row button.cv-tool", { hasText: "Ran commands" }).click();
+    await page.locator(".acpmux-row button.cv-tool", { hasText: "Ran 2 commands" }).click();
     await page.locator(".cv-thought").waitFor();
-    // The fold plays, then the rows below it place by their drawn heights.
-    await page.waitForTimeout(500);
+    // The fold plays (a Web Animation, fold.ts), then the rows below it place by their drawn heights.
+    await page.evaluate(async () => {
+      const finite = () =>
+        document
+          .getAnimations()
+          .filter(
+            (animation) =>
+              animation.playState === "running" && Number.isFinite(animation.effect?.getComputedTiming().endTime),
+          );
+      for (let moving = finite(); moving.length > 0; moving = finite())
+        await Promise.allSettled(moving.map((animation) => animation.finished));
+      await window.cmuxPaintFrame();
+      await window.cmuxPaintFrame();
+    });
   };
   beforeAll(async () => {
     daemon = Bun.serve({
@@ -171,38 +190,59 @@ await requireBrowserLane("agent-pane-step-rows.test.ts", async () => {
     await daemon?.stop(true);
   });
 
-  test("every step is one 26px row on one rhythm, across transcript rows", async () => {
+  test("every step is one 22px row on one rhythm, across transcript rows", async () => {
     const page = await open();
     await openRun(page);
     const rows = await page.locator(".acpmux-row .cv-tool").evaluateAll((nodes) =>
       nodes.map((node) => {
         const box = node.getBoundingClientRect();
+        const card = node.closest(".cv-steps");
         return {
           text: node.textContent?.replace(/\s+/g, " ").trim().slice(0, 24) ?? "",
-          top: Math.round(box.top),
+          top: box.top,
           height: Math.round(box.height),
           fontSize: getComputedStyle(node).fontSize,
+          card: card ? [...document.querySelectorAll(".cv-steps")].indexOf(card) : -1,
         };
       }),
     );
-    // The thought wraps to several lines; every other step is one line.
-    const single = rows.filter((row) => !row.text.startsWith("Thought"));
-    expect(single.map((row) => row.height)).toEqual(single.map(() => 26));
+    // The finished thought is folded to one line too.
+    expect(rows.map((row) => row.height)).toEqual(rows.map(() => 22));
     expect(new Set(rows.map((row) => row.fontSize)).size).toBe(1);
-    // Each step starts where the one above it ends.
-    const gaps = rows.slice(1).map((row, index) => row.top - (rows[index]!.top + rows[index]!.height));
-    expect({ rows: rows.map((row) => row.text), gaps }).toEqual({
-      rows: rows.map((row) => row.text),
-      gaps: gaps.map(() => 0),
-    });
+    const pairs = rows.slice(1).map((row, index) => ({
+      above: rows[index]!,
+      row,
+      gap: Math.round((row.top - (rows[index]!.top + rows[index]!.height)) * 10) / 10,
+    }));
+    // Outside a card, each step starts where the one above it ends.
+    const outside = pairs.filter(({ above, row }) => above.card < 0 && row.card < 0);
+    expect(outside.map(({ row, gap }) => ({ row: row.text, gap }))).toEqual(
+      outside.map(({ row }) => ({ row: row.text, gap: 0 })),
+    );
+    // In a card, every step is one pitch below the one above it: the same gap, no drift.
+    const inCard = pairs.filter(({ above, row }) => above.card >= 0 && above.card === row.card);
+    expect(inCard.length).toBeGreaterThanOrEqual(2);
+    expect(inCard.map(({ row, gap }) => ({ row: row.text, gap }))).toEqual(
+      inCard.map(({ row }) => ({ row: row.text, gap: inCard[0]!.gap })),
+    );
     expect(rows.length).toBeGreaterThanOrEqual(5);
     await page.close();
   });
 
-  test("a thought shows in full, wrapped, with no tooltip", async () => {
+  test("a finished thought is one quiet row that opens to its full text, wrapped, with no tooltip", async () => {
     const page = await open();
     await openRun(page);
-    const thought = page.locator(".cv-thought");
+    const toggle = page.locator("button.cv-thought");
+    expect((await toggle.innerText()).trim()).toBe("Thought");
+    expect(await page.locator(".cv-thought__body, .cv-thought__text").count()).toBe(0);
+    await toggle.click();
+    // The fold plays, then the text has its height.
+    const thought = page.locator(".cv-thought__body");
+    await page.waitForFunction(
+      () => (document.querySelector(".cv-thought__body")?.getBoundingClientRect().height ?? 0) > 26,
+      undefined,
+      { timeout: 5_000 },
+    );
     expect((await thought.innerText()).replace(/\s+/g, " ")).toContain(THOUGHT);
     expect(await thought.evaluate((node) => node.closest("[title]") === null && !node.querySelector("[title]"))).toBe(
       true,

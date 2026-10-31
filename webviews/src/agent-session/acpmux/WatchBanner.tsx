@@ -12,7 +12,8 @@ export function watchedApp(family: string): string {
 /// chat run the conversation (acpmux refuses while the other app still runs
 /// it, and the pane then offers Open Anyway or Fork It). Viewing never blocks starting a session:
 /// Continue in New Chat forks a Claude Code session into a new chat, and New Chat Here starts a
-/// Codex chat in its folder (a Codex session cannot be forked while another app runs it).
+/// Codex chat in its folder (a Codex session cannot be forked while another app runs it). It drops in
+/// from the top of the chat (ui/popupSurface.css `data-enter`).
 export function WatchBanner({
   family,
   onTakeOver,
@@ -24,7 +25,7 @@ export function WatchBanner({
 }) {
   const t = useT();
   return (
-    <div className="acpmux-link-missing acpmux-watch-banner">
+    <div className="acpmux-link-missing acpmux-watch-banner" data-enter="top">
       <p>{t("watch.banner", { app: watchedApp(family) })}</p>
       <p className="acpmux-watch-hint">{t("watch.composer")}</p>
       <p className="acpmux-live-chat-actions">

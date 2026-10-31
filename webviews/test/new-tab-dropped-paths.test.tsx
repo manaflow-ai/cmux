@@ -107,8 +107,8 @@ test("a folder and a zip dropped on the New Tab page go with the prompt as links
   await act(async () => {
     window.document.body.dispatchEvent(drop);
   });
-  for (let tries = 0; tries < 50 && host.querySelectorAll(".acpmux-attachment-link").length < 2; tries += 1)
-    await act(() => new Promise((resolve) => setTimeout(resolve, 10)));
+  for (let tries = 0; tries < 500 && host.querySelectorAll(".acpmux-attachment-link").length < 2; tries += 1)
+    await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
   expect(looked).toEqual([["drop", ["assets", "build.zip"]]]);
   expect([...host.querySelectorAll(".acpmux-attachment-link-name")].map((chip) => chip.textContent)).toEqual([
     "assets/",

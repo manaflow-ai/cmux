@@ -31,7 +31,10 @@ public final class SidebarDocStore {
     /// it. False keeps the older path.
     public private(set) var isActive = false
     /// What the sidebar draws from the document (`show(live:)`); nil while inactive.
-    public internal(set) var shown: SidebarDocProjection?
+    public internal(set) var shown: SidebarDocProjection? { didSet { shownChanges &+= 1 } }
+    /// Counts the changes of `shown`. A window records the count its rows were built at: its rows pass runs a hop
+    /// after `show`, so a caught-up document says nothing about one window's rows.
+    @ObservationIgnored public private(set) var shownChanges: UInt64 = 0
     /// The `version` `shown` was built at: behind `version` while an applied change (a Cmd-N move) waits for the next
     /// `show`, a hop later.
     @ObservationIgnored public internal(set) var shownVersion: UInt64 = 0
@@ -65,28 +68,43 @@ public final class SidebarDocStore {
     @ObservationIgnored public var onUndoRefused: @MainActor (AnyObject) -> Void = { _ in }
     /// Set by the App around running an undo step's inverse; each change sent meanwhile carries it to `onUndoable`.
     @MainActor public static var undoOrigin: AnyObject?
-    @ObservationIgnored private var loading = false
+    @ObservationIgnored private(set) var loading = false
+    /// Changes and adopts sent and not answered yet, and who waits for none (``settled()``).
+    @ObservationIgnored var inFlight = 0
+    @ObservationIgnored var settledWaiters: [CheckedContinuation<Void, Never>] = []
+    /// Runs when someone starts to wait in ``settled()`` (a test seam; the app sets none).
+    @ObservationIgnored var onSettledWait: (@MainActor () -> Void)?
     /// A refetch asked for while one was in flight runs after it.
     @ObservationIgnored private var refetchAgain = false
     /// Batches that arrived while the first load was in flight; applied after it (the mirror drops the stale ones).
     @ObservationIgnored private var earlyBatches: [Data] = []
-    /// The last projection (`projection(live:)`), by version and live set.
     /// The live workspaces and the connected other machines at the last `show` (a remote close is a live ref that left).
     @ObservationIgnored var lastLive: Set<SidebarDocWorkspaceRef> = []
     @ObservationIgnored var lastConnectedRemotes: Set<String> = []
+    /// The projection paired with `lastLive`: presentation-only `reshow` must not erase a departed remote's item
+    /// before `show` sends its close and removes any emptied ancestor groups.
+    @ObservationIgnored var lastLiveProjection: SidebarDocProjection?
     /// The page icon address last sent for each url item (`storeIconURLs` sends each one once).
     @ObservationIgnored var requestedIconURLs: [String: String] = [:]
-    @ObservationIgnored var projectionCache: (version: UInt64, live: [SidebarDocWorkspaceRef], projection: SidebarDocProjection)?
+    /// The last projection (`projection(live:)`), with what it was built over.
+    @ObservationIgnored var projectionCache: SidebarDocProjectionCache?
     /// Changes whose outcome no reply told (all asks unanswered, or answered only after an ask went unanswered: the
     /// echo may have gone to a closed connection). They stay pending until the next document load, which says where
     /// the rows really are: the load drops them (cx-ml98q).
     @ObservationIgnored private var unanswered: Set<String> = []
+    var unansweredCount: Int { unanswered.count }
     /// Loads failed in a row while unanswered changes wait (a `sidebar.get` that timed out under the same load).
     @ObservationIgnored private var failedLoads = 0
     /// Refs already sent to `sidebar.adopt` this session.
     @ObservationIgnored private var adopting: Set<SidebarDocWorkspaceRef> = []
     /// What to run when a fold (`setGroupCollapsed`) is refused, by its key.
     @ObservationIgnored private var foldRefusals: [String: @MainActor () -> Void] = [:]
+    /// The Chief's adds not echoed yet, oldest first, with their keys (`SidebarPendingChief`): what the sidebar draws
+    /// for it until then.
+    @ObservationIgnored var pendingChief: [(key: String, add: SidebarPendingChief)] = []
+    /// Those the daemon answered, by key, with the revision that holds each: a load at that revision or later holds
+    /// the change, though the mirror may replay it without dropping it (an undo's put over the same record).
+    @ObservationIgnored var answeredChief: [String: UInt64] = [:]
 
     /// The app's one document store (one home session per app); the
     /// App's composition root sets it.
@@ -102,6 +120,36 @@ public final class SidebarDocStore {
     /// Whether this build and the daemon can use the document at all.
     public var isSupported: Bool { mirror != nil && (remote?.isAvailable ?? false) }
 
+    /// The document shown is the launch snapshot's (`loadProvisional`), not yet the daemon's: the first
+    /// `sidebar.get` replaces it.
+    public private(set) var isProvisional = false
+
+    /// Shows the document the daemon's launch snapshot saved (`sidebar_doc`) before the daemon answers, so
+    /// the pinned band draws in the first sidebar frame instead of after the daemon's restore (seconds on a
+    /// large registry). Only before the first load; a refresh while the daemon is not up keeps it, and
+    /// the daemon's first load replaces it. Changes made meanwhile are refused as before the load
+    /// (the remote is not available). False when not used.
+    @discardableResult
+    public func loadProvisional(_ data: Data) -> Bool {
+        guard !isActive, !loading, let mirror, let records = try? SidebarDocRecords(document: data), mirror.load(data) != nil else { return false }
+        self.records = records
+        groupFolds = records.items.compactMapValues(\.body.groupCollapsed)
+        isProvisional = true
+        isActive = true
+        bump()
+        return true
+    }
+
+    /// The daemon answered without the document (it does not serve `sidebar-doc-v1`): the launch
+    /// snapshot's document stops showing, and the older path draws.
+    public func dropProvisional() {
+        guard isProvisional else { return }
+        isProvisional = false
+        isActive = false
+        shown = nil
+        bump()
+    }
+
     // MARK: Following the daemon
 
     /// Fetches the whole document (the first load, a reconnect, a stream
@@ -109,7 +157,8 @@ public final class SidebarDocStore {
     public func refresh() {
         if loading { refetchAgain = true; return }
         guard isSupported, let remote, let mirror else {
-            if isActive, !isSupported { isActive = false; shown = nil; bump() }
+            // The launch snapshot's document stays until the daemon is up (`dropProvisional` if it never serves one).
+            if isActive, !isSupported, !isProvisional { isActive = false; shown = nil; bump() }
             return
         }
         loading = true
@@ -120,11 +169,16 @@ public final class SidebarDocStore {
             defer {
                 self?.loading = false
                 if self?.refetchAgain == true { self?.refetchAgain = false; self?.refresh() }
+                self?.resumeIfSettled()
             }
             guard let data = try? await remote.get(), let records = try? SidebarDocRecords(document: data), let self,
-                  mirror.load(data) else {
+                  let dropped = mirror.load(data) else {
                 // Unanswered changes wait for a load: ask again (a bounded number of times; a reconnect loads anyway).
-                if let self, !answering.isEmpty, self.failedLoads < Self.unsettledAsks {
+                // So does a sidebar with no daemon document yet: a first `sidebar.get` that timed out under the
+                // launch's load (2 s, a 41 GB registry restoring) left the pinned band missing until some later
+                // reconnect, minutes after launch (Lawrence 2026-10-29). Each ask is paced by its own reply or timeout.
+                let firstLoad = self.map { !$0.isActive || $0.isProvisional } ?? false
+                if let self, !answering.isEmpty || firstLoad, self.failedLoads < (firstLoad ? Self.firstLoadAsks : Self.unsettledAsks) {
                     self.failedLoads += 1
                     self.refetchAgain = true
                 }
@@ -132,10 +186,16 @@ public final class SidebarDocStore {
             }
             self.failedLoads = 0
             // The document has each unanswered change or never will: it shows as loaded (no replay on top).
-            for key in answering { mirror.reject(key) }
+            // So does each answered Chief change at the load's revision or before it: it stops replaying too.
+            let settled = answering.union(self.answeredChief.filter { $0.value <= records.revision }.keys)
+            let rejected = settled.flatMap { mirror.reject($0) }
+            // A Chief change the load holds or the mirror dropped (it no longer applies, on the load or behind a
+            // change put back) is settled; one it replays stays pending.
+            self.settlePendingChief(settled.union(dropped).union(rejected))
             self.unanswered.subtract(answering)
             self.records = records
             self.groupFolds = records.items.compactMapValues(\.body.groupCollapsed)
+            self.isProvisional = false
             self.isActive = true
             self.bump()
             let early = self.earlyBatches
@@ -147,12 +207,22 @@ public final class SidebarDocStore {
     /// One `session.events` batch of document changes (JSON, with its
     /// revision and idempotency key).
     public func receive(batch data: Data) {
-        guard isActive, let mirror else {
+        // The launch snapshot's document is not the chain a batch extends: batches wait for the first load.
+        guard isActive, !isProvisional, let mirror else {
             if loading, mirror != nil, earlyBatches.count < 512 { earlyBatches.append(data) }
             return
         }
-        // The reducer judges the revision chain: a skipped one refetches.
-        switch mirror.apply(batch: data) {
+        // The reducer judges the revision chain: a skipped one refetches. While a Chief change waits, the mirror also
+        // names the intents the batch settled or dropped.
+        let outcome: SidebarMirror.BatchOutcome
+        if pendingChief.isEmpty {
+            outcome = mirror.apply(batch: data)
+        } else {
+            let (applied, dropped) = mirror.applyDropping(batch: data)
+            outcome = applied
+            if settlePendingChief(Set(dropped)) { bump() }
+        }
+        switch outcome {
         case .stale: return
         case .refetch: return refresh()
         case .applied(let revision):
@@ -172,11 +242,13 @@ public final class SidebarDocStore {
     /// Asks the daemon to place live workspaces the document lacks (each once).
     public func adopt(_ refs: [SidebarDocWorkspaceRef]) {
         let fresh = refs.filter { !adopting.contains($0) }
-        guard isActive, !fresh.isEmpty, let remote else { return }
+        guard isActive, !isProvisional, !fresh.isEmpty, let remote else { return } // adopts wait for the daemon's document
         adopting.formUnion(fresh)
+        inFlight += 1
         // task-owner: one sidebar.adopt; its batch places the rows. A failed adopt is
         // tried again on the next structural change.
         Task { [weak self] in
+            defer { self?.answered() }
             if (try? await remote.adopt(fresh, key: Self.newKey())) == nil { self?.adopting.subtract(fresh) }
         }
     }
@@ -233,12 +305,21 @@ public final class SidebarDocStore {
         }
     }
 
+    /// Archive (`archived` true): each item moves to the end of its own list (its group, or its
+    /// section's top level) and draws dimmed. Unarchive puts it back where it was archived from
+    /// (plans/cmux-next/archiving-DESIGN.md). One undo step titled `title`. Throws the reducer's
+    /// refusal (a provider-owned section, an unknown item), so the CLI and MCP get it too.
+    public func setArchived(_ items: [String], archived: Bool, title: String) throws(SidebarDocSendRefusal) {
+        guard !items.isEmpty else { return } // nothing placed yet (an adopt is on the way)
+        try sendChecked(ops: [["op": archived ? "archive" : "unarchive", "items": items]], title: title)
+    }
+
     /// Folds or opens `group` in the document (the owner of record; other clients follow it). The
     /// sidebar already shows the fold (it is view state the window applies at once): this sends one
     /// `group.update` with the value, not a toggle, so fast clicks each send what they show, and it
     /// rebuilds no row, now or at the echo. `refused` runs when the daemon or the mirror refuses it.
     public func setGroupCollapsed(_ group: String, _ collapsed: Bool, refused: @escaping @MainActor () -> Void) {
-        let ops: [[String: Any]] = [["op": "group.update", "id": group, "patch": ["collapsed": collapsed]]]
+        let ops: [[String: Any]] = [["op": "group.update", "id": Self.item(group: GroupID(group), in: records), "patch": ["collapsed": collapsed]]]
         guard let data = try? JSONSerialization.data(withJSONObject: ops) else { return refused() }
         let intent = SidebarMirrorIntent.apply(data, key: Self.newKey())
         foldRefusals[intent.idempotencyKey] = refused
@@ -307,12 +388,15 @@ public final class SidebarDocStore {
         } catch {
             throw refused(SidebarDocStrings.unavailable)
         }
+        if let chief = SidebarPendingChief(ops: intent.ops) { pendingChief.append((intent.idempotencyKey, chief)) }
         if redraws { bump() }
         let key = intent.idempotencyKey
         // An undo's or redo's inverse fills the step the undo put; a user's change puts its own step now (cx-kpicb).
         let origin = Self.undoOrigin ?? (undoable ? onUndoPending(title) : nil)
+        inFlight += 1
         // task-owner: one sidebar mutation; settles its pending intent
         Task { [weak self] in
+            defer { self?.answered() }
             // wakeup-allow: bounded retry only after an awaited remote call; this is not polling.
             // Each ask either returns or, unanswered before the last one, asks again: at most `unsettledAsks` sends.
             for asked in 1...Self.unsettledAsks {
@@ -323,6 +407,9 @@ public final class SidebarDocStore {
                     // echo, and the first echo may have gone to a closed connection. The next load settles the key.
                     if asked > 1 { self.settleByLoad(key) }
                     self.foldRefusals[key] = nil
+                    if reply.hasInverse, let revision = reply.revision, self.pendingChief.contains(where: { $0.key == key }) {
+                        self.answeredChief[key] = revision
+                    }
                     // A no-op change echoes no batch: its intent must not stay pending.
                     if !reply.hasInverse {
                         self.drop(key, redraws: redraws)
@@ -364,6 +451,8 @@ public final class SidebarDocStore {
 
     /// How many times one change is sent under its key before an unanswered change counts as refused.
     private static let unsettledAsks = 4
+    /// How many times the first load is asked for before it waits for the next connection change.
+    static let firstLoadAsks = 30
 
     /// `key`'s outcome is not known from a reply: the next document load settles it (now, or after a reconnect).
     private func settleByLoad(_ key: String) {
@@ -372,7 +461,7 @@ public final class SidebarDocStore {
     }
 
     private func drop(_ key: String, redraws: Bool = true) {
-        mirror?.reject(key)
+        settlePendingChief(Set(mirror?.reject(key) ?? []).union([key]))
         if redraws { bump() }
     }
 
@@ -381,45 +470,7 @@ public final class SidebarDocStore {
     static func newKey() -> String { "sidebar-" + UUID().uuidString.lowercased() }
 }
 
-/// A change sent with no answer (a timeout, a closed connection): the daemon may have applied it. The store sends it
-/// again under the same idempotency key (the daemon replays a committed change) instead of dropping it.
-public nonisolated struct SidebarDocUnsettled: Error, Hashable, Sendable {
-    public init() {}
-}
-
 /// A change refused before it was sent, with the message the refusal HUD shows.
 public nonisolated struct SidebarDocSendRefusal: Error, Hashable, Sendable {
     public var message: String
-}
-
-/// The daemon side of the document (the App's home daemon connection).
-@MainActor
-public protocol SidebarDocRemote: AnyObject {
-    /// The home daemon is connected and serves `sidebar-doc-v1`.
-    var isAvailable: Bool { get }
-    /// `sidebar.get`, as JSON.
-    func get() async throws -> Data
-    func move(_ items: [String], to target: SidebarDocTarget, key: String) async throws -> SidebarDocReply
-    func pin(_ items: [String], key: String) async throws -> SidebarDocReply
-    func unpin(_ items: [String], key: String) async throws -> SidebarDocReply
-    func adopt(_ refs: [SidebarDocWorkspaceRef], key: String) async throws -> SidebarDocReply
-    /// `sidebar.apply {ops}`; `ops` is a JSON array.
-    func apply(ops: Data, key: String) async throws -> SidebarDocReply
-}
-
-/// A mutation's reply: the revision after it and its inverse ops (a JSON array).
-public nonisolated struct SidebarDocReply: Hashable, Sendable {
-    public var revision: UInt64?
-    public var inverse: Data
-
-    public init(revision: UInt64?, inverse: Data) {
-        self.revision = revision
-        self.inverse = inverse
-    }
-
-    /// The inverse holds at least one op.
-    public var hasInverse: Bool {
-        guard let ops = try? JSONSerialization.jsonObject(with: inverse) as? [Any] else { return false }
-        return !ops.isEmpty
-    }
 }

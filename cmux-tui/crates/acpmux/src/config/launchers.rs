@@ -8,6 +8,11 @@ use super::*;
 /// (`claude-cr`) the installed CLI does not have. Runs once at daemon start, so a
 /// `claude` session never fails over into a launcher that dies at once.
 pub fn verify_launchers(cfg: &mut Config) {
+    // A capture fixture's harnesses name no installed program, and nothing
+    // of this host (`~/.subrouter`) is read (`harness_fixture.rs`).
+    if crate::harness_fixture::active().is_some() {
+        return;
+    }
     let servers =
         dirs::home_dir().map(|home| home.join(".subrouter/codex/servers.json")).unwrap_or_default();
     let env_route =
@@ -136,13 +141,12 @@ pub(crate) fn launcher_ok(argv: &[String]) -> std::result::Result<(), String> {
     let out = child.wait_with_output().map_err(|e| e.to_string())?;
     let text =
         format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
+    // Each pipe is its own stream: a control one leaves open does not hide the other's lines.
+    let mut cleaned = [&out.stdout, &out.stderr]
+        .into_iter()
+        .flat_map(|pipe| crate::stderr::clean_stderr_lines(&String::from_utf8_lossy(pipe)));
     // Warnings (a peer that could not be reached) are not failures.
-    let first = text
-        .lines()
-        .map(str::trim)
-        .find(|l| !l.is_empty() && !l.starts_with("warning:"))
-        .unwrap_or("")
-        .to_owned();
+    let first = cleaned.find(|l| !l.is_empty() && !l.starts_with("warning:")).unwrap_or_default();
     if !out.status.success()
         || first.starts_with("subrouter:")
         || text.to_lowercase().contains("unknown command")

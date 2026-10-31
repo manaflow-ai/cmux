@@ -18,6 +18,7 @@ import {
   ThoughtRow,
   thoughtDuration,
   thoughtLayout,
+  thoughtParts,
   thoughtPreview,
   type ThoughtFoldThreshold,
   type ThoughtHeader,
@@ -75,6 +76,7 @@ beforeEach(() => {
   header = "duration";
   live = true;
   content = 0;
+  // The tests below this file's "every finished thought" block check the older Debug choices.
   threshold = "viewport";
   animations = [];
   thoughtLayout.threshold = () => threshold;
@@ -247,11 +249,15 @@ test("a long thought streaming holds the live viewport and reads Thinking", () =
   expect(container.querySelector(".cv-thought__text")?.textContent).toBe(LONG);
 });
 
-test("a thought no taller than the live viewport streams in full after Thought", () => {
+test("a thought no taller than the live viewport streams in full under Thinking, never after Thought", () => {
   height = THOUGHT_LIVE_PX;
-  render(thought(), true, "live-short:0");
+  render(thought("I am here, reading the retry helper first."), true, "live-short:0");
   expect(row()?.classList.contains("is-live")).toBe(false);
-  expect(label()).toBe("Thought");
+  // The label on its own line, the text under it: never "Thought I am here" as one sentence.
+  expect(row()?.classList.contains("is-full")).toBe(true);
+  expect(label()).toBe("Thinking");
+  expect(container.querySelector(".cv-thought__text")?.textContent).toBe("I am here, reading the retry helper first.");
+  expect(row()?.textContent).not.toContain("Thought");
 });
 
 test("with the live viewport's toggle off, or the fold's, a long thought streams in full", () => {
@@ -336,4 +342,122 @@ test("with explicit animation off the toggle does not schedule a Web Animation",
 test("the folded line reads the first line without heading marks", () => {
   expect(thoughtPreview("**Planning the retry fix**\n\nMore detail.")).toBe("Planning the retry fix");
   expect(thoughtPreview("## Check errors\nnext")).toBe("Check errors");
+});
+
+// Every finished thought folds to one quiet "Thought for 12s" with no text inline, as Claude Desktop
+// and Codex draw it (Leo 2026-10-20: "Thought I am here" read weird); a quiet one draws nothing.
+const SUMMARY = "I am here: the retry helper swallows the status, so check how it parses errors.";
+
+test("by default a short finished thought folds to Thought for 12s with no text inline, and opens to it", () => {
+  threshold = "every";
+  height = 20;
+  render({ ...thought(SUMMARY), startedAt: 1_000, endedAt: 13_400 }, false, "every:0");
+  expect(toggle()?.getAttribute("aria-expanded")).toBe("false");
+  expect(toggle()?.textContent).toBe("Thought for 12s");
+  expect(container.textContent).not.toContain("I am here");
+  expect(body()).toBeNull();
+  click();
+  expect(body()?.textContent).toBe(SUMMARY);
+});
+
+test("by default a finished thought that took under a second reads Thought, folded", () => {
+  threshold = "every";
+  height = 20;
+  render({ ...thought(SUMMARY), startedAt: 1_000, endedAt: 1_400 }, false, "every-quick:0");
+  expect(toggle()?.textContent).toBe("Thought");
+  expect(body()).toBeNull();
+});
+
+test("an empty, blank or very short quick thought draws no row once done", () => {
+  threshold = "every";
+  for (const [index, item] of [
+    thought(""),
+    thought("  \n "),
+    { ...thought("I am here"), startedAt: 1_000, endedAt: 1_500 },
+    thought("Done."),
+  ].entries()) {
+    render(item, false, `quiet-${index}:0`);
+    expect(container.textContent).toBe("");
+    act(() => root!.unmount());
+    root = undefined;
+  }
+  // A short thought the agent spent seconds on still says so.
+  render({ ...thought("I am here"), startedAt: 1_000, endedAt: 4_000 }, false, "quiet-long:0");
+  expect(toggle()?.textContent).toBe("Thought for 3s");
+});
+
+test("a short thought still streaming draws, and folds once done", () => {
+  threshold = "every";
+  height = 20;
+  render({ ...thought(SUMMARY), startedAt: 1_000, endedAt: 1_200 }, true, "every-live:0");
+  expect(toggle()).toBeNull();
+  expect(container.querySelector(".cv-thought__text")?.textContent).toBe(SUMMARY);
+  render({ ...thought(SUMMARY), startedAt: 1_000, endedAt: 6_000 }, false, "every-live:0");
+  expect(toggle()?.textContent).toBe("Thought for 5s");
+  expect(body()).toBeNull();
+});
+
+// Every path names a thought with its time or "Thinking", never with its own first words (Leo
+// 2026-10-21: "the way we're rendering it with Thought I am here is prettyy weird").
+test("a finished thought shown in full by a Debug choice reads Thought for 12s over its text", () => {
+  threshold = "viewport";
+  height = 20;
+  render({ ...thought(SUMMARY), startedAt: 1_000, endedAt: 13_000 }, false, "full-done:0");
+  expect(toggle()).toBeNull();
+  expect(row()?.classList.contains("is-full")).toBe(true);
+  expect(label()).toBe("Thought for 12s");
+  expect(container.querySelector(".cv-thought__text")?.textContent).toBe(SUMMARY);
+});
+
+test("an undated finished thought shown in full reads Thought alone over its text", () => {
+  threshold = "viewport";
+  height = 20;
+  render(thought(SUMMARY), false, "full-undated:0");
+  expect(label()).toBe("Thought");
+  expect(row()?.classList.contains("is-full")).toBe(true);
+});
+
+const CODEX = "**Planning the retry fix**\n\nThe helper swallows the status.\n\n**Checking callers**\nTwo call sites.";
+
+test("Codex's reasoning headings are muted titles in the text, never glued after Thought", () => {
+  threshold = "every";
+  height = 20;
+  render({ ...thought(CODEX), startedAt: 0, endedAt: 12_000 }, false, "codex:0");
+  expect(toggle()?.textContent).toBe("Thought for 12s");
+  click();
+  const titles = [...container.querySelectorAll(".cv-thought__title")].map((node) => node.textContent);
+  expect(titles).toEqual(["Planning the retry fix", "Checking callers"]);
+  expect(body()?.textContent).not.toContain("**");
+  expect(body()?.textContent).toContain("The helper swallows the status.");
+});
+
+test("a streaming Codex thought reads Thinking, its heading a title under it", () => {
+  height = 20;
+  render(thought(CODEX), true, "codex-live:0");
+  expect(label()).toBe("Thinking");
+  expect(container.querySelector(".cv-thought__title")?.textContent).toBe("Planning the retry fix");
+  expect(container.textContent).not.toContain("**");
+});
+
+test("thoughtParts splits headings from the text around them", () => {
+  expect(thoughtParts(CODEX)).toEqual([
+    { title: "Planning the retry fix" },
+    { text: "The helper swallows the status." },
+    { title: "Checking callers" },
+    { text: "Two call sites." },
+  ]);
+  expect(thoughtParts("## Check errors\nnext")).toEqual([{ title: "Check errors" }, { text: "next" }]);
+  // Bold inside a line is text, not a heading.
+  expect(thoughtParts("Use **retry** here.")).toEqual([{ text: "Use **retry** here." }]);
+  expect(thoughtParts("plain\n\ntwo paragraphs")).toEqual([{ text: "plain\n\ntwo paragraphs" }]);
+});
+
+test("an empty or redacted thought draws nothing, streaming or done", () => {
+  for (const [index, streaming] of [true, false].entries())
+    for (const text of ["", "   ", "\n\n"]) {
+      render({ ...thought(text), startedAt: 0, endedAt: 12_000 }, streaming, `empty-${index}-${text.length}:0`);
+      expect(container.innerHTML).toBe("");
+      act(() => root!.unmount());
+      root = undefined;
+    }
 });

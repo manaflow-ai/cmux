@@ -2,12 +2,13 @@
 // after 110 ms) on everything the pointer passed. They now share the
 // app's hover intent (ui/hoverIntent.ts): the first waits the hover delay (450 ms; AppKit's tooltip
 // delay is about 1 s), a neighbor's then shows at once, and half a second away cools it again.
-// These run on the real timers, through the components' own pointer handlers.
-import { afterAll, expect, test } from "bun:test";
+// These run on a fake clock, through the components' own pointer handlers: the delays are the
+// behavior, and a loaded runner's late wake-ups must not decide them.
+import { afterAll, expect, jest, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
-// These tests drive the compact (Codex) rail; the full-height map is the default arm (layout.experiment.ts).
+// These tests drive the compact (Codex) rail; the default arm draws no minimap (layout.experiment.ts).
 (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = { "thread-minimap-layout": "compact" };
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
@@ -63,7 +64,7 @@ afterAll(() => {
   }
 });
 
-const wait = (ms: number) => act(async () => void (await new Promise((resolve) => setTimeout(resolve, ms))));
+const wait = (ms: number) => act(async () => void jest.advanceTimersByTime(ms));
 const row = (id: string, kind: string, text?: string): AcpmuxRow => ({ id, kind, text, version: 1, at: 1 });
 const TURNS = 8;
 const turns = Array.from({ length: TURNS }, (_, index) => [
@@ -72,10 +73,11 @@ const turns = Array.from({ length: TURNS }, (_, index) => [
   { ...row(`t${index}-end`, "turnSummary"), status: "completed", durationMs: 1_000 },
 ]).flat();
 
-// The minimap's turn preview waits Codex's 250 ms rather than the app's 450 (Leo, 2026-10-19: the
-// rail should feel like Codex's); under 200 ms is still a pass-over.
-test("the minimap's turn preview waits its delay, then follows the pointer at once until the rail cools", async () => {
+// The minimap's turn preview opens on the frame the pointer reaches a row, with no dwell (Leo,
+// 2026-10-29: "giving it faster scrttoll/hover over"); it was Codex's 250 ms, the app's other cards 450.
+test("the minimap's turn preview opens at once and follows the pointer from row to row", async () => {
   const root = createRoot(dom.window.document.getElementById("root")!);
+  jest.useFakeTimers();
   try {
     await act(async () =>
       root.render(
@@ -106,28 +108,23 @@ test("the minimap's turn preview waits its delay, then follows the pointer at on
         if (under !== undefined) pointer("pointerout", tick(under), null);
         under = undefined;
       });
-    // When the card first shows, read in 10 ms steps (each its own act, so React draws in between):
-    // a loaded runner woke a 200 ms wait past the 250 ms delay, and "still hidden after waiting
-    // 200 ms" failed with no early card. A step only ever ends late, so a card first seen 200 ms or
-    // more after the pointer came waited; one at 110 ms (the old delay) is seen near 110 ms.
-    const waitsItsDelay = async (index: number) => {
-      const came = performance.now();
+    // Shown as soon as the pointer comes, with no timer to run.
+    const opensAtOnce = async (index: number) => {
       await move(index);
-      while (!visible() && performance.now() - came < 850) await wait(10);
       expect(visible()).toBe(true);
-      expect(performance.now() - came).toBeGreaterThanOrEqual(200);
     };
 
-    await waitsItsDelay(2);
-    // Warm: the next tick's preview at once.
+    await opensAtOnce(2);
+    // The next tick's preview at once.
     await move(3);
     expect(visible()).toBe(true);
-    // Off the rail past the warm time: the next waits again.
+    // Off the rail, and back after the warm time: at once again.
     await leave();
     expect(visible()).toBe(false);
     await wait(600);
-    await waitsItsDelay(4);
+    await opensAtOnce(4);
   } finally {
+    jest.useRealTimers();
     await act(async () => root.unmount());
   }
 });

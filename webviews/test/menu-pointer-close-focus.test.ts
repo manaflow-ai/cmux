@@ -9,6 +9,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("menu-pointer-close-focus.test.ts", async () => {
@@ -58,6 +59,7 @@ await requireBrowserLane("menu-pointer-close-focus.test.ts", async () => {
   const chip = (name: string) => `button[aria-haspopup][aria-label="${name}"]`;
   const open = async (engine: string, entry = "agent-pane.new-tab", variant = "reasoning-chip"): Promise<Page> => {
     const page = await browsers.get(engine)!.newPage({ viewport: { width: 760, height: 600 } });
+    await installPaintedFrames(page);
     await page.goto(stageURL(entry, variant));
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {
       timeout: 120_000,
@@ -65,13 +67,27 @@ await requireBrowserLane("menu-pointer-close-focus.test.ts", async () => {
     await page.evaluate(() => document.fonts.ready);
     return page;
   };
+  /** Until no menu is still opening or closing (Base UI unmounts a closed menu, and moves focus,
+   *  once its fade has finished) and two frames have painted after. */
+  const settled = (page: Page) =>
+    page.evaluate(async () => {
+      for (let tries = 0; tries < 20; tries++) {
+        const finite = () =>
+          document.getAnimations().filter((animation) => animation.effect?.getComputedTiming().endTime !== Infinity);
+        await Promise.all(finite().map((animation) => animation.finished.catch(() => undefined)));
+        await window.cmuxPaintFrame();
+        await window.cmuxPaintFrame();
+        const moving = document.querySelector("[data-starting-style], [data-ending-style]");
+        if (!moving && finite().every((animation) => animation.playState !== "running")) return;
+      }
+    });
   /** A real press and release at the centre of `selector`. */
   const press = async (page: Page, selector: string) => {
     const box = (await page.locator(selector).first().boundingBox())!;
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
     await page.mouse.down();
     await page.mouse.up();
-    await page.waitForTimeout(300);
+    await settled(page);
   };
 
   /** The element that draws a focus ring now, if any (its class), and what has focus. */
@@ -90,19 +106,54 @@ await requireBrowserLane("menu-pointer-close-focus.test.ts", async () => {
     });
 
   for (const [engine] of engines) {
-    for (const [name, selector] of [
+    test(`${engine}: press-drag selection preserves the release modifier for Fork`, async () => {
+      const page = await open(engine, "agent-pane.header-tools", "idle");
+      try {
+        await page.evaluate(() => {
+          const picks: boolean[] = [];
+          Object.assign(window, { forkReleaseModifiers: picks });
+          document.addEventListener(
+            "click",
+            (event) => {
+              const row = (event.target as Element).closest('[role="menuitem"]');
+              if (row?.textContent?.trim() === "Fork") picks.push(event.altKey);
+            },
+            true,
+          );
+        });
+        const trigger = (await page.getByRole("button", { name: "Chat actions", exact: true }).boundingBox())!;
+        await page.mouse.move(trigger.x + trigger.width / 2, trigger.y + trigger.height / 2);
+        await page.mouse.down();
+        const row = page.getByRole("menuitem", { name: "Fork", exact: true });
+        await row.waitFor();
+        const box = (await row.boundingBox())!;
+        // Option can be pressed after opening: it is the release that chooses the action.
+        await page.keyboard.down("Alt");
+        await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+        await page.mouse.up();
+        await page.keyboard.up("Alt");
+        expect(
+          await page.evaluate(() => (window as unknown as { forkReleaseModifiers: boolean[] }).forkReleaseModifiers),
+        ).toEqual([true]);
+      } finally {
+        await page.close();
+      }
+    });
+    for (const [name, selector, popup] of [
       // The model button's menu (Leo 2026-10-20: one model button; its menu holds Effort and Fast mode).
-      ["Model", chip("Model")],
-      ["Computer", 'button[aria-label^="Computer"]'],
+      ["Model", chip("Model"), ".ui-popup.ui-menu"],
+      // The computer chip's searchable destination popover (#25316: a dialog with a search field).
+      ["Computer", 'button[aria-label^="Computer"]', ".ui-popup.acpmux-location-menu"],
     ])
       test(`${engine}: ${name}: a press outside the open menu leaves no ring`, async () => {
         const page = await open(engine);
         // Nothing focused first, so the menu has nowhere to return but its chip.
         await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
         await press(page, selector!);
-        await page.locator(".ui-popup.ui-menu").first().waitFor();
+        await page.locator(popup!).first().waitFor();
         await page.mouse.click(750, 590);
-        await page.waitForTimeout(400);
+        await page.locator(popup!).first().waitFor({ state: "detached" });
+        await settled(page);
         expect((await ring(page)).ring).toBe("");
         await page.close();
       });
@@ -120,10 +171,11 @@ await requireBrowserLane("menu-pointer-close-focus.test.ts", async () => {
     test(`${engine}: one press on another chip opens its picker and keeps it, focus and all`, async () => {
       const page = await open(engine);
       await press(page, 'button[aria-label^="Computer"]');
-      await page.locator(".ui-popup.ui-menu").first().waitFor();
+      await page.locator(".ui-popup.acpmux-location-menu").first().waitFor();
       await press(page, chip("Model"));
-      // The first menu's close lands after its fade; it must not pull focus back out of the picker.
-      await page.waitForTimeout(500);
+      // The first popover's close lands after its fade; it must not pull focus back out of the picker.
+      await page.locator(".ui-popup.acpmux-location-menu").first().waitFor({ state: "detached" });
+      await settled(page);
       const state = await page.evaluate(() => ({
         expanded: [...document.querySelectorAll("button[aria-haspopup][aria-expanded=true]")].map((button) =>
           button.getAttribute("aria-label"),
@@ -139,7 +191,8 @@ await requireBrowserLane("menu-pointer-close-focus.test.ts", async () => {
       await press(page, chip("Model"));
       await page.locator(".acpmux-quick-menu").first().waitFor();
       await page.keyboard.press("Escape");
-      await page.waitForTimeout(300);
+      await page.locator(".acpmux-quick-menu").first().waitFor({ state: "detached" });
+      await settled(page);
       const after = await page.evaluate(
         (selector) =>
           document.activeElement === document.querySelector(selector) &&

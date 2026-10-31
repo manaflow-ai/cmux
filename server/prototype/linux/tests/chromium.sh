@@ -6,9 +6,9 @@
 set -eu
 # The archive is checked against a pinned SHA-256 before anything unpacks it.
 # A different CHS_VERSION needs its own CHS_SHA256.
-VERSION=${CHS_VERSION:-154.0.8037.92}
-if [ "$VERSION" = 154.0.8037.92 ]; then
-  PINNED_SHA256=${CHS_SHA256:-636aa5c79f2693632e9921b8bbb050038ba11672e02346c06c20f991aed096f9}
+VERSION=${CHS_VERSION:-156.0.8078.47}
+if [ "$VERSION" = 156.0.8078.47 ]; then
+  PINNED_SHA256=${CHS_SHA256:-0d5acc62c3e213f8c87d3c298d66ffcf9a236d12ea4b9f85318bf85dbc279daa}
 else
   PINNED_SHA256=${CHS_SHA256:?CHS_SHA256 is required with CHS_VERSION}
 fi

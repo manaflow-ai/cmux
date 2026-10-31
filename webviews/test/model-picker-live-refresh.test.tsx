@@ -149,7 +149,7 @@ test("Refresh models re-probes the agents and the open picker lists the new mode
       queue: [],
       canLoadOlder: false,
       catalog,
-      summary: { sessionId: "s", harness, turnCount: 0 },
+      summary: { sessionId: "s", harness, turnCount: 2 },
     } as unknown as Snapshot;
     const picker = usePickerCatalog(snapshot.catalog, { harness });
     pickerCatalog = JSON.stringify(picker.catalog);
@@ -180,13 +180,17 @@ test("Refresh models re-probes the agents and the open picker lists the new mode
   const byLabel = (label: string) =>
     dom.window.document.querySelector<HTMLElement>(`button[aria-label="${label}"]`) ??
     [...dom.window.document.querySelectorAll<HTMLElement>("button")].find((item) => item.textContent === label);
-  // The composer's model button opens the compact menu (Leo 2026-10-20); Refresh models is the full
-  // picker's, which More models' shortcut opens.
+  // The shortcut opens the compact menu, then More models opens the full list and its Refresh action.
   await act(async () => {
     dom.window.dispatchEvent(
       new dom.window.KeyboardEvent("keydown", { key: "m", metaKey: true, ctrlKey: true, bubbles: true }),
     );
   });
+  const more = [...dom.window.document.querySelectorAll<HTMLElement>(".acpmux-quick-menu [role=menuitem]")].find(
+    (item) => item.textContent?.startsWith("More models"),
+  );
+  expect(more).toBeDefined();
+  await act(async () => more!.click());
   const refresh = byLabel("Refresh models")!;
   expect(refresh).toBeDefined();
   await act(async () => refresh.click());

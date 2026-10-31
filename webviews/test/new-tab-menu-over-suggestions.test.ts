@@ -65,8 +65,15 @@ await requireBrowserLane("new-tab-menu-over-suggestions.test.ts", async () => {
       const node = document.querySelector<HTMLElement>(selector);
       return !!node && getComputedStyle(node).visibility === "visible" && node.getBoundingClientRect().height > 0;
     }, menuSelector);
-    // Past the open animation.
-    await page.waitForTimeout(400);
+    // Past the open animation (finite animations only).
+    await page.evaluate(() =>
+      Promise.all(
+        document
+          .getAnimations()
+          .filter((animation) => Number.isFinite(Number(animation.effect?.getComputedTiming().endTime)))
+          .map((animation) => animation.finished.catch(() => undefined)),
+      ),
+    );
     return page.evaluate(
       ({ menuSelector, rowSelector }) => {
         const menu = document.querySelector<HTMLElement>(menuSelector)!;

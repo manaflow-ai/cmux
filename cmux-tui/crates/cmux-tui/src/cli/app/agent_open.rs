@@ -3,22 +3,27 @@
 //! of the app, the app action with the CLI name `agent open`
 //! (`agent.openSessionWorkspace`). Scripts and coordinators make a session
 //! they started from the CLI appear in the app this way.
+//! `cmux agent open-tab SESSION [--target PANE_OR_TAB] [--host HOST] [--focus]`
+//! opens it as a tab of a pane instead (`agent.openSessionTab`).
 
 use super::{ActionName, AppCommand, run_action};
 use crate::cli::UsageError;
 
-/// The `agent open` command, `None` for any other words.
+/// The `agent open` and `agent open-tab` commands, `None` for any other words.
 pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
-    if args.first().is_none_or(|scope| scope != "agent")
-        || args.get(1).is_none_or(|verb| verb != "open")
-    {
+    if args.first().is_none_or(|scope| scope != "agent") {
         return Ok(None);
     }
-    let usage = crate::localization::catalog().app_control.agent_open_usage;
+    let messages = &crate::localization::catalog().app_control;
+    let (action, usage) = match args.get(1).map(String::as_str) {
+        Some("open") => ("agent open", messages.agent_open_usage),
+        Some("open-tab") => ("agent open-tab", messages.agent_open_tab_usage),
+        _ => return Ok(None),
+    };
     let Some((session, tail)) = args[2..].split_first().filter(|(id, _)| !id.starts_with('-'))
     else {
         return Err(UsageError::new(usage));
     };
     let args = ["--session".to_owned(), session.clone()].into_iter().chain(tail.iter().cloned());
-    run_action("agent open", &args.collect::<Vec<_>>(), ActionName::Cli).map(Some)
+    run_action(action, &args.collect::<Vec<_>>(), ActionName::Cli).map(Some)
 }

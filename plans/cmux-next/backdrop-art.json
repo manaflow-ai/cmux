@@ -53,46 +53,13 @@
    "license": "Public domain [PD-Art, PD-US-expired-text, PD-art-category, PD-art-category/core, PD-old-X-expired, PD-old-auto-1923, PD-old-auto-expired, PD-old-text]"
   },
   {
-   "id": "goya-saturn",
-   "title": "Saturn Devouring His Son",
-   "artist": "Francisco Goya",
-   "year": "1819–1823",
-   "museum": "Museo del Prado, Madrid",
-   "collection": "darkArt",
-   "bundled": true,
-   "focal": {
-    "x": 0.807,
-    "y": 0.45
-   },
-   "subject": {
-    "minX": 0.66,
-    "minY": 0.04,
-    "maxX": 0.985,
-    "maxY": 0.7
-   },
-   "tint": 0.3,
-   "darkest": "#000002",
-   "lightest": "#FAF5CB",
-   "thumbnail": {
-    "url": "https://files.cmux.com/cmux-art/0b277d85df337f14b56dcf1b2f642985bf763f1a5ff6ea0e4a687a1b7fc6db4a.avif",
-    "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/goya-saturn.thumb.avif"
-   },
-   "full": {
-    "url": "https://files.cmux.com/cmux-art/956bd637cccda2fa2e6bcfb681928fbed81e579317146105733de97fec9d59cc.avif",
-    "sha256": "956bd637cccda2fa2e6bcfb681928fbed81e579317146105733de97fec9d59cc",
-    "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/goya-saturn.avif"
-   },
-   "source": "https://commons.wikimedia.org/wiki/File:Francisco_de_Goya%2C_Saturno_devorando_a_su_hijo_%281819-1823%29.jpg",
-   "license": "Public domain [PD-Art, PD-US-expired-text, PD-art-category, PD-art-category/core, PD-old-X-expired, PD-old-auto-expired, PD-old-text]"
-  },
-  {
    "id": "velde-small-ship-storm",
    "title": "A Small Dutch Ship Riding Out a Storm",
    "artist": "Willem van de Velde the Younger",
    "year": "c. 1690s",
    "museum": "National Maritime Museum, Greenwich",
    "collection": "darkArt",
-   "bundled": false,
+   "bundled": true,
    "focal": {
     "x": 0.737,
     "y": 0.45
@@ -112,42 +79,11 @@
    },
    "full": {
     "url": "https://files.cmux.com/cmux-art/df2cf3bc30484b80f4796759be74f6b9402f90ac00bea582f7c399dda02b95fb.avif",
-    "sha256": "df2cf3bc30484b80f4796759be74f6b9402f90ac00bea582f7c399dda02b95fb"
+    "sha256": "df2cf3bc30484b80f4796759be74f6b9402f90ac00bea582f7c399dda02b95fb",
+    "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/velde-small-ship-storm.avif"
    },
    "source": "https://commons.wikimedia.org/wiki/File:A_small_Dutch_ship_riding_out_a_storm_RMG_BHC0898.tiff",
    "license": "Public domain [PD-Art, PD-US-expired-text, PD-art-category, PD-art-category/core, PD-old-100-1923, PD-old-100-expired, PD-old-X-expired, PD-old-text]"
-  },
-  {
-   "id": "bosch-garden-right",
-   "title": "The Garden of Earthly Delights: Hell",
-   "artist": "Hieronymus Bosch",
-   "year": "c. 1490–1510",
-   "museum": "Museo del Prado, Madrid",
-   "collection": "darkArt",
-   "bundled": false,
-   "focal": {
-    "x": 0.871,
-    "y": 0.45
-   },
-   "subject": {
-    "minX": 0.773,
-    "minY": 0.04,
-    "maxX": 0.99,
-    "maxY": 0.7
-   },
-   "tint": 0.3,
-   "darkest": "#000000",
-   "lightest": "#F8F2E2",
-   "thumbnail": {
-    "url": "https://files.cmux.com/cmux-art/d0218ae5b4bb3e54c5a3d24546a43004fb3ca45e8f597b36d375af64bb079701.avif",
-    "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/bosch-garden-right.thumb.avif"
-   },
-   "full": {
-    "url": "https://files.cmux.com/cmux-art/5a069b37bd2c9bdb5be6f0be21d4bed66d62badbca947e0eb7a3b6e042277330.avif",
-    "sha256": "5a069b37bd2c9bdb5be6f0be21d4bed66d62badbca947e0eb7a3b6e042277330"
-   },
-   "source": "https://commons.wikimedia.org/wiki/File:Hieronymus_Bosch_-_The_Garden_of_Earthly_Delights_-_Hell.jpg",
-   "license": "Public domain [PD-Art, PD-US-expired-text, PD-art, PD-art-category, PD-art-category/core, PD-old-100-1923, PD-old-100-expired, PD-old-X-expired, PD-old-text]"
   },
   {
    "id": "bosch-ascent-blessed",
@@ -211,72 +147,6 @@
     "sha256": "b3c234bc90d99f26ccb7c2bba84b488808890da40d4f6363f5108d16c54cb768"
    },
    "source": "https://commons.wikimedia.org/wiki/File:Francisco_de_Goya_-_Vuelo_de_brujas_%281798%29.jpg",
-   "license": "Public domain [PD-Art, PD-US-expired-text, PD-art-category, PD-art-category/core, PD-old-X-expired, PD-old-auto-expired, PD-old-text]"
-  },
-  {
-   "id": "bocklin-self-portrait-death",
-   "title": "Self-Portrait with Death Playing the Fiddle",
-   "artist": "Arnold Böcklin",
-   "year": "1872",
-   "museum": "Alte Nationalgalerie, Berlin",
-   "collection": "darkArt",
-   "bundled": true,
-   "focal": {
-    "x": 0.748,
-    "y": 0.45
-   },
-   "subject": {
-    "minX": 0.556,
-    "minY": 0.04,
-    "maxX": 0.98,
-    "maxY": 0.7
-   },
-   "tint": 0.3,
-   "darkest": "#000102",
-   "lightest": "#FFFDE5",
-   "thumbnail": {
-    "url": "https://files.cmux.com/cmux-art/d11831d51739c07843f86e31a6ce50e7418a979c2986fa35be0f6b1bd5eeacba.avif",
-    "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/bocklin-self-portrait-death.thumb.avif"
-   },
-   "full": {
-    "url": "https://files.cmux.com/cmux-art/25cd7f8165885107c9520a6e5b10c8b996340f39b716dd657f26126180affa70.avif",
-    "sha256": "25cd7f8165885107c9520a6e5b10c8b996340f39b716dd657f26126180affa70",
-    "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/bocklin-self-portrait-death.avif"
-   },
-   "source": "https://commons.wikimedia.org/wiki/File:Arnold_Boecklin-fiedelnder_Tod.jpg",
-   "license": "Public domain [PD-Art, PD-Art-two-auto, PD-US-expired-text, PD-art-category, PD-art-category/core, PD-art-two-auto, PD-old-X-expired, PD-old-auto-expired, PD-old-text]"
-  },
-  {
-   "id": "caravaggio-medusa",
-   "title": "Medusa",
-   "artist": "Caravaggio",
-   "year": "c. 1597",
-   "museum": "Uffizi Gallery, Florence",
-   "collection": "darkArt",
-   "bundled": true,
-   "focal": {
-    "x": 0.697,
-    "y": 0.45
-   },
-   "subject": {
-    "minX": 0.467,
-    "minY": 0.04,
-    "maxX": 0.976,
-    "maxY": 0.7
-   },
-   "tint": 0.31,
-   "darkest": "#060000",
-   "lightest": "#FFFFF3",
-   "thumbnail": {
-    "url": "https://files.cmux.com/cmux-art/e576e5f6d25bf6c74ae58560812cb8be50117105d8c848bf99b08c2e82d337f7.avif",
-    "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/caravaggio-medusa.thumb.avif"
-   },
-   "full": {
-    "url": "https://files.cmux.com/cmux-art/ef277597b033f0b13c04aa2ab7fd7d9ec4c5630ecd7696bc44502c46cf5a0dbe.avif",
-    "sha256": "ef277597b033f0b13c04aa2ab7fd7d9ec4c5630ecd7696bc44502c46cf5a0dbe",
-    "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/caravaggio-medusa.avif"
-   },
-   "source": "https://commons.wikimedia.org/wiki/File:Caravaggio_-_Medusa_-_Google_Art_Project.jpg",
    "license": "Public domain [PD-Art, PD-US-expired-text, PD-art-category, PD-art-category/core, PD-old-X-expired, PD-old-auto-expired, PD-old-text]"
   },
   {
@@ -409,71 +279,6 @@
    "license": "Public domain [Cc-by-4.0, Licensed-PD-Art, PD-US-expired-text, PD-art-category, PD-art-category/core, PD-old-X-expired, PD-old-auto-expired, PD-old-text]"
   },
   {
-   "id": "caravaggio-david-goliath",
-   "title": "David with the Head of Goliath",
-   "artist": "Caravaggio",
-   "year": "c. 1610",
-   "museum": "Galleria Borghese, Rome",
-   "collection": "darkArt",
-   "bundled": false,
-   "focal": {
-    "x": 0.716,
-    "y": 0.45
-   },
-   "subject": {
-    "minX": 0.5,
-    "minY": 0.04,
-    "maxX": 0.977,
-    "maxY": 0.7
-   },
-   "tint": 0.3,
-   "darkest": "#080000",
-   "lightest": "#FFFCED",
-   "thumbnail": {
-    "url": "https://files.cmux.com/cmux-art/318969c02a5bc34b142e546f941cc7dbb9a95d1a834cba73bd0c6c241bb88100.avif",
-    "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/caravaggio-david-goliath.thumb.avif"
-   },
-   "full": {
-    "url": "https://files.cmux.com/cmux-art/450eba91a93ce7f1ebdb77f3cd71aeec5200d7ec3418818536625e274773c475.avif",
-    "sha256": "450eba91a93ce7f1ebdb77f3cd71aeec5200d7ec3418818536625e274773c475"
-   },
-   "source": "https://commons.wikimedia.org/wiki/File:David_with_the_Head_of_Goliath-Caravaggio_%281610%29.jpg",
-   "license": "Public domain [PD-Art, PD-US-expired-text, PD-art-category, PD-art-category/core, PD-old-100-expired, PD-old-X-expired, PD-old-text, Self-scanned]"
-  },
-  {
-   "id": "van-gogh-skeleton-cigarette",
-   "title": "Skeleton with a Burning Cigarette",
-   "artist": "Vincent van Gogh",
-   "year": "1886",
-   "museum": "Van Gogh Museum, Amsterdam",
-   "collection": "darkArt",
-   "bundled": true,
-   "focal": {
-    "x": 0.764,
-    "y": 0.45
-   },
-   "subject": {
-    "minX": 0.585,
-    "minY": 0.04,
-    "maxX": 0.981,
-    "maxY": 0.7
-   },
-   "tint": 0.31,
-   "darkest": "#000300",
-   "lightest": "#FFFFD7",
-   "thumbnail": {
-    "url": "https://files.cmux.com/cmux-art/5930bd8cd8e629220ddd7b1c0254a2fe26d4829d78f646bd3eed78b142b303aa.avif",
-    "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/van-gogh-skeleton-cigarette.thumb.avif"
-   },
-   "full": {
-    "url": "https://files.cmux.com/cmux-art/17d664a340895f0ae2dc26161c3c28b890f74232f7d284c3cee2e57ea040259a.avif",
-    "sha256": "17d664a340895f0ae2dc26161c3c28b890f74232f7d284c3cee2e57ea040259a",
-    "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/van-gogh-skeleton-cigarette.avif"
-   },
-   "source": "https://commons.wikimedia.org/wiki/File:Kop_van_een_skelet_met_brandende_sigaret_-_s0083V1962_-_Van_Gogh_Museum.jpg",
-   "license": "Public domain [PD-Art, PD-US-expired-text, PD-art-category, PD-art-category/core, PD-old-X-expired, PD-old-auto-expired, PD-old-text]"
-  },
-  {
    "id": "altdorfer-battle-of-issus",
    "title": "The Battle of Alexander at Issus",
    "artist": "Albrecht Altdorfer",
@@ -506,38 +311,6 @@
    "license": "Public domain [PD-Art, PD-US-expired-text, PD-art-category, PD-art-category/core, PD-old-100-expired, PD-old-X-expired, PD-old-text]"
   },
   {
-   "id": "gentileschi-judith",
-   "title": "Judith Slaying Holofernes",
-   "artist": "Artemisia Gentileschi",
-   "year": "c. 1620",
-   "museum": "Uffizi Gallery, Florence",
-   "collection": "darkArt",
-   "bundled": false,
-   "focal": {
-    "x": 0.747,
-    "y": 0.45
-   },
-   "subject": {
-    "minX": 0.555,
-    "minY": 0.04,
-    "maxX": 0.98,
-    "maxY": 0.7
-   },
-   "tint": 0.31,
-   "darkest": "#020001",
-   "lightest": "#FFFFDD",
-   "thumbnail": {
-    "url": "https://files.cmux.com/cmux-art/4ca6ba452bca522629a56dd7c274c91b08a8a850dd948cbf398aaa409a2652c3.avif",
-    "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/gentileschi-judith.thumb.avif"
-   },
-   "full": {
-    "url": "https://files.cmux.com/cmux-art/497979a9041e136ff089e36cf450499571ced80e58a2d56a3ff7880201b501b3.avif",
-    "sha256": "497979a9041e136ff089e36cf450499571ced80e58a2d56a3ff7880201b501b3"
-   },
-   "source": "https://commons.wikimedia.org/wiki/File:Artemisia_Gentileschi_-_Giuditta_decapita_Oloferne_-_Google_Art_Project.jpg",
-   "license": "Public domain [PD-Art, PD-US-expired-text, PD-art-category, PD-art-category/core, PD-old-100-1923, PD-old-100-expired, PD-old-X-expired, PD-old-text]"
-  },
-  {
    "id": "munch-madonna",
    "title": "Madonna",
    "artist": "Edvard Munch",
@@ -568,39 +341,6 @@
    },
    "source": "https://commons.wikimedia.org/wiki/File:Edvard_Munch_-_Madonna_-_NG.M.00841_-_National_Museum_of_Art%2C_Architecture_and_Design.jpg",
    "license": "Public domain [Cc-by-4.0, Licensed-PD-Art, PD-US-expired-text, PD-art-category, PD-art-category/core, PD-old-X-expired, PD-old-auto-expired, PD-old-text]"
-  },
-  {
-   "id": "bocklin-isle-of-the-dead",
-   "title": "Isle of the Dead",
-   "artist": "Arnold Böcklin",
-   "year": "1880",
-   "museum": "Kunstmuseum Basel",
-   "collection": "darkArt",
-   "bundled": true,
-   "focal": {
-    "x": 0.5,
-    "y": 0.45
-   },
-   "subject": {
-    "minX": 0.25,
-    "minY": 0.15,
-    "maxX": 0.7,
-    "maxY": 0.9
-   },
-   "tint": 0.33,
-   "darkest": "#040100",
-   "lightest": "#FFFFF3",
-   "thumbnail": {
-    "url": "https://files.cmux.com/cmux-art/8dae30228b2ad8f27c30557daa1f2669486daa8b5887f06b5dfaeefdeb1a1ba9.avif",
-    "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/bocklin-isle-of-the-dead.thumb.avif"
-   },
-   "full": {
-    "url": "https://files.cmux.com/cmux-art/fa73f11b26ec9fe59ec2a439c0aa8e855525c4516fcce7c4de05731e9fc9d28e.avif",
-    "sha256": "fa73f11b26ec9fe59ec2a439c0aa8e855525c4516fcce7c4de05731e9fc9d28e",
-    "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/bocklin-isle-of-the-dead.avif"
-   },
-   "source": "https://commons.wikimedia.org/wiki/File:Arnold_B%C3%B6cklin_-_Die_Toteninsel_I_%28Basel%2C_Kunstmuseum%29.jpg",
-   "license": "Public domain [PD-Art, PD-US-expired-text, PD-art-category, PD-art-category/core, PD-old-100-1923, PD-old-100-expired, PD-old-X-expired, PD-old-text]"
   },
   {
    "id": "klee-fish-magic",
@@ -641,7 +381,7 @@
    "year": "c. 1823–1830",
    "museum": "Alte Nationalgalerie, Berlin",
    "collection": "darkArt",
-   "bundled": false,
+   "bundled": true,
    "focal": {
     "x": 0.771,
     "y": 0.45
@@ -661,42 +401,11 @@
    },
    "full": {
     "url": "https://files.cmux.com/cmux-art/f642e0fe378fff4e8a04c00767b67cff4b014e7600b8b706f2eb2085740f1150.avif",
-    "sha256": "f642e0fe378fff4e8a04c00767b67cff4b014e7600b8b706f2eb2085740f1150"
+    "sha256": "f642e0fe378fff4e8a04c00767b67cff4b014e7600b8b706f2eb2085740f1150",
+    "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/friedrich-forest-moonlight.avif"
    },
    "source": "https://commons.wikimedia.org/wiki/File:Caspar_David_Friedrich_-_Waldinneres_bei_Mondschein.jpg",
    "license": "Public domain [PD-Art, PD-US-expired-text, PD-art-category, PD-art-category/core, PD-old-X-expired, PD-old-auto-1923, PD-old-auto-expired, PD-old-text]"
-  },
-  {
-   "id": "goya-witches-sabbath",
-   "title": "Witches' Sabbath",
-   "artist": "Francisco Goya",
-   "year": "1819–1823",
-   "museum": "Museo del Prado, Madrid",
-   "collection": "darkArt",
-   "bundled": false,
-   "focal": {
-    "x": 0.5,
-    "y": 0.45
-   },
-   "subject": {
-    "minX": 0.2,
-    "minY": 0.1,
-    "maxX": 0.8,
-    "maxY": 0.6
-   },
-   "tint": 0.36,
-   "darkest": "#000002",
-   "lightest": "#FFF0B9",
-   "thumbnail": {
-    "url": "https://files.cmux.com/cmux-art/06675fa5ad2e0e0e7bbfffa7bff66891318f54d18f87527da439792f6dd14ee4.avif",
-    "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/goya-witches-sabbath.thumb.avif"
-   },
-   "full": {
-    "url": "https://files.cmux.com/cmux-art/a0bd53d66435afb57d261a029c7331d5074bc16837fad74c954517f1f53dd8dc.avif",
-    "sha256": "a0bd53d66435afb57d261a029c7331d5074bc16837fad74c954517f1f53dd8dc"
-   },
-   "source": "https://commons.wikimedia.org/wiki/File:Francisco_de_Goya_y_Lucientes_-_Witches%27_Sabbath_%28The_Great_He-Goat%29.jpg",
-   "license": "Public domain [PD-Art, PD-US-expired-text, PD-art-category, PD-art-category/core, PD-old-X-expired, PD-old-auto-expired, PD-old-text]"
   },
   {
    "id": "bosch-garden-left",
@@ -796,70 +505,6 @@
    "license": "Public domain [PD-Art, PD-US-expired-text, PD-art-category, PD-art-category/core, PD-old-X-expired, PD-old-auto-expired, PD-old-text]"
   },
   {
-   "id": "fuseli-nightmare-2",
-   "title": "The Nightmare (1791)",
-   "artist": "Henry Fuseli",
-   "year": "1790–1791",
-   "museum": "Goethe-Haus, Frankfurt",
-   "collection": "darkArt",
-   "bundled": false,
-   "focal": {
-    "x": 0.751,
-    "y": 0.45
-   },
-   "subject": {
-    "minX": 0.562,
-    "minY": 0.04,
-    "maxX": 0.98,
-    "maxY": 0.7
-   },
-   "tint": 0.31,
-   "darkest": "#060002",
-   "lightest": "#FDFFF2",
-   "thumbnail": {
-    "url": "https://files.cmux.com/cmux-art/1945cfda2f347d980d05619a21b6259befcfa5b8da8d3a6fce529b7258c1bd9e.avif",
-    "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/fuseli-nightmare-2.thumb.avif"
-   },
-   "full": {
-    "url": "https://files.cmux.com/cmux-art/dc7cbb43eb94bec92cd8fdecf1598371f5cdb6242159cfbd1b0a9ebd5acac77a.avif",
-    "sha256": "dc7cbb43eb94bec92cd8fdecf1598371f5cdb6242159cfbd1b0a9ebd5acac77a"
-   },
-   "source": "https://commons.wikimedia.org/wiki/File:The_Nightmare_%281790-1791%29_-_Johann_Heinrich_F%C3%BCssli.jpg",
-   "license": "Public domain [PD-Art-YorckProject, PD-art-category, PD-art-category/core, PD-old-100, PD-old-text, PD-old-warning-text]"
-  },
-  {
-   "id": "hiremy-hirschl-souls-of-acheron",
-   "title": "The Souls of Acheron",
-   "artist": "Adolf Hirémy-Hirschl",
-   "year": "1898",
-   "museum": "Österreichische Galerie Belvedere, Vienna",
-   "collection": "darkArt",
-   "bundled": false,
-   "focal": {
-    "x": 0.5,
-    "y": 0.45
-   },
-   "subject": {
-    "minX": 0.3,
-    "minY": 0.05,
-    "maxX": 0.85,
-    "maxY": 0.8
-   },
-   "tint": 0.32,
-   "darkest": "#000005",
-   "lightest": "#FBFFFF",
-   "thumbnail": {
-    "url": "https://files.cmux.com/cmux-art/a15d575407fafd0d0a7b845330ce75655da50effe90d7af9491600f79f7eb429.avif",
-    "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/hiremy-hirschl-souls-of-acheron.thumb.avif"
-   },
-   "full": {
-    "url": "https://files.cmux.com/cmux-art/02a23cbf05ff65a8b708678f89a5c87e4603a9ac1ae121d4bb8bbbbb502fe382.avif",
-    "sha256": "02a23cbf05ff65a8b708678f89a5c87e4603a9ac1ae121d4bb8bbbbb502fe382"
-   },
-   "source": "https://commons.wikimedia.org/wiki/File:Adolf_Hir%C3%A9my-Hirschl_-_Die_Seelen_am_Acheron_-_942_-_%C3%96sterreichische_Galerie_Belvedere.jpg",
-   "license": "Public domain [PD-Art, PD-US-expired-text, PD-art-category, PD-art-category/core, PD-old-X-expired, PD-old-auto-expired, PD-old-text]"
-  },
-  {
    "id": "munch-scream",
    "title": "The Scream",
    "artist": "Edvard Munch",
@@ -893,102 +538,6 @@
    "license": "Public domain [Cc-by-4.0, Licensed-PD-Art, PD-US-expired-text, PD-art-category, PD-art-category/core, PD-old-X-expired, PD-old-auto-expired, PD-old-text]"
   },
   {
-   "id": "klimt-judith",
-   "title": "Judith I",
-   "artist": "Gustav Klimt",
-   "year": "1901",
-   "museum": "Österreichische Galerie Belvedere, Vienna",
-   "collection": "darkArt",
-   "bundled": false,
-   "focal": {
-    "x": 0.846,
-    "y": 0.45
-   },
-   "subject": {
-    "minX": 0.729,
-    "minY": 0.04,
-    "maxX": 0.988,
-    "maxY": 0.7
-   },
-   "tint": 0.32,
-   "darkest": "#02000E",
-   "lightest": "#FFFFCD",
-   "thumbnail": {
-    "url": "https://files.cmux.com/cmux-art/f34f79e4a2602683921494748d7ad342b0311da300cd67e2f4e4f3abb29fe3fd.avif",
-    "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/klimt-judith.thumb.avif"
-   },
-   "full": {
-    "url": "https://files.cmux.com/cmux-art/96a29d82b41c213b46f06183549430231dd8c9adfefc4451e107ad0c13bb1533.avif",
-    "sha256": "96a29d82b41c213b46f06183549430231dd8c9adfefc4451e107ad0c13bb1533"
-   },
-   "source": "https://commons.wikimedia.org/wiki/File:Judith_1_%28cropped%29.jpg",
-   "license": "Public domain [PD-Art, PD-US-expired-text, PD-art-category, PD-art-category/core, PD-old-X-expired, PD-old-auto-expired, PD-old-text]"
-  },
-  {
-   "id": "repin-ivan",
-   "title": "Ivan the Terrible and His Son Ivan",
-   "artist": "Ilya Repin",
-   "year": "1883–1885",
-   "museum": "Tretyakov Gallery, Moscow",
-   "collection": "darkArt",
-   "bundled": false,
-   "focal": {
-    "x": 0.5,
-    "y": 0.45
-   },
-   "subject": {
-    "minX": 0.35,
-    "minY": 0.2,
-    "maxX": 0.75,
-    "maxY": 0.95
-   },
-   "tint": 0.34,
-   "darkest": "#000000",
-   "lightest": "#FFFFFF",
-   "thumbnail": {
-    "url": "https://files.cmux.com/cmux-art/aa7ae53cc69f0194f26a6d9f2ab6a4b2395942a5f3db3a9b4ddf2ab54f42b1aa.avif",
-    "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/repin-ivan.thumb.avif"
-   },
-   "full": {
-    "url": "https://files.cmux.com/cmux-art/3b58454ff846cdd05ae02743658db2244640be69335b14c4214602a5dfb807b3.avif",
-    "sha256": "3b58454ff846cdd05ae02743658db2244640be69335b14c4214602a5dfb807b3"
-   },
-   "source": "https://commons.wikimedia.org/wiki/File:R%C3%A9pine_Ivan_le_Terrible_et_son_fils_Ivan_principale_version_1883_-_1885.jpg",
-   "license": "Public domain [PD-1923, PD-US-expired, PD-US-expired-text]"
-  },
-  {
-   "id": "millais-ophelia",
-   "title": "Ophelia",
-   "artist": "John Everett Millais",
-   "year": "1851–52",
-   "museum": "Tate Britain, London",
-   "collection": "darkArt",
-   "bundled": false,
-   "focal": {
-    "x": 0.5,
-    "y": 0.45
-   },
-   "subject": {
-    "minX": 0.18,
-    "minY": 0.4,
-    "maxX": 0.6,
-    "maxY": 0.7
-   },
-   "tint": 0.36,
-   "darkest": "#000000",
-   "lightest": "#FFFFFD",
-   "thumbnail": {
-    "url": "https://files.cmux.com/cmux-art/194823cf93b6b880f7d2b4d4d6d999c3b2ab6e037252d37978bcd33ed133878c.avif",
-    "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/millais-ophelia.thumb.avif"
-   },
-   "full": {
-    "url": "https://files.cmux.com/cmux-art/b333f1ffe1b516660ef9766da343cffd7992dbe652dd87d05f331dbad39a5fe8.avif",
-    "sha256": "b333f1ffe1b516660ef9766da343cffd7992dbe652dd87d05f331dbad39a5fe8"
-   },
-   "source": "https://commons.wikimedia.org/wiki/File:John_Everett_Millais_-_Ophelia_-_Google_Art_Project.jpg",
-   "license": "Public domain [PD-Art, PD-Art-copyright-notice, PD-Art-copyright-notice-Tate-Britain, PD-Art-copyright-notice/lang, PD-US-expired-text, PD-art-category, PD-art-category/core, PD-old-100-1923, PD-old-100-expired, PD-old-X-expired, PD-old-text]"
-  },
-  {
    "id": "bruegel-fall-rebel-angels",
    "title": "The Fall of the Rebel Angels",
    "artist": "Pieter Bruegel the Elder",
@@ -1019,71 +568,6 @@
    },
    "source": "https://commons.wikimedia.org/wiki/File:Pieter_Bruegel_the_Elder_-_The_Fall_of_the_Rebel_Angels_-_Google_Art_Project.jpg",
    "license": "Public domain [PD-Art, PD-US-expired-text, PD-art-category, PD-art-category/core, PD-old-100-1923, PD-old-100-expired, PD-old-X-expired, PD-old-text]"
-  },
-  {
-   "id": "fuseli-nightmare",
-   "title": "The Nightmare",
-   "artist": "Henry Fuseli",
-   "year": "1781",
-   "museum": "Detroit Institute of Arts",
-   "collection": "darkArt",
-   "bundled": true,
-   "focal": {
-    "x": 0.5,
-    "y": 0.45
-   },
-   "subject": {
-    "minX": 0.25,
-    "minY": 0.0,
-    "maxX": 0.85,
-    "maxY": 0.8
-   },
-   "tint": 0.34,
-   "darkest": "#040100",
-   "lightest": "#F4EBCC",
-   "thumbnail": {
-    "url": "https://files.cmux.com/cmux-art/0afea9d488b0fc1aeb761587f91d3267adcedb445791f79b79825205f41f8889.avif",
-    "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/fuseli-nightmare.thumb.avif"
-   },
-   "full": {
-    "url": "https://files.cmux.com/cmux-art/f391abbf4838f44bc16bc9860f5493ba03710af27437b23c3494cdebdd8dd8f3.avif",
-    "sha256": "f391abbf4838f44bc16bc9860f5493ba03710af27437b23c3494cdebdd8dd8f3",
-    "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/fuseli-nightmare.avif"
-   },
-   "source": "https://commons.wikimedia.org/wiki/File:Johann_Heinrich_F%C3%BCssli_-_The_Nightmare_55.5.A-d1-2019-04-15.jpg",
-   "license": "Public domain [PD-ART, PD-Art, PD-US-expired-text, PD-art-category, PD-art-category/core, PD-old-X-expired, PD-old-auto-expired, PD-old-text]"
-  },
-  {
-   "id": "bundy-death-general",
-   "title": "Death as General",
-   "artist": "Edgar Bundy",
-   "year": "1911",
-   "museum": "Wellcome Collection, London",
-   "collection": "darkArt",
-   "bundled": false,
-   "focal": {
-    "x": 0.5,
-    "y": 0.45
-   },
-   "subject": {
-    "minX": 0.4,
-    "minY": 0.05,
-    "maxX": 0.75,
-    "maxY": 0.95
-   },
-   "tint": 0.36,
-   "darkest": "#000000",
-   "lightest": "#FFFFFD",
-   "thumbnail": {
-    "url": "https://files.cmux.com/cmux-art/2947537fa44f3f3865a25b7dee28e45a1359abcfbdcbbbe4ab958cc741cfab41.avif",
-    "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/bundy-death-general.thumb.avif"
-   },
-   "full": {
-    "url": "https://files.cmux.com/cmux-art/d9b6429c048b7a9a6f6f1c2d872780e5c6804b72a01620ee9ccdef0e803ae6aa.avif",
-    "sha256": "d9b6429c048b7a9a6f6f1c2d872780e5c6804b72a01620ee9ccdef0e803ae6aa"
-   },
-   "source": "https://commons.wikimedia.org/wiki/File:Death_as_general_rides_a_horse_on_a_battlefield._Watercolour_Wellcome_V0042260.jpg",
-   "license": "CC BY 4.0 [Cc-by-4.0]"
   },
   {
    "id": "wright-vesuvius",
@@ -1148,38 +632,6 @@
    },
    "source": "https://commons.wikimedia.org/wiki/File:Marku_Buchari.jpg",
    "license": "Public domain [PD-Art, PD-US-expired-text, PD-art-category, PD-art-category/core, PD-old-X-expired, PD-old-auto-expired, PD-old-text]"
-  },
-  {
-   "id": "durer-knight-death-devil",
-   "title": "Knight, Death and the Devil",
-   "artist": "Albrecht Dürer",
-   "year": "1513",
-   "museum": "National Gallery of Art, Washington (impression)",
-   "collection": "darkArt",
-   "bundled": false,
-   "focal": {
-    "x": 0.763,
-    "y": 0.45
-   },
-   "subject": {
-    "minX": 0.583,
-    "minY": 0.04,
-    "maxX": 0.981,
-    "maxY": 0.7
-   },
-   "tint": 0.32,
-   "darkest": "#0B0A05",
-   "lightest": "#FFFFF1",
-   "thumbnail": {
-    "url": "https://files.cmux.com/cmux-art/9c3b292751fee11436adc870bfae634bb422a60c6febafa0a7bc545122770718.avif",
-    "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/durer-knight-death-devil.thumb.avif"
-   },
-   "full": {
-    "url": "https://files.cmux.com/cmux-art/85e285fcdbdfc563de96ea0f0d2774da428fc5fae1c599e14a7333bb94aea89f.avif",
-    "sha256": "85e285fcdbdfc563de96ea0f0d2774da428fc5fae1c599e14a7333bb94aea89f"
-   },
-   "source": "https://commons.wikimedia.org/wiki/File:Albrecht_D%C3%BCrer%2C_Knight%2C_Death_and_Devil%2C_1513%2C_NGA_6637.jpg",
-   "license": "CC0 [CC0, Cc-zero]"
   },
   {
    "id": "martin-joshua",
@@ -1278,70 +730,6 @@
    "license": "Public domain [PD-Art, PD-Japan, PD-Japan/lang, PD-US, PD-art-category, PD-art-category/core, PD-old-100, PD-old-text, PD-old-warning-text]"
   },
   {
-   "id": "klimt-death-and-life",
-   "title": "Death and Life",
-   "artist": "Gustav Klimt",
-   "year": "1910–1915",
-   "museum": "Leopold Museum, Vienna",
-   "collection": "darkArt",
-   "bundled": false,
-   "focal": {
-    "x": 0.641,
-    "y": 0.45
-   },
-   "subject": {
-    "minX": 0.368,
-    "minY": 0.04,
-    "maxX": 0.971,
-    "maxY": 0.7
-   },
-   "tint": 0.31,
-   "darkest": "#010000",
-   "lightest": "#EBFEFC",
-   "thumbnail": {
-    "url": "https://files.cmux.com/cmux-art/727c3316ae1bcd5ef926df311cd1bd5c565fac6655b3daf46dcf428103a25518.avif",
-    "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/klimt-death-and-life.thumb.avif"
-   },
-   "full": {
-    "url": "https://files.cmux.com/cmux-art/354f2a0d07a64439ea1b3cd5b7760af80b1d8c73ae73def57400e8c03d570b36.avif",
-    "sha256": "354f2a0d07a64439ea1b3cd5b7760af80b1d8c73ae73def57400e8c03d570b36"
-   },
-   "source": "https://commons.wikimedia.org/wiki/File:Gustav_Klimt_-_Death_and_Life_-_Google_Art_Project.jpg",
-   "license": "Public domain [PD-Art, PD-Art-two-auto, PD-US-expired-text, PD-art-category, PD-art-category/core, PD-old-X-expired, PD-old-auto-expired, PD-old-text]"
-  },
-  {
-   "id": "klimt-medicine",
-   "title": "Medicine",
-   "artist": "Gustav Klimt",
-   "year": "1900–1907",
-   "museum": "Destroyed 1945 (Schloss Immendorf fire)",
-   "collection": "darkArt",
-   "bundled": false,
-   "focal": {
-    "x": 0.792,
-    "y": 0.45
-   },
-   "subject": {
-    "minX": 0.634,
-    "minY": 0.04,
-    "maxX": 0.983,
-    "maxY": 0.7
-   },
-   "tint": 0.32,
-   "darkest": "#1C1004",
-   "lightest": "#FFF7EE",
-   "thumbnail": {
-    "url": "https://files.cmux.com/cmux-art/32ff3c1562aaa5d2bb09b429ece7b37c8f27df03c457b100fe4643230603019d.avif",
-    "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/klimt-medicine.thumb.avif"
-   },
-   "full": {
-    "url": "https://files.cmux.com/cmux-art/ca7a27d94948d251776919581675634bceab33786423129d539e6eaae3b58827.avif",
-    "sha256": "ca7a27d94948d251776919581675634bceab33786423129d539e6eaae3b58827"
-   },
-   "source": "https://commons.wikimedia.org/wiki/File:Klimt_-_Medizin_1901-1907.jpeg",
-   "license": "Public domain [PD-old, PD-old-text, PD-old-warning-text]"
-  },
-  {
    "id": "bosch-garden-central",
    "title": "The Garden of Earthly Delights",
    "artist": "Hieronymus Bosch",
@@ -1436,39 +824,6 @@
    },
    "source": "https://commons.wikimedia.org/wiki/File:The_Wounded_Eagle_LACMA_M.78.37.jpg",
    "license": "Public domain [PD-Art, PD-LACMA, PD-LACMA/lang, PD-US-expired-text, PD-art-category, PD-art-category/core, PD-old-100-1923, PD-old-100-expired, PD-old-X-expired, PD-old-text]"
-  },
-  {
-   "id": "gerome-pollice-verso",
-   "title": "Pollice Verso",
-   "artist": "Jean-Léon Gérôme",
-   "year": "1872",
-   "museum": "Phoenix Art Museum",
-   "collection": "darkArt",
-   "bundled": true,
-   "focal": {
-    "x": 0.5,
-    "y": 0.45
-   },
-   "subject": {
-    "minX": 0.12,
-    "minY": 0.3,
-    "maxX": 0.55,
-    "maxY": 0.95
-   },
-   "tint": 0.39,
-   "darkest": "#000000",
-   "lightest": "#FEFFFF",
-   "thumbnail": {
-    "url": "https://files.cmux.com/cmux-art/28c367b980c7973a9ed08566f31d6281d527c96bb18c691e5315ad0c71105f65.avif",
-    "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/gerome-pollice-verso.thumb.avif"
-   },
-   "full": {
-    "url": "https://files.cmux.com/cmux-art/0c9f5bfe6aa483986c5dca4ff53d4e26a971a654dac17f39da9e4086091b7f7d.avif",
-    "sha256": "0c9f5bfe6aa483986c5dca4ff53d4e26a971a654dac17f39da9e4086091b7f7d",
-    "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/gerome-pollice-verso.avif"
-   },
-   "source": "https://commons.wikimedia.org/wiki/File:Jean-Leon_Gerome_Pollice_Verso.jpg",
-   "license": "Public domain [PD-Art, PD-US-expired-text, PD-art-category, PD-art-category/core, PD-old-X-expired, PD-old-auto-expired, PD-old-text]"
   },
   {
    "id": "cole-voyage-old-age",
@@ -1599,38 +954,6 @@
    "license": "Public domain [PD-Art, PD-US-expired-text, PD-art-category, PD-art-category/core, PD-old-100-1923, PD-old-100-expired, PD-old-X-expired, PD-old-text]"
   },
   {
-   "id": "bruegel-triumph-death",
-   "title": "The Triumph of Death",
-   "artist": "Pieter Bruegel the Elder",
-   "year": "c. 1562",
-   "museum": "Museo del Prado, Madrid",
-   "collection": "darkArt",
-   "bundled": false,
-   "focal": {
-    "x": 0.5,
-    "y": 0.45
-   },
-   "subject": {
-    "minX": 0.3,
-    "minY": 0.2,
-    "maxX": 0.8,
-    "maxY": 0.9
-   },
-   "tint": 0.39,
-   "darkest": "#040000",
-   "lightest": "#FFFFE9",
-   "thumbnail": {
-    "url": "https://files.cmux.com/cmux-art/6dec7e1311de7c5eac8d9bbe5d5c60185ffef2b7358a2b32cd53070b9bebd540.avif",
-    "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/bruegel-triumph-death.thumb.avif"
-   },
-   "full": {
-    "url": "https://files.cmux.com/cmux-art/d748b8165d8f91d19a0771eb2975370503e4585eda50f321af1b2492a83d2281.avif",
-    "sha256": "d748b8165d8f91d19a0771eb2975370503e4585eda50f321af1b2492a83d2281"
-   },
-   "source": "https://commons.wikimedia.org/wiki/File:The_Triumph_of_Death_by_Pieter_Bruegel_the_Elder.jpg",
-   "license": "Public domain [PD-Art, PD-US-expired-text, PD-art-category, PD-art-category/core, PD-old-100-1923, PD-old-100-expired, PD-old-X-expired, PD-old-text]"
-  },
-  {
    "id": "spilliaert-vertigo",
    "title": "Vertigo",
    "artist": "Léon Spilliaert",
@@ -1695,38 +1018,6 @@
    "license": "Public domain [Cc-by-sa-4.0, Cc-by-sa-layout, Licensed-PD-Art, PD-US-expired-text, PD-art-category, PD-art-category/core, PD-old-X-expired, PD-old-auto-expired, PD-old-text]"
   },
   {
-   "id": "schiele-death-and-the-maiden",
-   "title": "Death and the Maiden",
-   "artist": "Egon Schiele",
-   "year": "1915",
-   "museum": "Österreichische Galerie Belvedere, Vienna",
-   "collection": "darkArt",
-   "bundled": false,
-   "focal": {
-    "x": 0.5,
-    "y": 0.45
-   },
-   "subject": {
-    "minX": 0.15,
-    "minY": 0.05,
-    "maxX": 0.7,
-    "maxY": 0.85
-   },
-   "tint": 0.45,
-   "darkest": "#0E0200",
-   "lightest": "#FFFFF0",
-   "thumbnail": {
-    "url": "https://files.cmux.com/cmux-art/7131f6beddbfb319d4cf4c528cedc26355f782573f69fd5ffc93aa9a9d337cee.avif",
-    "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/schiele-death-and-the-maiden.thumb.avif"
-   },
-   "full": {
-    "url": "https://files.cmux.com/cmux-art/65eea69312f0b3f8dc7d68dadd612dabe22a41f4d6745bcd095a88f5df404996.avif",
-    "sha256": "65eea69312f0b3f8dc7d68dadd612dabe22a41f4d6745bcd095a88f5df404996"
-   },
-   "source": "https://commons.wikimedia.org/wiki/File:Egon_Schiele_-_Tod_und_M%C3%A4dchen_-_3171_-_%C3%96sterreichische_Galerie_Belvedere.jpg",
-   "license": "Public domain [Cc-by-sa-4.0, Cc-by-sa-layout, Licensed-PD-Art, PD-US-expired-text, PD-art-category, PD-art-category/core, PD-old-X-expired, PD-old-auto-1923, PD-old-auto-expired, PD-old-text]"
-  },
-  {
    "id": "aivazovsky-ship-stormy-seas",
    "title": "Ship on Stormy Seas",
    "artist": "Ivan Aivazovsky",
@@ -1757,70 +1048,6 @@
    },
    "source": "https://commons.wikimedia.org/wiki/File:Ivan_Aivazovsky_-_Ship_on_Stormy_Seas.jpg",
    "license": "Public domain [PD-Art, PD-US-expired-text, PD-art-category, PD-art-category/core, PD-old-X-expired, PD-old-auto-expired, PD-old-text]"
-  },
-  {
-   "id": "vereshchagin-apotheosis-war",
-   "title": "The Apotheosis of War",
-   "artist": "Vasily Vereshchagin",
-   "year": "1871",
-   "museum": "Tretyakov Gallery, Moscow",
-   "collection": "darkArt",
-   "bundled": false,
-   "focal": {
-    "x": 0.5,
-    "y": 0.45
-   },
-   "subject": {
-    "minX": 0.2,
-    "minY": 0.25,
-    "maxX": 0.9,
-    "maxY": 0.95
-   },
-   "tint": 0.53,
-   "darkest": "#000000",
-   "lightest": "#FFFFFD",
-   "thumbnail": {
-    "url": "https://files.cmux.com/cmux-art/9221b6fb479a9de1eb41c088802f7404398f8205a369b0a038544397b6b3429f.avif",
-    "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/vereshchagin-apotheosis-war.thumb.avif"
-   },
-   "full": {
-    "url": "https://files.cmux.com/cmux-art/867e078e7c886513eac9ee337099a79726278edb6409666c6837670f01377ea3.avif",
-    "sha256": "867e078e7c886513eac9ee337099a79726278edb6409666c6837670f01377ea3"
-   },
-   "source": "https://commons.wikimedia.org/wiki/File:Vasily_Vereshchagin_-_%D0%90%D0%BF%D0%BE%D1%84%D0%B5%D0%BE%D0%B7_%D0%B2%D0%BE%D0%B9%D0%BD%D1%8B_-_Google_Art_Project.jpg",
-   "license": "Public domain [PD-Art, PD-US-expired-text, PD-art-category, PD-art-category/core, PD-old-X-expired, PD-old-auto-expired, PD-old-text]"
-  },
-  {
-   "id": "ensor-skeleton-painter",
-   "title": "The Skeleton Painter",
-   "artist": "James Ensor",
-   "year": "1896",
-   "museum": "Royal Museum of Fine Arts Antwerp (KMSKA)",
-   "collection": "darkArt",
-   "bundled": false,
-   "focal": {
-    "x": 0.5,
-    "y": 0.45
-   },
-   "subject": {
-    "minX": 0.4,
-    "minY": 0.25,
-    "maxX": 0.9,
-    "maxY": 0.95
-   },
-   "tint": 0.56,
-   "darkest": "#000407",
-   "lightest": "#FFFFED",
-   "thumbnail": {
-    "url": "https://files.cmux.com/cmux-art/b14cf8635eb32cfb933c22253c8611f9babb61a7373b97fca910c737e4bb573a.avif",
-    "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/ensor-skeleton-painter.thumb.avif"
-   },
-   "full": {
-    "url": "https://files.cmux.com/cmux-art/38075ae7105f1f5416ea4f75859c246bd25916fa2e07fda7782bb489bddc4424.avif",
-    "sha256": "38075ae7105f1f5416ea4f75859c246bd25916fa2e07fda7782bb489bddc4424"
-   },
-   "source": "https://commons.wikimedia.org/wiki/File:Het_schilderend_geraamte%2C_James_Ensor%2C_1896%2C_Koninklijk_Museum_voor_Schone_Kunsten_Antwerpen%2C_3112.001.jpeg",
-   "license": "CC0 [Cc-zero]"
   },
   {
    "id": "cabanel-fallen-angel",
@@ -1893,7 +1120,7 @@
    "year": "c. 1599–1600",
    "museum": "Metropolitan Museum of Art, New York",
    "collection": "darkArt",
-   "bundled": false,
+   "bundled": true,
    "focal": {
     "x": 0.725,
     "y": 0.45
@@ -1913,74 +1140,11 @@
    },
    "full": {
     "url": "https://files.cmux.com/cmux-art/9a944c2653a4609af53f0ea0d7bc13500b03e5208a7644f139ab5699b8003d0d.avif",
-    "sha256": "9a944c2653a4609af53f0ea0d7bc13500b03e5208a7644f139ab5699b8003d0d"
+    "sha256": "9a944c2653a4609af53f0ea0d7bc13500b03e5208a7644f139ab5699b8003d0d",
+    "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/el-greco-view-of-toledo.avif"
    },
    "source": "https://commons.wikimedia.org/wiki/File:View_of_Toledo_MET_DP349564.jpg",
    "license": "CC0 [Cc-zero]"
-  },
-  {
-   "id": "gericault-raft-of-the-medusa",
-   "title": "The Raft of the Medusa",
-   "artist": "Théodore Géricault",
-   "year": "1818–19",
-   "museum": "Musée du Louvre, Paris",
-   "collection": "darkArt",
-   "bundled": false,
-   "focal": {
-    "x": 0.5,
-    "y": 0.45
-   },
-   "subject": {
-    "minX": 0.2,
-    "minY": 0.1,
-    "maxX": 0.9,
-    "maxY": 0.85
-   },
-   "tint": 0.37,
-   "darkest": "#000000",
-   "lightest": "#FFFFFF",
-   "thumbnail": {
-    "url": "https://files.cmux.com/cmux-art/01ccabeb1676f9af8b314e1ee3b313b68ef15a72c3b1ccddb34f8c1e1673e4a5.avif",
-    "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/gericault-raft-of-the-medusa.thumb.avif"
-   },
-   "full": {
-    "url": "https://files.cmux.com/cmux-art/9fb1664d230f22c65bf2ee3e203b0d6f7aaaccec24e960d1035cd5c205c78f1c.avif",
-    "sha256": "9fb1664d230f22c65bf2ee3e203b0d6f7aaaccec24e960d1035cd5c205c78f1c"
-   },
-   "source": "https://commons.wikimedia.org/wiki/File:JEAN_LOUIS_TH%C3%89ODORE_G%C3%89RICAULT_-_La_Balsa_de_la_Medusa_(Museo_del_Louvre,_1818-19).jpg",
-   "license": "Public domain [PD-Art, PD-Art/en, PD-Art/layout, PD-Layout, PD-US-expired-text, PD-art-category, PD-art-category/core, PD-art-old-100-expired, PD-old-100-expired, PD-old-X-expired, PD-old-text]"
-  },
-  {
-   "id": "moreau-apparition",
-   "title": "The Apparition",
-   "artist": "Gustave Moreau",
-   "year": "c. 1876",
-   "museum": "Harvard Art Museums (Fogg Museum), Cambridge",
-   "collection": "darkArt",
-   "bundled": false,
-   "focal": {
-    "x": 0.738,
-    "y": 0.45
-   },
-   "subject": {
-    "minX": 0.539,
-    "minY": 0.04,
-    "maxX": 0.979,
-    "maxY": 0.7
-   },
-   "tint": 0.31,
-   "darkest": "#090604",
-   "lightest": "#FFF5CA",
-   "thumbnail": {
-    "url": "https://files.cmux.com/cmux-art/248a95fa2326c10ae1d2927a0251238d467982873aa28be3174f5fd34dd68fd5.avif",
-    "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/moreau-apparition.thumb.avif"
-   },
-   "full": {
-    "url": "https://files.cmux.com/cmux-art/bc421cf29cbe9e78420484205be26ab1bc9dcc8eb31adcd64a2f365e575cd8fd.avif",
-    "sha256": "bc421cf29cbe9e78420484205be26ab1bc9dcc8eb31adcd64a2f365e575cd8fd"
-   },
-   "source": "https://commons.wikimedia.org/wiki/File:Gustave_Moreau_-_The_Apparition_-_1943.268_-_Fogg_Museum.jpg",
-   "license": "Public domain [PD-Art, PD-Art/en, PD-Art/layout, PD-Layout, PD-US-expired-text, PD-art-category, PD-art-category/core, PD-old-X-expired, PD-old-auto-expired, PD-old-text]"
   },
   {
    "id": "rembrandt-prodigal-son",
@@ -2269,38 +1433,6 @@
     "sha256": "e50e32dbfe62f9ca470c72a75013d6453ca70e6b9f6d5a5782ab947f776224fe"
    },
    "source": "https://commons.wikimedia.org/wiki/File:John_William_Waterhouse_-_The_Lady_of_Shalott_-_Google_Art_Project.jpg",
-   "license": "Public domain [PD-Art, PD-Art-copyright-notice, PD-Art-copyright-notice-Tate-Britain, PD-Art-copyright-notice/lang, PD-US-expired-text, PD-art-category, PD-art-category/core, PD-old-X-expired, PD-old-auto-expired, PD-old-text]"
-  },
-  {
-   "id": "draper-lament-icarus",
-   "title": "The Lament for Icarus",
-   "artist": "Herbert James Draper",
-   "year": "1898",
-   "museum": "Tate Britain, London",
-   "collection": "museumIcons",
-   "bundled": false,
-   "focal": {
-    "x": 0.736,
-    "y": 0.45
-   },
-   "subject": {
-    "minX": 0.535,
-    "minY": 0.04,
-    "maxX": 0.979,
-    "maxY": 0.7
-   },
-   "tint": 0.31,
-   "darkest": "#100000",
-   "lightest": "#FFFFF0",
-   "thumbnail": {
-    "url": "https://files.cmux.com/cmux-art/35ce3d3b690e9e019d8df411bcb671512924a278d22b4a7740eabb2d94394967.avif",
-    "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/draper-lament-icarus.thumb.avif"
-   },
-   "full": {
-    "url": "https://files.cmux.com/cmux-art/ea5b0ec85bae1465df95fd514ad729bcda33275abee946c5892d23b2dbddee16.avif",
-    "sha256": "ea5b0ec85bae1465df95fd514ad729bcda33275abee946c5892d23b2dbddee16"
-   },
-   "source": "https://commons.wikimedia.org/wiki/File:Herbert_Draper_-_The_Lament_for_Icarus_-_Google_Art_Project.jpg",
    "license": "Public domain [PD-Art, PD-Art-copyright-notice, PD-Art-copyright-notice-Tate-Britain, PD-Art-copyright-notice/lang, PD-US-expired-text, PD-art-category, PD-art-category/core, PD-old-X-expired, PD-old-auto-expired, PD-old-text]"
   },
   {
@@ -5380,38 +4512,6 @@
    "license": "Public domain [PD-Art, PD-US-expired-text, PD-art-category, PD-art-category/core, PD-old-X-expired, PD-old-auto-expired, PD-old-text]"
   },
   {
-   "id": "dore-flood",
-   "title": "The Deluge",
-   "artist": "Gustave Doré",
-   "year": "1866",
-   "museum": "Book illustration, La Grande Bible de Tours",
-   "collection": "dore",
-   "bundled": false,
-   "focal": {
-    "x": 0.757,
-    "y": 0.45
-   },
-   "subject": {
-    "minX": 0.572,
-    "minY": 0.04,
-    "maxX": 0.981,
-    "maxY": 0.7
-   },
-   "tint": 0.31,
-   "darkest": "#010000",
-   "lightest": "#FFFEE8",
-   "thumbnail": {
-    "url": "https://files.cmux.com/cmux-art/710531504cd61465fcf7a0f5c5636746ef2ec9d8f410015bbb927eead52e9ea7.avif",
-    "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/dore-flood.thumb.avif"
-   },
-   "full": {
-    "url": "https://files.cmux.com/cmux-art/022f7884fb2c967af8ab906013fbc5e638a95012e5bf424f75a8b1fa424b99af.avif",
-    "sha256": "022f7884fb2c967af8ab906013fbc5e638a95012e5bf424f75a8b1fa424b99af"
-   },
-   "source": "https://commons.wikimedia.org/wiki/File:Gustave_Dor%C3%A9_-_The_Holy_Bible_-_Plate_I%2C_The_Deluge.jpg",
-   "license": "Public domain [PD-US-expired-text, PD-old-100-expired, PD-old-X-expired, PD-old-text]"
-  },
-  {
    "id": "dore-wolves-sheep",
    "title": "The Wolves and the Sheep",
    "artist": "Gustave Doré",
@@ -5608,64 +4708,39 @@
  "dailyRotation": [
   "david-death-of-marat",
   "velde-small-ship-storm",
-  "bosch-garden-right",
   "bosch-ascent-blessed",
   "goya-witches-flight",
-  "bocklin-self-portrait-death",
-  "caravaggio-medusa",
   "martin-pandemonium",
   "moran-burning-philadelphia",
   "goya-burial-sardine",
   "arbo-wild-hunt",
-  "caravaggio-david-goliath",
-  "van-gogh-skeleton-cigarette",
   "altdorfer-battle-of-issus",
-  "gentileschi-judith",
   "munch-madonna",
-  "bocklin-isle-of-the-dead",
   "klee-fish-magic",
   "friedrich-forest-moonlight",
-  "goya-witches-sabbath",
   "bosch-garden-left",
   "rembrandt-storm-galilee",
   "cole-voyage-manhood",
-  "fuseli-nightmare-2",
-  "hiremy-hirschl-souls-of-acheron",
   "munch-scream",
-  "klimt-judith",
-  "repin-ivan",
-  "millais-ophelia",
   "bruegel-fall-rebel-angels",
-  "fuseli-nightmare",
-  "bundy-death-general",
   "wright-vesuvius",
   "gerome-botsaris",
-  "durer-knight-death-devil",
   "martin-joshua",
   "velde-gale",
   "hogai-nio",
-  "klimt-death-and-life",
-  "klimt-medicine",
   "bosch-garden-central",
   "martin-great-day-wrath",
   "bonheur-wounded-eagle",
-  "gerome-pollice-verso",
   "cole-voyage-old-age",
   "friedrich-abbey-oakwood",
   "goya-sleep-of-reason",
   "bosch-garden-fragment",
-  "bruegel-triumph-death",
   "spilliaert-vertigo",
   "rothaug-melpomene",
-  "schiele-death-and-the-maiden",
   "aivazovsky-ship-stormy-seas",
-  "vereshchagin-apotheosis-war",
-  "ensor-skeleton-painter",
   "cabanel-fallen-angel",
   "spilliaert-woman-shoreline",
   "el-greco-view-of-toledo",
-  "gericault-raft-of-the-medusa",
-  "moreau-apparition",
   "rembrandt-prodigal-son",
   "velazquez-las-meninas",
   "matejko-stanczyk",
@@ -5675,7 +4750,6 @@
   "rembrandt-night-watch",
   "vigee-lebrun-madame-grand",
   "waterhouse-lady-shalott",
-  "draper-lament-icarus",
   "fragonard-swing",
   "rubens-st-francis-xavier",
   "vermeer-pearl-earring",
@@ -5772,7 +4846,6 @@
   "hokusai-umezawa",
   "whistler-falling-rocket",
   "dore-fall-of-satan",
-  "dore-flood",
   "dore-wolves-sheep",
   "dore-leviathan",
   "dore-paradise-lost-book-vi",

@@ -10,8 +10,20 @@
 #   background=N (default 50) adds N idle one-terminal workspaces first, so a cost
 #   that grows with the session shows.
 # part=swift: the LifecycleBench Swift Testing suite (model + layout, no app).
+# part=create: scripts/measure/new-terminal-100x.sh (new terminal: send to reply and to shell
+#   exec, span marks, host cost per terminal); it takes rounds=, against= and max_p50_ms=.
+# part=panes: the PaneMotionBench Swift Testing suite (split right and down, close, New Column,
+#   zoom at 2, 8 and 30 panes, stub content; PANE-BENCH lines, red over its frame budget).
 # Output: LIFECYCLE lines (p50/p95/max ms) and JSON under .build/perf-lifecycle.
 set -euo pipefail
+if [ "${1:-}" = part=panes ]; then
+  cd "$(git rev-parse --show-toplevel)"
+  CMUX_PANE_BENCH=1 exec ./scripts/ci/package-test-lane.sh suite Packages/macOS/CmuxNext PaneMotionBench
+fi
+if [ "${1:-}" = part=create ]; then
+  shift
+  exec "$(git rev-parse --show-toplevel)/scripts/measure/new-terminal-100x.sh" "$@"
+fi
 part=all
 rounds=40
 against=""

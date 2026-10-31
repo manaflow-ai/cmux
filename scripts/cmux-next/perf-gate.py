@@ -38,6 +38,26 @@ warnings only.
                  host-independent, blocks; the window's own later rows pass is not timed), and commits
                  in the first frame after it is drawn (late_vsyncs 0; a frame check). Press to drawn over
                  one frame is a warning; the reply (the daemon's confirm) is reported.
+  pane_focus     16 panes x 3 tabs, focus moved 40 times each by Focus Next Pane, Focus Pane Left/Right
+                 and a click (debug.mouse) into another pane, on page tabs then on terminal tabs: a move
+                 touches the two panes only (0 applies, 0 topology sends, 0 sidebar list reloads or row
+                 configures, at most 2 pane snapshots and 2 pane chrome updates per move; I6;
+                 host-independent, blocks), and no window record save or location-trail encode runs on
+                 the main thread between a move and its commit (debug.pane_focus work_before_commit 0;
+                 blocks where moves are timed), and no Chromium page window encodes its restorable
+                 state (debug.pane_focus chromium_restorable_encodes 0: a WindowServer round trip on the
+                 main thread per encode; blocks). Intent to settled p95 over 2 ms of main-thread work
+                 (PANE_FOCUS_BUDGET_MS, speed-of-sound-DESIGN.md 3.2) and a commit later than the
+                 first frame after the move settles (debug.pane_focus late_vsyncs) are warnings: on a
+                 shared GUI host both follow the host's load.
+                 PERF_GATE_SAMPLE=1 also records a /usr/bin/sample call tree of 200 more moves;
+                 PERF_GATE_PANE_FOCUS_WORKSPACES=N adds N workspaces first (a heavy session).
+  activation     Cmd-Tab back in a heavy session (activation-perf.py): 150 workspaces, 100 Chromium
+                 tabs (50 hibernated), 100 chat tabs; 20 resign/become pairs through debug.app_activation
+                 with the main window's key and main notices. Per activation at most
+                 ACTIVATION_MAX_RESYNCS status indicators re-checked (the ones a window shows, never every
+                 row and tab of the session; host-independent, blocks); the main-thread time of the
+                 become notices over ACTIVATION_BUDGET_MS p95 is a warning.
   status         4 background workspaces print OSC 7501 progress 4 times a second for 5 s:
                  0 applies, 0 topology sends, 0 pane snapshots, 0 sidebar list reloads (I1-I3).
 
@@ -81,6 +101,10 @@ BUDGET = {
     "split": {"workspace_applies": 2, "topology_sends": 2, "pane_snapshots": 3},
     # Whole status window (4 tickers x 4 ticks/s x 5 s).
     "status": {"workspace_applies": 0, "topology_sends": 0, "pane_snapshots": 0, "list_reloads": 0},
+    # Per pane focus move (16 panes x 3 tabs): the old pane loses its ring, the new pane gets it; nothing
+    # else re-runs (speed-of-sound-DESIGN.md 3.2: O(what changed on screen)).
+    "pane_focus": {"workspace_applies": 0, "topology_sends": 0, "pane_snapshots": 2, "list_reloads": 0,
+                   "row_configures": 0, "band_updates": 0, "pane_chrome_updates": 2},
     # Per restored pane, from the relaunched app's first answer until the restore settled: one
     # snapshot when the pane mounts on its restored tabs, no re-run as the restore goes on (cx-8w027.23).
     "restore": {"pane_snapshots": 1},
@@ -98,9 +122,16 @@ KNOWN = {
 FRAME_BUDGET_MS = 1000 / 60
 # Main-thread work of one tab switch (intent to shown); MainActorWorkQueue's frame budget.
 TAB_APPLY_BUDGET_MS = 4
+# Main-thread work of one pane focus move (intent to settled): a fraction of a 120 Hz frame.
+PANE_FOCUS_BUDGET_MS = 2
 # New workspace rows: press to drawn (main-thread work and hops), one 60 Hz frame.
 NEW_ROW_BUDGET_MS = FRAME_BUDGET_MS
-SCENARIOS = ["workspaces", "theme", "drag", "tabs", "split", "relaunch", "new_workspaces", "status"]
+# App activation (Cmd-Tab back) in the heavy session: indicators re-checked per activation (blocks)
+# and the become notices' main-thread time p95 (warning). Before the fix: every indicator of the
+# session per activation (user 2026-10-21, msg 9674/9682).
+ACTIVATION_MAX_RESYNCS = 64
+ACTIVATION_BUDGET_MS = 8
+SCENARIOS = ["workspaces", "theme", "drag", "tabs", "pane_focus", "split", "relaunch", "new_workspaces", "activation", "status"]
 
 ROOT = os.path.abspath(os.path.join(HERE, "../.."))
 # The source guard's rule lives in check-perf-source-guard.py, which CI and the pre-push gate run alone.
@@ -381,6 +412,10 @@ class Gate:
             report["frames_probe"] = self.frames[1]
         if self.frames[0]:
             return True
+        skipped = report.setdefault("frames_skipped", [])
+        if scenario not in skipped:
+            skipped.append(scenario)
+            skipped.sort()
         what = f"the window draws no frames (debug.frames {self.frames[1].get('frames')} in 1 s: an occluded or unlit console)"
         if self.opts.frames == "required":
             check(False, what, scenario)
@@ -702,7 +737,8 @@ class Gate:
         # Animation commit that carries it (after AppKit's layout and display), and the frames it missed (0: the
         # first frame it could); the commit's end (an upper bound) is reported.
         switches = own.get("switches") or []
-        phase["switches"] = [{k: round(v, 2) for k, v in row.items()} for row in switches]
+        # A row carries its kind ("terminal", "browser") next to its timings.
+        phase["switches"] = [{k: round(v, 2) if isinstance(v, (int, float)) else v for k, v in row.items()} for row in switches]
         if not self.timed_count(switches, ops, f"debug.tab_switch timed {{n}} of {ops} switches", scenario):
             return
         col = lambda name: sorted(row[name] for row in switches)
@@ -724,6 +760,106 @@ class Gate:
                 warn(f"{len(overrun)} of {ops} tab switch commits ended a frame late: "
                      f"{[(round(r['commit_ms'], 1), round(r['commit_end_ms'], 1)) for r in overrun][:6]} (commit ms, end ms)", scenario)
 
+    def pane_focus(self, scenario="pane_focus"):
+        app = self.app
+        panes, tabs = getattr(self, "grid", None) or self.build_grid()
+        if not check(panes >= 16, f"16 panes shown ({panes} panes, {tabs} tabs)", scenario):
+            return
+        ids = app.pane_ids()
+        focused = lambda: (app.topology().get("focus") or {}).get("pane")
+        # The modes really move focus (outside the measured window).
+        start_pane = focused()
+        app.action("focusNextPane")
+        if not check(focused() != start_pane, f"Focus Next Pane moves focus ({start_pane} -> {focused()})", scenario):
+            return
+        per_mode = 40
+        clicks = [ids[(i * 5) % len(ids)] for i in range(per_mode)]
+        modes = [("next", lambda i: app.action("focusNextPane")),
+                 ("left_right", lambda i: app.action("focusRight" if i % 2 == 0 else "focusLeft")),
+                 ("click", lambda i: app.rpc("debug.mouse", {"action": "click", "pane": clicks[i]})),
+                 # Every pane on its terminal tab (the grid's first tab), then Next Pane again.
+                 ("terminals", None),
+                 ("next_terminal", lambda i: app.action("focusNextPane")),
+                 ("click_terminal", lambda i: app.rpc("debug.mouse", {"action": "click", "pane": clicks[i]}))]
+        phase = report["phases"][scenario] = {"modes": {}}
+        # PERF_GATE_PANE_FOCUS_WORKSPACES=N: N more workspaces exist (a heavy session); the grid stays shown.
+        extra = int(os.environ.get("PERF_GATE_PANE_FOCUS_WORKSPACES") or 0)
+        if extra:
+            grid = app.shown_workspace()
+            for _ in range(extra):
+                app.rpc("action.run", {"action": "workspace.newAtBottom", "args": {}, "focus": False, "origin": "script"}, timeout=120)
+            app.action("goToWorkspace", {"workspace": grid})
+            wait(lambda: app.shown_workspace() == grid, 30)
+            phase["workspaces"] = len(app.workspace_ids())
+            print(f"  heavy: {phase['workspaces']} workspaces", flush=True)
+        app.rpc("debug.frames", {"action": "start"})
+        app.rpc("debug.hangs", {"clear": True})
+        for name, move in modes:
+            if move is None:
+                for pane in app.pane_ids():
+                    app.action("selectSurfaceByNumber", {"index": 1}, target=f"pane:{pane}")
+                app.settle()
+                continue
+            app.quiet_counters()
+            app.rpc("debug.pane_focus", {"action": "start"})
+            replies = []
+            for i in range(per_mode):
+                t0 = time.monotonic()
+                move(i)
+                replies.append(round((time.monotonic() - t0) * 1000, 1))
+            measured = app.quiet_counters()
+            own = app.rpc("debug.pane_focus", {"action": "stop"}) or {}
+            moves = [{k: round(v, 3) for k, v in row.items() if isinstance(v, (int, float))} for row in own.get("moves") or []]
+            phase["modes"][name] = {"reply_ms": replies, "moves": moves,
+                                    "counters": {k: v for k, v in measured.items() if k != "sources"}, "sources": measured["sources"]}
+            breaches = over(measured, BUDGET["pane_focus"], per_mode)
+            per_move = {k: round(measured.get(k, 0) / per_mode, 2) for k in BUDGET["pane_focus"]}
+            check(not breaches, f"{per_mode} {name} moves at {panes} panes: per move {per_move} (budget {BUDGET['pane_focus']})"
+                                + (f"; {breach_text(breaches, measured['sources'])}" if breaches else ""), scenario)
+            # A move that keeps the pane (an edge, a click on the focused pane) is not timed: at least 3 in 4 must be.
+            if not moves:
+                if not self.frames_ok(scenario):
+                    continue
+                check(False, f"debug.pane_focus timed 0 of {per_mode} {name} moves", scenario)
+                continue
+            before_commit = {k: int(v) for k, v in (own.get("work_before_commit") or {}).items() if v}
+            phase["modes"][name]["work_before_commit"] = before_commit
+            check(not before_commit, f"{name}: no record save or trail encode on the main thread before a move's commit "
+                                     f"({before_commit or 'none'} in {len(moves)} moves)", scenario)
+            encodes = int(own.get("chromium_restorable_encodes") or 0)
+            phase["modes"][name]["chromium_restorable_encodes"] = encodes
+            check(encodes == 0, f"{name}: no Chromium page window encodes its restorable state ({encodes} encodes in "
+                                f"{per_mode} moves)", scenario)
+            col = lambda key: sorted(row.get(key, 0) for row in moves)
+            pct = lambda values, q: values[min(len(values) - 1, max(0, int(round(len(values) * q)) - 1))]
+            applies, commits = col("apply_ms"), col("commit_ms")
+            print(f"  pane focus {name}: {len(moves)} timed; intent to settled p50 {pct(applies, .5):.2f} / p95 {pct(applies, .95):.2f}"
+                  f" / max {applies[-1]:.2f} ms; to commit p50 {pct(commits, .5):.2f} / p95 {pct(commits, .95):.2f} ms;"
+                  f" reply p50 {sorted(replies)[per_mode // 2]:.1f} ms", flush=True)
+            phase["modes"][name].update({"apply_p50_ms": pct(applies, .5), "apply_p95_ms": pct(applies, .95),
+                                         "commit_p50_ms": pct(commits, .5), "commit_p95_ms": pct(commits, .95)})
+            if pct(applies, .95) > PANE_FOCUS_BUDGET_MS:
+                warn(f"{name}: pane focus intent to settled p95 {pct(applies, .95):.2f} ms (budget {PANE_FOCUS_BUDGET_MS} ms)", scenario)
+            if self.frames_ok(scenario):
+                late = [row for row in moves if row.get("late_vsyncs", 0) > 0]
+                phase["modes"][name]["late"] = len(late)
+                if late:
+                    warn(f"{name}: {len(late)} of {len(moves)} pane focus moves commit after the first frame after they settle: "
+                         f"{[(r['apply_ms'], r['commit_ms'], int(r['late_vsyncs'])) for r in late][:6]} (apply ms, commit ms, frames missed)",
+                         scenario)
+        phase["hangs"] = (app.rpc("debug.hangs") or {}).get("records") or []
+        app.rpc("debug.frames", {"action": "stop"})
+        if os.environ.get("PERF_GATE_SAMPLE") and app.process:
+            # Attribution: the main thread's call tree over 200 more Focus Next Pane moves.
+            out = os.path.join(app.out, "pane-focus-sample.txt")
+            sampler = subprocess.Popen(["/usr/bin/sample", str(app.process.pid), "8", "1", "-mayDie", "-file", out],
+                                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            time.sleep(0.5)  # test script: sample attaches before the moves start
+            for i in range(200):
+                app.action("focusNextPane")
+            sampler.wait(30)
+            print(f"  pane focus sample: {out}", flush=True)
+
     def new_workspaces(self, scenario="new_workspaces"):
         app, creates = self.app, 50
         before = set(app.workspace_ids())
@@ -740,9 +876,9 @@ class Gate:
         app.rpc("debug.frames", {"action": "stop"})
         # The later scenarios run with the workspaces they had before this one.
         for workspace in [w for w in app.workspace_ids() if w not in before]:
-            app.action("closeWorkspace", {"workspace": workspace})
+            app.action("closeWorkspace", {"confirm": True}, target=f"workspace:{workspace}")
         wait(lambda: len(app.workspace_ids()) <= len(before), 60)
-        rows = [{k: round(v, 2) for k, v in row.items()} for row in own.get("creates") or []]
+        rows = [{k: round(v, 2) if isinstance(v, (int, float)) else v for k, v in row.items()} for row in own.get("creates") or []]
         report["phases"][scenario] = {"workspaces_before": counts, "reply_ms": replies, "creates": rows}
         if not self.timed_count(rows, creates, f"debug.new_workspace timed {{n}} of {creates} new workspace rows", scenario):
             return
@@ -858,6 +994,24 @@ class Gate:
                 for screen in workspace.get("screens") or [] for pane in screen.get("panes") or []
                 for tab in pane.get("tabs") or [] if tab.get("kind") != "terminal" and tab.get("id")}
 
+    def activation(self):
+        spec = importlib.util.spec_from_file_location("activation_perf", os.path.join(HERE, "activation-perf.py"))
+        bench = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(bench)
+        opts = argparse.Namespace(workspaces=150, browser=100, hibernate=50, chats=100, cycles=20,
+                                  max_resyncs=ACTIVATION_MAX_RESYNCS, sample=False, out=self.app.out)
+        result = bench.run(self.app, opts)
+        heavy = result["heavy"]
+        report["phases"]["activation"] = {k: result[k] for k in ("light", "session", "heavy_app_only", "heavy")}
+        size = result["session"]
+        check(not result["failures"], f"activation at {size['workspaces']} workspaces, {size['chromium_tabs']} Chromium "
+              f"({size['hibernated']} hibernated), {size['chat_tabs']} chat tabs: worst {heavy['resyncs']['max']} indicators "
+              f"re-checked (budget {ACTIVATION_MAX_RESYNCS})", "activation")
+        p95 = heavy["observers_ms"]["p95"]
+        if p95 is not None and p95 > ACTIVATION_BUDGET_MS:
+            warn(f"activation notices p95 {p95} ms (over {ACTIVATION_BUDGET_MS} ms; light session "
+                 f"{result['light']['observers_ms']['p95']} ms)", "activation")
+
     def status(self):
         app = self.app
         if not getattr(self, "grid", None):
@@ -892,7 +1046,10 @@ def cols(value):
 
 
 def summary(out):
-    lines = ["### cmux-next perf gate (I8)", "", f"{'PASS' if not failures else 'FAIL'}: {len(report['checks'])} checks, "
+    verdict = "FAIL" if failures else "PASS"
+    if report.get("frames_skipped"):
+        verdict += f" (frames skipped: {', '.join(report['frames_skipped'])})"
+    lines = ["### cmux-next perf gate (I8)", "", f"{verdict}: {len(report['checks'])} checks, "
              f"{len(failures)} failed, {len(warnings)} warnings", ""]
     lines += [f"- FAIL {f}" for f in failures] + [f"- warning {w}" for w in warnings]
     lines += ["", f"Report: `{out}`"]

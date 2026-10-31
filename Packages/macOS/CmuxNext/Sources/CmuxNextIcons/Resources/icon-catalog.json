@@ -768,6 +768,12 @@
    "family": "composer"
   },
   {
+   "name": "composer.steer",
+   "meaning": "Steer: send a queued message into the running turn now (the queued row's Steer, as ChatGPT and Codex draw it).",
+   "sf": "questionmark.square.dashed",
+   "family": "composer"
+  },
+  {
    "name": "computeruse.click",
    "meaning": "Computer-use click (activity rows), clear on click.",
    "sf": "cursorarrow.click",
@@ -892,6 +898,13 @@
    "meaning": "Expanded disclosure / expand",
    "sf": "chevron.down",
    "family": "disclosure"
+  },
+  {
+   "name": "disclosure.folded",
+   "meaning": "A folded group whose rows are hidden (Chrome's tab group header, chevron up)",
+   "sf": "chevron.up",
+   "family": "disclosure",
+   "alias": false
   },
   {
    "name": "extension",
@@ -1277,6 +1290,12 @@
    "meaning": "Split up / drop zone top",
    "sf": "rectangle.tophalf.inset.filled",
    "family": "pane.split"
+  },
+  {
+   "name": "panel.right",
+   "meaning": "Show or hide the chat's right-side panel (the summary, the Inspector)",
+   "sf": "questionmark.square.dashed",
+   "family": "panel"
   },
   {
    "name": "permission.consent",

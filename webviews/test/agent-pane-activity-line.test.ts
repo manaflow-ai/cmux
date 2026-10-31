@@ -181,9 +181,9 @@ await requireBrowserLane("agent-pane-activity-line.test.ts", async () => {
 
   test("with the toggle off, the pane draws no activity line and keeps the running status line", async () => {
     const page = await open(false);
-    // The status line over the work ("Working for", or the running call it names, WorkingFor.tsx).
-    // "Working for" over the turn; the Codex-style live line under the work is a .cv-worked too.
-    await page.locator(".cv-worked.has-divider").waitFor();
+    // The turn's one live line at its bottom (the Codex-style turn, Thinking.tsx), not the
+    // activity line.
+    await page.locator(".cv-worked.is-below").waitFor();
     expect(await page.locator(".cv-activity").count()).toBe(0);
     await page.close();
   });

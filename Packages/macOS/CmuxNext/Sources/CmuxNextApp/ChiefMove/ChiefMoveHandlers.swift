@@ -145,7 +145,7 @@ enum ChiefMoveHandlers {
     }
 
     /// The Cloud session token in a 0600 file inside a 0700 folder of its own.
-    private static func writeToken(_ cloud: CloudService) async throws -> (URL, URL) {
+    static func writeToken(_ cloud: CloudService) async throws -> (URL, URL) {
         let token = try await cloud.auth.tokens().access
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-chief-move-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])

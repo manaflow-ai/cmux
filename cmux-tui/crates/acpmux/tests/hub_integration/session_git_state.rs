@@ -219,3 +219,130 @@ async fn git_state_of_a_held_chat_follows_a_checkout_mid_session() {
     let changed = c.wait_for(method::MUX_SESSION_CHANGED, git_changed).await;
     assert!(changed["session"]["gitBranch"].is_null(), "{changed}");
 }
+
+/// A daemon whose store is on disk, so a second hub over `dir` is a restart.
+fn disk_config() -> Config {
+    let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+    let profile = HarnessProfile {
+        kind: Default::default(),
+        argv: vec!["python3".into(), fake.into()],
+        env: BTreeMap::new(),
+        description: None,
+        fallback: None,
+        family: None,
+        models: vec![],
+        model: None,
+        effort: None,
+        policy: None,
+    };
+    let harnesses = BTreeMap::from([("fake".to_owned(), profile)]);
+    let mut cfg = Config { harnesses, default_harness: Some("fake".into()), ..Default::default() };
+    cfg.store.mode = StoreMode::Local;
+    cfg.permission_policy = PermissionPolicy::ApproveAll;
+    cfg
+}
+
+/// `c` holds the chat and watches every session.
+async fn hold(c: &mut TestClient, id: &str) {
+    c.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 0})).await.unwrap();
+    c.request(method::MUX_WATCH, json!({})).await.unwrap();
+}
+
+/// Waits for the `git` change of `id` and returns the branch it names.
+async fn git_changed(c: &mut TestClient, id: &str) -> Value {
+    let changed = c
+        .wait_for(method::MUX_SESSION_CHANGED, |p| p["kind"] == "git" && p["sessionId"] == id)
+        .await;
+    changed["session"]["gitBranch"].clone()
+}
+
+/// The branches the session's `git` records told, oldest first.
+fn told(hub: &Hub, id: &str) -> Vec<Value> {
+    let events = hub.events(id, 0, 10_000).unwrap();
+    events
+        .into_iter()
+        .filter(|e| e.dir == "mux" && e.kind == "git")
+        .map(|e| e.msg["gitBranch"].clone())
+        .collect()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn git_state_a_restart_tells_no_branch_the_log_already_told() {
+    let dir = scratch("restart");
+    repo(&dir, "first");
+    let store = scratch("restart-store");
+    let cfg = disk_config();
+    let hub = Hub::new(cfg.clone(), acpmux::store::open(&cfg.store, &store).unwrap());
+    hub.start_harness_watch();
+    let mut c = connect(&hub).await;
+    let id = new_session(&mut c, &dir).await;
+    hold(&mut c, &id).await;
+    git(&dir, &["checkout", "-q", "-b", "second"]);
+    assert_eq!(git_changed(&mut c, &id).await, "second");
+    hub.shutdown_all().await;
+    drop(c);
+    drop(hub);
+
+    // The next daemon reads the folder on the first attach: still `second`,
+    // which the log already told, so no record; a checkout after it is one.
+    let hub = Hub::new(cfg.clone(), acpmux::store::open(&cfg.store, &store).unwrap());
+    hub.start_harness_watch();
+    let mut c = connect(&hub).await;
+    hold(&mut c, &id).await;
+    git(&dir, &["checkout", "-q", "-b", "third"]);
+    assert_eq!(git_changed(&mut c, &id).await, "third");
+    assert_eq!(told(&hub, &id), [json!("second"), json!("third")]);
+}
+
+/// Both a recorded branch and the absence of any `git` record are restored before
+/// attach. A first attach must not start a second scan over a long chat's history.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn git_state_restores_the_no_git_record_baseline_before_attach() {
+    let dir = scratch("unreported");
+    repo(&dir, "first");
+    let store = scratch("unreported-store");
+    let cfg = disk_config();
+    let hub = Hub::new(cfg.clone(), acpmux::store::open(&cfg.store, &store).unwrap());
+    let mut c = connect(&hub).await;
+    let id = new_session(&mut c, &dir).await;
+    hub.shutdown_all().await;
+    drop(c);
+    drop(hub);
+
+    let hub = Hub::new(cfg.clone(), acpmux::store::open(&cfg.store, &store).unwrap());
+    assert!(hub.git_branch_tracked(&id), "startup left the Git baseline for attach to scan");
+    hub.start_harness_watch();
+    let mut c = connect(&hub).await;
+    hold(&mut c, &id).await;
+    git(&dir, &["checkout", "-q", "-b", "second"]);
+    assert_eq!(git_changed(&mut c, &id).await, "second");
+    assert_eq!(told(&hub, &id), [json!("second")]);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn git_state_of_a_purged_chat_is_forgotten() {
+    let dir = scratch("purge");
+    repo(&dir, "first");
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    hub.start_harness_watch();
+    let id = new_session(&mut c, &dir).await;
+    hold(&mut c, &id).await;
+    git(&dir, &["checkout", "-q", "-b", "second"]);
+    assert_eq!(git_changed(&mut c, &id).await, "second");
+    assert!(hub.git_branch_tracked(&id));
+
+    c.request("_acpmux/kill", json!({"sessionId": id, "purge": true})).await.unwrap();
+    assert!(!hub.git_branch_tracked(&id), "the purged chat's branch is still kept");
+}
+
+#[test]
+fn git_state_the_schema_documents_the_live_branch_and_its_record() {
+    let schema: Value = serde_json::from_str(acpmux::schema::SCHEMA).unwrap();
+    let types = &schema["types"];
+    assert!(types["SessionSummary"]["gitBranch"].is_string(), "SessionSummary has no gitBranch");
+    let kinds = types["muxEventKinds"].as_array().unwrap();
+    assert!(kinds.contains(&json!("git")), "muxEventKinds has no git");
+    assert!(types["git"]["gitBranch"].is_string(), "no git record");
+    let changed = &schema["notifications"]["_acpmux/session_changed"]["params"]["kind"];
+    assert!(changed.as_str().unwrap().contains("git"), "session_changed kind names no git");
+}

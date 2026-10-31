@@ -3,9 +3,19 @@ import CmuxNextSettings
 import Observation
 
 /// Connects the action registry to the control socket: publishes a catalog
-/// snapshot to the router whenever descriptors, bindings, or shortcut
-/// overrides change (and just the context bits on focus changes), and runs
-/// `action.run` requests through `ActionRegistry.perform` on the main actor.
+/// snapshot to the router whenever descriptors, bindings, shortcut
+/// overrides or unavailable reasons change (and just the context bits on
+/// focus changes), and runs `action.run` requests through
+/// `ActionRegistry.perform` on the main actor.
+///
+/// The catalog is cached (GPU audit 2026-10-21, offender 3: a new workspace
+/// rebuilt it, about 34 ms of main thread). The per-action info, with its
+/// shortcut text, is built inside an observation, so a change to anything
+/// the build reads (descriptors, bindings, shortcut and chord overrides,
+/// disabled features) rebuilds it. Unavailable reasons read app state, such
+/// as the sidebar document a new workspace changes, so they are observed
+/// apart: a change there re-reads only the reasons, and publishes only when
+/// one differs. Changes in one main-actor turn coalesce into one refresh.
 @MainActor
 public final class RegistryControlBridge: ControlActionExecutor {
     public let registry: ActionRegistry
@@ -16,6 +26,21 @@ public final class RegistryControlBridge: ControlActionExecutor {
     /// two chains republishing every change.
     private var epoch = 0
     private var isObserving = false
+    /// The last built catalog; nil until the first attach.
+    private var built: BuiltCatalog?
+    private var structureIsStale = true
+    private var reasonsAreStale = true
+    private var refreshIsScheduled = false
+    /// The current arming of each observation. Both read the bound actions,
+    /// so one change fires both; the refresh re-arms them, and an arming
+    /// that is no longer current is ignored when it fires.
+    private var structureArming = 0
+    private var reasonsArming = 0
+    /// How many times the per-action info was built, the reasons were read,
+    /// and a reason observation fired on the main actor (tests).
+    private(set) var structureBuilds = 0
+    private(set) var reasonReads = 0
+    private(set) var reasonFirings = 0
 
     public init(registry: ActionRegistry) {
         self.registry = registry
@@ -24,12 +49,15 @@ public final class RegistryControlBridge: ControlActionExecutor {
     /// Publishes the current catalog to `router` and keeps it current.
     public func attach(to router: ControlRouter) {
         self.router = router
-        router.updateCatalog(Self.catalog(from: registry))
-        guard !isObserving else { return }
-        isObserving = true
-        epoch += 1
-        observeCatalog(epoch: epoch)
-        observeContext(epoch: epoch)
+        if !isObserving {
+            // Nothing was observed while detached: build everything again.
+            isObserving = true
+            epoch += 1
+            structureIsStale = true
+            reasonsAreStale = true
+            observeContext(epoch: epoch)
+        }
+        refresh(publish: true)
     }
 
     public func detach() {
@@ -38,24 +66,83 @@ public final class RegistryControlBridge: ControlActionExecutor {
         epoch += 1
     }
 
-    private func observeCatalog(epoch: Int) {
-        guard isObserving, epoch == self.epoch else { return }
-        withObservationTracking {
+    /// Brings the cache up to date and publishes it when it changed (or
+    /// when `publish`, for a newly attached router).
+    private func refresh(publish: Bool = false) {
+        refreshIsScheduled = false
+        guard isObserving else { return }
+        var changed = publish
+        if structureIsStale || built == nil {
+            structureIsStale = false
+            let previous = built
+            var next = buildObservingStructure()
+            if let previous, previous.ids == next.ids, !reasonsAreStale {
+                // The same actions, and the reason observation has not fired:
+                // keep its reasons. Arming another would leave this one
+                // registered (an observation ends only when it fires).
+                next.apply(reasons: previous.reasons)
+            } else {
+                reasonsAreStale = true
+            }
+            built = next
+            changed = true
+        }
+        if reasonsAreStale, var catalog = built {
+            reasonsAreStale = false
+            if catalog.apply(reasons: readObservingReasons(catalog.ids)) { changed = true }
+            built = catalog
+        }
+        guard changed, let current = built else { return }
+        router?.updateCatalog(current.catalog(contextMask: registry.context.rawValue))
+    }
+
+    private func scheduleRefresh() {
+        guard !refreshIsScheduled else { return }
+        refreshIsScheduled = true
+        // task-owner: one coalesced catalog refresh; does nothing once detached (isObserving)
+        Task { @MainActor [weak self] in self?.refresh() }
+    }
+
+    /// Builds the per-action info under observation: whatever the build
+    /// reads from the registry marks the structure stale when it changes.
+    private func buildObservingStructure() -> BuiltCatalog {
+        structureArming += 1
+        structureBuilds += 1
+        let (epoch, arming) = (epoch, structureArming)
+        return withObservationTracking {
+            BuiltCatalog(registry: registry)
+        } onChange: { [weak self] in
+            // onChange runs before the new value is stored; refresh after.
+            // task-owner: observation re-arm; ends when its epoch or arming is not current (state-audit R1)
+            Task { @MainActor in
+                guard let self, self.isObserving, epoch == self.epoch, arming == self.structureArming else { return }
+                self.structureIsStale = true
+                self.scheduleRefresh()
+            }
+        }
+    }
+
+    /// Reads every action's unavailable reason under observation. Reasons
+    /// read observable app state (daemon capabilities, the sidebar), so a
+    /// change there re-reads them. It also reads the descriptors and actions
+    /// the ids come from, so whenever the ids change this observation has
+    /// fired, and a refresh that arms the next one leaves none behind.
+    private func readObservingReasons(_ ids: [ActionID]) -> [String?] {
+        reasonsArming += 1
+        reasonReads += 1
+        let (epoch, arming) = (epoch, reasonsArming)
+        return withObservationTracking {
             _ = registry.descriptors
             _ = registry.actions
-            _ = registry.shortcutOverrides
-            _ = registry.chordOverrides
-            _ = registry.disabledFeatures
-            // Reasons read observable app state (daemon capabilities), so a
-            // change there republishes `unavailable_reason` too.
-            for action in registry.actions { _ = action.unavailableReason?() }
+            return ids.map { registry.unavailableReason(for: $0) }
         } onChange: { [weak self] in
-            // onChange runs before the new value is stored; publish after.
-            // task-owner: observation re-arm; ends when its epoch is not current (state-audit R1)
+            // task-owner: observation re-arm; ends when its epoch or arming is not current (state-audit R1)
             Task { @MainActor in
-                guard let self, self.isObserving, epoch == self.epoch else { return }
-                self.router?.updateCatalog(Self.catalog(from: self.registry))
-                self.observeCatalog(epoch: epoch)
+                guard let self else { return }
+                self.reasonFirings += 1
+                guard self.isObserving, epoch == self.epoch, arming == self.reasonsArming else { return }
+                self.reasonsAreStale = true
+                self.scheduleRefresh()
             }
         }
     }
@@ -100,25 +187,44 @@ public final class RegistryControlBridge: ControlActionExecutor {
         // Reported before the context check, so a context-gated action that
         // cannot exist yet says why instead of "not available here".
         if let reason = registry.unavailableReason(for: id) { return .refused(reason) }
-        var invocation = ActionInvocation(
-            target: request.target.flatMap(Self.actionTarget),
-            arguments: request.arguments.compactMapValues(Self.actionValue),
-            origin: ActionOrigin(rawValue: request.origin) ?? .cli,
-            focusRequested: request.focus
-        )
-        invocation.callerApp = request.callerApp
-        invocation.besideCaller = request.besideCaller
-        invocation.newColumnBeside = request.newColumnBeside
-        invocation.opensInBackground = request.background
-        invocation.callerAgentSession = request.callerAgentSession
-        invocation.callerTerminal = request.callerTerminal
-        guard registry.isAvailable(id, for: invocation) else { return .unavailable }
+        let invocation = Self.invocation(request)
+        guard registry.isAvailable(id, forScript: invocation) else { return .unavailable }
         guard action.isEnabled() else { return .disabled }
         if registry.needsConfirmation(id, invocation) { return .confirmationRequired }
         var ran = false
         let refusal = registry.capturingTypedRefusal { ran = registry.perform(id, invocation: invocation) }
         if let refusal { return refusal.isNotFound ? .notFound(refusal.reason) : .refused(refusal.reason) }
         return ran ? .ran : .disabled
+    }
+
+    /// The first of `requests` `performAction` would answer `.unavailable` now (its target's
+    /// live facts, `ActionRegistry.isAvailable(_:forScript:)`, included). Requests refused for another
+    /// reason (unknown, unbound, turned off, person only) answer that when they run.
+    public func firstUnavailable(_ requests: [ControlActionRequest]) -> Int? {
+        requests.firstIndex { request in
+            let id = registry.canonicalID(for: ActionID(rawValue: request.actionID))
+            guard registry.action(for: id) != nil, registry.disabledFeature(for: id) == nil,
+                  registry.descriptor(for: id)?.isPersonOnly != true, registry.unavailableReason(for: id) == nil else { return false }
+            return !registry.isAvailable(id, forScript: Self.invocation(request))
+        }
+    }
+
+    /// The registry invocation of a socket request.
+    static func invocation(_ request: ControlActionRequest) -> ActionInvocation {
+        var invocation = ActionInvocation(
+            target: request.target.flatMap(Self.actionTarget),
+            arguments: request.arguments.compactMapValues(Self.actionValue),
+            origin: ActionOrigin(rawValue: request.origin) ?? .cli,
+            focusRequested: request.focus
+        )
+        invocation.viaControlSocket = true
+        invocation.callerApp = request.callerApp
+        invocation.besideCaller = request.besideCaller
+        invocation.newColumnBeside = request.newColumnBeside
+        invocation.opensInBackground = request.background
+        invocation.callerAgentSession = request.callerAgentSession
+        invocation.callerTerminal = request.callerTerminal
+        return invocation
     }
 
     static func actionTarget(_ ref: ControlTargetRef) -> ActionTargetRef? {
@@ -139,21 +245,15 @@ public final class RegistryControlBridge: ControlActionExecutor {
     /// A wire snapshot of every registry entry (catalog descriptors plus
     /// ad hoc bound actions).
     public static func catalog(from registry: ActionRegistry) -> ControlCatalog {
-        // Localized once per snapshot, not once per action.
-        let categoryTitles = Dictionary(uniqueKeysWithValues: ActionCategory.allCases.map { ($0, $0.title) })
-        let actions = registry.entries.map { entry in info(for: entry, in: registry, categoryTitles: categoryTitles) }
-        let debugAvailable = DevTools.isEnabled
-        return ControlCatalog(
-            actions: actions,
-            contextMask: registry.context.rawValue,
-            aliases: Dictionary(uniqueKeysWithValues: registry.aliases.map { ($0.key.rawValue, $0.value.rawValue) }),
-            targetKinds: ActionTargetKind.allCases.map(\.rawValue),
-            debugActionsAvailable: debugAvailable
-        )
+        var built = BuiltCatalog(registry: registry)
+        built.apply(reasons: built.ids.map { registry.unavailableReason(for: $0) })
+        return built.catalog(contextMask: registry.context.rawValue)
     }
 
-    static func info(for entry: ActionEntry, in registry: ActionRegistry,
-                     categoryTitles: [ActionCategory: String] = [:]) -> ControlActionInfo {
+    /// Everything about `entry` but its unavailable reason, which reads app
+    /// state rather than the registry.
+    static func structureInfo(for entry: ActionEntry, in registry: ActionRegistry,
+                              categoryTitles: [ActionCategory: String] = [:]) -> ControlActionInfo {
         let descriptor = entry.descriptor
         let shortcut = registry.effectiveShortcut(for: descriptor.id)
         var info = ControlActionInfo(
@@ -177,10 +277,9 @@ public final class RegistryControlBridge: ControlActionExecutor {
             mainMenu: descriptor.mainMenu?.rawValue
         )
         let surfaces: [String: Any] = ActionSurfaceExport.object(descriptor)
+        info.description = descriptor.description
         info.surfaces = ["palette", "cli", "context_menu", "mcp"].reduce(into: [:]) { $0[$1] = surfaces[$1] as? String }
         info.contextMenus = surfaces["context_menus"] as? [String] ?? []
-        // Snapshot for `action.list`; `action.run` re-reads it live.
-        info.unavailableReason = registry.unavailableReason(for: descriptor.id)
         info.disabledFeature = registry.disabledFeature(for: descriptor.id)?.rawValue
         info.isDestructive = descriptor.isDestructive
         info.startsTerminal = descriptor.startsTerminal
@@ -236,5 +335,6 @@ public final class RegistryControlBridge: ControlActionExecutor {
         (.cloudWorkspace, "cloudWorkspace"),
         (.homeChannelsEnabled, "homeChannelsEnabled"),
         (.webViewFocused, "webViewFocused"),
+        (.sideSessions, "sideSessions"),
     ]
 }

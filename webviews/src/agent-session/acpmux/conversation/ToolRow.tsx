@@ -1,29 +1,30 @@
+import { WrittenArtifactButtons } from "./writtenArtifacts";
 // One tool call drawn on its own row: its glyph, its title, and, when it has any, its
 // output, Shell block or diff below once opened.
 import { useFindReveal } from "./chatFind";
-import { useContext, useId, useMemo, useState, type ReactNode } from "react";
+import { memo, useContext, useId, useMemo, useState, type ReactNode } from "react";
 import { toolFiles } from "../diff";
 import { useT } from "../i18n";
 import type { AcpmuxActivity } from "../model";
 import { OpenableImage, ReplyImage } from "../chips/ReplyImage";
 import { mediaKind, ReplyMedia } from "../chips/ReplyMedia";
 import { pathName } from "../chips/paths";
-import { toolImages } from "../toolImages";
+import { stripsEnvelopeImages, toolImages } from "../toolImages";
 import { toolLabel } from "../toolPaths";
-import { shortCommand } from "./shortCommand";
+import { ROW_WIDTH, shortCommand } from "./shortCommand";
 import { SessionCwdContext } from "../turnChanges/sessionRows";
 import { EditDiff } from "./EditDiff";
-import { CopyButton } from "./CopyButton";
-import { experimentArm } from "../../../experiments/experiment";
-import { hoverActions } from "../../../ui/hoverActions.experiment";
-import { menuPartRef } from "./menuParts";
-import { BackgroundHint } from "./BackgroundHint";
 import { ShellBlock } from "./ShellBlock";
 import { BackgroundMark } from "./BackgroundMark";
 import { toolDuration } from "./toolGroups";
-import { OutputMore, useOutput } from "./toolOutput";
-import { cleanText } from "./mcpCalls";
-import { useFold } from "./fold";
+import { cleanText, mcpCall } from "./mcpCalls";
+import { useAnchoredCollapse } from "./useAnchoredCollapse";
+import { toolResult } from "./toolResult";
+import { ToolOutput } from "./ToolOutputBody";
+import { WriteLabel, writeCall } from "./WriteLabel";
+import { ToolLabel } from "./ToolVerb";
+import { rowFailed, toolFailure } from "./toolFailure";
+import { failureWord, InlineFailureCause, ToolFailureCause } from "./ToolFailureCause";
 import { Check, ChevronRight, Globe, Magnifier, OpenBook, Pencil, TerminalSquare, ToolGroup } from "./icons";
 
 /// ACP tool kinds (`ToolKind`) to row glyphs.
@@ -50,7 +51,9 @@ export function toolIcon(kind?: string): ReactNode {
 /// One tool call. A call with output opens it below; a
 /// shell call opens to its Shell block, with the command line even before any output, and an
 /// edit opens to its diff.
-export function ToolRow({ item }: { item: AcpmuxActivity }) {
+// Unchanged item snapshots keep their rendered row as another call streams; local state and
+// context changes (Find, language, cwd) still reach this component through React's subscriptions.
+export const ToolRow = memo(function ToolRow({ item }: { item: AcpmuxActivity }) {
   const t = useT();
   const [open, setOpen] = useState(false);
   // Find in Chat counts matches in the whole output, so a call it reveals shows all of it.
@@ -62,7 +65,7 @@ export function ToolRow({ item }: { item: AcpmuxActivity }) {
       setReveal((count) => count + 1);
     },
   );
-  const fold = useFold(open);
+  const fold = useAnchoredCollapse({ open, onOpenChange: setOpen });
   const detailsId = useId();
   const tool = item.tool!;
   const hasDiff = Boolean(tool.diffs?.length);
@@ -74,11 +77,19 @@ export function ToolRow({ item }: { item: AcpmuxActivity }) {
   const label = toolLabel(
     tool,
     item.text,
-    (command) => t("tools.ranCommand", { command }),
+    // "Running …" until it is done, "Ran …" after; its ⌃B hint is the live line's (Thinking.tsx).
+    (command) => t(foreground ? "tools.runningCommand" : "tools.ranCommand", { command }),
     cwd,
     t(foreground ? "tools.runningUnnamed" : "tools.ranUnnamed"),
   );
-  const failed = tool.status === "failed";
+  // An MCP call's plain name ("Hub · read chat", toolPaths.ts) leads with its server, not a verb.
+  const plainMcp = useMemo(() => label.includes(" · ") && mcpCall(tool) !== undefined, [label, tool]);
+  // Failed by its status or a nonzero exit; in the background, by its status (toolFailure.ts rowFailed).
+  const failed = rowFailed(tool);
+  // Why it failed, in a word on the row and one line under it (toolFailure.ts); read only once it failed.
+  const failure = useMemo(() => (failed ? toolFailure(tool) : undefined), [failed, tool]);
+  // A Write reads as an edit does: "Writing notes.md", then "Wrote notes.md +18" (WriteLabel.tsx).
+  const write = writeCall(tool);
   // A shell that went on in the background says how it stands there, and its time once it ended.
   const background = !failed && !foreground && tool.background;
   // A finished call's check and run time, at the row's right edge and only on hover
@@ -87,19 +98,37 @@ export function ToolRow({ item }: { item: AcpmuxActivity }) {
   // Only a call with a command line is a shell; an MCP call can also say "execute".
   const shell = tool.kind === "execute" && Boolean(tool.command);
   // Find counts a shell's whole line: a label that is its description or a shortened line is skipped.
-  const drawsCommand = !tool.description && shortCommand(tool.command ?? "") === tool.command?.trim();
-  // A shell prints what it printed; any other output loses the context a host injects into it.
-  const body = useMemo(
-    () => (shell || !tool.output ? tool.output : cleanText(tool.output))?.replace(/\n$/, ""),
-    [shell, tool.output],
-  );
+  const drawsCommand = !tool.description && shortCommand(tool.command ?? "", ROW_WIDTH) === tool.command?.trim();
+  // A shell prints what it printed. Any other call's result is shown without the JSON envelope a
+  // harness wrapped it in and the context a host injects into it (toolResult.ts), read only while
+  // the call is open: a closed row parses nothing.
+  // A finished call's envelope images show in its strip instead of its text (toolImages.ts).
+  const strip = stripsEnvelopeImages(tool);
+  const result = useMemo(() => {
+    if (shell || !tool.output || !fold.present) return undefined;
+    return toolResult(tool.output, cleanText, strip, {
+      kind: tool.kind,
+      title: tool.title,
+      description: tool.description,
+    });
+  }, [shell, tool.description, tool.kind, tool.output, tool.title, fold.present, strip]);
+  const body = shell ? tool.output?.replace(/\n$/, "") : result?.text;
+  // Whether a closed call has anything to open, read once per output, not on every render.
+  const hasOutput = useMemo(() => Boolean(tool.output && cleanText(tool.output).trim()), [tool.output]);
+  const opens = shell ? Boolean(body) : hasOutput;
   const images = useMemo(() => toolImages(tool), [tool]);
   const content = (
     <>
       <span className="cv-tool__icon">{toolIcon(tool.kind)}</span>
       <span className="cv-tool__text" data-find-skip={(shell && (open || !drawsCommand)) || undefined}>
-        {label}
-        {failed && <span className="cv-tool__detail"> {t("tools.failed")}</span>}
+        {write ? <WriteLabel tool={tool} write={write} t={t} /> : <ToolLabel text={label} whole={plainMcp} />}
+        {failure && (
+          <span className="cv-tool__failed" data-find-skip>
+            {" "}
+            {failureWord(t, failure)}
+          </span>
+        )}
+        <InlineFailureCause failure={failure} />
       </span>
       {background ? (
         <span className="cv-command__meta cv-tool__meta">
@@ -118,13 +147,15 @@ export function ToolRow({ item }: { item: AcpmuxActivity }) {
   );
   return (
     <>
-      {body || shell || hasDiff ? (
+      {opens || shell || hasDiff ? (
         <button
           type="button"
           className={`cv-tool is-toggle${running ? " is-live" : " is-strong"}`}
+          data-tool-id={tool.id}
           aria-expanded={open}
           aria-controls={open ? detailsId : undefined}
-          onClick={() => setOpen((value) => !value)}
+          ref={fold.headerRef}
+          onClick={fold.toggle}
         >
           {content}
           <ChevronRight
@@ -132,58 +163,40 @@ export function ToolRow({ item }: { item: AcpmuxActivity }) {
             strokeWidth={1.2}
             className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`}
           />
-          {foreground && shell && <BackgroundHint />}
         </button>
       ) : (
-        <div className={`cv-tool${running ? " is-live" : " is-strong"}`}>{content}</div>
+        <div className={`cv-tool${running ? " is-live" : " is-strong"}`} data-tool-id={tool.id}>
+          {content}
+        </div>
       )}
+      <WrittenArtifactButtons tools={[tool]} />
+      <ToolFailureCause failure={failure} />
       {images.length > 0 && <ToolImages sources={images} />}
       {fold.present && (shell || files.length > 0 || body) && (
-        <div ref={fold.ref} className="cv-fold">
+        <div {...fold.bodyProps}>
           {shell ? (
-            <ShellBlock id={detailsId} command={tool.command} output={body} exitCode={tool.exitCode} reveal={reveal} />
+            <ShellBlock
+              id={detailsId}
+              command={tool.command}
+              output={failure?.output?.replace(/\n$/, "") ?? body}
+              exitCode={failure?.exitCode ?? tool.exitCode}
+              reveal={reveal}
+              live={running}
+            />
           ) : files.length > 0 ? (
             <div id={detailsId}>
               {files.map((file) => (
-                <EditDiff key={file.path} file={file} />
+                <EditDiff key={file.path} file={file} reveal={reveal} />
               ))}
             </div>
-          ) : (
-            <ToolOutput id={detailsId} output={body!} reveal={reveal} />
-          )}
+          ) : result ? (
+            <ToolOutput id={detailsId} result={result} reveal={reveal} />
+          ) : null}
         </div>
       )}
     </>
   );
-}
-
-/// A call's output when it is not a shell's: copyable whole from its right-click menu (Copy Output;
-/// the `hover-actions` experiment's "all" arm adds a Copy in its corner on hover), the end of a long
-/// one shown.
-function ToolOutput({ id, output, reveal }: { id: string; output: string; reveal: number }) {
-  const t = useT();
-  const shown = useOutput(output, reveal);
-  return (
-    <div id={id} className="cv-tool-output-card" ref={menuPartRef({ output: shown.text })}>
-      {experimentArm(hoverActions) === "all" && (
-        <CopyButton
-          text={shown.text ?? ""}
-          label={t("turn.copy")}
-          className="cv-codeblock__action cv-tool-output__copy"
-        />
-      )}
-      <pre className="cv-tool-output selectable">
-        {shown.cut && (
-          <span className="cv-output-cut" aria-hidden="true">
-            …{"\n"}
-          </span>
-        )}
-        {shown.shown}
-      </pre>
-      <OutputMore output={shown} />
-    </div>
-  );
-}
+});
 
 /// The images a call returned or wrote, shown under its row whether or not it is open: a returned
 /// image draws at once, a file loads through the host (ReplyImage, ReplyMedia for video and audio),

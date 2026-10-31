@@ -63,6 +63,14 @@ export const Expand = (p: CvIconProps) => (
   </Svg>
 );
 
+/** Open in tab: a window with its right side split off, where the new tab opens. */
+export const OpenTab = (p: CvIconProps) => (
+  <Svg {...p}>
+    <rect x="2.5" y="3.5" width="11" height="9" rx="1.5" />
+    <path d="M9 3.5v9" />
+  </Svg>
+);
+
 export const ChevronDown = (p: CvIconProps) => (
   <Svg {...p}>
     <path d="M4.25 6.25 8 10l3.75-3.75" />
@@ -140,6 +148,15 @@ export const Retry = (p: CvIconProps) => (
   </Svg>
 );
 
+/** A failure's mark: a circle with an exclamation (a failed turn's card). */
+export const AlertCircle = (p: CvIconProps) => (
+  <Svg {...p}>
+    <circle cx="8" cy="8" r="5.75" />
+    <path d="M8 5.25v3.25" />
+    <circle cx="8" cy="10.75" r=".4" fill="currentColor" />
+  </Svg>
+);
+
 export const Lock = (p: CvIconProps) => (
   <Svg {...p}>
     <rect x="3.25" y="7" width="9.5" height="7" rx="2" />
@@ -191,6 +208,14 @@ export const Speaker = (p: CvIconProps) => (
   <Svg {...p}>
     <path d="M2.75 6.25h2l3-2.5v8.5l-3-2.5h-2Z" />
     <path d="M10.25 6.1a2.6 2.6 0 0 1 0 3.8M12 4.4a5 5 0 0 1 0 7.2" />
+  </Svg>
+);
+
+/** A rounded square in a ring: Stop reading, on the Read aloud button while it reads. */
+export const StopReading = (p: CvIconProps) => (
+  <Svg {...p}>
+    <circle cx="8" cy="8" r="5.75" />
+    <rect x="5.9" y="5.9" width="4.2" height="4.2" rx="0.8" fill="currentColor" stroke="none" data-glyph="stop" />
   </Svg>
 );
 
@@ -419,6 +444,19 @@ export const Envelope = (p: CvIconProps) => (
   <Svg strokeWidth={1.1} {...p}>
     <rect x="2.25" y="3.75" width="11.5" height="8.5" rx="1.75" />
     <path d="m2.75 4.75 5.25 4 5.25-4" />
+  </Svg>
+);
+
+/** A small bot: another agent's message to this chat when its harness has no mark (IncomingMessageCard.tsx). */
+export const Bot = (p: CvIconProps) => (
+  <Svg strokeWidth={1.1} {...p}>
+    <rect x="2.75" y="5.25" width="10.5" height="7.5" rx="2.5" />
+    <path d="M8 5.25V3.5" />
+    <circle cx="8" cy="2.9" r="0.6" />
+    <path d="M1.75 8.25v1.5M14.25 8.25v1.5" />
+    <circle cx="6" cy="8.75" r="0.5" fill="currentColor" />
+    <circle cx="10" cy="8.75" r="0.5" fill="currentColor" />
+    <path d="M6.75 10.75c.75.4 1.75.4 2.5 0" />
   </Svg>
 );
 

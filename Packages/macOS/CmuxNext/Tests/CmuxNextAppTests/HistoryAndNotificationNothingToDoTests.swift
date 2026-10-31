@@ -5,7 +5,7 @@ import CmuxNextDaemon
 import Foundation
 import Testing
 
-/// Go Forward / Go Back / Go to Last Location with nowhere to go, and Copy Notification with no
+/// Go Forward / Go Back / Go to Last Location with nowhere to go, and Copy Notification Text with no
 /// notification, say why (unimpl-audit-actions.md rows 43, 44) instead of reporting success.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(4)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
 struct HistoryAndNotificationNothingToDoTests {
@@ -29,7 +29,7 @@ struct HistoryAndNotificationNothingToDoTests {
             }
             var failures: [String] = []
             for task in work { if let failure = await task.value { failures.append(failure.message) } }
-            #expect(refusal != nil || !failures.isEmpty, "Copy Notification with an empty ledger reports success and copies nothing")
+            #expect(refusal != nil || !failures.isEmpty, "Copy Notification Text with an empty ledger reports success and copies nothing")
         }
     }
 }

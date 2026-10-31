@@ -119,9 +119,10 @@ await requireBrowserLane("reopened-chat-history.test.ts", async () => {
       bigPaste("q-2", 300),
       bigPaste("q-3", 300),
     ]),
-    // More rowless pages in a row than one ask reads (direct.ts OLDER_PAGES_PER_ASK), with older
-    // turns behind them: the ask has to be made again from where the last one stopped, which is
-    // what moving `historyFrom` on a capped read is for (#22794).
+    // Many rowless pages in a row, with older turns behind them: one ask reads on past every one of
+    // them (direct.ts OLDER_PAGES_PER_ASK) until a turn starts. A wall longer than one ask reads,
+    // which moves `historyFrom` on a capped read so the transcript asks again (#22794), is
+    // agent-pane-restore-long-turn.test.ts.
     pasteWall: history([
       ...Array.from({ length: 14 }, (_, at) => turn(at + 1)).flat(),
       ...Array.from({ length: 10 }, (_, at) => bigPaste(`q-${at + 1}`, 300)),
@@ -164,7 +165,7 @@ await requireBrowserLane("reopened-chat-history.test.ts", async () => {
     currentModeId: "default",
     modes: {
       currentModeId: "default",
-      availableModes: [{ id: "default", name: "Normal", description: "Ask before edits and commands" }],
+      availableModes: [{ id: "default", name: "Manual", description: "Always ask before making changes" }],
     },
   });
 
@@ -185,18 +186,35 @@ await requireBrowserLane("reopened-chat-history.test.ts", async () => {
   /// chat has nothing older left (`historyExhausted`), so no later read can add a row above what
   /// is drawn: what the page holds then is the whole chat, whatever the timing was.
   let servedOldest = false;
-  /// Paces the passes below: the pane has nothing out and has been quiet for a moment. This is a
-  /// wall clock, so it is never what decides that a chat has been read through — a quiet window
-  /// between two older pages is exactly the half-drawn chat Leo saw, and on a slow renderer the
-  /// gap between a reply and the read it starts runs into seconds.
-  const quiet = async () => {
-    for (let pass = 0; pass < 2_000; pass += 1) {
-      const answered = answeredAt !== 0;
-      if (answered && inFlight === 0 && Date.now() - answeredAt > 250 + LATENCY_MS) return;
-      await Bun.sleep(20);
-    }
-    throw new Error(`the pane kept asking acpmux: ${inFlight} in flight, last answer ${answeredAt}`);
-  };
+  /// The waits on the daemon's answers: each answer wakes them.
+  const waiting = new Set<() => void>();
+  /// Resolves once `condition` holds, checked as the daemon answers each request; fails with
+  /// `failure()` if it does not by `timeout`.
+  const answered = (condition: () => boolean, timeout: number, failure: () => string) =>
+    new Promise<void>((resolve, reject) => {
+      const check = () => {
+        if (!condition()) return;
+        waiting.delete(check);
+        clearTimeout(timer);
+        resolve();
+      };
+      const timer = setTimeout(() => {
+        waiting.delete(check);
+        reject(new Error(failure()));
+      }, timeout);
+      waiting.add(check);
+      check();
+    });
+  /// The pane has nothing out and has had an answer. This is never what decides that a chat has
+  /// been read through: a pane with nothing out between two older pages is exactly the half-drawn
+  /// chat Leo saw, and on a slow renderer the gap between a reply and the read it starts runs into
+  /// seconds.
+  const quiet = () =>
+    answered(
+      () => answeredAt !== 0 && inFlight === 0,
+      25_000 + 20 * LATENCY_MS,
+      () => `the pane kept asking acpmux: ${inFlight} in flight, last answer ${answeredAt}`,
+    );
 
   let olderReads = 0;
   /// The byte caps the pane asked for, which is the whole of what bounds a page: acpmux caps one
@@ -289,6 +307,7 @@ await requireBrowserLane("reopened-chat-history.test.ts", async () => {
               // that leaked would stall every later pass.
               inFlight -= 1;
               answeredAt = Date.now();
+              for (const wake of waiting) wake();
             }
           }, LATENCY_MS);
         },
@@ -337,8 +356,8 @@ await requireBrowserLane("reopened-chat-history.test.ts", async () => {
   /// happened and not by how long ago. Either of two things is enough:
   ///
   /// - acpmux has served the chat's oldest record, so nothing older is left to read; or
-  /// - the transcript holds two viewports of history, which is where the older-history loader
-  ///   stops asking (`node.scrollTop >= node.clientHeight * 2`, App.tsx). A view with that much
+  /// - the transcript holds six viewports of history, which is where the older-history loader
+  ///   stops asking (`node.scrollTop >= node.clientHeight * OLDER_AHEAD_VIEWPORTS`, App.tsx). A view with that much
   ///   below it has been placed at its latest row and is pinned there as each page lands
   ///   (`didOpenAtLatest`, `settleFollowBottom`), so records arriving above the first row move the
   ///   rows above the reader and not the last one off the composer.
@@ -357,8 +376,9 @@ await requireBrowserLane("reopened-chat-history.test.ts", async () => {
     const until = Date.now() + 25_000 + 20 * LATENCY_MS;
     for (let pass = 0; pass < 600 && Date.now() < until; pass += 1) {
       const now = (await page.evaluate(`(${progress.toString()})()`)) as ReturnType<typeof progress>;
-      if (now.rows > 0 && (servedOldest || now.scrollable > 2 * now.view)) return true;
-      await Bun.sleep(25);
+      if (now.rows > 0 && (servedOldest || now.scrollable > 6 * now.view)) return true;
+      // The next look comes a frame later, once the page has drawn what it has.
+      await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(resolve)));
     }
     return false;
   };
@@ -422,13 +442,22 @@ await requireBrowserLane("reopened-chat-history.test.ts", async () => {
   };
 
   /// Scrolls up until the first turn is in the transcript, or until the chat has nothing older
-  /// left to give. Holding the top asks for one more page, so each pass waits for the pane to go
-  /// quiet before it looks again — and a top that has not moved is never itself taken for the end
-  /// of the history, because that is what a loader needing another ask looks like (#22794).
+  /// left to give. Holding the top asks for one more page, so each pass waits for that page to be
+  /// answered before it looks again — and a top that has not moved is never itself taken for the
+  /// end of the history, because that is what a loader needing another ask looks like (#22794). A
+  /// pass whose hold asked for nothing while older history is left ends the scroll: the loader
+  /// stopped asking, and the first turn is not reached.
   const scrollToOldest = async (page: Page) => {
+    let before = olderReads;
     let reached = (await page.evaluate(`(${atTop.toString()})()`)) as Awaited<ReturnType<typeof atTop>>;
     for (let pass = 0; pass < 60 && !reached.reachedFirstTurn; pass += 1) {
-      await quiet();
+      const read = () => servedOldest || (olderReads > before && inFlight === 0);
+      const pageCame = await answered(read, 10_000 + 20 * LATENCY_MS, () => "no older read").then(
+        () => true,
+        () => false,
+      );
+      if (!pageCame) break;
+      before = olderReads;
       reached = (await page.evaluate(`(${atTop.toString()})()`)) as Awaited<ReturnType<typeof atTop>>;
     }
     return reached;

@@ -26,6 +26,10 @@ final class PaneContentView: NSView, PaneContentChrome {
     private var paneBackgroundsObservation: Task<Void, Never>?
     let contentHost = NSView()
     private(set) weak var content: NSView?
+    /// Explicitly observed ownership: first-paint holds can change this without a tab-store update.
+    let nativeToolOwner = PaneNativeToolOwner()
+    /// A view in the window that this pane, in no window yet, shows: it moves here when the pane enters one.
+    private var windowEntry = WindowEntryHandoff()
     private var tokenObservation: Task<Void, Never>?
     /// The pane's size changed (divider drag, window resize, animation).
     var onResize: (() -> Void)?
@@ -74,15 +78,23 @@ final class PaneContentView: NSView, PaneContentChrome {
     var bandPins: [NSLayoutConstraint] = []
     /// Whether the strip is pinned to a browser's header band.
     var isBandActive: Bool { !bandPins.isEmpty }
-    private var reportedChrome: (header: CGFloat, footer: CGFloat) = (-1, -1)
+    private var reportedChrome: (header: CGFloat, footer: CGFloat, framed: Bool) = (-1, -1, true)
     /// The outgoing view kept while the shown one has not painted (`PaneContentView+PaintHold`).
     let paintHold = PanePaintHold(owner: "pane.paint-hold")
     /// The strip the hold's outgoing view showed under, kept until the swap.
     var holdKeepsStrip = false
     /// An agent page's last image under the content at launch (`PaneContentView+LaunchImage`).
     var launchImageView: NSView?
+    var launchImageSize: CGSize?
+    /// Move covers clear without invoking their one-frame reveal callback on resize.
+    var launchImageInvokesResizeCallback = true
     /// Runs once when the launch image goes (`clearLaunchImage`).
     var onLaunchImageCleared: (() -> Void)?
+    /// Asked when the launch image's limit is up, before it goes: `false` keeps the frame, because
+    /// the page it stands in for is still coming and dropping it now would leave the pane empty
+    /// (`PaneContentView+LaunchImage`). Nil means the limit clears it, as it does for a frame held
+    /// over a page that has already painted.
+    var launchImageMayClear: (() -> Bool)?
     let launchImageDeadline = DemandTimer(owner: "pane.launch-image")
     /// Browsers this pane showed before, kept in place and hidden, oldest
     /// first (`PaneContentView+Parking`).
@@ -108,7 +120,7 @@ final class PaneContentView: NSView, PaneContentChrome {
         agentTagObservation = observeAgentTag(stripModel)
         themeDidChange()
         tokenObservation = Task { [weak self] in
-            for await _ in ObservationStream({ (PaneChromeMetrics.current, ChromeTunables.tabRowTools.value) }) {
+            for await _ in ObservationStream({ (PaneChromeMetrics.current, ChromeTunables.tabRowTools.value, ChromeTunables.nativeRowTools.value) }) {
                 self?.needsLayout = true
                 self?.refreshBandHeight()
             }
@@ -163,6 +175,12 @@ final class PaneContentView: NSView, PaneContentChrome {
         reportHeaderIfChanged()
         let hostChanged = contentHost.frame != hostFrame
         if hostChanged { contentHost.frame = hostFrame }
+        if launchImageView != nil, let launchImageSize, launchImageSize != .zero, launchImageSize != contentHost.bounds.size {
+            // A move cover owns the clear callback that reveals the page on its next frame. A
+            // resize must discard old-size pixels without consuming that hand-off early.
+            clearLaunchImage(invokeCallback: launchImageInvokesResizeCallback)
+            launchImageInvokesResizeCallback = true
+        }
         // After the host frame: a strip pinned to a browser's band reads its
         // frame from constraints that depend on the host frame.
         super.layout()
@@ -171,7 +189,25 @@ final class PaneContentView: NSView, PaneContentChrome {
         // zero size. Reapply their frame after the host receives its launch
         // bounds so Ghostty and its find/glass overlays get a real first
         // layout pass instead of staying at width zero.
-        if let content, content.frame != contentHost.bounds { content.frame = contentHost.bounds }
+        if hostsContent, let content {
+            let resized = content.frame != contentHost.bounds
+            if resized { content.frame = contentHost.bounds }
+            // Content shown before the pane had its size (a restored selected
+            // tab) was laid out at that size. A browser chrome lays out its
+            // toolbar and page area by constraints from its own bounds: left
+            // to AppKit's follow-up pass it can keep the stale frames (page
+            // area 0 high at the bottom, toolbar under it) until a tab switch.
+            // Lay it out at its new size now, in this pass (a descendant).
+            if hostChanged || resized {
+                content.needsLayout = true
+                content.layoutSubtreeIfNeeded()
+            }
+        }
+        // A chat shown at the frame it was parked at (`install`) follows the host again.
+        if hostsContent, let content, content.autoresizingMask.isEmpty, content is PaneParkableContent {
+            content.autoresizingMask = [.width, .height]
+        }
+        layoutParked()
         layoutAgentTag()
         if hostsContent, let sharing = content as? PaneTabRowSharing { sharing.offerTabRow(height: rowContent == nil ? 0 : shown, trailingInset: tools, in: self) }
         if hostChanged { onResize?() }
@@ -179,13 +215,42 @@ final class PaneContentView: NSView, PaneContentChrome {
 
     // MARK: PaneContentChrome
 
+    private var visibleContent: NSView? {
+        paintHold.kept.flatMap { $0.superview === contentHost ? $0 : nil } ?? (hostsContent ? content : nil)
+    }
+
+    /// The selected agent page, for native controls owned by the page: the incoming one while a
+    /// paint hold still shows the outgoing view.
+    var displayedAgentPaneView: AgentPaneView? { hostsContent ? content as? AgentPaneView : nil }
+
+    /// The controls and their callback follow the selected page, including an outgoing first-paint hold.
+    func refreshNativeToolOwner() {
+        if let agent = content as? AgentPaneView, !hostsContent, agent.superview == nil {
+            // Reparenting invokes this refresh on the old pane before the new pane binds its callback.
+            agent.onNativeToolOwnerChange = nil
+        }
+        nativeToolOwner.model = displayedAgentPaneView?.model
+        toolbar?.refresh()
+    }
+
+    var paneFramesContent: Bool { !(visibleContent is AgentPaneView) }
+
     /// The hosted content's own header, if it reports one (a browser's
     /// toolbar does not: it is inside the content area).
-    private var innerChrome: PaneContentChrome? { hostsContent ? content as? PaneContentChrome : nil }
+    private var innerChrome: PaneContentChrome? { visibleContent as? PaneContentChrome }
+
+    /// A chat with its native tab strip hidden still owns the top strip in its
+    /// webview. Keep the pane ring below that strip so focus does not draw an
+    /// extra hairline above the chat header (Austin, 2026-10-23).
+    private var hiddenAgentHeaderHeight: CGFloat {
+        guard hidesStrip, visibleContent is AgentPaneView else { return 0 }
+        return PaneChromeMetrics.current.resolvedStripHeight(scale: window?.backingScaleFactor ?? 2)
+    }
 
     var paneHeaderHeight: CGFloat {
+        if hiddenAgentHeaderHeight > 0 { return hiddenAgentHeaderHeight }
         // The band is inside the browser, under its toolbar.
-        (barPosition == .top && !isBandActive ? shownStripHeight : 0) + (innerChrome?.paneHeaderHeight ?? 0)
+        return (barPosition == .top && !isBandActive ? shownStripHeight : 0) + (innerChrome?.paneHeaderHeight ?? 0)
     }
 
     /// The strip below the content (`tabs.barPosition` bottom); else 0. In a browser's band
@@ -213,10 +278,11 @@ final class PaneContentView: NSView, PaneContentChrome {
     /// The content host is the pane's one rounded container, for every kind
     /// of content: a browser's toolbar sits inside it, as a terminal does.
     private func applyCornerRadius() {
-        guard let layer = contentHost.layer, layer.cornerRadius != contentCornerRadius else { return }
+        let radius = paneFramesContent ? contentCornerRadius : 0
+        guard let layer = contentHost.layer, layer.cornerRadius != radius else { return }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        layer.cornerRadius = contentCornerRadius
+        layer.cornerRadius = radius
         CATransaction.commit()
     }
 
@@ -227,10 +293,16 @@ final class PaneContentView: NSView, PaneContentChrome {
     }
 
     private func reportHeaderIfChanged() {
-        let chrome = (header: paneHeaderHeight, footer: paneFooterHeight)
+        let chrome = (header: paneHeaderHeight, footer: paneFooterHeight, framed: paneFramesContent)
         guard chrome != reportedChrome else { return }
         reportedChrome = chrome
         onPaneHeaderHeightChange?()
+    }
+
+    /// A first-paint hold ended: framing follows the view that became visible in this transaction.
+    func refreshContentFrame() {
+        applyCornerRadius()
+        reportHeaderIfChanged()
     }
 
     /// Swaps the hosted content view. Returns the previous one. Focus is
@@ -265,15 +337,20 @@ final class PaneContentView: NSView, PaneContentChrome {
         let leaving = hosted !== view && !holds ? hosted : nil
         // Its omnibar row on this pane's edge before it lays out here.
         (view as? any ToolbarEdgeHosting)?.toolbarPosition = toolbarPosition
-        if let view { install(view, replacing: leaving) }
+        if let view, !windowEntry.defers(view, to: contentHost) { install(view, replacing: leaving) }
         if holds, let shown, let view { beginPaintHold(outgoing: shown, incoming: view) }
         // A terminal's theme scope inherits this pane's workspace theme.
         view?.reparentRootedThemeScope()
         // Another pane may own `previous` now and have taken its callback.
         if let previous, previous !== view, previous.superview == nil {
             (previous as? PaneContentChrome)?.onPaneHeaderHeightChange = nil
+            (previous as? AgentPaneView)?.onNativeToolOwnerChange = nil
+        }
+        if let agent = view as? AgentPaneView {
+            agent.onNativeToolOwnerChange = { [weak self] in self?.refreshNativeToolOwner() }
         }
         content = view
+        refreshNativeToolOwner()
         // After the incoming view is in: a browser that leaves stays parked
         // here, and the keyboard it held goes to what shows now.
         if let leaving { retire(leaving) }
@@ -308,10 +385,14 @@ final class PaneContentView: NSView, PaneContentChrome {
     func detachContent(parks: Bool = false) {
         // The strip's band pins end before the browser leaves (R109).
         releaseBand()
+        // A displaced or closed page cannot reveal this pane's saved frame anymore.
+        clearLaunchImage()
         endPaintHold()
         let shown = hostsContent ? content : nil
         (shown as? PaneContentChrome)?.onPaneHeaderHeightChange = nil
+        (shown as? AgentPaneView)?.onNativeToolOwnerChange = nil
         content = nil
+        refreshNativeToolOwner()
         if let shown { if parks { retire(shown) } else { shown.removeFromSuperview() } }
         applyCornerRadius()
         updateBand()
@@ -328,6 +409,8 @@ final class PaneContentView: NSView, PaneContentChrome {
     /// The strip's scope follows the pane's (a workspace theme).
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        // Cmd-N's panes are built outside the window: the New Tab page moves in now, never out of the window.
+        if let view = windowEntry.entered(contentHost), view === content { show(view) }
         // The pins need both views in one window (v4 note 1).
         updateBand()
         reparentRootedThemeScope()
@@ -375,3 +458,4 @@ private let tabSwitchLog = Logger(subsystem: "com.cmuxterm.app.next", category: 
 private func tabSwitchMark(_ name: String) {
     tabSwitchLog.debug("tab-switch \(name, privacy: .public) \(Date().timeIntervalSince1970 * 1_000, format: .fixed(precision: 3), privacy: .public)")
 }
+

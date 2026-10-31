@@ -33,9 +33,9 @@
   );
   --danger: var(--cmux-app-danger, light-dark(rgba(196, 43, 28, 1), rgba(255, 105, 97, 1)));
   --warning: var(--cmux-app-warning, light-dark(rgba(166, 104, 0, 1), rgba(255, 196, 77, 1)));
-  --motion-hover: 120ms;
-  --motion-focus: 120ms;
-  font: 13px/1.4 -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --motion-hover: var(--cmux-motion-quick, 80ms);
+  --motion-focus: var(--cmux-motion-quick, 80ms);
+  font: 13px/1.4 var(--font-ui);
 }
 
 /* The native bootstrap's html rule (!important) wins; this matches it for the dev server. */
@@ -123,6 +123,10 @@ mark {
   overscroll-behavior: contain;
   --content-fade-top: 18px;
   --content-fade-bottom: 28px;
+  /* A row or card scrolled into view at an edge (a deep link, a capture's scroll) lands clear of
+     the fade, not half-faded under it. */
+  scroll-padding-top: calc(var(--content-fade-top) + 6px);
+  scroll-padding-bottom: calc(var(--content-fade-bottom) + 6px);
   mask-image:
     linear-gradient(
       to bottom,
@@ -171,11 +175,17 @@ mark {
   align-items: center;
   gap: 8px;
   width: 100%;
-  padding: 5px 8px;
+  padding: 5px 6px;
   border: 0;
   border-radius: 6px;
   background: transparent;
   text-align: left;
+  /* A router link (it preloads its section on hover) that looks and acts like the list's
+     buttons: no underline, no link color, no pointing hand, never dragged out as a URL. */
+  color: inherit;
+  text-decoration: none;
+  cursor: default;
+  -webkit-user-drag: none;
 }
 
 /* Only the pointer fades in. The current-section mark snaps: a route the host opens while the
@@ -237,6 +247,51 @@ mark {
   color: var(--muted-text);
 }
 
+.harness-update-cards {
+  display: grid;
+  gap: 8px;
+  margin: 0 0 12px;
+}
+
+.harness-update-cards:empty {
+  display: none;
+}
+
+.harness-update-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  background: var(--input-bg);
+}
+
+.harness-update-card-copy {
+  min-width: 0;
+}
+
+.harness-update-card-copy strong {
+  display: block;
+  font-weight: 600;
+}
+
+.harness-update-card-copy p {
+  margin: 3px 0 0;
+}
+
+.harness-update-card-copy code {
+  display: block;
+  margin-top: 5px;
+  overflow-wrap: anywhere;
+}
+
+.harness-update-card > .button {
+  flex: 0 0 auto;
+  margin-top: 1px;
+}
+
 .rows {
   border-top: 1px solid var(--border);
 }
@@ -258,6 +313,11 @@ mark {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
+}
+
+/* A device row's Full access switch, under the device's own line (Settings > Devices). */
+.row-main.device-full-access {
+  padding-top: 8px;
 }
 
 .row-label {
@@ -308,6 +368,16 @@ mark {
   justify-content: flex-end;
   gap: 8px;
   max-width: 60%;
+}
+
+/* A row with a Reset slot (setting rows, the Theme rows, the spacer rows) holds one control and the
+   slot, on one line: the cap leaves the slot's 30 px (22 px slot, 8 px gap) beyond the control's
+   60 %. A wrapped slot left the control in the slot's column, 30 px right of the other rows'
+   controls and a line higher (live QA 7a: the three-choice New Tab Position, 330 px, in a 570 px
+   card). Editors with several parts (number, color, text, lists) wrap inside their own box. */
+.row-control:has(> .reset-slot) {
+  flex-wrap: nowrap;
+  max-width: calc(60% + 30px);
 }
 
 /* The row menu's host around the control (SettingRow): the control's own flex items stay in place. */
@@ -458,6 +528,7 @@ mark {
   line-height: 12px;
   white-space: nowrap;
   pointer-events: none;
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 .field.number[data-inherited] {
@@ -634,26 +705,46 @@ mark {
 }
 
 .domain-list {
-  display: flex;
-  flex-direction: column;
-  max-height: 220px;
+  max-height: 260px;
+  margin: 0;
+  padding: 0;
   overflow-y: auto;
+  list-style: none;
 }
 
+/* A font row draws in its own face (FontPicker); the highlight is the theme list's. */
 .domain-option {
-  padding: 4px 8px;
-  border: 0;
+  padding: 3px 6px;
   border-radius: 5px;
-  background: transparent;
-  text-align: left;
 }
 
-.domain-option:hover {
-  background: var(--input-bg);
+.domain-option[data-highlighted] {
+  background: var(--row-focus);
+  box-shadow: inset var(--cmux-row-focus-bar, 0px) 0 0 var(--cmux-accent, currentColor);
 }
 
-.domain-option[aria-pressed="true"] {
-  background: var(--accent-soft);
+.font-option-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.font-option-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.font-option-tag {
+  color: var(--muted-text);
+  font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
+}
+
+.font-option-check {
+  color: var(--accent-text);
 }
 
 .host-list {
@@ -735,7 +826,8 @@ mark {
     flex-wrap: wrap;
   }
 
-  .row-control {
+  .row-control,
+  .row-control:has(> .reset-slot) {
     max-width: 100%;
   }
 }
@@ -761,6 +853,11 @@ mark {
   align-items: center;
   gap: 12px;
   margin-top: 8px;
+}
+
+.clear-browsing-data-error {
+  flex-basis: 100%;
+  min-width: 0;
 }
 
 .host-toggle {
@@ -824,6 +921,32 @@ mark {
 
 .host-field > .field {
   width: 240px;
+}
+
+/* Wrap complete controls rather than shrinking their labels in narrow profile editors. */
+.host-field[data-clear-browsing-data] {
+  flex-wrap: wrap;
+}
+
+.host-field[data-clear-browsing-data] > .row-help {
+  flex: 0 0 auto;
+  width: auto;
+  max-width: 100%;
+  overflow: visible;
+  white-space: normal;
+  overflow-wrap: normal;
+  text-overflow: clip;
+}
+
+.host-field[data-clear-browsing-data] > .field {
+  flex-shrink: 0;
+  max-width: 100%;
+}
+
+.host-field[data-clear-browsing-data] > .host-actions {
+  flex: 1 0 100%;
+  flex-wrap: wrap;
+  min-width: 0;
 }
 
 .host-swatches {
@@ -904,17 +1027,6 @@ mark {
   opacity: 0.4;
 }
 
-/* A sign-in in progress: the dot pulses until it ends (Reduce Motion stops it, layout.css). */
-@keyframes accounts-busy {
-  50% {
-    opacity: 0.3;
-  }
-}
-
-.accounts-status[data-busy] .accounts-dot {
-  animation: accounts-busy calc(var(--motion-in) * 8) var(--motion-ease) infinite;
-}
-
 .accounts-body {
   display: flex;
   flex-direction: column;
@@ -929,6 +1041,260 @@ mark {
 
 .accounts-form > .field {
   max-width: 320px;
+}
+
+/* Teams: a team row has no provider mark, so its details start under the title. */
+.accounts-team-body {
+  padding-left: 0;
+}
+
+/* New Team is the row itself, not details under a title: its title starts where a team's name does. */
+.accounts-team-create,
+.accounts-team-create > .accounts-form {
+  padding-top: 0;
+}
+
+.accounts-team-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.accounts-badge {
+  padding: 0 4px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: var(--text-caption);
+  font-weight: 400;
+  line-height: var(--text-caption--line-height);
+  color: var(--muted-text);
+}
+
+.accounts-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 24px;
+  margin: 0;
+}
+
+.accounts-fact {
+  display: flex;
+  /* The label is smaller than its value: share a baseline, not a top edge. */
+  align-items: baseline;
+  gap: 8px;
+}
+
+.accounts-fact > dd {
+  margin: 0;
+}
+
+.accounts-team-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.accounts-team-role {
+  margin-left: auto;
+}
+
+/* Settings > Devices: tones reuse the Accounts status dot; the history is a compact table. */
+.devices-header {
+  justify-content: flex-start;
+}
+
+.devices-header > .devices-status {
+  margin-right: auto;
+}
+
+.devices-status[data-tone="success"] .accounts-dot {
+  border-color: var(--success, var(--text));
+}
+
+.devices-status[data-tone="attention"] .accounts-dot {
+  border-color: var(--warning);
+}
+
+.devices-status[data-tone="danger"] .accounts-dot {
+  border-color: var(--danger);
+}
+
+.devices-status[data-tone="neutral"] .accounts-dot {
+  opacity: 0.4;
+}
+
+.devices-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.devices-badge {
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  letter-spacing: var(--text-caption--letter-spacing);
+}
+
+.devices-access,
+.devices-field-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.devices-relays-header {
+  justify-content: space-between;
+  flex-wrap: nowrap;
+}
+
+.devices-form {
+  margin-top: 6px;
+}
+
+.devices-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.devices-field > .field,
+.devices-field > .select {
+  max-width: 360px;
+}
+
+.devices-urls {
+  resize: vertical;
+}
+
+.devices-priority {
+  width: 80px;
+}
+
+.devices-history-scroll {
+  overflow-x: auto;
+}
+
+.devices-history {
+  width: 100%;
+  table-layout: auto;
+  border-collapse: collapse;
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+
+.devices-history th,
+.devices-history td {
+  padding: 5px 6px;
+  text-align: left;
+  vertical-align: top;
+  box-shadow: inset 0 -1px 0 var(--border);
+}
+
+.devices-history th {
+  font-weight: 600;
+  color: var(--muted-text);
+}
+
+.devices-history tbody tr:last-child td {
+  box-shadow: none;
+}
+
+.devices-nowrap {
+  white-space: nowrap;
+}
+
+/* History fits its card at any page width: fixed columns, names and details wrap between words
+   (a single word longer than its column still breaks rather than spill), headers wrap too. */
+.devices-history-fixed {
+  table-layout: fixed;
+}
+
+.devices-history-fixed th {
+  white-space: normal;
+  overflow-wrap: break-word;
+  hyphens: auto;
+}
+
+.devices-col-time {
+  width: 13%;
+}
+
+.devices-col-event {
+  width: 16%;
+}
+
+.devices-col-device {
+  width: 15%;
+}
+
+.devices-col-scope {
+  width: 11%;
+}
+
+.devices-col-detail {
+  width: 18%;
+}
+
+.devices-col-duration {
+  width: 12%;
+}
+
+.devices-wrap {
+  overflow-wrap: break-word;
+  word-break: normal;
+}
+
+/* A narrow page (about 1000 pt) keeps every device line: the label wraps and the controls go below it. */
+.devices-device .row-main {
+  flex-wrap: wrap;
+}
+
+.devices-device .row-label {
+  min-width: min(100%, 16em);
+}
+
+.devices-device .row-label > .row-help {
+  white-space: normal;
+  overflow: visible;
+  overflow-wrap: anywhere;
+}
+
+.devices-device .row-control {
+  max-width: 100%;
+}
+
+.devices-copy {
+  padding: 0 6px;
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+
+/* The event pill never clips its word: a longer event wraps inside it. */
+.devices-pill {
+  display: inline-block;
+  max-width: 100%;
+  white-space: normal;
+  text-align: center;
+  padding: 0 7px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted-text);
+}
+
+.devices-pill[data-tone="success"] {
+  color: var(--success, var(--text));
+}
+
+.devices-pill[data-tone="attention"] {
+  color: var(--warning);
+}
+
+.devices-pill[data-tone="danger"] {
+  color: var(--danger);
 }
 
 /* All Workspaces | This Workspace (cx-t2x.5). */
@@ -982,6 +1348,7 @@ mark {
   color: var(--text);
   font-size: var(--text-caption);
   pointer-events: none;
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 .backdrop-tile[aria-pressed="true"] .backdrop-thumb {
@@ -1031,6 +1398,7 @@ mark {
   color: var(--muted-text);
   font-size: var(--text-title);
   border-style: dashed;
+  letter-spacing: var(--text-title--letter-spacing);
 }
 
 /* Your images (backgrounds plan phase 3): what they take, Show in Finder, and a remove
@@ -1118,6 +1486,7 @@ mark {
   font-size: var(--text-detail);
   white-space: nowrap;
   text-overflow: ellipsis;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 
 /* Folder lists (picker.pinned, files.roots). */
@@ -1199,6 +1568,7 @@ mark {
 .appearance-bar-question {
   font-size: var(--text-detail);
   white-space: nowrap;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 
 /* Agents > Chiefs (ChiefsCard.tsx): one row per Chief, a button that opens its editor. */
@@ -1241,8 +1611,10 @@ mark {
   height: 100%;
   object-fit: cover;
 }
-.chiefs-initial {
-  font-weight: 600;
+/* Pixel-art mascots stay crisp and uncropped, as in the pet card. */
+.chiefs-picture img[data-mascot] {
+  object-fit: contain;
+  image-rendering: pixelated;
 }
 .chiefs-backend {
   flex: none;
@@ -1268,6 +1640,7 @@ mark {
   margin: 0 0 10px;
   color: var(--muted-text);
   font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 .density-tiles {
@@ -1392,6 +1765,7 @@ mark {
 .density-notice {
   color: var(--muted-text);
   font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 .density-import {
@@ -1431,4 +1805,293 @@ mark {
   color: var(--muted-text);
   font-variant-numeric: tabular-nums;
   text-align: right;
+}
+
+/* Settings > Menus (ContextMenusCard): the list of menus beside the chosen menu, drawn as a menu.
+   Rows reorder by drag (data-drop marks where a row lands) or by their buttons, which show on
+   hover and keyboard focus. */
+.menus-editor {
+  display: grid;
+  grid-template-columns: minmax(150px, 190px) minmax(0, 1fr);
+  gap: var(--ds-space-4);
+  align-items: start;
+}
+
+.menus-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-2);
+  position: sticky;
+  top: 0;
+}
+
+.menus-area {
+  display: flex;
+  flex-direction: column;
+}
+
+.menus-area-title {
+  margin: 0 0 3px 8px;
+  font-size: var(--text-caption);
+  font-weight: 600;
+  color: var(--muted-text);
+}
+
+.menus-list-item {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  width: 100%;
+  min-height: 24px;
+  padding: 0 var(--ds-space-2);
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: start;
+  cursor: default;
+}
+
+.menus-list-item:hover {
+  background: var(--input-bg);
+}
+
+.menus-list-item[aria-current] {
+  background: var(--accent-soft);
+  font-weight: 600;
+}
+
+.menus-list-item:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.menus-edited {
+  margin-inline-start: auto;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.menus-detail {
+  min-width: 0;
+}
+
+.menus-detail-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.menus-detail-title {
+  margin: 0;
+  font-size: var(--text-title);
+  font-weight: 600;
+}
+
+.menus-detail-spacer {
+  flex: 1;
+}
+
+.menus-help {
+  margin: 4px 0 10px;
+}
+
+/* The menu itself: a rounded panel of 24 px rows, as macOS draws a context menu. */
+.menu-preview {
+  list-style: none;
+  margin: 0;
+}
+
+.menu-preview {
+  padding: var(--ds-space-1);
+  border: 1px solid var(--border-strong);
+  border-radius: 9px;
+  /* A context menu's own surface (WebTheme's --surface-popup) and drop, so it reads as the menu. */
+  background: var(--surface-popup);
+  box-shadow: var(--ui-popup-drop);
+  max-width: 420px;
+  position: relative;
+}
+
+.menu-row {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  min-height: 24px;
+  padding: 0 var(--ds-space-1);
+  border-radius: 5px;
+  position: relative;
+}
+
+/* A row lights on hover, but never while the pointer is on one of its own buttons: then only that
+   button lights (a hover covers only its control). The exclusion sits in :where() so the rule keeps
+   .menu-row:hover's weight and a dragged row's opaque fill (below) still wins. */
+.menu-row:where(:hover:not(:has(.icon-button:hover))),
+.menu-row:focus-within {
+  background: var(--input-bg);
+}
+
+/* While a row is dragged it follows the pointer and the rows it passes slide apart to open the gap
+   where it lands (transforms only, no layout); hover washes and row buttons stay off so nothing
+   flashes under the pointer. */
+.menu-preview[data-reordering] .menu-row:not([data-dragging]):hover {
+  background: none;
+}
+
+.menu-preview[data-reordering] .menu-row .menu-row-actions {
+  opacity: 0;
+}
+
+.menu-preview[data-reordering] > .menu-row:not([data-dragging]) {
+  transition: transform var(--motion-in) var(--motion-ease);
+}
+
+.menu-row[data-dragging] {
+  z-index: var(--layer-raised);
+  /* Opaque: the rows it passes never show through its title. */
+  background: var(--surface-popup);
+  box-shadow:
+    inset 0 0 0 100vmax var(--accent-soft),
+    var(--elevation-2);
+  cursor: grabbing;
+}
+
+.menu-row[data-drop-into] {
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.menu-row-grip {
+  display: inline-flex;
+  color: var(--soft-text);
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.menu-preview[data-reordering] {
+  cursor: grabbing;
+  user-select: none;
+}
+
+.menu-row-icon {
+  flex: none;
+  width: 16px;
+  height: 16px;
+}
+
+.menu-row-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+button.menu-disclosure {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+}
+
+.menu-row-chevron {
+  color: var(--muted-text);
+}
+
+.menu-row-actions {
+  display: inline-flex;
+  opacity: 0;
+}
+
+.menu-row:hover .menu-row-actions,
+.menu-row:focus-within .menu-row-actions {
+  opacity: 1;
+}
+
+.menu-separator .menu-separator-line {
+  flex: 1;
+  height: 0;
+  margin: 0 6px;
+  border-top: 1px solid var(--border-strong);
+}
+
+.menu-row-body {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  align-items: center;
+  gap: var(--ds-space-2);
+}
+
+.menu-row[data-hidden] .menu-row-body > :not(.menu-row-actions):not(.menu-row-grip) {
+  opacity: 0.45;
+}
+
+.menu-row-badge {
+  flex: none;
+  padding: 0 var(--ds-space-1);
+  border-radius: 4px;
+  background: var(--input-bg);
+  color: var(--muted-text);
+  font-size: var(--text-caption);
+}
+
+button.menu-disclosure {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+}
+
+.menu-twisty {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  margin-inline-start: -2px;
+  color: var(--muted-text);
+}
+
+.menu-twisty-closed {
+  transform: rotate(-90deg);
+}
+
+.menu-rename {
+  flex: 1;
+  min-width: 0;
+  height: 20px;
+}
+
+.menus-move-picker {
+  display: flex;
+  flex-direction: column;
+  margin-top: 8px;
+  max-width: 420px;
+  padding: var(--ds-space-1);
+  border: 1px solid var(--border-strong);
+  border-radius: 9px;
+  background: var(--surface-popup);
+  box-shadow: var(--ui-popup-drop);
+}
+
+@media (max-width: 640px) {
+  .menus-editor {
+    grid-template-columns: 1fr;
+  }
+
+  .menus-list {
+    position: static;
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+}
+
+.menus-failure {
+  margin: 0 0 10px;
+  color: var(--danger);
+  font-size: var(--text-detail);
 }

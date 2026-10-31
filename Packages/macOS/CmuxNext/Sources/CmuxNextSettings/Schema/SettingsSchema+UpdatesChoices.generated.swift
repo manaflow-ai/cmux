@@ -16,12 +16,9 @@ public nonisolated enum UpdatesMeteredSetting: String, Sendable, Hashable, CaseI
     case download
 }
 
-/// How a ready update makes itself known: the control on the Settings item, or nothing (installs on quit). The old card value (the update card, removed 2026-10-05) loads as badge.
-public nonisolated enum UpdatesNotifySetting: String, Sendable, Hashable, CaseIterable {
-    case badge
-    case silent
-
-    /// Values older files may hold, read as their replacement without a
-    /// diagnostic.
-    static let legacyValues: [String: Self] = ["card": .badge]
+/// Web UI updates between app updates (plans/cmux-next/web-ota.md): NIGHTLY builds follow the signed channel; Release and RC builds ship their own web UI.
+public nonisolated enum UpdatesWebSetting: String, Sendable, Hashable, CaseIterable {
+    case everyMerge = "every-merge"
+    case nightly
+    case off
 }

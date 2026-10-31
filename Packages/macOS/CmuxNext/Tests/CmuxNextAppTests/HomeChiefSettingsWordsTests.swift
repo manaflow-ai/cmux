@@ -29,14 +29,10 @@ import Testing
         let home = FileManager.default.temporaryDirectory
         // This Mac's brain with no daemon connected: it reads the files and sets nothing.
         let view = HomeChiefSettingsView(muxHome: home, source: HomeChiefLocalEngine(files: HomeChiefFiles(muxHome: home), connection: { nil }))
-        let named = Self.descendants(of: view).filter {
-            $0.isAccessibilityElement() && ($0.accessibilityLabel() == HomeEngineStrings.diagnostics || ($0 as? NSButton)?.title == HomeEngineStrings.diagnostics)
-        }
-        #expect(named.count == 1)
-        #expect(named.first === view.diagnosticsToggle)
-    }
-
-    static func descendants(of view: NSView) -> [NSView] {
-        view.subviews + view.subviews.flatMap(descendants)
+        // The tree as VoiceOver walks it: a button is never an element itself, its cell is, so a
+        // walk of views' isAccessibilityElement() finds nothing.
+        let named = AccessibilityAudit().nodes(under: view).filter { $0.label == HomeEngineStrings.diagnostics }
+        #expect(named.map(\.role) == [.disclosureTriangle])
+        #expect(named.first?.element === view.diagnosticsToggle.cell)
     }
 }

@@ -1,5 +1,6 @@
 import AppKit
 import CmuxHomeCore
+import CmuxNextDesign
 @testable import CmuxNextHome
 @testable import CmuxNextHomeEngine
 import Testing
@@ -114,10 +115,11 @@ final class FakeRequestSource: HomeMessageRequestSource {
 }
 
 extension NSView {
-    /// Every label's and button's text under this view.
+    /// Every label's and button's text under this view. Labels are read through `ShownText`, so a
+    /// ``ChromeLabel`` (its own view, not an `NSTextField`) counts as well as a stock field.
     var homeAllText: String {
         var parts: [String] = []
-        if let field = self as? NSTextField { parts.append(field.stringValue) }
+        if let label = self as? any ShownText { parts.append(label.stringValue) }
         if let button = self as? NSButton { parts.append(button.title) }
         return (parts + subviews.map(\.homeAllText)).joined(separator: "\n")
     }

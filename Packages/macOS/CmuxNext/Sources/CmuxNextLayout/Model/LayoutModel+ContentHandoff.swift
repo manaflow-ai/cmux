@@ -11,6 +11,16 @@ extension LayoutModel {
         contentHandoff = (pane, ProcessInfo.processInfo.systemUptime + Self.contentHandoffWindow)
     }
 
+    /// ``handOffContent(of:)`` for the change `move` makes, which reports through `done` whether it
+    /// happened: the hint is set before `move` runs and dropped when the change fails (a folder
+    /// opened from a lone chat docks it through `ChatColumnPlacement.route`).
+    public func handOffContent(of pane: PaneID, during move: @MainActor (_ done: @escaping @MainActor (Bool) -> Void) -> Void) {
+        handOffContent(of: pane)
+        move { [weak self] moved in
+            if !moved, self?.contentHandoff?.pane == pane { self?.cancelContentHandoff() }
+        }
+    }
+
     /// Drops a hint whose change never came (the move failed), so a later split plays as a split.
     public func cancelContentHandoff() {
         contentHandoff = nil

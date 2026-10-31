@@ -1,3 +1,4 @@
+// cmux-web-test-timeout: 240
 // A typed draft is never cut (Austin): the composer shows all of it. A long one-line draft wraps
 // onto as many lines as it needs, focused or not; the field grows with it up to its cap and then
 // scrolls inside, the caret kept in view; nothing draws it as one clipped or ellipsized line.
@@ -12,6 +13,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 type Field = {
@@ -164,6 +166,7 @@ await requireBrowserLane("composer-draft-wrap.test.ts", async () => {
 
   const open = async (engine: string, surface: (typeof surfaces)[number], width: number) => {
     const page = await browsers.get(engine)!.newPage({ viewport: { width, height: 520 } });
+    await installPaintedFrames(page);
     await page.goto(stageURL(surface.entry, surface.variant, width));
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
     await page.locator(surface.field).first().waitFor();
@@ -178,76 +181,123 @@ await requireBrowserLane("composer-draft-wrap.test.ts", async () => {
   };
   const read = (page: Page, surface: (typeof surfaces)[number]) =>
     page.evaluate(measure, [surface.field, surface.scroller] as [string, string]);
+  /** The field as the next frame paints it, after the draft or the blur has rendered. */
+  const painted = (page: Page) => page.evaluate(() => window.cmuxPaintFrame());
   const blur = async (page: Page) => {
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
-    await page.waitForTimeout(50);
+    await painted(page);
   };
 
-  for (const [engine] of engines)
-    for (const surface of surfaces)
-      for (const width of [300, 760]) {
-        test(`${engine}: ${surface.name} at ${width} px wraps a long one-line draft, whole, focused and blurred`, async () => {
-          const page = await open(engine, surface, width);
-          await page.keyboard.insertText(LONG);
-          await page.waitForTimeout(50);
-          const focused = await read(page, surface);
-          await blur(page);
-          const blurred = await read(page, surface);
-          await page.close();
-          for (const [state, field] of [
-            ["focused", focused],
-            ["blurred", blurred],
-          ] as const) {
-            expect({ state, text: field.text.replace(/\s+/g, " ").trim() }).toEqual({ state, text: LONG });
-            expect({ state, cutters: field.cutters }).toEqual({ state, cutters: [] });
-            expect({ state, clippedSide: field.clippedSide }).toEqual({ state, clippedSide: false });
-            // Even the 760 px pane needs more than one line for it.
-            expect(field.lines).toBeGreaterThan(1);
-            // The field grew with it: every line shows, or the field stands at its cap and scrolls.
-            if (field.scrollHeight > field.clientHeight + 1)
-              expect(Math.abs(field.height - field.max)).toBeLessThanOrEqual(1);
-          }
-          // Blurring keeps the draft's full height: no collapsed one-line preview.
-          expect(blurred.lines).toBe(focused.lines);
-          expect(Math.abs(blurred.height - focused.height)).toBeLessThanOrEqual(1);
-        });
+  type Surface = (typeof surfaces)[number];
+  /** A long one-line draft, read focused and then blurred. */
+  const wrapped = async (engine: string, surface: Surface, width: number) => {
+    const page = await open(engine, surface, width);
+    await page.keyboard.insertText(LONG);
+    await painted(page);
+    const focused = await read(page, surface);
+    await blur(page);
+    const blurred = await read(page, surface);
+    await page.close();
+    return { focused, blurred };
+  };
+  /** The draft typed word by word: the last state that fits, the first that does not, and that one blurred. */
+  const capped = async (engine: string, surface: Surface, width: number) => {
+    const page = await open(engine, surface, width);
+    const start = await read(page, surface);
+    const words = LONG.split(" ");
+    let under: Field | undefined;
+    let over: Field | undefined;
+    for (let index = 0; index < 600 && !over; index++) {
+      await page.keyboard.insertText(`${index === 0 ? "" : " "}${words[index % words.length]}`);
+      const field = await read(page, surface);
+      if (field.scrollHeight > field.clientHeight + 1) over = field;
+      else under = field;
+    }
+    await blur(page);
+    const blurredOver = over ? await read(page, surface) : undefined;
+    await page.close();
+    return { start, under, over, blurredOver };
+  };
 
-        test(`${engine}: ${surface.name} at ${width} px grows to its cap, then scrolls with the caret in view`, async () => {
-          const page = await open(engine, surface, width);
-          const start = await read(page, surface);
-          // Word by word: the last state that fits, and the first that does not.
-          const words = LONG.split(" ");
-          let under: Field | undefined;
-          let over: Field | undefined;
-          for (let index = 0; index < 600 && !over; index++) {
-            await page.keyboard.insertText(`${index === 0 ? "" : " "}${words[index % words.length]}`);
-            const field = await read(page, surface);
-            if (field.scrollHeight > field.clientHeight + 1) over = field;
-            else under = field;
-          }
-          await blur(page);
-          const blurredOver = over ? await read(page, surface) : undefined;
-          await page.close();
-          expect(over).toBeDefined();
-          expect(under).toBeDefined();
-          // The cap is a real height, a sensible number of lines, not one line.
-          expect(Number.isFinite(over!.max)).toBe(true);
-          expect(over!.max).toBeGreaterThan(start.height * 3);
-          // Just under the cap: grown past one line, no scrollbar, below the cap.
-          expect(under!.lines).toBeGreaterThan(4);
-          expect(under!.height).toBeLessThan(over!.max + 0.5);
-          expect(under!.scrollHeight).toBeLessThanOrEqual(under!.clientHeight + 1);
-          expect(under!.cutters).toEqual([]);
-          // Just over it: the field stops at the cap and scrolls inside, the caret in view.
-          expect(Math.abs(over!.height - over!.max)).toBeLessThanOrEqual(1);
-          expect(["auto", "scroll"]).toContain(over!.overflowY);
-          expect(over!.caretShown).toBe(true);
-          expect(over!.cutters).toEqual([]);
-          expect(over!.clippedSide).toBe(false);
-          // Blurred at the cap: still the capped, scrollable, wrapped field.
-          expect(Math.abs(blurredOver!.height - over!.max)).toBeLessThanOrEqual(1);
-          expect(blurredOver!.lines).toBe(over!.lines);
-          expect(blurredOver!.cutters).toEqual([]);
-        });
+  // Each case opens its own page (its own browser context, so focus and typing stay apart), and a
+  // fresh page refetches the stage's ~700 modules. One after another, 32 of them after the cold
+  // warm-up ran past the runner's 120 s file limit. So a few pages measure at once, and each test
+  // awaits its own measurement and checks it.
+  const PAGES = 4;
+  const cases = engines.flatMap(([engine]) =>
+    surfaces.flatMap((surface) => [300, 760].map((width) => ({ engine, surface, width }))),
+  );
+  const key = (engine: string, surface: Surface, width: number) => `${engine} ${surface.name} ${width}`;
+  const wraps = new Map<string, ReturnType<typeof wrapped>>();
+  const caps = new Map<string, ReturnType<typeof capped>>();
+  beforeAll(() => {
+    let free = PAGES;
+    const waiting: (() => void)[] = [];
+    const inPage = async <T>(work: () => Promise<T>) => {
+      if (free > 0) free--;
+      else await new Promise<void>((resolve) => waiting.push(resolve));
+      try {
+        return await work();
+      } finally {
+        const next = waiting.shift();
+        if (next) next();
+        else free++;
       }
+    };
+    // A test filtered out with -t never awaits its measurement; its failure must not go unhandled.
+    for (const { engine, surface, width } of cases) {
+      const wrap = inPage(() => wrapped(engine, surface, width));
+      wrap.catch(() => {});
+      wraps.set(key(engine, surface, width), wrap);
+      const cap = inPage(() => capped(engine, surface, width));
+      cap.catch(() => {});
+      caps.set(key(engine, surface, width), cap);
+    }
+  });
+
+  for (const { engine, surface, width } of cases) {
+    test(`${engine}: ${surface.name} at ${width} px wraps a long one-line draft, whole, focused and blurred`, async () => {
+      const { focused, blurred } = await wraps.get(key(engine, surface, width))!;
+      for (const [state, field] of [
+        ["focused", focused],
+        ["blurred", blurred],
+      ] as const) {
+        expect({ state, text: field.text.replace(/\s+/g, " ").trim() }).toEqual({ state, text: LONG });
+        expect({ state, cutters: field.cutters }).toEqual({ state, cutters: [] });
+        expect({ state, clippedSide: field.clippedSide }).toEqual({ state, clippedSide: false });
+        // Even the 760 px pane needs more than one line for it.
+        expect(field.lines).toBeGreaterThan(1);
+        // The field grew with it: every line shows, or the field stands at its cap and scrolls.
+        if (field.scrollHeight > field.clientHeight + 1)
+          expect(Math.abs(field.height - field.max)).toBeLessThanOrEqual(1);
+      }
+      // Blurring keeps the draft's full height: no collapsed one-line preview.
+      expect(blurred.lines).toBe(focused.lines);
+      expect(Math.abs(blurred.height - focused.height)).toBeLessThanOrEqual(1);
+    });
+
+    test(`${engine}: ${surface.name} at ${width} px grows to its cap, then scrolls with the caret in view`, async () => {
+      const { start, under, over, blurredOver } = await caps.get(key(engine, surface, width))!;
+      expect(over).toBeDefined();
+      expect(under).toBeDefined();
+      // The cap is a real height, a sensible number of lines, not one line.
+      expect(Number.isFinite(over!.max)).toBe(true);
+      expect(over!.max).toBeGreaterThan(start.height * 3);
+      // Just under the cap: grown past one line, no scrollbar, below the cap.
+      expect(under!.lines).toBeGreaterThan(4);
+      expect(under!.height).toBeLessThan(over!.max + 0.5);
+      expect(under!.scrollHeight).toBeLessThanOrEqual(under!.clientHeight + 1);
+      expect(under!.cutters).toEqual([]);
+      // Just over it: the field stops at the cap and scrolls inside, the caret in view.
+      expect(Math.abs(over!.height - over!.max)).toBeLessThanOrEqual(1);
+      expect(["auto", "scroll"]).toContain(over!.overflowY);
+      expect(over!.caretShown).toBe(true);
+      expect(over!.cutters).toEqual([]);
+      expect(over!.clippedSide).toBe(false);
+      // Blurred at the cap: still the capped, scrollable, wrapped field.
+      expect(Math.abs(blurredOver!.height - over!.max)).toBeLessThanOrEqual(1);
+      expect(blurredOver!.lines).toBe(over!.lines);
+      expect(blurredOver!.cutters).toEqual([]);
+    });
+  }
 });

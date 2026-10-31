@@ -41,10 +41,18 @@ nonisolated enum PaletteStrings {
     static var copyPath: String { String(localized: "palette.command.copyPath", defaultValue: "Copy Path", bundle: .module) }
     static var runCommand: String { String(localized: "palette.command.run", defaultValue: "Run Command", bundle: .module) }
     static var open: String { String(localized: "palette.command.open", defaultValue: "Open", bundle: .module) }
+    /// Open Recovered Draft…'s page: its title and its search field.
+    static var recoveredDraftsTitle: String {
+        String(localized: "palette.recoveredDrafts.title", defaultValue: "Recovered Drafts", bundle: .module)
+    }
+    static var recoveredDraftsPlaceholder: String {
+        String(localized: "palette.recoveredDrafts.placeholder", defaultValue: "Find a recovered draft", bundle: .module)
+    }
     static var submit: String { String(localized: "palette.command.submit", defaultValue: "Submit", bundle: .module) }
     static var current: String { String(localized: "palette.accessory.current", defaultValue: "Current", bundle: .module) }
     static var on: String { String(localized: "palette.accessory.on", defaultValue: "On", bundle: .module) }
     static var off: String { String(localized: "palette.accessory.off", defaultValue: "Off", bundle: .module) }
+    static var changeFont: String { String(localized: "palette.setting.changeFont", defaultValue: "Change Font…", bundle: .module) }
     static var customValue: String { String(localized: "palette.setting.customValue", defaultValue: "Custom Value…", bundle: .module) }
     static var turnOn: String { String(localized: "palette.command.turnOn", defaultValue: "Turn On", bundle: .module) }
     static var turnOff: String { String(localized: "palette.command.turnOff", defaultValue: "Turn Off", bundle: .module) }

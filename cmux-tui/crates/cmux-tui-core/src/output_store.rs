@@ -180,7 +180,11 @@ fn byte_count(value: &serde_json::Value) -> Option<u64> {
     value.as_u64().or_else(|| {
         let value = value.as_f64()?;
         // Truncation is the intent: the setting is a whole number of bytes.
-        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        #[allow(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "a finite non-negative f64 floors to a whole byte count; `as` saturates"
+        )]
         (value.is_finite() && value >= 0.0).then(|| value.floor() as u64)
     })
 }
@@ -203,6 +207,18 @@ struct LogState {
     /// Full mode: bytes not yet in a segment file, from `pending_start`.
     pending: Vec<u8>,
     pending_start: u64,
+    /// The terminal's primary-screen resident bytes at its last
+    /// measurement, as counted in [`OutputStore::resident_total`].
+    resident: u64,
+    /// History rows at the last measurement of `resident`; `None` before the
+    /// first one.
+    measured_rows: Option<u64>,
+    /// History rows grew past the re-measure step since the last
+    /// measurement: the writer measures this terminal on its next wake.
+    measure_due: bool,
+    /// The log left the store (`OutputStore::forget`): no measurement may
+    /// add to the total for it any more.
+    forgotten: bool,
 }
 
 impl LogState {
@@ -216,7 +232,7 @@ impl LogState {
     }
 
     /// Kept bytes at or after `after`, at most `budget`, from memory.
-    fn memory_window(&self, after: u64, budget: usize) -> OutputWindow {
+    fn memory_window(&self, after: u64, budget: usize) -> Option<OutputWindow> {
         let end = self.next_offset();
         // Unflushed bytes (full mode) can reach further back than the tail;
         // they always end at the stream end.
@@ -229,16 +245,16 @@ impl LogState {
         let available = usize::try_from(end - start).unwrap_or(usize::MAX);
         let take = available.min(budget);
         let bytes = if from_pending {
-            self.pending[skip..skip + take].to_vec()
+            self.pending.get(skip..skip.saturating_add(take))?.to_vec()
         } else {
-            self.tail.range(skip..skip + take).copied().collect()
+            self.tail.iter().skip(skip).take(take).copied().collect()
         };
-        OutputWindow {
+        Some(OutputWindow {
             start_offset: start,
             next_offset: start + take as u64,
             bytes,
             truncated: take < available,
-        }
+        })
     }
 }
 
@@ -246,6 +262,41 @@ impl LogState {
 pub(crate) struct TerminalLog {
     terminal_id: TerminalPublicId,
     state: Mutex<LogState>,
+}
+
+/// A terminal's history size, read in O(1) under its parser lock: the
+/// growth signal of the scrollback budget (`memory_budget.rs`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct HistoryRows {
+    /// Rows in the primary screen's scrollback.
+    pub(crate) rows: u64,
+    /// Rows on the screen (the smallest re-measure step).
+    pub(crate) screen_rows: u64,
+}
+
+impl HistoryRows {
+    /// Re-measure after history moves by 1/16 of what it held at the last
+    /// measurement, at least one screen: a terminal's resident bytes are
+    /// then known to within about 1/16 (Ghostty allocates history in whole
+    /// pages, so a page walk per screen of rows would be wasted work), and
+    /// a terminal growing from empty to its limit is measured O(log) times.
+    const STEP_DIVISOR: u64 = 16;
+
+    /// `None` on the alternate screen: its rows are not the primary
+    /// screen's history the budget measures (and a full-screen program does
+    /// not grow history), so it never asks for a measurement.
+    pub(crate) fn of(terminal: &ghostty_vt::Terminal) -> Option<Self> {
+        (terminal.active_screen() != ghostty_vt::Screen::Alternate).then(|| Self {
+            rows: u64::try_from(terminal.scrollback_rows()).unwrap_or(u64::MAX),
+            screen_rows: u64::from(terminal.rows()),
+        })
+    }
+
+    fn moved_past_step(self, measured: Option<u64>) -> bool {
+        let Some(measured) = measured else { return true };
+        let step = (measured / Self::STEP_DIVISOR).max(self.screen_rows).max(1);
+        self.rows.abs_diff(measured) >= step
+    }
 }
 
 /// A window of retained output after a cursor.
@@ -276,6 +327,17 @@ pub(crate) struct OutputStore {
     /// that are no longer in the session.
     prune_pending: std::sync::atomic::AtomicBool,
     memory_budget: memory_budget::MemoryBudget,
+    /// Scrollback RAM of every terminal at its last measurement (the sum of
+    /// the logs' `resident`, changed only under each log's lock). Growth
+    /// keeps it current (`append` marks a measurement due when a terminal's
+    /// history grew), so the budget pass starts when the growth crosses the
+    /// budget, not on the writer's snapshot timer (P-AUSTIN B8).
+    resident_total: std::sync::atomic::AtomicU64,
+    /// Above this total the next output asks the writer for a budget pass:
+    /// the budget, or where the last pass had to leave the total when every
+    /// terminal was at its floor (a pass would free nothing more). Set by
+    /// each pass; `u64::MAX` until the writer runs.
+    resident_trigger: std::sync::atomic::AtomicU64,
     /// Stream ends the snapshots recorded, by terminal: (generation, end).
     resume: Mutex<HashMap<TerminalPublicId, (String, u64)>>,
     /// Stored segment stream ends, by terminal and generation key (full
@@ -299,6 +361,8 @@ impl OutputStore {
             pass: Mutex::new(()),
             prune_pending: std::sync::atomic::AtomicBool::new(false),
             memory_budget: memory_budget::MemoryBudget::default(),
+            resident_total: std::sync::atomic::AtomicU64::new(0),
+            resident_trigger: std::sync::atomic::AtomicU64::new(u64::MAX),
             resume: Mutex::new(HashMap::new()),
             segment_resume: Mutex::new(HashMap::new()),
         }
@@ -325,6 +389,7 @@ impl OutputStore {
             policy.max_total_bytes
         );
         self.cache_policy(policy);
+        self.set_resident_trigger(memory_budget::effective(policy.memory_total_bytes));
         self.full.set_enabled(policy.mode == PersistenceMode::Full);
         {
             let _pass = self.lock_pass();
@@ -376,6 +441,10 @@ impl OutputStore {
                 last_output: Instant::now(),
                 pending: Vec::new(),
                 pending_start: start,
+                resident: 0,
+                measured_rows: None,
+                measure_due: false,
+                forgotten: false,
             }),
         });
         logs.insert(terminal_id.clone(), log.clone());
@@ -384,17 +453,30 @@ impl OutputStore {
 
     /// Record output the terminal's parser accepted. Memory only: no disk
     /// IO and no syscall on this path (resume offsets were read at start).
+    /// `history` is the terminal's history size after the parser took
+    /// `bytes` (O(1) reads under the parser lock; `None` when the caller has
+    /// no terminal). When the history grew by a step since the terminal's
+    /// last measurement, the writer is asked to measure it
+    /// (`memory_budget.rs`); this path never walks its pages.
     pub(crate) fn append(
         &self,
         terminal_id: &TerminalPublicId,
         generation: &Arc<str>,
         bytes: &[u8],
+        history: Option<HistoryRows>,
     ) {
         if bytes.is_empty() {
             return;
         }
         let log = self.log(terminal_id, generation);
         let mut state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(history) = history
+            && !state.measure_due
+            && history.moved_past_step(state.measured_rows)
+        {
+            state.measure_due = true;
+            self.writer.request_memory_pass();
+        }
         if state.generation != *generation {
             // A new incarnation starts a new stream at offset 0.
             state.generation = generation.clone();
@@ -409,7 +491,7 @@ impl OutputStore {
         let drained = overflow.min(state.tail.len());
         state.tail.drain(..drained);
         state.tail_start += overflow as u64 + skipped;
-        state.tail.extend(&bytes[bytes.len() - keep..]);
+        state.tail.extend(bytes.get(bytes.len().saturating_sub(keep)..).unwrap_or_default());
         state.last_output = Instant::now();
         if self.full.enabled() {
             if state.pending.is_empty() {
@@ -490,10 +572,10 @@ impl OutputStore {
             {
                 continue;
             }
-            return Some(state.memory_window(after, budget));
+            return state.memory_window(after, budget);
         }
         let state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
-        Some(state.memory_window(after, budget))
+        state.memory_window(after, budget)
     }
 
     /// The person cleared this terminal's history: drop the stored output
@@ -530,9 +612,14 @@ impl OutputStore {
     /// terminals that left the session.
     pub(crate) fn forget(&self, terminal_id: &TerminalPublicId) {
         self.memory_budget.forget(terminal_id);
-        if self.logs.lock().unwrap_or_else(PoisonError::into_inner).remove(terminal_id).is_some()
-            && self.directory.is_some()
-        {
+        let removed = self.logs.lock().unwrap_or_else(PoisonError::into_inner).remove(terminal_id);
+        if let Some(log) = &removed {
+            let mut state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
+            state.forgotten = true;
+            let resident = std::mem::take(&mut state.resident);
+            self.account_resident(resident, 0);
+        }
+        if removed.is_some() && self.directory.is_some() {
             self.prune_pending.store(true, std::sync::atomic::Ordering::Release);
             self.mark_dirty();
         }
@@ -603,6 +690,57 @@ impl OutputStore {
             )
         });
         snapshot::final_pass(mux, self, policy);
+    }
+
+    /// Record `log`'s measured resident bytes (`rows`: its history rows at
+    /// the measurement, `None` on the alternate screen or when the terminal
+    /// is gone) and move its share
+    /// of [`Self::resident_total`].
+    /// Nothing changes for a forgotten log: its share already left the total.
+    fn set_resident(&self, log: &TerminalLog, resident: u64, rows: Option<u64>) {
+        let mut state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
+        if state.forgotten {
+            return;
+        }
+        let previous = std::mem::replace(&mut state.resident, resident);
+        // `measure_due` is cleared before the measurement read (by its
+        // caller), never here: an append that raced the read keeps its ask.
+        // No rows (the alternate screen, or the terminal is gone): the last
+        // primary measurement stays the next growth step's base.
+        if rows.is_some() {
+            state.measured_rows = rows;
+        }
+        self.account_resident(previous, resident);
+    }
+
+    /// Move one terminal's share of [`Self::resident_total`] from `previous`
+    /// to `current`. Called with that terminal's log lock held, so the total
+    /// stays the sum of the logs' `resident`.
+    fn account_resident(&self, previous: u64, current: u64) {
+        use std::sync::atomic::Ordering;
+        if current >= previous {
+            self.resident_total.fetch_add(current - previous, Ordering::AcqRel);
+        } else {
+            let shrunk = previous - current;
+            let _ =
+                self.resident_total.fetch_update(Ordering::AcqRel, Ordering::Acquire, |total| {
+                    Some(total.saturating_sub(shrunk))
+                });
+        }
+    }
+
+    /// True when the measured total is over the next pass's trigger.
+    fn resident_over_trigger(&self) -> bool {
+        use std::sync::atomic::Ordering;
+        self.resident_total.load(Ordering::Acquire) > self.resident_trigger.load(Ordering::Acquire)
+    }
+
+    fn resident_total(&self) -> u64 {
+        self.resident_total.load(std::sync::atomic::Ordering::Acquire)
+    }
+
+    fn set_resident_trigger(&self, trigger: u64) {
+        self.resident_trigger.store(trigger, std::sync::atomic::Ordering::Release);
     }
 
     fn lock_pass(&self) -> std::sync::MutexGuard<'_, ()> {

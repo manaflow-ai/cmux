@@ -19,6 +19,7 @@ Example (vm.sh does this for you):
 from __future__ import annotations
 
 import argparse
+import itertools
 import json
 import os
 import random
@@ -82,19 +83,40 @@ class Guest:
     def cmux(self, args: list[str], timeout: float = 15) -> subprocess.CompletedProcess:
         return self.sh(self._cli(args), timeout)
 
-    def ping_ms(self, timeout: float) -> int | None:
+    def ping_ms(self, timeout: float, sample_after_ms: int = 0, sample_file: str = "") -> int | None:
         """Main-thread round trip in ms, timed in the guest; None when nothing answers.
 
-        A ping that runs past `timeout` returns the timeout (a hang), not None.
+        A ping that runs past `timeout` returns the timeout (a hang), not None. With `sample_after_ms`,
+        a ping still unanswered then starts `sample PID 5` of the app into `sample_file` in the guest
+        while the hang lasts (sudo -n first: the hardened runtime refuses task_for_pid to a non-root
+        sampler), so the sample shows the hang itself, over 5 s. The PID is looked up at that moment,
+        and the file appears only complete (written to .tmp, then renamed).
         """
         # Perl, not python3: a macOS 26 guest without the Command Line Tools has only the
         # /usr/bin/python3 stub, which opens an install dialog and fails.
         ms = int(timeout * 1000)
-        perl = ("use Time::HiRes qw(time); my $t = time; my $pid = fork;"
+        env = ""
+        sampler = ""
+        if sample_after_ms and sample_file:
+            target = self.binary or self.app + "/Contents/MacOS/"
+            pattern = "^" + "".join("\\" + c if c in ".[]()*+?{}|^$\\" else c for c in target)
+            # Values reach the sampler through the environment, never spliced into code.
+            env = f"FUZZ_SAMPLE_FILE={shlex.quote(sample_file)} FUZZ_APP_PATTERN={shlex.quote(pattern)} "
+            sampler = (" if (!$done) { my $s = fork; if (defined $s && $s == 0) {"
+                       " open STDIN, '<', '/dev/null'; open STDOUT, '>', '/dev/null'; open STDERR, '>', '/dev/null';"
+                       " exec '/bin/sh', '-c', 'p=$(pgrep -nf \"$FUZZ_APP_PATTERN\") || exit 0; f=$FUZZ_SAMPLE_FILE;"
+                       " { sudo -n /usr/bin/sample \"$p\" 5 -file \"$f.tmp\" || /usr/bin/sample \"$p\" 5 -file \"$f.tmp\"; }"
+                       " && mv \"$f.tmp\" \"$f\"'; exit 127 } }")
+        first = (sample_after_ms / 1000) if sampler else timeout
+        perl = ("use Time::HiRes qw(time alarm); my $t = time; my $limit = " + str(timeout) + "; my $pid = fork;"
                 " if (!$pid) { open STDOUT, '>', '/dev/null'; open STDERR, '>', '/dev/null'; exec @ARGV; exit 127 }"
-                " my $ok = eval { local $SIG{ALRM} = sub { die \"t\\n\" }; alarm " + str(max(1, int(timeout + 0.999))) + "; waitpid($pid, 0); alarm 0; 1 };"
+                " my $wait = sub { my $s = shift; eval { local $SIG{ALRM} = sub { die \"t\\n\" }; alarm $s; waitpid($pid, 0); alarm 0; 1 } };"
+                " my $done = $wait->(" + str(first) + ");"
+                + sampler +
+                # One deadline for the whole ping, counted from its start.
+                " my $ok = $done || $wait->(($limit - (time - $t)) > 0.05 ? $limit - (time - $t) : 0.05);"
                 " if (!$ok) { kill 9, $pid; print " + str(ms) + " } else { print $? ? -1 : int((time - $t) * 1000) }")
-        r = self.sh(f"/usr/bin/perl -e {shlex.quote(perl)} -- {self._cli(['app', 'ping'])}", timeout + 15)
+        r = self.sh(f"{env}/usr/bin/perl -e {shlex.quote(perl)} -- {self._cli(['app', 'ping'])}", timeout + 15)
         try:
             v = int(r.stdout.strip().splitlines()[-1])
             return None if v < 0 else v
@@ -102,7 +124,10 @@ class Guest:
             return None
 
     def pid(self) -> int | None:
-        r = self.sh(f"pgrep -nf {shlex.quote(self.app + '/Contents/MacOS/')}")
+        # The app process itself (argv[0] is the binary), not a shell whose command line names it.
+        target = self.binary or self.app + "/Contents/MacOS/"
+        pattern = "^" + "".join("\\" + c if c in ".[]()*+?{}|^$\\" else c for c in target)
+        r = self.sh(f"pgrep -nf {shlex.quote(pattern)}")
         return int(r.stdout.split()[0]) if r.returncode == 0 and r.stdout.strip() else None
 
     def winfo(self) -> dict | None:
@@ -168,19 +193,28 @@ class Guest:
         src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "winfo.js")).read()
         subprocess.run(self.base + ["cat > /tmp/fuzz-winfo.js"], input=src, text=True, capture_output=True, timeout=30)
 
-    def launch(self, deadline: float = 180) -> bool:
-        """Start the app with the automation socket open to SSH clients; wait for a ping."""
+    def launch(self, deadline: float = 180, exit_file: str | None = None) -> bool:
+        """Start the app with the automation socket open to SSH clients; wait for a ping.
+
+        With `exit_file`, the guest shell waits for the app and writes its exit status there
+        (128 + the signal for a signal death), so a caller can tell a clean quit from a crash.
+        """
         plist = self.sh(f"/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' {shlex.quote(self.app + '/Contents/Info.plist')}")
         self.binary = f"{self.app}/Contents/MacOS/{plist.stdout.strip()}"
         before = time.time()
         # Not `nohup`: dyld strips DYLD_* variables from SIP-protected binaries and their
-        # children, so the shell exports them and execs the app itself (ignoring SIGHUP).
-        self.sh(f"( trap '' HUP; export {self.env}; exec {shlex.quote(self.binary)} "
-                f">>/tmp/cmux-fuzz-app.log 2>&1 </dev/null ) & disown; true")
+        # children, so the shell exports them and starts the app itself (ignoring SIGHUP).
+        run = (f"{shlex.quote(self.binary)} >>/tmp/cmux-fuzz-app.log 2>&1 </dev/null; echo $? >{shlex.quote(exit_file)}"
+               if exit_file else f"exec {shlex.quote(self.binary)} >>/tmp/cmux-fuzz-app.log 2>&1 </dev/null")
+        if exit_file:
+            self.sh(f"rm -f {shlex.quote(exit_file)}")
+        self.sh(f"( trap '' HUP; export {self.env}; {run} ) & disown; true")
         while time.time() - before < deadline:
             r = self.sh("ls -t /tmp/cmux-*.sock 2>/dev/null | head -1")
             self.socket = r.stdout.strip()
-            if self.socket and self.ping_ms(3) is not None:
+            ms = self.ping_ms(3) if self.socket else None
+            # A ping that ran into its timeout is a hung app, not a launched one.
+            if ms is not None and ms < 3000:
                 # Bring the window forward so VNC keys reach it.
                 self.sh(f"open -a {shlex.quote(self.app)}")
                 return True
@@ -339,20 +373,23 @@ def check_input(g: Guest, vnc: RFB) -> dict:
 
 
 def report_kind(name: str) -> str:
-    """A DiagnosticReports file's finding kind: only .ips files are crashes; .diag files are resource
-    reports (disk writes, CPU, wakeups) and .hang files are hang reports."""
+    """A DiagnosticReports file's finding kind: .ips files of the app are crashes; .diag files are
+    resource reports (disk writes, CPU, wakeups), .hang files hang reports and JetsamEvent files
+    the system's memory kills."""
     if name.endswith(".hang"):
         return "hang-report"
     if name.endswith(".diag"):
         return "resource-report"
+    if name.startswith("JetsamEvent"):
+        return "jetsam"  # the system ended processes for memory: not a crash of the app's code
     return "crash"
 
 
 def new_reports(g: Guest, since: float, seen: set[str]) -> list[str]:
-    """Crash (.ips) and hang reports of the app's processes written since `since` (epoch s)."""
+    """Crash (.ips), hang and Jetsam (memory kill) reports written since `since` (epoch s)."""
     perl = ("for my $d (glob('~/Library/Logs/DiagnosticReports'), '/Library/Logs/DiagnosticReports') {"
             " for my $p (glob(\"$d/*\")) { my ($n) = $p =~ m{([^/]+)$};"
-            " next unless $n =~ /cmux|acpmux|optchat/ || $n =~ /\\.hang$/;"
+            " next unless $n =~ /cmux|acpmux|optchat/ || $n =~ /\\.hang$/ || $n =~ /^JetsamEvent/;"
             " print \"$p\\n\" if (stat $p)[9] > $ARGV[0] } }")
     r = g.sh(f"/usr/bin/perl -e {shlex.quote(perl)} {since}")
     return [p for p in r.stdout.splitlines() if p and p not in seen]
@@ -420,7 +457,10 @@ def main() -> int:
     ap.add_argument("--vnc", required=True, help="host:port[:password]")
     ap.add_argument("--app", default="/Applications/cmux NIGHTLY.app")
     ap.add_argument("--seed", type=int, default=1)
-    ap.add_argument("--steps", type=int, default=1000)
+    ap.add_argument("--steps", type=int, default=None,
+                    help="random steps after the tour (default 1000; with --minutes: as many as the time allows)")
+    ap.add_argument("--minutes", type=float, default=0,
+                    help="stop the walk after this many minutes (0: run every step); the run's time bound")
     ap.add_argument("--hang-ms", type=int, default=1000)
     ap.add_argument("--out", required=True)
     ap.add_argument("--replay", help="steps.jsonl from an earlier run")
@@ -445,7 +485,8 @@ def main() -> int:
     g.install_helpers()
     if o.minimize:
         g.snapshot_state()
-    if not g.launch():
+    exit_file = f"/tmp/cmux-fuzz-exit-{os.getpid()}"
+    if not g.launch(exit_file=exit_file):
         sys.exit("the app did not answer a ping within the launch deadline")
     actions = load_actions(g)
     rng = random.Random(o.seed)
@@ -453,7 +494,11 @@ def main() -> int:
         steps = [json.loads(l)["step"] for l in open(o.replay) if l.strip()]
     else:
         tour = [] if o.no_tour else [{"kind": "palette", "title": t} for t in TOUR]
-        steps = tour + [plan_step(rng, actions) for _ in range(o.steps)]
+        # Planned lazily from the seeded generator: the same seed gives the same sequence however
+        # long the run is. --minutes without --steps runs until the time is up.
+        count = o.steps if o.steps is not None else (None if o.minutes > 0 else 1000)
+        walk = (plan_step(rng, actions) for _ in (itertools.count() if count is None else range(count)))
+        steps = itertools.chain(tour, walk)
 
     summary_input = check_input(g, vnc)
     print("input check:", json.dumps(summary_input), flush=True)
@@ -483,7 +528,13 @@ def main() -> int:
         except Exception as e:  # screenshot is best effort
             rec["screenshot_error"] = str(e)
 
+    walk_end = time.time() + o.minutes * 60 if o.minutes > 0 else None
+    run_id = os.getpid()  # in live-sample names: a reused guest never matches an older file
+    last_pid = g.pid()
     for i, step in enumerate(steps):
+        if walk_end is not None and time.time() >= walk_end:
+            summary["stopped"] = f"--minutes {o.minutes:g} reached after {i} steps"
+            break
         started = time.time()
         if g.refocus():
             summary["refocus"] = summary.get("refocus", 0) + 1
@@ -492,7 +543,8 @@ def main() -> int:
         except (ConnectionError, OSError) as e:
             note = f"vnc error {e}"
             vnc = RFB(host, int(port), pw[0] if pw else None)
-        ms = g.ping_ms(timeout=max(5, o.hang_ms / 1000 * 5))
+        live_sample = f"/tmp/fuzz-live-sample-{run_id}-{i}.txt"
+        ms = g.ping_ms(timeout=max(5, o.hang_ms / 1000 * 5), sample_after_ms=o.hang_ms, sample_file=live_sample)
         log.write(json.dumps({"i": i, "step": step, "note": note, "ping_ms": ms,
                               "dt": round(time.time() - started, 3)}) + "\n")
         log.flush()
@@ -503,10 +555,17 @@ def main() -> int:
             except Exception as e:  # best effort
                 print("screenshot failed:", e, flush=True)
         pid = g.pid()
+        dead_pid = last_pid if pid is None else None
+        last_pid = pid if pid is not None else last_pid
         if ms is not None and ms > o.hang_ms and pid:
             summary["hangs"] += 1
+            # The live sample appears only complete (renamed after 5 s and symbolication): wait for it, bounded.
+            text = g.sh(f"for n in $(seq 1 20); do [ -e {live_sample} ] && break; sleep 1; done; "
+                        f"cat {live_sample} 2>/dev/null", timeout=40).stdout
+            if text.strip():
+                open(os.path.join(o.out, f"hang-{i}.live-sample.txt"), "w").write(text)
             sample = os.path.join("/tmp", f"fuzz-sample-{i}.txt")
-            g.sh(f"sample {pid} 2 -file {sample} >/dev/null 2>&1", timeout=20)
+            g.sh(f"sudo -n /usr/bin/sample {pid} 2 -file {sample} >/dev/null 2>&1 || /usr/bin/sample {pid} 2 -file {sample} >/dev/null 2>&1", timeout=20)
             text = g.sh(f"cat {sample}").stdout
             open(os.path.join(o.out, f"hang-{i}.sample.txt"), "w").write(text)
             finding("hang", i, step, {"ping_ms": ms})
@@ -530,7 +589,8 @@ def main() -> int:
             if pid is not None:
                 # Alive but not answering: record where the main thread is; never start a second copy.
                 summary["unresponsive"] = summary.get("unresponsive", 0) + 1
-                g.sh(f"sample {pid} 2 -file /tmp/fuzz-unresp-{i}.txt >/dev/null 2>&1", timeout=20)
+                g.sh(f"sudo -n /usr/bin/sample {pid} 2 -file /tmp/fuzz-unresp-{i}.txt >/dev/null 2>&1 || "
+                     f"/usr/bin/sample {pid} 2 -file /tmp/fuzz-unresp-{i}.txt >/dev/null 2>&1", timeout=20)
                 open(os.path.join(o.out, f"unresponsive-{i}.sample.txt"), "w").write(g.sh(f"cat /tmp/fuzz-unresp-{i}.txt").stdout)
                 finding("unresponsive", i, step, {})
                 continue
@@ -555,9 +615,20 @@ def main() -> int:
             if o.insert_dylib:
                 open(os.path.join(o.out, f"dead-{i}.dylib.txt"), "w").write(
                     g.sh("cat /tmp/taskalloc-*.log 2>/dev/null", timeout=30).stdout)
-            finding("dead", i, step, {"ping_ms": ms})
+            # Why the process ended: its exit status (the guest shell that started it records it; 128+N
+            # is signal N: 137 a SIGKILL, e.g. from the system) and the system's log of the last minutes
+            # about it (memory kills, a quit request, its own quit lines).
+            status = g.sh(f"cat {shlex.quote(exit_file)} 2>/dev/null", timeout=20).stdout.strip()
+            died = {"ping_ms": ms, "exit_status": int(status) if status.lstrip("-").isdigit() else None}
+            if dead_pid:
+                open(os.path.join(o.out, f"dead-{i}.system-log.txt"), "w").write(g.sh(
+                    "log show --last 5m --style compact --predicate "
+                    + shlex.quote(f'(eventMessage CONTAINS "{dead_pid}") OR (process == "kernel" AND eventMessage CONTAINS[c] "memorystatus")'
+                                  ' OR (subsystem == "com.cmuxterm.app.next" AND category == "app.quit")')
+                    + " 2>/dev/null | tail -400", timeout=120).stdout)
+            finding("dead", i, step, died)
             g.sh(": >/tmp/cmux-fuzz-app.log", timeout=20)
-            g.launch()
+            g.launch(exit_file=exit_file)
 
     faults = g.sh(f"log show --style ndjson --start '@{int(t0)}' --predicate "
                   "'(process CONTAINS \"cmux\") AND (messageType == fault)' 2>/dev/null | tail -500", timeout=120)

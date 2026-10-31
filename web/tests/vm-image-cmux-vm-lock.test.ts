@@ -33,6 +33,7 @@ import { acpmuxListCommand, acpmuxListProblems, programChecksCommand } from "../
 import { runChild } from "./helpers/run-child";
 
 const lockText = readFileSync(DEFAULT_LOCK_PATH, "utf8");
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- tests mutate arbitrary nested lock fields
 const fresh = () => JSON.parse(lockText) as Record<string, any>;
 
 function problemsOf(raw: unknown): string[] {
@@ -50,7 +51,7 @@ describe("images/cmux-vm/inputs.lock.json", () => {
     const lock = readInputsLock();
     expect(lock.programs.map((p) => p.name).sort()).toEqual([...KNOWN_PROGRAMS, "cmux-cua", "chrome-for-testing", "cmux-browser-host"].sort());
     expect(lock.apt.ubuntu.uri).toContain(lock.apt.ubuntu.snapshot);
-    expect(lock.apt.ubuntu.snapshot).toBe("20261001T000000Z");
+    expect(lock.apt.ubuntu.snapshot).toBe("20261022T000000Z");
     expect(profileLinks(lock).map((l) => l.command)).toContain("cr");
   });
 
@@ -170,6 +171,14 @@ describe("base fingerprint and closure checks", () => {
     expect(aptClosureProblems({ ripgrep: "14.1.0-2" }, new Map([["ripgrep", "14.1.0-1"]]))).toEqual(["apt installed ripgrep=14.1.0-1, the lock says 14.1.0-2"]);
   });
 
+  test("a locked package the base already has at the locked version counts as installed", () => {
+    // The 10-21 Freestyle base started shipping ripgrep 14.1.0-1, so apt had nothing to add for it.
+    const base = parseDpkgList("ripgrep\t14.1.0-1\tamd64\nacl\t2.3.2-1build1\tamd64\n");
+    expect(aptClosureProblems({ ripgrep: "14.1.0-1" }, new Map(), base)).toEqual([]);
+    expect(aptClosureProblems({ acl: "2.3.2-1build1.1" }, new Map(), base)).toEqual(["lock package acl=2.3.2-1build1.1 was not installed (the base has 2.3.2-1build1)"]);
+    expect(aptClosureProblems({ ripgrep: "14.1.0-1" }, new Map())).toEqual(["lock package ripgrep was not installed"]);
+  });
+
   test("base packages and npm globals must be in the lock", () => {
     expect(basePackageProblems(lock, new Map(Object.entries(lock.base.basePackages)))).toEqual([]);
     expect(basePackageProblems(lock, new Map())).toHaveLength(Object.keys(lock.base.basePackages).length);
@@ -268,11 +277,11 @@ describe("roles: baked packages that stay off, first-use packages, optional prog
     expect(manifest.aptSources).toContain(`Signed-By: ${lock.apt.ubuntu.signedBy}`);
   });
 
-  test("cmux-cua 0.8.7 (full release, LICENSE inside) is pinned by URL, sha256, size and checksums.txt, role cua", () => {
+  test("cmux-cua 0.8.12 (the macOS app's release, scripts/build-cmux-cua.sh; LICENSE inside) is pinned by URL, sha256, size and checksums.txt, role cua", () => {
     const pinned = lock.programs.find((p) => p.name === "cmux-cua")!;
-    expect(pinned).toMatchObject({ ...cmuxCuaReleaseShape("0.8.7", "x86_64"), expect: "cmux-cua 0.8.7", sha256: "95d18427ac02ea9964a198ca844f8ad6feb2113d784c2199e171cf459686e11e", size: 8706672 });
-    expect(pinned.checksumsUrl).toBe("https://github.com/manaflow-ai/cmux-cua/releases/download/cmux-cua-v0.8.7/checksums.txt");
-    expect(pinned.checksumsName).toBe("cmux-cua-0.8.7-linux-x86_64.tar.gz");
+    expect(pinned).toMatchObject({ ...cmuxCuaReleaseShape("0.8.12", "x86_64"), expect: "cmux-cua 0.8.12", sha256: "3a81784562139f273e9489baefe2ce8b63cb59cf61290a10a18377ebaa15c521", size: 8741562 });
+    expect(pinned.checksumsUrl).toBe("https://github.com/manaflow-ai/cmux-cua/releases/download/cmux-cua-v0.8.12/checksums.txt");
+    expect(pinned.checksumsName).toBe("cmux-cua-0.8.12-linux-x86_64.tar.gz");
     expect(cmuxCuaReleaseShape("0.8.0", "x86_64")).toEqual({
       name: "cmux-cua",
       version: "0.8.0",
@@ -293,7 +302,7 @@ describe("roles: baked packages that stay off, first-use packages, optional prog
 
 describe("browser role: off by default, installed on first use, sandboxed, background tabs throttled (RT8, D-A1)", () => {
   const lock = readInputsLock();
-  const CFT_SHA256 = "ff43322f335e436b2f4dcdfeeec5db032299e335a7e8c1c618b326e100ce8732";
+  const CFT_SHA256 = "e6c94490f0b6b337225aeb2d2a5034858516b7017356980ba94f5176d8774a50";
   const cftIndex = () => fresh().programs.findIndex((p: { name: string }) => p.name === "chrome-for-testing");
 
   test("the browser role is off and first-use; its closure is never baked; background tabs are not full rate", () => {
@@ -306,12 +315,12 @@ describe("browser role: off by default, installed on first use, sandboxed, backg
     expect(lock.roles.browser.apt).toEqual(expect.arrayContaining(["libnss3", "libasound2t64", "libcups2t64", "fonts-liberation"]));
   });
 
-  test("Chrome for Testing 154 (the CEF fork's major) x86_64 is pinned by Google's release URL, our sha256 and size; first use, role browser", () => {
+  test("Chrome for Testing 156 (CfT Stable) x86_64 is pinned by Google's release URL, our sha256 and size; first use, role browser", () => {
     const cft = lock.programs.find((p) => p.name === "chrome-for-testing")!;
-    expect(cft).toMatchObject({ ...chromeForTestingShape("154.0.8037.92"), sha256: CFT_SHA256, size: 196202491, firstUse: true });
-    expect(cft.url).toBe("https://storage.googleapis.com/chrome-for-testing-public/154.0.8037.92/linux64/chrome-linux64.zip");
-    expect(cft.source).toContain("md5=eb+FnbaHwkXCE8wFqB2DJw==");
-    expect(isExactProgramVersion("154.0.8037.92")).toBe(true);
+    expect(cft).toMatchObject({ ...chromeForTestingShape("156.0.8078.47"), sha256: CFT_SHA256, size: 200206486, firstUse: true });
+    expect(cft.url).toBe("https://storage.googleapis.com/chrome-for-testing-public/156.0.8078.47/linux64/chrome-linux64.zip");
+    expect(cft.source).toContain("md5=cvpoYXzFXs9OK75pfi91hA==");
+    expect(isExactProgramVersion("156.0.8078.47")).toBe(true);
     expect(isExactProgramVersion("154.0.8037.*")).toBe(false);
   });
 
@@ -327,7 +336,7 @@ describe("browser role: off by default, installed on first use, sandboxed, backg
     expect(browser.firstUse).toBe(true);
     expect(browser.env).toEqual({ CMUX_BROWSER_HOST_BACKGROUND_FULL_RATE: "0", CMUX_BROWSER_HOST_CHROMIUM: `/opt/cmux/store/${CFT_SHA256}/chrome-linux64/chrome` });
     expect(browser.programs).toEqual([
-      expect.objectContaining({ name: "chrome-for-testing", version: "154.0.8037.92", sha256: CFT_SHA256, size: 196202491, format: "zip", url: lock.programs.find((p) => p.name === "chrome-for-testing")!.url }),
+      expect.objectContaining({ name: "chrome-for-testing", version: "156.0.8078.47", sha256: CFT_SHA256, size: 200206486, format: "zip", url: lock.programs.find((p) => p.name === "chrome-for-testing")!.url }),
       expect.objectContaining({ name: "cmux-browser-host" }),
     ]);
     expect(rolesManifest(lock).roles.display.programs).toEqual([]);
@@ -366,34 +375,34 @@ describe("browser role: off by default, installed on first use, sandboxed, backg
   test("Chrome for Testing must come from Google's versioned release URL", () => {
     const raw = fresh();
     raw.programs[cftIndex()].url = "https://example.com/chrome-linux64.zip";
-    expect(problemsOf(raw)).toContain(`programs[${cftIndex()}].url: must be ${chromeForTestingShape("154.0.8037.92").url}`);
+    expect(problemsOf(raw)).toContain(`programs[${cftIndex()}].url: must be ${chromeForTestingShape("156.0.8078.47").url}`);
   });
 });
 
-describe("cmux-browser-host 0.1.0 in the browser role (release cmux-browser-host-v0.1.0, browser-host.md 6d)", () => {
+describe("cmux-browser-host 1.0.0-r1 in the browser role (release cmux-browser-host-v1.0.0-r1, browser-host.md 6d; the host the daemon starts must accept --history-fd)", () => {
   const lock = readInputsLock();
-  const X64 = "79b0945cdbe6e585a781da2530b2a3aafaa10969bc6d63b7559ae6a96e57da18";
-  const ARM64 = "cca1a3a51d89e15c1bcf2e2bb2bec0462470f59756bb471d0564dd510f4239f2";
-  const base = "https://github.com/manaflow-ai/cmux/releases/download/cmux-browser-host-v0.1.0";
+  const X64 = "756021355332841537aad2ec102b1b9703950c9f90504c3b082b3b18e8af4fbb";
+  const ARM64 = "2a74586ca8cb215180a56b4d0b89478b2479a02b0f4b01163ba46d0b0a3afecc";
+  const base = "https://github.com/manaflow-ai/cmux/releases/download/cmux-browser-host-v1.0.0-r1";
   const hostIndex = () => fresh().programs.findIndex((p: { name: string }) => p.name === "cmux-browser-host");
 
   test("pinned for both arches by release URL, sha256, size and SHA256SUMS; first use, role browser; notices ship with the binary", () => {
     const host = lock.programs.find((p) => p.name === "cmux-browser-host")!;
     expect(host).toMatchObject({
-      version: "0.1.0",
-      url: `${base}/cmux-browser-host-0.1.0-x86_64-unknown-linux-gnu.tar.gz`,
+      version: "1.0.0-r1",
+      url: `${base}/cmux-browser-host-1.0.0-r1-x86_64-unknown-linux-gnu.tar.gz`,
       sha256: X64,
-      size: 2294597,
+      size: 2474679,
       format: "tar.gz",
       bin: { "cmux-browser-host": "bin/cmux-browser-host" },
       versionArgs: ["version"],
-      expect: "cmux-browser-host 0.1.0 (db8565dfe127b2d182eb508754129c541cc7cecb)",
+      expect: "cmux-browser-host 1.0.0 (4cf5c4ccc7c5c93bf90ebdb910b31b90f075ac72)",
       checksumsUrl: `${base}/SHA256SUMS`,
-      checksumsName: "./cmux-browser-host-0.1.0-x86_64-unknown-linux-gnu.tar.gz",
+      checksumsName: "./cmux-browser-host-1.0.0-r1-x86_64-unknown-linux-gnu.tar.gz",
       roles: ["browser"],
       firstUse: true,
       notices: ["LICENSE", "THIRD_PARTY_LICENSES.md"],
-      otherArches: { aarch64: { url: `${base}/cmux-browser-host-0.1.0-aarch64-unknown-linux-gnu.tar.gz`, sha256: ARM64, size: 2133182, checksumsName: "./cmux-browser-host-0.1.0-aarch64-unknown-linux-gnu.tar.gz" } },
+      otherArches: { aarch64: { url: `${base}/cmux-browser-host-1.0.0-r1-aarch64-unknown-linux-gnu.tar.gz`, sha256: ARM64, size: 2286591, checksumsName: "./cmux-browser-host-1.0.0-r1-aarch64-unknown-linux-gnu.tar.gz" } },
     });
   });
 
@@ -406,7 +415,7 @@ describe("cmux-browser-host 0.1.0 in the browser role (release cmux-browser-host
 
   test("roles.json lists the host with its other arch for aarch64 hosts", () => {
     const host = rolesManifest(lock).roles.browser.programs.find((p) => p.name === "cmux-browser-host")!;
-    expect(host).toMatchObject({ sha256: X64, notices: ["LICENSE", "THIRD_PARTY_LICENSES.md"], otherArches: { aarch64: { sha256: ARM64, size: 2133182 } } });
+    expect(host).toMatchObject({ sha256: X64, notices: ["LICENSE", "THIRD_PARTY_LICENSES.md"], otherArches: { aarch64: { sha256: ARM64, size: 2286591 } } });
     expect(rolesManifest(lock).roles.browser.programs.map((p) => p.name).sort()).toEqual(["chrome-for-testing", "cmux-browser-host"]);
   });
 

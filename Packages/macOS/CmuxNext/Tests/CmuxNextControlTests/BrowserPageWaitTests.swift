@@ -31,7 +31,7 @@ import Testing
 
     func install(allowsUnsafeCapture: Bool = false,
                  _ respond: @escaping @Sendable (BrowserPageOperation, Int) throws -> JSONValue) -> (ControlRouter, ScriptedEngine) {
-        let router = ControlRouter(identity: testIdentity(), executor: RecordingExecutor())
+        let router = ControlRouter(identity: testIdentity(), executor: RecordingExecutor(), configuration: .loadTolerant)
         let engine = ScriptedEngine(respond)
         BrowserPageService(engine: engine, leases: BrowserTabLeases(), allowsUnsafeCapture: allowsUnsafeCapture).install(on: router)
         var snapshot = ControlSnapshot.sample()

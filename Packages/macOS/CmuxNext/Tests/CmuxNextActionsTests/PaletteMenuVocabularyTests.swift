@@ -8,7 +8,7 @@ import Testing
 /// the menu shows as "Remove Icon" is "Remove Space Icon" in the palette, not "Clear Space Icon".
 struct PaletteMenuVocabularyTests {
     @Test func paletteTitlesUseTheMenusWords() throws {
-        let orToggle = try NSRegularExpression(pattern: #"^\w+ or \w+ "#)
+        let orToggle = try NSRegularExpression(pattern: #"(?:^|: )\w+ or \w+ "#)
         let clear = try NSRegularExpression(pattern: #"^Clear .*\b(Icon|Color)$"#)
         func matches(_ regex: NSRegularExpression, _ title: String) -> Bool {
             regex.firstMatch(in: title, range: NSRange(title.startIndex..., in: title)) != nil
@@ -19,6 +19,19 @@ struct PaletteMenuVocabularyTests {
             #expect(!title.hasPrefix("Toggle Group"), "\(descriptor.id) \(title): a toggle reads X/Y")
             #expect(!matches(clear, title), "\(descriptor.id) \(title): an icon or color is removed, as in the menus")
             #expect(title != "Hide", "\(descriptor.id): the palette names what Hide hides")
+        }
+    }
+
+    /// The toggle style holds for every action, not only the palette's: a keyboard-only action's
+    /// title shows in Keyboard Shortcuts settings ("Pin or Unpin Chat" drifted there unseen), and a
+    /// prefixed title holds it after its prefix ("Palette: Show/Hide Actions").
+    @Test func everyActionTitleUsesOneToggleStyle() throws {
+        let orToggle = try NSRegularExpression(pattern: #"(?:^|: )\w+ or \w+ "#)
+        for descriptor in ActionCatalog.all {
+            let title = descriptor.title
+            #expect(orToggle.firstMatch(in: title, range: NSRange(title.startIndex..., in: title)) == nil,
+                    "\(descriptor.id) \(title): a toggle reads X/Y")
+            #expect(!title.hasPrefix("Toggle Group"), "\(descriptor.id) \(title): a toggle reads X/Y")
         }
     }
 
@@ -34,6 +47,8 @@ struct PaletteMenuVocabularyTests {
         for descriptor in ActionCatalog.all where descriptor.isPaletteVisible {
             let title = descriptor.title
             #expect(!title.contains("..."), "\(descriptor.id) \(title): the ellipsis is one character, …")
+            // This chooser's requested product copy ends in a lowercase preposition.
+            if descriptor.id == "palette.newAgentChatOn", title == "New Agent Chat on…" { continue }
             let words = title.replacingOccurrences(of: "…", with: "").split(separator: " ")
             for (index, word) in words.enumerated() {
                 for part in word.split(separator: "/") {
@@ -62,13 +77,15 @@ struct PaletteMenuVocabularyTests {
 
     /// The same rule outside the Phone family, for the rows the palette audit found wrong. Each of
     /// the first list has a required argument the palette collects before it runs (a time range and
-    /// profile, a history entry, an app, a team, a host address). Cloud Diagnostics shows its result
-    /// in a toast and Edit Group Config opens cmux-next.json, as Open cmux-next.json does: neither
-    /// asks, so neither ends in "…".
+    /// profile, a history entry, an app, a team, a host address, a Priority chat). Cloud Diagnostics
+    /// shows its result in a toast and Edit Group Config opens cmux-next.json, as Open cmux-next.json
+    /// does: neither asks, so neither ends in "…".
     @Test func auditedTitlesEndInAnEllipsisExactlyWhenTheyAsk() throws {
         let byID = Dictionary(ActionCatalog.all.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let asking: [ActionID] = ["palette.browserClearHistory", "history.open", "app.hide", "app.unhide",
-                                  "openTeamPicker", "remote.openBrowserTab"]
+                                  "openTeamPicker", "remote.openBrowserTab",
+                                  // The Priority row actions ask which chat (a hover button or the row's menu names it).
+                                  "sidebar.priority.markRead", "sidebar.priority.togglePin", "sidebar.priority.snooze"]
         for id in asking {
             let descriptor = try #require(byID[id], "\(id)")
             let asks = descriptor.arguments.contains(where: \.isRequired)

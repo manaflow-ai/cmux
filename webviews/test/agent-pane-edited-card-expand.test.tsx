@@ -548,3 +548,31 @@ test("a MultiEdit opens inline with every edit from its latest input", async () 
     { path: CONFIG, created: false, additions: 3, deletions: 2, lines: ["del", "add", "del", "add", "add"] },
   ]);
 });
+
+// The card draws outside ToolRows, under the transcript-wide Find reveal: only the card that holds
+// Find's current match opens its cut diff, not every open card whose diff has the query's text.
+test.each([
+  ["another row's match leaves this card's diff cut", false, "cut"],
+  ["its own match opens it past the cut", true, "all"],
+])("Find in Chat: %s", async (_case, own, preview) => {
+  const { createRoot } = await import("react-dom/client");
+  const { EditedFilesCard } = await import("../src/agent-session/acpmux/conversation/EditedFilesCard");
+  const { FindReveal } = await import("../src/agent-session/acpmux/conversation/chatFind");
+  // Each case its own row: a card's open state outlives its render (turnChanges/openStore).
+  const row = activity(own ? "turn-find-own" : "turn-find-other", [await writeNewFile()]);
+  const find = { rowId: own ? row.id : "turn-elsewhere", card: true, needle: "step 9", repaint: () => {} };
+  root = createRoot(host);
+  // Opened before Find reveals anything.
+  await act(async () => root!.render(<EditedFilesCard row={row} />));
+  await click(host.querySelector(".acpmux-edited-toggle"));
+  const body = () => host.querySelector(".acpmux-edited .cv-edit-diff__body")?.getAttribute("data-preview");
+  expect(body()).toBe("cut");
+  await act(async () =>
+    root!.render(
+      <FindReveal.Provider value={find}>
+        <EditedFilesCard row={row} />
+      </FindReveal.Provider>,
+    ),
+  );
+  expect(body()).toBe(preview);
+});

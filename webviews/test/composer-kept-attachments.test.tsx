@@ -2,7 +2,7 @@
 // quit, after reopening the chat and after archiving or deleting it and restoring it. acpmux keeps
 // the text with the session; the host now keeps the chat's chips (chat.draftAttachments,
 // AgentPaneDraftAttachments.swift) and every page that shows the chat again reads them back.
-import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, beforeEach, expect, jest, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act, createRef } from "react";
 import type { Root } from "react-dom/client";
@@ -57,8 +57,14 @@ beforeAll(() => {
   host = window.document.getElementById("root")!;
 });
 
+// A chip rests KEPT_ATTACHMENTS_SETTLE_MS before the page writes it; the test moves the clock.
+beforeEach(() => {
+  jest.useFakeTimers();
+});
+
 afterEach(() => {
   closePage();
+  jest.useRealTimers();
 });
 
 afterAll(() => {
@@ -159,9 +165,7 @@ function closePage() {
 }
 
 async function settle() {
-  await act(async () => {
-    await new Promise((resolve) => setTimeout(resolve, KEPT_ATTACHMENTS_SETTLE_MS + 20));
-  });
+  await act(async () => void jest.advanceTimersByTime(KEPT_ATTACHMENTS_SETTLE_MS + 20));
 }
 
 const shown = (handle: React.RefObject<ComposerHandle | null>) => handle.current?.wakeState().attachments ?? [];

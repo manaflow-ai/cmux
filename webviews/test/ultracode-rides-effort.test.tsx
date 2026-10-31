@@ -67,20 +67,30 @@ function press(element: Element) {
     element.dispatchEvent(new dom.window.MouseEvent(type, { bubbles: true, cancelable: true, button: 0 }));
 }
 
+/// What the pickers sent (`configId=value`), in order.
+const sent: string[] = [];
 const menus = () => [...dom.window.document.querySelectorAll<HTMLElement>(".acpmux-quick-menu")];
-const settle = () => act(async () => await new Promise((resolve) => setTimeout(resolve, 20)));
+/// Yields to React until `ready()` holds; fails after 2 s with what it waited for.
+async function until(ready: () => boolean, what: string) {
+  const deadline = performance.now() + 2_000;
+  while (!ready()) {
+    if (performance.now() > deadline) throw new Error(`timed out waiting for ${what}`);
+    await act(async () => await new Promise((resolve) => setTimeout(resolve, 0)));
+  }
+}
 
 /// Opens the model button's menu, then its Effort ›, and picks the level named `label`.
 async function pick(label: string) {
   if (menus().length === 0)
     await act(async () => host.querySelector<HTMLButtonElement>('[data-menu="Model"]')!.click());
-  await settle();
+  await until(() => menus().length > 0, "the model menu");
   const effort = [...menus()[0]!.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((item) =>
     item.textContent?.startsWith("Effort"),
   );
   expect(effort, "the Effort row").toBeDefined();
+  const open = menus().length;
   await act(async () => effort!.click());
-  await settle();
+  await until(() => menus().length > open, "the Effort submenu");
   const items = () => [...menus().at(-1)!.querySelectorAll<HTMLElement>('[role="menuitemradio"]')];
   const row = items().find((item) => item.textContent?.replace("✓", "").trim() === label);
   expect(
@@ -89,8 +99,9 @@ async function pick(label: string) {
       .map((item) => item.textContent)
       .join(" | ")}`,
   ).toBeDefined();
+  const picked = sent.length;
   await act(async () => press(row!));
-  await settle();
+  await until(() => sent.length > picked, `the pick of ${label}`);
 }
 
 test("Ultracode on and off ride the free effort option, never acpmux's ultracode id", async () => {
@@ -98,7 +109,6 @@ test("Ultracode on and off ride the free effort option, never acpmux's ultracode
   const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
   const { ComposerPickers } = await import("../src/agent-session/acpmux/ComposerPickers");
   type Snapshot = import("../src/agent-session/acpmux/model").AcpmuxSnapshot;
-  const sent: string[] = [];
   const snapshot = (ultracode: string) =>
     ({
       type: "snapshot",
