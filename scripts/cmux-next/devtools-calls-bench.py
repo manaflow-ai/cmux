@@ -148,10 +148,12 @@ def one_call(path, method, params):
     }
 
 
-def run_arm(label, bundle, url, sizes, calls, threshold_ms, round_index):
+def run_arm(label, bundle, url, sizes, calls, threshold_ms, round_index, rows):
+    """Measures one arm for one round, appending each call to `rows` as it is made: an arm that stops early
+    (its app died, a page did not load) keeps the calls it made."""
     env = {"CMUX_NEXT_HANG_THRESHOLD_MS": str(threshold_ms), "CMUX_DEV_BACKEND_MODE": "local"}
     pid, path, scratch = bench_memory.launch(bundle, {}, extra_env=env, direct=True)
-    rows = []
+    start = len(rows)
     try:
         app = bench_memory.App(bundle, path)
         cef = rpc(path, "debug.cef")
@@ -174,14 +176,14 @@ def run_arm(label, bundle, url, sizes, calls, threshold_ms, round_index):
                            "stalls": 0, "threshold_ms": None, "error": f"debug.hangs: {str(failure)[:300]}"}
                 row.update({"arm": label, "size": size, "round": round_index, "call": index})
                 rows.append(row)
-            sized = [r for r in rows if r["size"] == size and r["gap_ms"] is not None]
-            failed = sum(1 for r in rows if r["size"] == size and r["error"])
+            mine = rows[start:]
+            sized = [r for r in mine if r["size"] == size and r["gap_ms"] is not None]
+            failed = sum(1 for r in mine if r["size"] == size and r["error"])
             print(f"  {label} round {round_index} {size >> 10} KiB: gap max {max((r['gap_ms'] for r in sized), default=0):.1f} ms, "
                   f"stalls {sum(r['stalls'] for r in sized)}, failed calls {failed}", flush=True)
     finally:
         bench_memory.end_bundle(bundle)
         shutil.rmtree(scratch, ignore_errors=True)
-    return rows
 
 
 def pct(values, q):
@@ -199,7 +201,8 @@ def summary(rows, arms, sizes):
     for size in sizes:
         for label in arms:
             every = [r for r in rows if r["arm"] == label and r["size"] == size]
-            sample = [r for r in every if r["gap_ms"] is not None]
+            # Only clean calls count: a failed call's wall time is its timeout, and its gap is not the call's.
+            sample = [r for r in every if r["gap_ms"] is not None and not r["error"]]
             if not sample:
                 continue
             line = {"arm": label, "size": size, "calls": len(sample), "failed": sum(1 for r in every if r["error"]),
@@ -232,10 +235,13 @@ def main():
     print(f"DEVTOOLS-CALLS-HOST host={socket.gethostname()} load={os.getloadavg()} arms={list(arms)} "
           f"sizes={[s >> 10 for s in sizes]}KiB calls={opts.calls} rounds={opts.rounds} threshold={opts.threshold_ms}ms", flush=True)
     rows = []
+    stopped = None
     try:
         for round_index in range(opts.rounds):
             for label, bundle in arms.items():
-                rows += run_arm(label, bundle, url, sizes, opts.calls, opts.threshold_ms, round_index)
+                run_arm(label, bundle, url, sizes, opts.calls, opts.threshold_ms, round_index, rows)
+    except (SystemExit, RuntimeError, OSError, ValueError) as error:
+        stopped = str(error)[:400] or type(error).__name__
     finally:
         server.shutdown()
         # Whatever ran is kept, also when an arm ended the run (an app that died, a launch that failed).
@@ -243,7 +249,7 @@ def main():
             os.makedirs(os.path.dirname(os.path.abspath(opts.json)), exist_ok=True)
             with open(opts.json, "w") as handle:
                 json.dump({"arms": arms, "sizes": sizes, "calls": opts.calls, "rounds": opts.rounds, "threshold_ms": opts.threshold_ms,
-                           "summary": summary(rows, list(arms), sizes), "rows": rows}, handle, indent=1)
+                           "stopped": stopped, "summary": summary(rows, list(arms), sizes), "rows": rows}, handle, indent=1)
     table = summary(rows, list(arms), sizes)
     print("\narm   size      calls  gap_ms p50/p95/p99/max            stall_ms p50/p95/p99/max          devtools stalls (stack heuristic), failed")
     for line in table:
@@ -251,6 +257,29 @@ def main():
         print(f"DEVTOOLS-CALLS {line['arm']:<5} {line['size'] >> 10:>6}KiB {line['calls']:>4}  "
               f"{g['p50']:>6} {g['p95']:>6} {g['p99']:>6} {g['max']:>7}    "
               f"{s['p50']:>6} {s['p95']:>6} {s['p99']:>6} {s['max']:>7}    {line['devtools_stalls']}, {line['failed']}")
+    problems = incomplete(rows, table, list(arms), sizes, opts.calls * opts.rounds, stopped)
+    if problems:
+        # A run with failed or missing calls is not a result: it must never read as one (REVIEW.md section 9).
+        print("DEVTOOLS-CALLS-INCOMPLETE " + "; ".join(problems), flush=True)
+        sys.exit(1)
+    print("DEVTOOLS-CALLS-COMPLETE", flush=True)
+
+
+def incomplete(rows, table, arms, sizes, expected, stopped):
+    """Why the run is not a whole measurement: it stopped, an arm and size has fewer clean calls than asked, or a
+    call failed. Empty when every arm measured every size with every call."""
+    problems = [f"stopped: {stopped}"] if stopped else []
+    measured = {(line["arm"], line["size"]): line for line in table}
+    for label in arms:
+        for size in sizes:
+            line = measured.get((label, size))
+            clean = line["calls"] if line else 0
+            if clean < expected:
+                problems.append(f"{label} {size >> 10}KiB: {clean} of {expected} calls clean")
+    failed = sum(1 for r in rows if r.get("error"))
+    if failed:
+        problems.append(f"{failed} failed call(s), first: {next(r['error'] for r in rows if r.get('error'))}")
+    return problems
 
 
 if __name__ == "__main__":
