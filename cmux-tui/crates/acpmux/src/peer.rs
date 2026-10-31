@@ -26,6 +26,9 @@ mod health;
 
 #[path = "peer_ssh.rs"]
 mod ssh_errors;
+#[path = "peer_wanted.rs"]
+mod wanted;
+use wanted::BackoffWait;
 
 #[cfg(test)]
 #[path = "peer_state_tests.rs"]
@@ -82,17 +85,6 @@ pub enum PeerNotice {
         /// The link it came on (`Peer::link_epoch` when it was read).
         link: u64,
     },
-}
-
-/// How a backoff wait between attempts ended (`Peer::wait_backoff`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum BackoffWait {
-    /// The delay passed.
-    Done,
-    /// This computer slept through it: the attempt goes now.
-    Woke,
-    /// The peer was stopped.
-    Stopped,
 }
 
 /// A deliberate restart is not a transport failure and does not advance retry backoff.
@@ -212,6 +204,8 @@ pub struct Peer {
     retry_immediately: AtomicBool,
     /// Wakes `serve` so `stop` closes the live connection.
     stop_signal: Notify,
+    /// A client waits on the peer: reconnects come within seconds (`peer_wanted.rs`).
+    wanted: wanted::Wanted,
     /// Counts connect attempts that settled (ready or failed), bumped by the
     /// hub once it applied the outcome, so a caller can await the next one.
     settled: tokio::sync::watch::Sender<u64>,
@@ -238,6 +232,34 @@ pub struct Peer {
     /// next frame, so a `session_changed` the peer sent after the reply reaches the hub after
     /// the list, never before it. A list in pages is published once, whole, after its last.
     watch_key: StdMutex<Option<String>>,
+    /// This link's messages from the peer so far: the bytes of their frames, and of their JSON
+    /// text (more when the peer compresses them, `frame_compress.rs`).
+    received: ReceivedBytes,
+}
+
+/// What a link received: frame bytes and JSON text bytes, from its open.
+#[derive(Debug, Default)]
+pub struct ReceivedBytes {
+    frames: AtomicU64,
+    text: AtomicU64,
+}
+
+impl ReceivedBytes {
+    fn reset(&self) {
+        self.frames.store(0, Ordering::SeqCst);
+        self.text.store(0, Ordering::SeqCst);
+    }
+
+    fn add(&self, frame: usize, text: usize) {
+        let n = |b: usize| u64::try_from(b).unwrap_or(u64::MAX);
+        self.frames.fetch_add(n(frame), Ordering::SeqCst);
+        self.text.fetch_add(n(text), Ordering::SeqCst);
+    }
+
+    /// (frame bytes, text bytes) since the link opened.
+    pub fn read(&self) -> (u64, u64) {
+        (self.frames.load(Ordering::SeqCst), self.text.load(Ordering::SeqCst))
+    }
 }
 
 impl Peer {
@@ -298,6 +320,7 @@ impl Peer {
             stop: AtomicBool::new(false),
             retry_immediately: AtomicBool::new(false),
             stop_signal: Notify::new(),
+            wanted: Default::default(),
             settled: tokio::sync::watch::channel(0).0,
             link: StdMutex::new(Link::default()),
             states: StdMutex::new(None),
@@ -309,6 +332,7 @@ impl Peer {
             health: StdMutex::new(None),
             health_asking: AtomicBool::new(false),
             watch_key: StdMutex::new(None),
+            received: ReceivedBytes::default(),
         })
     }
 
@@ -318,6 +342,11 @@ impl Peer {
         address: std::net::SocketAddr,
     ) {
         let _ = self.wireguard.set((transport, address));
+    }
+
+    /// What the current (or last) link received (`ReceivedBytes`).
+    pub fn received(&self) -> &ReceivedBytes {
+        &self.received
     }
 
     pub fn link(&self) -> Link {
@@ -988,44 +1017,27 @@ impl Peer {
         }
     }
 
-    /// Waits out one backoff delay. A wait that this
-    /// computer slept through ends at the wake, with the backoff started over: the delay ran on
-    /// the monotonic clock, which stood still, so the attempt would otherwise come up to a
-    /// minute after the wake, while the network that failed before the sleep is likely back.
-    async fn wait_backoff(&self, delay: Duration) -> BackoffWait {
-        let deadline = tokio::time::Instant::now() + delay;
-        let mut watch = SleepWatch::now();
-        loop {
-            let check = (tokio::time::Instant::now() + SleepWatch::EVERY).min(deadline);
-            tokio::select! {
-                _ = tokio::time::sleep_until(check) => {
-                    if let Some(slept) = watch.check() {
-                        tracing::info!(peer = %self.name, "this computer slept {}s; reconnecting now", slept.as_secs());
-                        return BackoffWait::Woke;
-                    }
-                    if tokio::time::Instant::now() >= deadline {
-                        return BackoffWait::Done;
-                    }
-                }
-                _ = self.stop_signal.notified() => return BackoffWait::Stopped,
-            }
-        }
-    }
-
     /// Publish the link ending before settling requests. Restart neither increments failed
-    /// attempts nor resets/draws from backoff, even when the previous link was stable.
+    /// attempts nor draws from backoff; it starts backoff over when the previous link was stable.
     fn finish_link(
         &self,
         outcome: Result<LinkEnd, String>,
         backoff: &mut Backoff,
     ) -> Option<PeerNotice> {
         *self.last_error.lock_or_recover() = outcome.as_ref().err().cloned();
+        self.link_ending(matches!(&outcome, Ok(LinkEnd::Restarting)));
         // The epoch moves first: a finishing handshake cannot leave a dead link ready.
         self.link_ended();
         self.open.store(false, Ordering::SeqCst);
         self.connected.store(false, Ordering::SeqCst);
         if matches!(&outcome, Ok(LinkEnd::Restarting)) {
-            self.with_link(|l| l.restarting(crate::store::now_ms()));
+            // The peer's daemon restarts (an update): a stable link's backoff starts over, as at
+            // its drop, or each restart's failures add up and the next waits out a minute.
+            let now = crate::store::now_ms();
+            if self.link().ready_for(now).is_some_and(|up| up >= self.timings.stable_after) {
+                backoff.reset();
+            }
+            self.with_link(|l| l.restarting(now));
             return Some(PeerNotice::Restarting);
         }
         // A genuinely stable link starts failure backoff over; a flapping one does not.
@@ -1203,6 +1215,7 @@ impl Peer {
         self.admitting.store(true, Ordering::SeqCst);
         self.open.store(true, Ordering::SeqCst);
         *self.last_error.lock_or_recover() = None;
+        self.received.reset();
         self.with_link(|l| l.opened(crate::store::now_ms()));
         tracing::info!(peer = %self.name, "link open to {}; handshaking", self.url);
 
@@ -1210,10 +1223,12 @@ impl Peer {
         let me = self.clone();
         let (stale_tx, mut stale_rx) = oneshot::channel::<String>();
         let mut handshake = tokio::spawn(async move {
-            let mut hello = json!({"protocolVersion": 1, "clientCapabilities": {}, "clientInfo": {"name": CLIENT_NAME, "version": crate::hub::VERSION}});
+            let mut hello = json!({"protocolVersion": 1, "clientCapabilities": {}, "clientInfo": {"name": CLIENT_NAME, "version": crate::hub::VERSION},
+                // Large replies (the session list) may come compressed (`frame_compress.rs`).
+                "_meta": {"acpmux": {"compression": crate::frame_compress::offer()}}});
             // This Mac lends the peer its GitHub login (`hub/github_owner.rs` on the peer).
             if me.github_broker() {
-                hello.set("_meta", json!({"acpmux": {"githubBroker": true}}));
+                hello.set_path(&["_meta", "acpmux", "githubBroker"], json!(true));
             }
             let init = me.link_request_on(method::INITIALIZE, hello, Some(link)).await?;
             let v = init
@@ -1323,7 +1338,8 @@ impl Peer {
                 me.connected.store(false, Ordering::SeqCst);
                 return Ok(());
             }
-            tracing::info!(peer = %me.name, "connected to {}", me.url);
+            let (frames, text) = me.received.read();
+            tracing::info!(peer = %me.name, frame_bytes = frames, text_bytes = text, "connected to {}", me.url);
             let _ = me.notices.send((me.name.clone(), me.generation, PeerNotice::Connected)).await;
             // Several at once: a chat the peer is slow on holds up no other's stream, and a
             // link with many chats does not fill its send queue with them.
@@ -1460,15 +1476,34 @@ impl Peer {
                     last_frame = tokio::time::Instant::now();
                     wake_probe = None;
                     self.with_link(|l| l.heard(crate::store::now_ms()));
-                    let text = match frame {
-                        tokio_tungstenite::tungstenite::Message::Text(t) => t.to_string(),
+                    let (text, compressed) = match frame {
+                        tokio_tungstenite::tungstenite::Message::Text(t) => {
+                            self.received.add(t.len(), t.len());
+                            (t.to_string(), false)
+                        }
+                        // Asked for in `initialize` (`frame_compress.rs`). One that does not
+                        // inflate would lose a reply its caller waits on: the link starts over.
+                        Frame::Binary(b) => match crate::frame_compress::inflate(&b, crate::server::WS_MAX_MESSAGE_BYTES) {
+                            Ok(text) => {
+                                self.received.add(b.len(), text.len());
+                                (text, true)
+                            }
+                            Err(e) => break Err(e),
+                        },
                         Frame::Close(Some(close)) if close.code == tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode::Restart => {
                             break Ok(LinkEnd::Restarting);
                         }
                         Frame::Close(_) => break Err("peer closed the connection".to_owned()),
                         _ => continue,
                     };
-                    let Ok(msg) = Message::parse(&text) else { continue };
+                    let msg = match Message::parse(&text) {
+                        Ok(msg) => msg,
+                        // Only large messages are compressed, and a reply among them would be
+                        // lost while its caller waits: the link starts over, as for a frame
+                        // that does not inflate.
+                        Err(e) if compressed => break Err(format!("a compressed frame is not a JSON-RPC message: {e}")),
+                        Err(_) => continue,
+                    };
                     match msg {
                         Message::Response { id, result, error } => {
                             let key = id.to_string();

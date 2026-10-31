@@ -4,6 +4,7 @@ import type { SignIn } from "./signIn";
 import { useChatAccounts } from "./chatAccounts";
 import type { QuickMenuExtras } from "./QuickModelMenu";
 import { sessionModels } from "./modelCatalog";
+import { modelChipFallback } from "./agents";
 import {
   isDefaultChoice,
   loadResolvedDefaults,
@@ -653,8 +654,14 @@ export function ComposerPickers({
       modelIdName(shown, t))
     : undefined;
   // Before the session reports, the predicted model's name holds the chip's width (cx-ncc.58).
+  const harnessOnly = modelChipFallback(
+    snapshot.catalog.find((entry) => entry.id === chipHarness),
+    models,
+  );
   const modelName =
-    defaulted || unreported ? (starting ?? resolvedName ?? t(PICKER_LABELS.model)) : (runningName ?? starting);
+    defaulted || unreported
+      ? (starting ?? resolvedName ?? harnessOnly ?? t(PICKER_LABELS.model))
+      : (runningName ?? starting ?? harnessOnly);
   // Until the session reports its options (a new chat, an agent still starting), the effort chip
   // draws what this harness's chats last showed (chipMemory.ts) and the access chip acpmux's
   // start-mode answer (startMode.ts), never grey bars; the session's values then replace them in
