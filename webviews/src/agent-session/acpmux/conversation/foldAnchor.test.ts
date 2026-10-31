@@ -88,7 +88,11 @@ describe("foldToggleAt", () => {
       "button",
     ],
     ["a diagram's chart or code", '<button class="cv-diagram__toggle" data-fold-toggle="">Code</button>', "button"],
-    ["an output's Raw", '<button class="cv-tool-output__raw" aria-pressed="false" data-fold-toggle="">Raw</button>', "button"],
+    [
+      "an output's Raw",
+      '<button class="cv-tool-output__raw" aria-pressed="false" data-fold-toggle="">Raw</button>',
+      "button",
+    ],
     ["a question's pill", '<button class="acpmux-question-pill" aria-expanded="false">Q</button>', "button"],
     ["a permission's details", '<button class="acpmux-ask-toggle" aria-expanded="false">Details</button>', "button"],
     ["a paste chip", '<button class="cv-user__paste" aria-expanded="false">pasted</button>', "button"],
