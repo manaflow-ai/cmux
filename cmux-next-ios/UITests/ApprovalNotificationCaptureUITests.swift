@@ -51,30 +51,29 @@ final class ApprovalNotificationCaptureUITests: XCTestCase {
             XCUIDevice.shared.appearance = appearance
             sleep(2)
             let name = appearance == .dark ? "dark" : "light"
-            let cell = openNotificationCenter(springboard)
+            _ = openNotificationCenter(springboard)
             sleep(2)
             attach(XCUIScreen.main.screenshot(), "banner-\(name)")
-            note(springboard, "nc-\(name)")
-            // The long look: a long press on the notification (Haptic Touch).
-            cell.press(forDuration: 2.5)
-            sleep(4)
-            attach(XCUIScreen.main.screenshot(), "longlook-\(name)")
-            note(springboard, "longlook-\(name)")
-            if name == "light" {
-                // Second way, once: press and hold at the cell's centre a little longer.
-                XCUIDevice.shared.press(.home)
-                sleep(2)
-                let again = openNotificationCenter(springboard)
-                sleep(2)
-                let centre = again.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
-                centre.press(forDuration: 3.5, thenDragTo: centre)
-                sleep(4)
-                attach(XCUIScreen.main.screenshot(), "longlook2-\(name)")
-                note(springboard, "longlook2-\(name)")
-            }
-            // Close the long look and Notification Center.
             XCUIDevice.shared.press(.home)
-            sleep(1)
+            sleep(2)
+            // The long look from a banner: the app in front posts the push again (it presents
+            // banners for a chat that is not open), and the banner is pulled down.
+            app.terminate()
+            app.launchEnvironment["CMUX_MOBILE_DEV_SERVICE_PUSH"] = Self.permissionPush()
+            app.launch()
+            let match = NSPredicate(format: "label CONTAINS[c] %@", "Claude Code")
+            let banner = springboard.descendants(matching: .any).matching(identifier: "NotificationShortLookView").matching(match).firstMatch
+            if banner.waitForExistence(timeout: 20) {
+                let from = banner.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+                let to = banner.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 6.0))
+                from.press(forDuration: 0.2, thenDragTo: to, withVelocity: .slow, thenHoldForDuration: 0.5)
+                sleep(4)
+                attach(XCUIScreen.main.screenshot(), "longlook-\(name)")
+                note(springboard, "longlook-\(name)")
+            } else {
+                attach(XCUIScreen.main.screenshot(), "no-banner-\(name)")
+                note(springboard, "no-banner-\(name)")
+            }
             XCUIDevice.shared.press(.home)
             sleep(2)
         }
