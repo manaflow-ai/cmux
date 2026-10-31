@@ -125,7 +125,6 @@ extension AppActions {
     private static func newWorkspace(_ services: AppServices, _ invocation: ActionInvocation) {
         SidebarNewRowTimer.shared.pressed() // debug.new_workspace times the row from here
         var spawn = WorkspaceSpawn(invocation)
-        spawn.followClassicMode(services) // before the key hold below, which waits only for a page
         let windows = services.windows
         let sourceID = invocation.target.flatMap { $0.kind == .window ? $0.id : nil }
         let sourceWindow = sourceID.flatMap(windows.controller(for:)) ?? windows.active

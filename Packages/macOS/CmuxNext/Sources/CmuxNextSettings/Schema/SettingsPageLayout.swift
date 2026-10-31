@@ -218,7 +218,7 @@ public nonisolated struct SettingsPageLayout: Sendable {
             group("settings.group.windowBackground"), group("settings.group.panes"), group("settings.group.focusRing"),
             // Show Workspace Tabs leads the Sidebar card: it is off by default, and this is
             // where a person turns each workspace's tabs back on (#26384).
-            GroupSpec(group: "settings.group.sidebar", leadKeys: ["sidebar.showWorkspaceTabs"]),
+            GroupSpec(group: "settings.group.sidebar"),
             card("settings.pageGroup.sidebarWorkspaces", "Sidebar Workspaces", [
                 "workspaces.newPlacement", "workspaces.autoName", "sidebar.groupByComputer", "sidebar.sessionTree",
                 "sidebar.showProjects", "sidebar.groupBy", "sidebar.detailedStatusIcons", "sidebar.showTimestamps",
