@@ -171,6 +171,17 @@ impl<B: Backend> Server<B> {
         if call.session.is_some() {
             return Ok(());
         }
+        // A `current` browser is the one nearest the caller (#26648). A bare
+        // `browser: current` that the app cannot place keeps the daemon's chain,
+        // as before; a `current` level still needs the caller.
+        let browser = crate::cli::caller_browser::wants(params);
+        if browser
+            && !caller_scope::wants_caller(params)
+            && let Ok(Some(identity)) = self.backend.identity()
+            && identity.get("caller").is_some_and(caller_scope::is_placed)
+        {
+            crate::cli::caller_browser::apply(params, &identity)?;
+        }
         let caller = if caller_scope::wants_caller(params) {
             match self.backend.identity() {
                 // The app answers an agent session it has no chat for
@@ -179,6 +190,9 @@ impl<B: Backend> Server<B> {
                     let caller = identity.get("caller").cloned().unwrap_or(Value::Null);
                     if !caller_scope::is_placed(&caller) {
                         return Err(caller_scope::unresolved("the app does not know this chat"));
+                    }
+                    if browser {
+                        crate::cli::caller_browser::apply(params, &identity)?;
                     }
                     Some(caller)
                 }
