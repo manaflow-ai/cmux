@@ -48,7 +48,6 @@ extension WorkspaceRowView {
 
 
 extension WorkspaceRowView {
-    /// These image decisions also determine the title column while the parent row is offscreen.
     static func agentMarkImage(_ workspace: SidebarWorkspace, variant: SidebarAgentMarkVariant, placeholder: Bool) -> NSImage? {
         guard variant != .off, !placeholder else { return nil }
         let side = variant == .replacesStatus ? SidebarStyle.statusGlyphSize : SidebarStyle.indicatorSize
@@ -59,18 +58,5 @@ extension WorkspaceRowView {
     static func machineMarkImage(_ mark: SidebarMachineMark, side: CGFloat) -> NSImage {
         if let emoji = mark.emoji { return SidebarItemRowView.emojiImage(emoji, side: side) }
         return mark.symbol.map { NSImage.icon(symbol: $0, size: side) } ?? NSImage.icon(mark.kindIcon, size: side)
-    }
-
-    static func titleColumn(workspace: SidebarWorkspace, row: SidebarRow) -> CGFloat {
-        let content = row.content ?? WorkspaceRowContent()
-        let placeholder = workspace.rowState == .placeholder && workspace.title.isEmpty
-        let railSlot = content.icon == nil && content.rowColor != nil && content.colorStyle == .leftRail
-        var x = SidebarStyle.workspaceTitleX(icon: content.icon, treeDepth: content.treeDepth, reservesColorRail: railSlot)
-        let variant = SidebarTunables.agentMark.value
-        if variant == .besideTitle, agentMarkImage(workspace, variant: variant, placeholder: placeholder) != nil {
-            x = SidebarStyle.titleXAfterLeadingMark(x)
-        }
-        if !placeholder, content.machine != nil { x = SidebarStyle.titleXAfterLeadingMark(x) }
-        return x
     }
 }

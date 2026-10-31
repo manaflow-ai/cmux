@@ -23,6 +23,8 @@ extension SidebarListViewComponents {
             return false
         }
         let target = HoverTarget(id: WorkspaceHoverCardController.targetID(id), window: window.windowNumber, delay: hoverCard.delay)
+        // The action asks for resource usage, which lives in the card's details.
+        hoverCard.requestDetails(for: id)
         hoverCards.pin(target, from: hoverCard)
         return hoverCards.isShowing(target.id)
     }

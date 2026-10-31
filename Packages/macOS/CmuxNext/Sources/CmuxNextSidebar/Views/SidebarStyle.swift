@@ -18,14 +18,6 @@ enum SidebarStyle {
     /// two pixels, 1.5").
     static let rowEdgeGap: CGFloat = 1.5
     static var rowCornerRadius: CGFloat { SidebarDensityTokens.rowCornerRadius }
-    /// A listed tab's icon, sized to its caption-size title.
-    static var tabIconSize: CGFloat { .iconRowSize(forLabelPointSize: subtitleFont.pointSize) }
-    /// The title inset for a disclosed tab, measured from its workspace title column. Tabs are
-    /// children of the workspace row, so this is deliberately larger than the old icon well gap.
-    static var tabChildIndent: CGFloat { Metrics.space6 }
-    /// Tab titles stay at the caption scale so the workspace remains the visual root of the list.
-    static var tabTitleFont: NSFont { sized(Typography.caption, weight: .regular) }
-    static var tabDetailFont: NSFont { sized(Typography.caption, weight: .regular) }
     /// Height of a placeholder row's bar (about a caption's x-height).
     static var placeholderBarHeight: CGFloat { Metrics.space3 }
     /// Placeholder bar widths, as shares of the title width.
@@ -64,7 +56,7 @@ enum SidebarStyle {
         if swatch { return leading + iconSide + Metrics.space3 + Metrics.space1 }
         return leading + iconSide + Metrics.space3 - Swift.max(0, (iconSide - kindGlyphSize) / 2)
     }
-    /// Workspace title geometry shared by realized rows and virtualized parents of tab rows.
+    /// Where a workspace row's title starts, from its icon and session tree depth.
     static func workspaceTitleX(icon: WorkspaceIcon?, treeDepth: Int, reservesColorRail: Bool = false) -> CGFloat {
         let side: CGFloat
         let swatch: Bool

@@ -85,6 +85,29 @@ export function inlineToken(id: string): string {
   return `${INLINE_ATTACHMENT_MARK}${encodeInlineId(id)}${INLINE_ATTACHMENT_MARK}`;
 }
 
+/// The person's own U+FFFC as the composer's draft writes it (MarkdownField.tsx): between two word
+/// joiners, in a run of their text that holds a token's shape (U+FFFC, an id, U+FFFC), so text they
+/// typed or pasted so never reads as an attachment's place. Only the editor's own nodes write a bare
+/// token (review of #26667). Their other text is written as it is.
+const WORD_JOINER = "\u2060";
+const ESCAPED_MARK = `${WORD_JOINER}${INLINE_ATTACHMENT_MARK}${WORD_JOINER}`;
+const TOKEN_SHAPED = /\uFFFC[\w.~%-]+\uFFFC/;
+
+/// `text`, a run of the person's own text, as the draft writes it (`ESCAPED_MARK`).
+export function escapeTextMarks(text: string): string {
+  if (!text.includes(INLINE_ATTACHMENT_MARK)) return text;
+  // Their word joiner beside a U+FFFC is escaped too, so reading the run back is exact.
+  const shaped =
+    TOKEN_SHAPED.test(text) ||
+    text.includes(`${WORD_JOINER}${INLINE_ATTACHMENT_MARK}`) ||
+    text.includes(`${INLINE_ATTACHMENT_MARK}${WORD_JOINER}`);
+  return shaped ? text.replaceAll(INLINE_ATTACHMENT_MARK, ESCAPED_MARK) : text;
+}
+
+/// The person's text as they wrote it, from the draft (`escapeTextMarks`).
+export const unescapeTextMarks = (text: string) =>
+  text.includes(ESCAPED_MARK) ? text.replaceAll(ESCAPED_MARK, INLINE_ATTACHMENT_MARK) : text;
+
 /// The id of a copy pasted beside the attachment `id` names (composer/inlineNode.ts): that whole id,
 /// whatever it holds (a path's own `~`), then `~copy-` and eight hex digits of its own.
 export const inlineCopyId = (id: string) => `${id}~copy-${crypto.randomUUID().slice(0, 8)}`;
@@ -405,8 +428,9 @@ export const thumbnail = thumbnailOffThread;
 /// Its tokens read as `orderedDraftParts` reads them.
 export function promptText(text: string, attachments: ComposerAttachment[], options: InlineReadOptions = {}): string {
   const runs = inlineRuns(text, idsOf(attachments), options.dropped);
-  const visibleText =
-    !placesSome(runs) && legacyMarks(text, attachments) ? text.replaceAll(INLINE_ATTACHMENT_MARK, "") : wordsOf(runs);
+  const visibleText = unescapeTextMarks(
+    !placesSome(runs) && legacyMarks(text, attachments) ? text.replaceAll(INLINE_ATTACHMENT_MARK, "") : wordsOf(runs),
+  );
   const files = attachments
     .filter((attachment) => attachment.kind === "text")
     .map((attachment) => {
@@ -441,7 +465,7 @@ export function orderedDraftParts(
   if (placesSome(runs)) {
     const placed = new Set<string>();
     const parts = runs.map((run): OrderedDraftPart => {
-      if (run.type === "text") return run;
+      if (run.type === "text") return { type: "text", text: unescapeTextMarks(run.text) };
       placed.add(run.id);
       return { type: "attachment", attachment: byId.get(run.id)! };
     });
@@ -450,7 +474,7 @@ export function orderedDraftParts(
     return parts;
   }
   if (!legacyMarks(input, chips)) {
-    const words = wordsOf(runs);
+    const words = unescapeTextMarks(wordsOf(runs));
     return words
       ? [
           { type: "text", text: words },

@@ -168,19 +168,6 @@ struct WorkspaceColorFillTests {
         [dotWindow, railWindow].forEach { $0.close() }
     }
 
-    @Test func aLeftRailTitleMatchesTheOffscreenParentsColumn() {
-        let ws = SidebarWorkspace(id: WorkspaceID("ws"), title: "PR ready", color: .green)
-        var options = SidebarLayoutOptions()
-        options.colorIndicator = .leftRail
-        let row = SidebarRow(key: .workspace(ws.id), y: 0, height: 28, section: .pinned, group: nil, siblingIndex: 0,
-                             parentIndex: nil, isLastInGroup: false, isCollapsed: false, childCount: 0, groupColor: nil,
-                             content: options.rowContent(ws, machine: nil))
-        let (view, window) = Self.rowView(ws, style: "leftRail")
-        defer { window.close() }
-        #expect(WorkspaceRowView.titleColumn(workspace: ws, row: row) == view.titleFrame.minX,
-                "tab rows keep their parent title column when its rail row scrolls offscreen")
-    }
-
     @Test func aStartedWorkspacesRailMovesInWithItsContent() {
         let ws = SidebarWorkspace(id: WorkspaceID("ws"), title: "child", color: .blue)
         let (top, topWindow) = Self.rowView(ws, style: "leftRail")
