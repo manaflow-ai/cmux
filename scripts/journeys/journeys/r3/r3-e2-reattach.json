@@ -1,8 +1,8 @@
 {
  "id": "r3-e2-reattach",
  "priority": "P1",
- "title": "R3 (i, fuzzer E2): after a resize, a scroll region (DECSTBM 3;10), output inside it and on the last row outside it, then quit and reopen: the replayed screen equals the daemon's",
- "why": "Lawrence's v2.2.11-opt capture (2026-10-31): grid 297x87 but fit_grid 126x87 in a 2088x1233 view. After a resize the shown terminal must have one size in the app, Ghostty, the PTY and the daemon, and a typed long line must wrap at it. Fuzzer E2 (vt_fuzz_finding_e2, STATUS 2185): a row outside the scroll region was replayed 43 columns to the right.",
+ "title": "R3 (i, fuzzer E2): after a resize, a line soft-wraps from the scroll region's bottom row (DECSTBM 3;10) into the row under it, the region scrolls, then quit and reopen: the replayed screen equals the daemon's",
+ "why": "Lawrence's v2.2.11-opt capture (2026-10-31): grid 297x87 but fit_grid 126x87 in a 2088x1233 view. After a resize the shown terminal must have one size in the app, Ghostty, the PTY and the daemon, and a typed long line must wrap at it. Fuzzer E2 (vt_fuzz_finding_e2, STATUS 2185): a row outside the scroll region was replayed 43 columns to the right. E2 state: the row under the region keeps a stale wrap_continuation after the region scrolls, and the attach replay drew that row shifted right by the blank cells of the row above it.",
  "source": "cmux-ad P0 2026-10-31 (Lawrence on v2.2.11-opt: resizing terminals is broken); R3 invariant",
  "budget_seconds": 240,
  "steps": [
@@ -110,19 +110,19 @@
   },
   {
    "do": "type",
-   "text": "printf '\\033[3;10r'; for i in 1 2 3 4 5 6 7 8 9 10 11 12; do printf 'in-%02d region\\n' $i; done; printf '\\e7\\033[%d;1HNu-out-${nonce}\\e8' $(tput lines); printf '\\033[5;1H\\033[2K'; echo e2r-${nonce}; cat",
+   "text": "c=$(tput cols); printf '\\033[2J\\033[10;1H'; printf \"%$((c+6))s\" '' | tr ' ' w; printf 'Nu-out-${nonce}'; printf '\\033[3;10r\\033[10;1H'; for i in 1 2 3 4; do printf '\\nin-%02d region' $i; done; printf '\\033[r\\033[5;1H\\033[2K'; echo e2r-${nonce}; cat",
    "enter": true
   },
   {
    "do": "expect",
-   "title": "the region output and the out-of-region row are on the daemon's screen",
+   "title": "the soft-wrapped row under the region (wwwwwwNu-out-NONCE) and the adopt line are on the daemon's screen",
    "timeout": 15,
    "all": [
     {
      "daemon_line": "e2r-${nonce}"
     },
     {
-     "daemon_contains": "Nu-out-${nonce}"
+     "daemon_line": "wwwwwwNu-out-${nonce}"
     }
    ]
   },
