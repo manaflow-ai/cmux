@@ -224,7 +224,7 @@ await requireBrowserLane("new-tab-composer-still.test.ts", async () => {
     await listed.get(page);
     await page.waitForFunction(() => (window as unknown as { __deviceChats?: boolean }).__deviceChats === true);
     await step(page, "typing");
-    await page.locator(".nt-field").click();
+    await page.locator(".nt-field .ProseMirror").click();
     await page.keyboard.type("how do I fix the build");
     await page.locator(".nt-popover .nt-row").first().waitFor({ timeout: 10_000 });
     await settled(page);

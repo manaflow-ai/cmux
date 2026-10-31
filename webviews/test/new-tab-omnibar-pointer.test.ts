@@ -118,7 +118,7 @@ await requireBrowserLane("new-tab-omnibar-pointer.test.ts", async () => {
     await page.waitForFunction(() => document.querySelector(".nt-box")?.matches(":hover"));
     await eased(page);
     expect(await fill(page), "no hover lift (Leo 2026-10-18)").toBe(rest);
-    await page.locator(".nt-field").focus();
+    await page.locator(".nt-field .ProseMirror").focus();
     expect(await fill(page)).toBe(rest);
     await page.close();
   });

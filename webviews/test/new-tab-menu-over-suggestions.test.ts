@@ -54,7 +54,7 @@ await requireBrowserLane("new-tab-menu-over-suggestions.test.ts", async () => {
   }
 
   async function suggest(page: Page) {
-    await page.locator(".nt-field").click();
+    await page.locator(".nt-field .ProseMirror").click();
     await page.keyboard.type("re");
     await page.locator(".nt-popover .nt-row").first().waitFor();
   }

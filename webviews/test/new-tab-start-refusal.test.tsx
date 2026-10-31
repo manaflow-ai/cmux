@@ -255,7 +255,9 @@ for (const [remoteStart, trust, reconnectStart, decline, promptTrust] of [
         await until(() => !!host.textContent?.includes("agent unavailable"), "the chat says why it did not start");
         const kept = () =>
           host.textContent?.includes("inspect the failed build") ||
-          [...host.querySelectorAll("textarea")].some((node) => node.value.includes("inspect the failed build"));
+          [...host.querySelectorAll<HTMLElement>("[contenteditable='true']")].some((node) =>
+            node.textContent?.includes("inspect the failed build"),
+          );
         await until(() => !!kept(), "the refused prompt is kept");
         expect(prompts).toHaveLength(0);
         return;
