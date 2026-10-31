@@ -121,3 +121,21 @@ import Testing
         }
     }
 }
+
+/// The page follows a theme change (a light app theme after a dark one): ThemeScope tells views through
+/// `viewDidChangeEffectiveAppearance`, and the page's view then draws in the scope's new tokens.
+@MainActor @Suite struct AutomationsPageThemeTests {
+    final class Theme { var tokens: ThemeTokens; init(_ t: ThemeTokens) { tokens = t } }
+
+    @Test func aThemeChangeRedrawsThePageInTheNewColors() throws {
+        let dark = ThemeTokens.derive(from: ThemeInput(background: ThemeRGB(hex: 0x1E1E20), foreground: ThemeRGB(hex: 0xF2F2F7)))
+        let light = ThemeTokens.derive(from: ThemeInput(background: ThemeRGB(hex: 0xFFFFFF), foreground: ThemeRGB(hex: 0x1D1D1F)))
+        let theme = Theme(dark)
+        let host = AutomationsPageHost(local: { Data() }, cloud: { Data() })
+        let view = try #require(host.makeView(tokens: { theme.tokens }) as? AutomationsHostingView)
+        #expect(view.palette == AutomationsPalette(tokens: dark))
+        theme.tokens = light
+        view.viewDidChangeEffectiveAppearance()
+        #expect(view.palette == AutomationsPalette(tokens: light))
+    }
+}
