@@ -1,3 +1,4 @@
+import CmuxNextDesign
 import Foundation
 @testable import CmuxNextSidebar
 @testable import CmuxNextSettings
@@ -52,7 +53,7 @@ import Testing
     }
 
     @Test func theSettingReadsEachLook() {
-        #expect(SidebarSectionsPreferences.defaults.groupPinMark == .trailing)
+        #expect(SidebarSectionsPreferences.defaults.groupPinMark == .off, "a new look is opt-in until one is picked")
         for mark in SidebarGroupPinMark.allCases {
             var diagnostics: [SettingsDiagnostic] = []
             let root = JSONValue.object(["sidebar": .object(["groupPinMark": .string(mark.rawValue)])])
@@ -61,7 +62,7 @@ import Testing
         }
         var diagnostics: [SettingsDiagnostic] = []
         let bad = JSONValue.object(["sidebar": .object(["groupPinMark": .string("sparkles")])])
-        #expect(SidebarSectionsSetting.parse(bad, diagnostics: &diagnostics).groupPinMark == .trailing)
+        #expect(SidebarSectionsSetting.parse(bad, diagnostics: &diagnostics).groupPinMark == .off)
         #expect(diagnostics.map(\.path) == ["sidebar.groupPinMark"])
     }
 

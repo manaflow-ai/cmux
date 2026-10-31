@@ -141,7 +141,7 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// `sidebar.style`: the standard sidebar (default) or the thin rail.
     public var style: SidebarLayoutStyle = .standard
     /// `sidebar.groupPinMark`: what a workspace pinned inside its group draws at rest.
-    public var groupPinMark: SidebarGroupPinMark = .trailing
+    public var groupPinMark: SidebarGroupPinMark = .off
 
     public init(look: String = "quiet", topBandMaxShare: Double = 1.0 / 3.0, bottomBandMaxShare: Double = 0.25,
                 pinnedBandsScroll: Bool = true, showWorkspaceTabs: Bool = false) {
