@@ -606,6 +606,14 @@ mod tests {
     use serde_json::json;
     use std::collections::BTreeMap;
 
+    /// Hermes keeps its provider and model in ~/.hermes: `hermes model` picks
+    /// them (an API key or a provider sign-in), which is the sign-in a Chief on
+    /// Hermes needs.
+    #[test]
+    fn hermes_signs_in_with_hermes_model() {
+        assert_eq!(super::builtin_login("hermes"), Some("hermes model"));
+    }
+
     #[test]
     fn expired_login_probe_is_not_just_signed_out() {
         assert_eq!(auth_failure("OAuth token has expired"), Auth::Expired);
