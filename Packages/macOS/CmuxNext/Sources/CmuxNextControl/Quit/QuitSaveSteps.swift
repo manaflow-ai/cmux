@@ -1,9 +1,13 @@
 /// What a quit saves before any session ends, in this order, each step
 /// under its own limit (slow quit, 2026-10-20): a step that hangs (a page
 /// that never answers, a daemon that never replies) costs the quit at most
-/// its limit, never the whole quit. Together they take about 4.6 s if every
-/// one of them hangs, a few hundred ms in practice; a keep quit's deadline
-/// (``QuitDeadline/keepQuitLimit``) cuts whatever still runs.
+/// its limit, never the whole quit. The person's own data saves first
+/// (browser records, the window records, the sidebar, Home's drafts and
+/// unsent sends, the chat composers), the launch pictures after it. Cloud's
+/// network work starts first and runs beside the saves, so a slow network
+/// never delays one. If every step hangs they take ``worstCase``, which fits
+/// a keep quit's deadline (``QuitDeadline/keepQuitLimit``) with the quit mark
+/// and ``rememberLimit`` before them; in practice a few hundred ms.
 ///
 /// The App fills each step from its services (`QuitCoordinator`).
 public struct QuitSaveSteps {
@@ -11,8 +15,8 @@ public struct QuitSaveSteps {
     /// relaunch (data-model.md 1.4).
     public var remoteSnapshots: @MainActor () async -> Void
     /// Agent chats get their composer's chips, shell command and place back
-    /// at the next launch (pages are asked at once, each within a second:
-    /// the step's own bound).
+    /// at the next launch (pages are asked at once, each within a second; a
+    /// step past its limit goes on beside the next steps).
     public var agentComposers: @MainActor () async -> Void
     /// Agent panes on screen draw their last page at the next launch.
     public var agentImages: @MainActor () async -> Void
@@ -37,7 +41,7 @@ public struct QuitSaveSteps {
     public var cloud: @MainActor () async -> Void
 
     /// The limit of the "Don't ask again" setting write, before the save steps (`QuitSteps`).
-    public static let rememberLimit: Duration = .milliseconds(500)
+    public static let rememberLimit: Duration = .milliseconds(300)
 
     public init(remoteSnapshots: @escaping @MainActor () async -> Void,
                 agentComposers: @escaping @MainActor () async -> Void,
@@ -68,29 +72,37 @@ public struct QuitSaveSteps {
         var body: @MainActor () async -> Void
     }
 
-    /// The steps in the order ``run(_:)`` runs them, each with its limit.
+    /// The save steps in the order ``run(_:)`` runs them, each with its
+    /// limit. A step past its limit keeps running beside the next ones.
     public var steps: [Step] {
-        [Step(name: "cloud", limit: .milliseconds(300), body: cloud),
-         Step(name: "remote_snapshots", limit: .milliseconds(300), body: remoteSnapshots),
-         Step(name: "agent_composers", limit: .seconds(1), body: agentComposers),
-         Step(name: "agent_images", limit: .milliseconds(300), body: agentImages),
-         Step(name: "terminal_frames", limit: .milliseconds(500), body: terminalFrames),
-         Step(name: "browser_records", limit: .milliseconds(500), body: browserRecords),
+        [Step(name: "browser_records", limit: .milliseconds(300), body: browserRecords),
          Step(name: "windows", limit: .milliseconds(500), body: windows),
-         Step(name: "sidebar", limit: .milliseconds(500), body: sidebar),
-         Step(name: "home_cache", limit: .milliseconds(500), body: homeCache)]
+         Step(name: "sidebar", limit: .milliseconds(300), body: sidebar),
+         Step(name: "home_cache", limit: .milliseconds(400), body: homeCache),
+         Step(name: "agent_composers", limit: .milliseconds(400), body: agentComposers),
+         Step(name: "terminal_frames", limit: .milliseconds(200), body: terminalFrames),
+         Step(name: "agent_images", limit: .milliseconds(200), body: agentImages),
+         Step(name: "remote_snapshots", limit: .milliseconds(200), body: remoteSnapshots)]
     }
 
-    /// How long the steps take if every one of them hangs.
-    public var worstCase: Duration { steps.reduce(.zero) { $0 + $1.limit } }
+    /// How long Cloud's step may still take once the saves are done: it began
+    /// before them, so a revoke that needs longer goes on until the process ends.
+    public var cloudLimit: Duration { .milliseconds(300) }
 
-    /// Runs every step in order, each under its limit (`limiter`).
+    /// How long the steps take if every one of them hangs.
+    public var worstCase: Duration { steps.reduce(cloudLimit) { $0 + $1.limit } }
+
+    /// Starts Cloud's step, runs every save step in order, each under its
+    /// limit (`limiter`), then gives Cloud's step what is left of its limit.
     @MainActor
     public func run(_ limiter: QuitStepLimiter) async {
+        // task-owner: Cloud's quit work, awaited below under its limit; it may outlive it, and the process ends at the quit deadline.
+        let cloudWork = Task { @MainActor [cloud] in await cloud() }
         for step in steps {
             await limiter.run(step.name, limit: step.limit, step.body)
             // A windows step past its limit still runs; nothing saves windows from here.
             if step.name == "windows" { stopSavingWindows() }
         }
+        await limiter.run("cloud", limit: cloudLimit) { await cloudWork.value }
     }
 }

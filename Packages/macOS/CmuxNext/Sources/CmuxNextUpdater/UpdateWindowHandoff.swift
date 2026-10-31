@@ -2,8 +2,9 @@ import AppKit
 public import CmuxNextDesign
 
 /// Restart to Update (cx-ncc.45 S1): what the old windows do when Sparkle
-/// commits to the relaunch (`updaterWillRelaunchApplication`, right before
-/// its installer finishes and quits the app), not at the click. A click
+/// commits to a relaunch the person asked for (`updaterWillRelaunchApplication`,
+/// right before its installer finishes and quits the app), not at the click.
+/// An install nobody clicked leaves the windows as they are. A click
 /// whose install never reaches the installer (Sparkle gives up after 7 s:
 /// "An error occurred while starting the installer") kept every window
 /// transparent for those seconds, and the app looked frozen (slow quit,

@@ -22,9 +22,10 @@ public nonisolated final class QuitDeadline: Sendable {
     /// A quit that keeps the sessions (every quit but End Sessions and End
     /// Everything) ends this long after it was decided, whatever any step
     /// does (slow quit, 2026-10-20). The save steps have their own limits
-    /// (`QuitSaveSteps`, about 4.6 s if every one of them hangs, a few hundred
-    /// ms in practice), then the engines' close wait (`engineCloseWait`) and
-    /// CefShutdown; the deadline cuts whatever is still running.
+    /// (`QuitSaveSteps.worstCase`, 2.8 s if every one of them hangs, a few
+    /// hundred ms in practice), so with the quit mark and the "Don't ask
+    /// again" write they end inside this limit; then the engines' close wait
+    /// (`engineCloseWait`) and CefShutdown, which the deadline cuts.
     public static let keepQuitLimit: Duration = .seconds(4)
     /// An End quit ends this long after its sessions ended and the engines
     /// began to stop: the close wait, then CefShutdown. Chromium's own 10 s

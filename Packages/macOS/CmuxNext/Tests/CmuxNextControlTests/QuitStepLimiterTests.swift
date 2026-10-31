@@ -57,8 +57,9 @@ import Testing
         var marks: [String] = []
         let limiter = QuitStepLimiter(mark: { marks.append($0) }, clock: ManualClock())
         await Self.steps({ order.append($0) }).run(limiter)
-        #expect(order == ["cloud", "browser_records", "windows", "stop_saving_windows", "sidebar", "home_cache",
-                          "agent_composers", "terminal_frames", "agent_images", "remote_snapshots"])
+        #expect(order.contains("cloud"))
+        #expect(order.filter { $0 != "cloud" } == ["browser_records", "windows", "stop_saving_windows", "sidebar", "home_cache",
+                                                   "agent_composers", "terminal_frames", "agent_images", "remote_snapshots"])
         #expect(marks == ["quit.browser_records", "quit.windows", "quit.sidebar", "quit.home_cache", "quit.agent_composers",
                           "quit.terminal_frames", "quit.agent_images", "quit.remote_snapshots", "quit.cloud"])
     }
