@@ -42,7 +42,7 @@ enum DebugBrowserImportOffer {
         let offer = services.onboarding.browserImportOffer
         let shownOn = services.cache.browsers.filter { $0.value.chrome.showsCookieImportOffer }.map(\.key).sorted()
         return .object([
-            "dismissed": .bool(services.settings?.snapshot.browserImportCookieBanner == false), "offered": .bool(offer.isOffered),
+            "dismissed": .bool(services.settings?.snapshot.browserImportCookieBanner == false), "offered": .bool(offer.isOffered), "showing": .bool(!shownOn.isEmpty),
             "imported": .bool(offer.state.imported),
             "shown_this_launch": .bool(offer.shownThisLaunch),
             "shown_on": .array(shownOn.map(JSONValue.string)),

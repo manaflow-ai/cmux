@@ -1,5 +1,11 @@
 {
   "title": "Import Cookies banner",
+  "windows": [
+    {
+      "name": "banner-overlay",
+      "class": "OverlayHostPanel"
+    }
+  ],
   "steps": [
     {
       "title": "Launch",
@@ -38,35 +44,21 @@
       "shot": false
     },
     {
-      "title": "Light",
-      "rpc": {
-        "method": "debug.appearance",
-        "params": {
-          "mode": "light"
-        }
-      },
-      "wait": 2,
-      "shot": false
-    },
-    {
-      "title": "Light: the banner offers to import cookies, with Don't Show Again, Not Now and Import",
+      "title": "The banner offers to import cookies, with Don't Show Again, Not Now and Import",
       "rpc": {
         "method": "debug.browser_import_offer",
         "params": {
           "action": "show"
         }
       },
-      "wait": 3
-    },
-    {
-      "title": "Dark",
-      "rpc": {
-        "method": "debug.appearance",
-        "params": {
-          "mode": "dark"
+      "wait": 3,
+      "expect": {
+        "method": "debug.browser_import_offer",
+        "fields": {
+          "showing": true,
+          "offered": true
         }
-      },
-      "wait": 3
+      }
     },
     {
       "title": "Don't Show Again: browser.import.cookieBanner turns off and the banner goes",
@@ -82,35 +74,25 @@
         "method": "debug.browser_import_offer",
         "fields": {
           "dismissed": true,
-          "offered": false
+          "offered": false,
+          "showing": false
         }
       }
     },
     {
       "title": "Show Import Cookies Banner (cmux browser show-cookie-banner): back on and shown again",
       "cmux": [
-        "action",
-        "run",
-        "browser.showCookieImportBanner"
+        "browser",
+        "show-cookie-banner"
       ],
       "wait": 4,
       "expect": {
         "method": "debug.browser_import_offer",
         "fields": {
-          "dismissed": false
+          "dismissed": false,
+          "showing": true
         }
       }
-    },
-    {
-      "title": "Back to the system appearance",
-      "rpc": {
-        "method": "debug.appearance",
-        "params": {
-          "mode": "system"
-        }
-      },
-      "wait": 1,
-      "shot": false
     }
   ]
 }
