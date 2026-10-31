@@ -407,8 +407,10 @@ await requireBrowserLane("agent-pane-harness-catalog.test.ts", async () => {
       const calls = await page.evaluate(() => (window as unknown as FirstRunWindow).firstRunChatCalls);
       expect(calls.map((call) => call.method)).toEqual(["chat.new", "chat.send"]);
       expect(calls[0]!.params).toEqual({ harness: "claude", noProject: true });
+      // The send names the session its chat.new started (#28543): a later selected chat cannot take it.
       expect(calls[1]!.params).toEqual({
         text: DRAFT,
+        expectedSessionId: "first-chat",
         attachments: [
           expect.objectContaining({
             kind: "link",
@@ -467,6 +469,7 @@ await requireBrowserLane("agent-pane-harness-catalog.test.ts", async () => {
         );
         expect(calls[1]!.params).toEqual({
           text: DRAFT,
+          expectedSessionId: "first-chat",
           attachments: [
             expect.objectContaining({
               kind: "image",
