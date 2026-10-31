@@ -71,9 +71,30 @@ describe("app registry bundle hash", () => {
     expect(compareSemver("1.10.0", "1.9.0")).toBe(1)
     expect(compareSemver("1.0.0+a", "1.0.0")).toBe(0)
   })
+  it.each([
+    ["9007199254740992.0.0", "9007199254740993.0.0"],
+    ["1.9007199254740992.0", "1.9007199254740993.0"],
+    ["1.0.9007199254740992", "1.0.9007199254740993"],
+    ["1.0.0-9007199254740992", "1.0.0-9007199254740993"],
+    [`${"1".repeat(310)}.0.0`, `${"2".repeat(310)}.0.0`],
+    [`1.0.0-${"1".repeat(310)}`, `1.0.0-${"2".repeat(310)}`]
+  ])("orders large semver numbers without rounding: %s < %s", (older, newer) => {
+    expect(compareSemver(older, newer)).toBe(-1)
+    expect(compareSemver(newer, older)).toBe(1)
+    expect(compareSemver(older, older)).toBe(0)
+  })
 })
 
 describe("app registry submit", () => {
+  it("accepts and lists the newer approved version above the safe integer range", async () => {
+    for (const version of ["9007199254740992.0.0", "9007199254740993.0.0"]) {
+      const pending = await submit("app_dev_numeric", bundle("numeric/board", version))
+      expect(pending.status).toBe(201)
+      expect((await decide("app_reviewer_1", pending.body.submission.id, "approve")).status).toBe(200)
+    }
+    expect((await call("/apps/numeric/board")).body.latest).toBe("9007199254740993.0.0")
+  })
+
   it("needs a verified person", async () => {
     expect((await call("/me")).status).toBe(401)
     expect((await call("/me", { sub: "app_dev_unverified", verified: false })).status).toBe(403)
