@@ -4007,7 +4007,7 @@
     "tunable-source.CmuxNextControl/Diagnostics/BlockingControl.swift:report": "aa2444ba028bc864820a2c5deb28fdfcf78305fd321e13f6c69b4635fcc8b645",
     "tunable-source.CmuxNextControl/Diagnostics/CloudDiagnosticsReport.swift:identityFields": "1fcb4302e35fbf093ee53ff7d567a5bc79020dc156d596545d7c9ea8a49c8253",
     "tunable-source.CmuxNextControl/Diagnostics/CloudDiagnosticsReport.swift:jsonText": "babd84c72c2bf04e155dc0a4f6672b7d9618dfb5837f32170831b235b05fcfff",
-    "tunable-source.CmuxNextControl/Diagnostics/HangEpisodeRecorder.swift:parse": "7581535b28beb5d1157a0a7e64c240611b29a1b5b2c500a3e1b372f91f0c0bb0",
+    "tunable-source.CmuxNextControl/Diagnostics/HangEpisodeRecorder.swift:parse": "e0993a57b71749817f1ba68ba5aa81341d940f3db771063a564c1cbef7c43a18",
     "tunable-source.CmuxNextControl/Diagnostics/HangEpisodeRecorder.swift:timestampStyle": "8d949e124596f7b96129a1bd792b729593757be99ddd163ebff4e17eacb2cde3",
     "tunable-source.CmuxNextControl/Diagnostics/HangEpisodeRecorder.swift:topFrameCount": "ceedc76df62d7b354764a7e175aa0bfe4133df93cf7059b10eb11f2e443b709f",
     "tunable-source.CmuxNextControl/Diagnostics/MainThreadWatchdog+TaskBudget.swift:details": "464eec6551110cd662a53c37275d0ee75ec8d92c42af76b108c10f6d1601a2c1",
