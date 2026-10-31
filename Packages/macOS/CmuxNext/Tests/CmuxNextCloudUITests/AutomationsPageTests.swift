@@ -101,11 +101,13 @@ import Testing
                     .frame(width: 760, height: 440).environment(\.colorScheme, .dark)
             }
             .padding(24).background(Color.gray)
-            let renderer = ImageRenderer(content: view)
-            renderer.scale = 2
-            let image = try #require(renderer.nsImage)
-            let tiff = try #require(image.tiffRepresentation)
-            let png = try #require(NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]))
+            // ImageRenderer draws no ScrollView content; a hosting view draws what the app draws.
+            let host = NSHostingView(rootView: view)
+            host.frame = NSRect(x: 0, y: 0, width: 1592, height: 488)
+            host.layoutSubtreeIfNeeded()
+            let rep = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+            host.cacheDisplay(in: host.bounds, to: rep)
+            let png = try #require(rep.representation(using: .png, properties: [:]))
             #expect(png.count > 10_000)
             let out = ProcessInfo.processInfo.environment["CMUX_AUTOMATIONS_SHOTS"].map { URL(fileURLWithPath: $0) }
                 ?? URL(fileURLWithPath: #filePath).deletingLastPathComponent() // Tests/CmuxNextCloudUITests
