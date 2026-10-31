@@ -138,7 +138,12 @@ export type QuickModel = {
   effort?: string;
   /** Only levels advertised for this model; [] means no reasoning control. */
   efforts?: readonly string[];
+  /** The catalog's recommended level, which the row's effort column names before a pick. */
+  defaultEffort?: string;
   fast?: boolean;
+  /// The model honors Fast mode (its catalog entry says so): on a tab other than the chat's own,
+  /// the menu's Fast mode row lands it with Fast on.
+  canFast?: boolean;
   tag?: string;
   /// The provider the row lands, named at its trailing edge (a harness that routes to several).
   provider?: string;
@@ -280,6 +285,11 @@ export function QuickModelMenu({
   // On New Tab, More models is a row that shows the tab's other models in place, as T3 Code's
   // model menu does, not a submenu: the rail tab it was opened on.
   const [moreFor, setMoreFor] = useState<string | undefined>();
+  // Fast mode for a tab other than the chat's (Leo 2026-10-31: "WHY THE FUCK IS THERE NO FUCKING
+  // FAST MODE FOR FUCKIGN CODEX"): nothing runs there yet, so the row holds the choice and a model
+  // picked from that tab lands with it. Off each time the menu opens; the chat's own tab keeps the
+  // session's option.
+  const [heldFast, setHeldFast] = useState(false);
   const moreListId = useId();
   // Reset as the menu opens, in render: the composer re-renders while it is open (a streaming
   // reply), and an effect on the families would throw away the tab and the typed filter.
@@ -291,6 +301,7 @@ export function QuickModelMenu({
       setTab(families?.current ?? families?.list.find((family) => !family.starred)?.id);
       setQuery("");
       setMoreFor(undefined);
+      setHeldFast(false);
       setScrolled(false);
     }
   }
@@ -356,6 +367,14 @@ export function QuickModelMenu({
   }, [query, open, families, search, showField, tab, moreFor]);
   const onChatTab = !families || tab === families.current;
   const forkTab = !query && shown?.fork ? shown : undefined;
+  // Another tab whose models honor Fast mode draws the same Fast mode row the chat's tab does.
+  const tabFast =
+    !query &&
+    !onChatTab &&
+    !forkTab &&
+    !shown?.launch &&
+    !!shown &&
+    [...shown.models, ...shown.more].some((model) => model.canFast && !model.disabled);
   const inlineMore = newTab && families !== undefined;
   // The symbols layout names a harness's other models Legacy models with their count, as the
   // reference picker does (Leo 2026-10-30, "like this, but symbols at the top").
@@ -408,9 +427,14 @@ export function QuickModelMenu({
       <span className="acpmux-menu-label">{offer.provider}</span>
     </MenuRadioItem>
   );
-  const pickRow = (row: QuickModel) => {
-    if (row.disabled) return;
+  const pickRow = (picked: QuickModel) => {
+    if (picked.disabled) return;
     onOpenChange(false);
+    // Another tab's model lands with the Fast mode its tab's row holds.
+    const row =
+      heldFast && families && picked.family !== families.current && picked.canFast && !picked.fast
+        ? { ...picked, fast: true }
+        : picked;
     const running = (!families || row.family === families.current) && row.id === current;
     if (running && !row.effort && !row.fast) return;
     if (query && search) search.pick(row);
@@ -433,7 +457,7 @@ export function QuickModelMenu({
       : model.efforts !== undefined
         ? reasoningChoices(
             model.efforts.map((value) => ({ value })),
-            { efforts: model.efforts },
+            { efforts: model.efforts, ...(model.defaultEffort ? { defaultEffort: model.defaultEffort } : {}) },
             t,
           )
         : [];
@@ -497,7 +521,14 @@ export function QuickModelMenu({
       pickRow({ ...model, effort: value });
     };
     const look = menu.effortLook ?? "list";
-    const shown = running ? choices.find((choice) => choice.id === effort?.current) : undefined;
+    // A row of a tab other than the chat's runs nothing yet: its column names the level a pick
+    // lands (the model's recommended one), as the chat's running row names its own.
+    const held = !!families && model.family !== families.current;
+    const shown = running
+      ? choices.find((choice) => choice.id === effort?.current)
+      : held
+        ? choices.find((choice) => choice.recommended)
+        : undefined;
     // The row stays one line: the model, then its effort item at the trailing edge (the running
     // model's level and a chevron). Pointing at it or ArrowRight opens the model's levels as a side
     // dropdown beside the row, a vertical list in its own popup (never clipped by the list's scroll,
@@ -508,6 +539,7 @@ export function QuickModelMenu({
         key={valueOf(model)}
         data-effort-look={look}
         data-running={running ? "" : undefined}
+        data-held={held && shown ? "" : undefined}
       >
         {name}
         <Submenu
@@ -1037,13 +1069,13 @@ export function QuickModelMenu({
             {routeRows}
           </Submenu>
         ))}
-      {!query && onChatTab && fast && (
+      {((!query && onChatTab && fast) || tabFast) && (
         <>
           <MenuSeparator />
           <MenuCheckboxItem
             className="acpmux-quick-item acpmux-quick-fast"
-            checked={fast.checked}
-            onCheckedChange={(on) => fast.onChange(on)}
+            checked={tabFast ? heldFast : !!fast?.checked}
+            onCheckedChange={(on) => (tabFast ? setHeldFast(on) : fast?.onChange(on))}
           >
             <span className="acpmux-menu-label">{t("picker.fastMode")}</span>
             <span className="acpmux-quick-fast-toggle" aria-hidden="true">
