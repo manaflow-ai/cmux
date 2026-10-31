@@ -7,10 +7,19 @@ the pushed commits ADD. Base debt never blocks a push.
 
 Which commits are the push's own (push_range.py, shared with guardrails.py, the arch ratchet and the web lint,
 so all of them judge the same range): the commits of each pushed head that none of its remote head, its
-remote-tracking ref, this clone's origin/feat-cmux-next and the remote's HEAD reaches. Their boundary is the
-base: the remote head for a second push (every new commit is judged, nothing pushed before), where HEAD meets
-origin/feat-cmux-next for a new branch or a rebase onto it (the upstream commits the rebase brought in are not
-judged; the rebased commits are). A branch that merged origin/feat-cmux-next in is judged over the upstream it
+remote-tracking ref, this clone's origin/feat-cmux-next, the remote's HEAD and the integration branch it was cut
+from reaches. That last one is read, not guessed: the pushed branch's configured upstream when it is a
+remote-tracking ref of the pushed remote (`git worktree add -b topic origin/perf/chrome-parity` records it, for
+any long-lived branch), plus the known integration refs (push_range.INTEGRATION_REFS: origin/perf/chrome-parity,
+origin/main) for a branch cut with --no-track. Each is one more `--not` of git's walk, so git itself stops at the
+nearest one by history; none is chosen by name, and none hides a commit nobody pushed (a local branch or another
+remote's branch never counts). A push onto an integration branch itself adds none of them. With none of them
+nearer, nothing changes: the base is where HEAD meets origin/feat-cmux-next. (2026-10-29: a branch cut from perf
+was judged over its 9,426 commits past feat-cmux-next and refused for files it never touched.)
+Their boundary is the base: the remote head for a second push (every new commit is judged, nothing pushed
+before), where HEAD meets origin/feat-cmux-next for a new branch or a rebase onto it (the upstream commits the
+rebase brought in are not judged; the rebased commits are), where HEAD left perf for a branch cut from perf.
+A branch that merged origin/feat-cmux-next in is judged over the upstream it
 merged, less what its old remote head already had over the upstream it started from (gate_own), so upstream's
 changes are never the push's and an upstream removal never pays for the branch's debt. With none of those refs
 in the clone, or a shallow clone cut below the pushed commits, every ref of the remote bounds the walk; when even
@@ -77,7 +86,7 @@ arch-ratchet.json; --no-guardrails turns it off for a manual run; it fails open.
 Not here (they stay on CI and the fleet): generated-file freshness (gen-*.py --check), god files,
 the app size cap, script tests, Swift and Rust builds and tests.
 
-  scripts/cmux-next/prepush-gate.py                  # what HEAD adds over origin/feat-cmux-next
+  scripts/cmux-next/prepush-gate.py                  # what HEAD adds over the integration branch it left
   scripts/cmux-next/prepush-gate.py --base A --head B  # exactly what B adds over A
   scripts/cmux-next/prepush-gate.py --pre-push       # the hook: reads pre-push stdin
   scripts/cmux-next/prepush-gate.py --commits A..B   # CI: each commit against its parent, named
@@ -120,6 +129,9 @@ CONTEXT = (
     "cmux.xcodeproj/project.pbxproj",
     "cmux-next-ios/project.yml",
 )
+# Check code outside scripts/cmux-next: check-package-dependency-lists.py imports the masker from scripts/ (an installed
+# copy reads its own, beside it). Like the check code, it is the head's on both sides.
+CHECK_CODE = ("scripts/swift_source_mask.py",)
 DATA_SUFFIXES = (".tsv", ".json")
 # A push that changes the manifest can drop a dependency an unchanged file imports: the dependency check then
 # needs every Swift file of the package, not only the changed ones. It alone gets trees with them all (DEPS_CHECK):
@@ -393,6 +405,8 @@ def build_trees(repo: Path, base: str, head: str, changed: list[str], work: Path
                 files[p] = base if p in base_data else head  # each side's own baselines
         for p in CONTEXT:
             files[p] = rev
+        for p in CHECK_CODE:
+            files[p] = head
         for p in changed:
             files[p] = rev
         dest = work / side
@@ -640,8 +654,10 @@ def swiftformat(binary: Path, config: Path, tree: Path, swift: list[str]) -> str
     present = [p for p in swift if (tree / p).is_file()]
     if not present:
         return ""
-    cache = tools_dir() / "swiftformat.cache"
-    _, out = run([str(binary), "--lint", "--config", str(config), "--cache", str(cache), "--quiet", *present], tree)
+    # No cache: the trees are fresh temporary folders on every run and SwiftFormat keys its cache by absolute path,
+    # so a persistent one never hits. It only grew (335 MB on a busy machine) and every call spent ~50 s reading and
+    # rewriting it, even for one file. Linting the changed files takes milliseconds without it.
+    _, out = run([str(binary), "--lint", "--config", str(config), "--cache", "ignore", "--quiet", *present], tree)
     return "\n".join(l for l in out.splitlines() if LOCATION.search(l))
 
 

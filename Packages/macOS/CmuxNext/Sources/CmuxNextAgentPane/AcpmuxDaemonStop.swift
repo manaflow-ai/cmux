@@ -3,29 +3,25 @@ import Darwin
 import Foundation
 import os
 
-/// Restarts this app's own acpmux daemon when it is alive but stops answering. Such a daemon
-/// still holds `daemon.lock`, so no new one can start, and every chat says acpmux did not answer
-/// until someone kills it. Each status call that misses its deadline is a miss; `misses` in a
-/// row with no answer between them, spanning at least `window`, then one last ask with the
-/// longer `confirm` deadline that also misses, and the daemon gets SIGTERM (a daemon whose
-/// runtime still runs detaches its agent hosts), then SIGKILL after `termGrace`. The daemon
-/// the caller starts next adopts the agent hosts and loads every session from disk.
+/// The person's "Restart agent service" (the pane's waiting line, ``AcpmuxHost/restartStuckAcpmux(sessionId:)``):
+/// asks this app's own acpmux daemon to stop (SIGTERM) so the pane's next handshake starts a new
+/// one, which adopts the agent hosts and loads every session from disk. A person decides it, never
+/// a timer (rule R5): a daemon that answers late is not stopped by the app on its own.
+///
+/// SIGTERM only, never SIGKILL. acpmux appends each session's event records with a plain write
+/// (store.rs `append`) and repairs no torn last line when it reopens the log (`open_writer`), so a
+/// SIGKILL in the middle of a write could tear a record, and the next record would be glued onto it
+/// and lost too. On SIGTERM acpmux ends its own way. The waiting lookup ends at that exit (its
+/// connection closes); a daemon that does not exit keeps running, and the person can press again.
 ///
 /// Only a pid that is this home's (`daemon.pid` in the home), runs `acpmux` (or the bundle's `cmux`)
-/// and is the process listening on the home's socket (`LOCAL_PEERPID`) is ever signalled, and
-/// each pid at most once, and at most `perLaunch` times per home in one app launch (a daemon that
-/// wedges again after every start is left for a person). That process is known by its pid and
-/// start time and its audit token (``Daemon``), read before those checks and again after them and
-/// before each signal: a pid the kernel gave to another process meanwhile is never signalled
-/// (``signal(_:_:process:)`` puts a kernel exit watch on the process before that check, and the
-/// signal goes by audit token, so the kernel refuses it once the pid names another process), and
-/// the exit wait is on the process before its SIGTERM, so it never follows the pid to a successor. The
-/// `agent.restartUnresponsiveAcpmux` Debug Settings toggle turns it off: read at each missed status
-/// call (off ends the streak) and again right before the restart is claimed. Answers count with
-/// the toggle off too, so a streak never spans an answer.
-nonisolated final class AcpmuxUnresponsiveWatch: Sendable {
-    static let shared = AcpmuxUnresponsiveWatch(clock: ContinuousClock())
-
+/// and is the process listening on the home's socket (`LOCAL_PEERPID`) is ever signalled. That
+/// process is known by its pid and start time and its audit token (``Daemon``), read before those
+/// checks and again after them and before the signal: a pid the kernel gave to another process
+/// meanwhile is never signalled (``signal(_:_:process:)`` puts a kernel exit watch on the process
+/// before that check, and the signal goes by audit token, so the kernel refuses it once the pid
+/// names another process). This is the identity check of the removed AcpmuxUnresponsiveWatch (#25379).
+nonisolated final class AcpmuxDaemonStop: Sendable {
     /// One process: its pid, its start time (`proc_bsdinfo`) and its audit token (`TASK_AUDIT_TOKEN`).
     /// A pid the kernel gives to another process later has another start time and another pid
     /// version in its token (`val.7`), the one field besides the pid (`val.5`) the kernel checks
@@ -44,142 +40,30 @@ nonisolated final class AcpmuxUnresponsiveWatch: Sendable {
 
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-pane.acpmux")
 
-    let misses: Int
-    let window: Duration
-    /// A miss this long after the previous one starts a new streak.
-    let streakGap: Duration
-    let confirm: Duration
-    let termGrace: Duration
-    /// Restarts per home in this launch.
-    let perLaunch: Int
-    /// The clock's time since this watch was made.
-    private let elapsed: @Sendable () -> Duration
     /// The process `pid` names now, nil when none (``kernelProcess(pid:)``; a stand-in in tests).
     private let process: @Sendable (Int32) -> Daemon?
 
-    private struct Streak {
-        /// Which streak this is: a claim names the one that made it due.
-        var id: UInt64
-        var pid: Int32
-        var count: Int
-        var first: Duration
-        var last: Duration
-    }
-
-    private struct State {
-        var streaks: [String: Streak] = [:]
-        var lastStreak: UInt64 = 0
-        var restarted: Set<String> = []
-        var restartsPerHome: [String: Int] = [:]
-    }
-
-    private let state = Mutex(State())
-
-    init<C: Clock>(clock: C, misses: Int = 3, window: Duration = .seconds(20), streakGap: Duration = .seconds(300),
-                   confirm: Duration = .seconds(5), termGrace: Duration = .seconds(10), perLaunch: Int = 3,
-                   process: @escaping @Sendable (Int32) -> Daemon? = AcpmuxUnresponsiveWatch.kernelProcess(pid:)) where C.Duration == Duration {
-        let start = clock.now
-        elapsed = { start.duration(to: clock.now) }
+    init(process: @escaping @Sendable (Int32) -> Daemon? = AcpmuxDaemonStop.kernelProcess(pid:)) {
         self.process = process
-        self.misses = misses
-        self.window = window
-        self.streakGap = streakGap
-        self.confirm = confirm
-        self.termGrace = termGrace
-        self.perLaunch = perLaunch
     }
 
-    /// `home`'s daemon answered a status call: its streak ends.
-    func answered(home: String) {
-        _ = state.withLock { $0.streaks.removeValue(forKey: home) }
-    }
-
-    /// A status call to daemon `pid` of `home` missed its deadline. The streak's id when this
-    /// miss makes `misses` in a row spanning at least `window`, `pid` was never restarted and
-    /// `home` has restarts left in this launch; nil when not.
-    func miss(home: String, pid: Int32) -> UInt64? {
-        let now = elapsed()
-        return state.withLock { state in
-            var streak: Streak
-            if let current = state.streaks[home], current.pid == pid, now - current.last <= streakGap {
-                streak = current
-            } else {
-                state.lastStreak &+= 1
-                streak = Streak(id: state.lastStreak, pid: pid, count: 0, first: now, last: now)
-            }
-            streak.count += 1
-            streak.last = now
-            state.streaks[home] = streak
-            let due = streak.count >= misses && now - streak.first >= window && !state.restarted.contains("\(home)|\(pid)")
-                && state.restartsPerHome[home, default: 0] < perLaunch
-            return due ? streak.id : nil
-        }
-    }
-
-    /// Whether ``miss(home:pid:)`` made a restart due.
-    func missed(home: String, pid: Int32) -> Bool { miss(home: home, pid: pid) != nil }
-
-    /// Takes `pid`'s one restart and one of `home`'s for this launch; false when `streak`, the one
-    /// that made it due, is no longer `home`'s (the daemon answered meanwhile, even when misses
-    /// after that began another streak, or another caller took it) or `home` has none left. A
-    /// claim that says no leaves `home`'s current streak as it is.
-    func claim(home: String, streak id: UInt64, pid: Int32) -> Bool {
-        state.withLock { state in
-            guard let streak = state.streaks[home], streak.id == id, streak.pid == pid else { return false }
-            state.streaks.removeValue(forKey: home)
-            guard state.restartsPerHome[home, default: 0] < perLaunch, state.restarted.insert("\(home)|\(pid)").inserted else { return false }
-            state.restartsPerHome[home, default: 0] += 1
-            return true
-        }
-    }
-
-    /// Counts a missed status call to `environment`'s daemon and restarts that daemon when it
-    /// is due and `enabled` (the toggle) still says yes right before the claim. With `enabled`
-    /// off the miss ends the streak instead. True when the daemon is gone, so the caller starts a
-    /// new one.
-    @concurrent func restartIfStuck(_ environment: AcpmuxEnvironment, enabled: @Sendable () -> Bool) async -> Bool {
+    /// Asks `environment`'s own daemon to stop for a person who asked. True when SIGTERM went to it
+    /// (the waiting lookup ends at its exit, and the next handshake starts a new one); false when no
+    /// daemon of this home runs or it is not this home's by every check above.
+    @concurrent func restart(_ environment: AcpmuxEnvironment) async -> Bool {
+        guard let daemon = await daemon(environment) else { return false }
+        let pid = daemon.pid
         let home = environment.home.standardizedFileURL.path
-        guard enabled() else {
-            answered(home: home)
-            return false
-        }
-        guard let daemon = await daemon(environment), let streak = miss(home: home, pid: daemon.pid) else { return false }
-        let pid = daemon.pid
-        do {
-            _ = try await AcpmuxStatusClient.status(socketPath: environment.socketPath, deadline: confirm)
-            answered(home: home)
-            return false
-        } catch is AgentPaneDeadlineExceeded {
-            // Still no answer: restart it below.
-        } catch {
-            return false
-        }
-        guard enabled() else {
-            answered(home: home)
-            return false
-        }
-        guard claim(home: home, streak: streak, pid: pid) else { return false }
-        AcpmuxFailureLog(logPath: environment.logPath).record(.unresponsive, detail: "pid \(pid)")
-        Self.logger.error("acpmux \(pid) of home=\(home, privacy: .public) missed \(self.misses + 1, privacy: .public) status calls; restarting it")
-        return await stop(daemon, grace: termGrace)
+        // The cause first, then its effect: the lookup that the exit ends writes its own line.
+        Self.logger.error("acpmux \(pid) of home=\(home, privacy: .public): a person asked to restart it; sending SIGTERM")
+        AcpmuxFailureLog(logPath: environment.logPath).record(.personRestart, detail: "pid \(pid)")
+        return terminate(daemon)
     }
 
-    /// SIGTERM, then SIGKILL when `daemon` outlives `grace`. True once it exited. Each signal goes
-    /// only to the process `daemon` names, checked right before it with the exit watch already on
-    /// that process; a pid that names another process now means `daemon` exited.
-    @concurrent func stop(_ daemon: Daemon, grace: Duration) async -> Bool {
-        let pid = daemon.pid
-        let process = process
-        func send(_ signal: Int32) -> Bool? { Self.signal(daemon, signal, process: process) }
-        var unsent = false
-        let exited = await AgentPaneProcessExit(pid: pid).event(within: grace) {
-            let answer = send(SIGTERM)
-            unsent = answer != nil
-            return answer
-        }
-        if exited || unsent { return exited }
-        Self.logger.error("acpmux \(pid) outlived SIGTERM by \(grace, privacy: .public); sending SIGKILL")
-        return await AgentPaneProcessExit(pid: pid).event(within: .seconds(5)) { send(SIGKILL) }
+    /// SIGTERM to the process `daemon` names, checked right before it with the exit watch already on
+    /// that process. True when sent; false when that process is gone or could not be signalled.
+    func terminate(_ daemon: Daemon) -> Bool {
+        Self.signal(daemon, SIGTERM, process: process) == nil
     }
 
     /// Sends `signal` to `daemon`: nil when sent (wait for the exit), else whether it is gone.
@@ -258,7 +142,7 @@ nonisolated final class AcpmuxUnresponsiveWatch: Sendable {
     /// checks and again after them: nil when the pid named another process meanwhile.
     @concurrent func daemon(_ environment: AcpmuxEnvironment) async -> Daemon? {
         let file = environment.home.appendingPathComponent("daemon.pid")
-        guard let text = try? String(contentsOf: file, encoding: .utf8),
+        guard let text = try? String(blockingContentsOf: file, encoding: .utf8),
               let pid = Int32(text.trimmingCharacters(in: .whitespacesAndNewlines)),
               let before = process(pid), await Self.daemonPID(environment) == pid, process(pid) == before else { return nil }
         return before
@@ -270,7 +154,7 @@ nonisolated final class AcpmuxUnresponsiveWatch: Sendable {
     /// resolves it), and which is the process listening on the home's socket.
     @concurrent static func daemonPID(_ environment: AcpmuxEnvironment) async -> Int32? {
         let file = environment.home.appendingPathComponent("daemon.pid")
-        guard let text = try? String(contentsOf: file, encoding: .utf8),
+        guard let text = try? String(blockingContentsOf: file, encoding: .utf8),
               let pid = Int32(text.trimmingCharacters(in: .whitespacesAndNewlines)),
               pid > 1, pid != getpid(), agentPaneProcessIsRunning(pid),
               let path = AcpmuxVersionHandoff.executablePath(pid: pid),

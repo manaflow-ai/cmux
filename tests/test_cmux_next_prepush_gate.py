@@ -180,6 +180,7 @@ class PrePushGateTests(unittest.TestCase):
             "scripts/ci/test_execution_registry.py",
             "scripts/ci/workload_entrypoints.py",
             "scripts/normalize-pbxproj.py",
+            "scripts/swift_source_mask.py",
             *checks,
         ):
             source, target = SOURCE / relative, self.repo / relative
@@ -467,6 +468,174 @@ class PrePushGateTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, output)
         self.assertIn("a merge", output)
 
+    def long_lived_branch(self, name, debt):
+        """A long-lived integration branch NAME on the remote, three commits ahead of feat-cmux-next (its own merge
+        train), the first carrying a try! in DEBT.swift (pushed past the hook); this clone fetches it."""
+        self.git("checkout", "--quiet", "-b", name, "origin/feat-cmux-next")
+        self.kit(debt, self.with_try(debt))
+        self.commit(f"{name}: debt landed on its own train")
+        for index in range(2):
+            self.kit(f"{debt}Clean{index}", NEW_CLEAN.replace("Fresh", f"{debt}Clean{index}"))
+            self.commit(f"{name}: more of its train")
+        self.git("push", "--quiet", "--no-verify", "origin", name)
+        self.git("fetch", "--quiet", "origin")
+        self.git("checkout", "--quiet", "feat-cmux-next")
+
+    def topic_from(self, start, *flags):
+        """Branch `topic` cut from START (git checkout -b topic FLAGS START) with one commit adding a try!."""
+        self.git("checkout", "--quiet", "-b", "topic", *flags, start)
+        self.kit("Topic", self.with_try("Topic"))
+        self.commit("the branch's own try!")
+
+    def test_a_branch_cut_from_the_perf_integration_branch_is_judged_only_over_its_own_commits(self):
+        # origin/perf/chrome-parity runs far ahead of feat-cmux-next with debt of its own (2026-10-29: one agent's
+        # push was judged over 9,426 perf commits and refused for files it never touched). No upstream is set
+        # (--no-track): the known integration refs bound the walk.
+        self.long_lived_branch("perf/chrome-parity", "PerfDebt")
+        self.topic_from("origin/perf/chrome-parity", "--no-track")
+
+        refused = self.push_ref("topic")
+
+        output = refused.stdout + refused.stderr
+        self.assertNotEqual(refused.returncode, 0, output)
+        self.assertIn("Topic.swift", output, "the branch's own try! is judged")
+        self.assertNotIn("PerfDebt.swift", output, "perf's own debt is not the branch's")
+        self.assertIn(" 1 own commit(s); cut from origin/perf/chrome-parity", output)
+
+        self.git("reset", "--quiet", "--hard", "HEAD~1")
+        self.kit("Topic", NEW_CLEAN.replace("Fresh", "Topic"))
+        self.commit("clean work on perf")
+
+        clean = self.push_ref("topic")
+
+        output = clean.stdout + clean.stderr
+        self.assertEqual(clean.returncode, 0, output)
+        self.assertNotIn("PerfDebt.swift", output)
+
+    def test_a_branch_tracking_any_long_lived_remote_branch_is_judged_over_its_upstream(self):
+        # A long-lived branch no list names: the branch's configured upstream (git worktree add -b topic
+        # origin/release/train sets it) is a fact of where it was cut from.
+        self.long_lived_branch("release/train", "TrainDebt")
+        self.topic_from("origin/release/train", "--track")
+        self.assertEqual(self.git("rev-parse", "--symbolic-full-name", "topic@{upstream}").stdout.strip(),
+                         "refs/remotes/origin/release/train", "control: the branch tracks the train")
+
+        refused = self.push_ref("topic")
+
+        output = refused.stdout + refused.stderr
+        self.assertNotEqual(refused.returncode, 0, output)
+        self.assertIn("Topic.swift", output)
+        self.assertNotIn("TrainDebt.swift", output, "the train's debt is not the branch's")
+        self.assertIn(" 1 own commit(s)", output)
+        self.assertIn("origin/release/train", output, "the report names the upstream that bounds the push")
+
+    def test_a_branch_with_no_known_base_is_still_judged_over_feat_cmux_next(self):
+        # Cut from a remote branch that is neither its upstream nor a known integration ref: no base is found,
+        # so the push is judged over origin/feat-cmux-next as before, never given a free pass.
+        self.long_lived_branch("release/train", "TrainDebt")
+        self.topic_from("origin/release/train", "--no-track")
+
+        refused = self.push_ref("topic")
+
+        output = refused.stdout + refused.stderr
+        self.assertNotEqual(refused.returncode, 0, output)
+        self.assertIn("Topic.swift", output)
+        self.assertIn("TrainDebt.swift", output, "with no known base the train's commits count as the push's")
+        self.assertIn(" 4 own commit(s)", output)
+
+    def test_an_upstream_that_is_a_local_branch_bounds_nothing(self):
+        # A local branch's commits are not on the remote: tracking one (git branch --track) must not hide them.
+        self.git("checkout", "--quiet", "-b", "local-train")
+        self.kit("LocalDebt", self.with_try("LocalDebt"))
+        self.commit("debt that was never pushed")
+        self.topic_from("local-train", "--track")
+        self.assertEqual(self.git("rev-parse", "--symbolic-full-name", "topic@{upstream}").stdout.strip(),
+                         "refs/heads/local-train", "control: the upstream is a local branch")
+
+        refused = self.push_ref("topic")
+
+        output = refused.stdout + refused.stderr
+        self.assertNotEqual(refused.returncode, 0, output)
+        self.assertIn("LocalDebt.swift", output, "an unpushed upstream's commits are the push's own")
+        self.assertIn(" 2 own commit(s)", output)
+
+    def test_an_upstream_on_another_remote_bounds_nothing(self):
+        # A branch cut from a contributor's fork (git checkout -b topic fork/contrib) pushed to origin: the fork's
+        # commits are not on origin, so they are the push's own.
+        fork = self.root / "fork.git"
+        subprocess.run(["git", "init", "--quiet", "--bare", str(fork)], env=self.env, check=True, capture_output=True)
+        self.git("remote", "add", "fork", str(fork))
+        self.git("checkout", "--quiet", "-b", "contrib")
+        self.kit("ForkDebt", self.with_try("ForkDebt"))
+        self.commit("a contributor's debt, never on origin")
+        self.git("push", "--quiet", "--no-verify", "fork", "contrib")
+        self.git("fetch", "--quiet", "fork")
+        self.topic_from("fork/contrib", "--track")
+        self.assertEqual(self.git("rev-parse", "--symbolic-full-name", "topic@{upstream}").stdout.strip(),
+                         "refs/remotes/fork/contrib", "control: the upstream is on another remote")
+
+        refused = self.push_ref("topic")
+
+        output = refused.stdout + refused.stderr
+        self.assertNotEqual(refused.returncode, 0, output)
+        self.assertIn("ForkDebt.swift", output, "another remote's commits are the push's own")
+        self.assertIn(" 2 own commit(s)", output)
+
+    def test_landing_perf_onto_feat_cmux_next_is_judged_over_feat_cmux_next(self):
+        # A push onto the integration branch itself (the perf train landing on feat-cmux-next) is judged over
+        # feat-cmux-next as before: perf's commits are what it lands.
+        self.long_lived_branch("perf/chrome-parity", "PerfDebt")
+        self.git("merge", "--quiet", "--no-ff", "--no-edit", "origin/perf/chrome-parity")
+
+        manual = subprocess.run(["python3", "-I", GATE], cwd=self.repo, env=self.env, text=True, capture_output=True)
+
+        output = manual.stdout + manual.stderr
+        self.assertNotEqual(manual.returncode, 0, output)
+        self.assertIn("PerfDebt.swift", output, "a manual run on feat-cmux-next reads what its push will")
+        self.assertNotIn("cut from", output)
+
+        refused = self.push()
+
+        output = refused.stdout + refused.stderr
+        self.assertNotEqual(refused.returncode, 0, output)
+        self.assertIn("PerfDebt.swift", output, "what perf lands on feat-cmux-next is judged")
+        self.assertNotIn("cut from", output)
+
+    def test_an_ordinary_branch_report_names_no_integration_ref(self):
+        # perf exists in the clone but this branch left feat-cmux-next: the report reads as before.
+        self.long_lived_branch("perf/chrome-parity", "PerfDebt")
+        self.topic_from("origin/feat-cmux-next", "--track")
+
+        refused = self.push_ref("topic")
+
+        output = refused.stdout + refused.stderr
+        self.assertNotEqual(refused.returncode, 0, output)
+        self.assertIn("Topic.swift", output)
+        self.assertIn(" 1 own commit(s)", output)
+        self.assertNotIn("cut from", output)
+        self.assertNotIn("perf/chrome-parity", output)
+
+    def test_a_base_given_on_the_command_line_wins_over_the_branch_s_integration_base(self):
+        self.long_lived_branch("perf/chrome-parity", "PerfDebt")
+        self.topic_from("origin/perf/chrome-parity", "--track")
+        run = lambda *args: subprocess.run(["python3", "-I", GATE, *args], cwd=self.repo,
+                                           env=self.env, text=True, capture_output=True)
+
+        inferred = run()
+
+        output = inferred.stdout + inferred.stderr
+        self.assertNotEqual(inferred.returncode, 0, output)
+        self.assertIn("Topic.swift", output)
+        self.assertNotIn("PerfDebt.swift", output, "with no flag the base is where the branch left perf")
+
+        given = run("--base", "origin/feat-cmux-next")
+
+        output = given.stdout + given.stderr
+        self.assertNotEqual(given.returncode, 0, output)
+        self.assertIn("Topic.swift", output)
+        self.assertIn("PerfDebt.swift", output, "--base A judges exactly what HEAD adds over A")
+        self.assertIn("the base given", output)
+
     def test_install_adds_the_gate_to_the_pre_push_hook(self):
         hooks = Path(self.git("config", "--get", "core.hooksPath").stdout.strip())
         self.assertTrue((hooks / "cmux_next_prepush_gate.py").is_file())
@@ -530,6 +699,25 @@ let package = Package(
         self.commit("declare it")
         declared = self.push()
         self.assertEqual(declared.returncode, 0, declared.stdout + declared.stderr)
+
+    def test_a_direct_gate_run_refuses_an_undeclared_local_import(self):
+        # Review of #28365: the gate's own trees (a direct `prepush-gate.py` run, as agents and CI's "Pushed commits
+        # add no violations" step do) held scripts/cmux-next only, so the checker could not import the Swift source
+        # masker from scripts/, did not run, and the gate passed an undeclared import with a warning.
+        self.write(f"{PKG}/Package.swift", self.DEPS_PACKAGE)
+        self.write(f"{PKG}/Tests/CmuxNextKitTests/KitTests.swift", "import CmuxNextKit\n")
+        self.commit("a test target")
+        self.write(f"{PKG}/Tests/CmuxNextKitTests/AppTests.swift", "import CmuxNextKit\n@testable import CmuxNextApp\n")
+        self.commit("a test that imports the app")
+
+        result = subprocess.run(["python3", "-I", str(self.repo / GATE), "--repo", str(self.repo), "--base", "HEAD~1",
+                                 "--head", "HEAD", "--only", "scanners"],
+                                cwd=self.repo, env=self.env, text=True, capture_output=True)
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertNotIn("Package dependency lists sorted did not run cleanly", output)
+        self.assertIn('Fix: add "CmuxNextApp" to the dependencies of CmuxNextKitTests', output)
 
     def test_push_that_drops_a_dependency_an_unchanged_file_imports_is_refused(self):
         # Review of 6d8b96f: the gate's trees held only the changed files, so a manifest edit that dropped a
@@ -1191,6 +1379,49 @@ let package = Package(
         result = self.push()
 
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+
+
+class SwiftFormatCacheTests(unittest.TestCase):
+    """The gate lints throwaway trees (base and head under a fresh temporary folder per run), and SwiftFormat keys
+    its cache by absolute path, so a persistent cache can never hit: it only grows (335 MB on a busy machine, ~50 s
+    to read and rewrite on every call, even for one file). The lint must keep no cache file and still report."""
+
+    def test_linting_a_throwaway_tree_keeps_no_cache_and_still_reports(self):
+        spec = importlib.util.spec_from_file_location("cmux_next_prepush_gate_sf", SOURCE / GATE)
+        gate = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(gate)
+        with tempfile.TemporaryDirectory() as tmp:
+            tools, tree = Path(tmp) / "tools", Path(tmp) / "head"
+            tools.mkdir()
+            (tree / "Sources").mkdir(parents=True)
+            (tree / "Sources" / "A.swift").write_text("let a = 1 \n")
+            # A stand-in SwiftFormat: like the real one, it writes the cache file it is given (unless `ignore`)
+            # and prints one finding per file.
+            fake = Path(tmp) / "swiftformat"
+            fake.write_text(
+                "#!/usr/bin/env python3\n"
+                "import sys\n"
+                "args = sys.argv[1:]\n"
+                "cache = args[args.index('--cache') + 1] if '--cache' in args else None\n"
+                "if cache != 'ignore':\n"
+                "    open(cache or 'default.cache', 'a').write('entry\\n')\n"
+                "for path in [a for a in args if a.endswith('.swift')]:\n"
+                "    print(f'{path}:1:10: error: (trailingSpace) Remove trailing space at end of a line.', file=sys.stderr)\n"
+                "sys.exit(1)\n")
+            fake.chmod(0o755)
+            saved = os.environ.get("CMUX_LINT_TOOLS_DIR")
+            os.environ["CMUX_LINT_TOOLS_DIR"] = str(tools)
+            try:
+                out = gate.swiftformat(fake, tree / "swiftformat.conf", tree, ["Sources/A.swift"])
+            finally:
+                if saved is None:
+                    os.environ.pop("CMUX_LINT_TOOLS_DIR", None)
+                else:
+                    os.environ["CMUX_LINT_TOOLS_DIR"] = saved
+            self.assertIn("Sources/A.swift:1:10", out)
+            self.assertEqual(sorted(p.name for p in tools.iterdir()), [], "the lint left a cache file in the tools folder")
+            self.assertFalse((tree / "default.cache").exists(), "the lint fell back to a default cache file")
 
 
 if __name__ == "__main__":
