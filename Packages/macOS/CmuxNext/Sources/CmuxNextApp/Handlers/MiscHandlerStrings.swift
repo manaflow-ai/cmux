@@ -62,6 +62,7 @@ enum MiscHandlerStrings {
     static var forkTerminalAgents: String { String(localized: "handlers.misc.failed.forkTerminalAgents", defaultValue: "This terminal's agent cannot fork. Open it as a chat to fork it.", table: "MiscHandlers", bundle: .module) }
     static var noForkTarget: String { String(localized: "handlers.misc.failed.noForkTarget", defaultValue: "Focus an agent chat, or a terminal running an agent, to fork it.", table: "MiscHandlers", bundle: .module) }
     static var gitNeedsAgentChat: String { String(localized: "handlers.misc.failed.gitNeedsAgentChat", defaultValue: "Commit and Push work in agent chats. Focus one first.", table: "MiscHandlers", bundle: .module) }
+    static var nothingReadAloud: String { String(localized: "handlers.misc.failed.nothingReadAloud", defaultValue: "Nothing is being read aloud.", table: "MiscHandlers", bundle: .module) }
     static var noAgentChat: String { String(localized: "handlers.misc.failed.noAgentChat", defaultValue: "Dictation works in agent chats. Focus one first.", table: "MiscHandlers", bundle: .module) }
     static var switchModelNeedsFocus: String { String(localized: "handlers.misc.failed.switchModelNeedsFocus", defaultValue: "Switch Model… opens a menu, so it needs focus.", table: "MiscHandlers", bundle: .module) }
     static var switchModelNeedsAgentChat: String { String(localized: "handlers.misc.failed.switchModelNeedsAgentChat", defaultValue: "Switch Model… works in agent chats. Focus one first.", table: "MiscHandlers", bundle: .module) }

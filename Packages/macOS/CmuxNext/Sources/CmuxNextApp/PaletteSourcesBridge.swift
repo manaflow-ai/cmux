@@ -186,13 +186,13 @@ enum PaletteSourcesBridge {
         }
 
         func renameTab(id: String, to title: String) {
-            guard let (tab, pane) = services.locateTab(id) else { return }
+            guard let (tab, pane) = services.locateTabOnAnyMachine(id) else { return }
             let surface = tab.surface
             services.daemon(for: pane).send("rename-surface") { connection in try await connection.renameTab(surface, to: title) }
         }
 
         func closeTab(id: String) {
-            guard let (_, pane) = services.locateTab(id), let controller = services.paneController(for: pane) else { return }
+            guard let (_, pane) = services.locateTabOnAnyMachine(id), let controller = services.paneController(for: pane) else { return }
             controller.close([StripTabID(id)])
         }
     }

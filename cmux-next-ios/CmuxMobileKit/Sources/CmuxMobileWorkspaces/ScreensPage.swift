@@ -18,7 +18,6 @@ struct ScreensPage: View {
             .navigationTitle("Screens")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar(.visible, for: .navigationBar)
-            .toolbar(.hidden, for: .tabBar)
             .toolbar {
                 if source.canEditTabs {
                     ToolbarItem(placement: .primaryAction) {
@@ -41,6 +40,7 @@ struct ScreensPage: View {
                     .accessibilityIdentifier("screens.rename.field")
                 Button("Cancel", role: .cancel) {}
                 Button("Rename") { Task { await source.renameScreen(screen, to: screenName) } }
+                    .keyboardShortcut(.defaultAction)
             }
             // Close Screen's question when a tab on it is busy (the workspace's own is under this page).
             .alert(source.pendingClose?.title ?? "", isPresented: Binding(

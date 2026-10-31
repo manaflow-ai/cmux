@@ -232,7 +232,7 @@ extension WorkspaceContentController {
     // MARK: Tab drops onto the layout
 
     func drop(_ tabID: LayoutTabID, on target: LayoutDropTarget) {
-        guard let (tab, source) = services.locateTab(tabID.rawValue) else { return }
+        guard let (tab, source) = services.locateTab(tabID.rawValue, onMachine: daemon.machineID) else { return }
         focus.send(.dragEnded(.dropped(tabs: [tab.id], awayFrom: source.id)))
         let restore: @MainActor (Bool) -> Void = { [services] ok in if !ok { services.restoreDetachedTab(tabID.rawValue) } }
         switch target {

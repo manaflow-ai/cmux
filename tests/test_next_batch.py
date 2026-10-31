@@ -626,6 +626,23 @@ class BaseReds(unittest.TestCase):
         controller.gh.gh.return_value = subprocess.CompletedProcess([], 1, "", "not found")
         self.assertEqual(controller.expand_job(nb.CHECKS_JOB, 7), {nb.CHECKS_JOB})
 
+    def test_an_old_gh_without_the_escape_flag_is_asked_again_without_it(self):
+        # gh 2.45 refuses --allow-escape-sequences as an unknown flag and reads nothing (2026-10-30).
+        controller = self.controller()
+        controller.gh.gh.side_effect = [
+            subprocess.CompletedProcess([], 1, "", "unknown flag: --allow-escape-sequences\n\nUsage:  gh api"),
+            subprocess.CompletedProcess([], 0, CHECKS_LOG, "")]
+        self.assertEqual(controller.job_log(7), CHECKS_LOG)
+        self.assertEqual([c.args for c in controller.gh.gh.call_args_list],
+                         [("api", "--allow-escape-sequences", "repos/o/r/actions/jobs/7/logs"),
+                          ("api", "repos/o/r/actions/jobs/7/logs")])
+
+    def test_any_other_log_failure_is_not_retried(self):
+        controller = self.controller()
+        controller.gh.gh.return_value = subprocess.CompletedProcess([], 1, "", "gh: Not Found (HTTP 404)")
+        self.assertIsNone(controller.job_log(7))
+        self.assertEqual(controller.gh.gh.call_count, 1)
+
     def test_the_probes_reds_are_the_inherited_ones(self):
         controller = self.controller()
         controller.base_probe_result = {"failed": {f"{nb.CHECKS_JOB}: Type scale"}}

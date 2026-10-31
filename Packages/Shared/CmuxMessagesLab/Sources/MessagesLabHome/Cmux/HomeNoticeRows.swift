@@ -4,8 +4,8 @@ import AppKit
 /// `HomeTurnProgress`): one caption line, whatever the turn did. The notice keeps its parts one per
 /// text line (the folded steps, the narration, the step running now); they draw side by side as
 /// "Reading › Starting agents · 7s" (a part ending in the "›" needs no dot after it), the parts
-/// before the last quieter. When the column is too
-/// narrow the earlier parts are cut with "…" first, so the step now and its time stay whole.
+/// before the last quieter. When the column is too narrow the earlier parts give way first, whole
+/// parts at a time, so the step now and its time stay whole and no stub ("Ran 3 co…") is drawn.
 ///
 /// User 2026-10-29: "reading/starting agents should be one line": the row no longer grows a row per
 /// part, so it keeps upstream's 16 pt as steps finish and thoughts arrive.
@@ -45,17 +45,37 @@ enum HomeNoticeRows {
         return lead.map { joined([$0, last]) } ?? last
     }
 
-    /// The parts as drawn in `maxWidth`: the last whole while it fits, the lead cut with "…" into the
-    /// room left (dropped when not even one character fits), the last cut only when it alone is too wide.
+    /// The parts as drawn in `maxWidth`: the last whole while it fits; the lead whole, else its longest
+    /// head of whole parts that fits ("Ran 3 commands…", or the fold "… files ›" with no "…" after its
+    /// chevron), else dropped: never a stub cut mid-word ("Ran 3 co…"). The last is cut only when it
+    /// alone is too wide.
     static func fittedParts(_ notice: String, font: NSFont, maxWidth: CGFloat) -> (lead: String?, last: String) {
         let (lead, last) = parts(notice)
         guard maxWidth > 0, let lead else { return (lead, fitted(last, font: font, maxWidth: maxWidth)) }
-        // A cut lead ends in "…", so the dot follows it.
-        let room = maxWidth - TextDraw.width(last, font: font) - TextDraw.width(separator, font: font)
-        guard room > 0 else { return (nil, fitted(last, font: font, maxWidth: maxWidth)) }
-        let cut = fitted(lead, font: font, maxWidth: room)
-        guard cut != "…", TextDraw.width(cut, font: font) <= room else { return (nil, last) }
-        return (cut, last)
+        let lastWidth = TextDraw.width(last, font: font)
+        guard lastWidth <= maxWidth else { return (nil, fitted(last, font: font, maxWidth: maxWidth)) }
+        let fits = { (head: String) in
+            TextDraw.width(head + gap(after: head), font: font) + lastWidth <= maxWidth
+        }
+        return (leadHeads(notice).last(where: fits), last)
+    }
+
+    /// The lead's heads as it may be drawn, shortest first: each whole part ("Ran 3 commands") of each
+    /// row in turn, ending in "…" unless it ends at the fold's "›" or is the whole lead.
+    static func leadHeads(_ notice: String) -> [String] {
+        let rows = lines(notice).dropLast()
+        var heads: [String] = []
+        var done: [String] = []
+        for (index, row) in rows.enumerated() {
+            let pieces = row.components(separatedBy: separator)
+            for count in 1...pieces.count {
+                let head = joined(done + [pieces.prefix(count).joined(separator: separator)])
+                let whole = index == rows.count - 1 && count == pieces.count
+                heads.append(whole || head.hasSuffix("›") ? head : head + "…")
+            }
+            done.append(row)
+        }
+        return heads
     }
 
     /// Draws `notice` from `x` with its baseline at `baseline`, cut to `maxWidth`.
