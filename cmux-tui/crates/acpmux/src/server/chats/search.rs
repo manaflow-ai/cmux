@@ -7,7 +7,10 @@
 //!
 //! Each chat's turns are read now from its harness's store, never kept or indexed. The scan stops
 //! at `limit` hits (default 50, at most 200) or after `budgetMs` (default 2000, 50 to 10000), so
-//! one search never runs unbounded on a large history: `partial` says the time ran out, and
+//! one search never runs unbounded on a large history. The budget is checked between chats, and
+//! one chat's read is itself bounded (the newest 64 MiB of a JSONL store, 8 MiB of a JSON one, the
+//! newest 2000 rows of a SQLite one), so a search ends at most one chat's read past it: `partial`
+//! says the time ran out, and
 //! `nextCursor` (null when every chat was read) goes on from the last chat read. A chat whose
 //! store cannot be read is skipped and counted in `unreadable`.
 //!

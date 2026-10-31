@@ -25,7 +25,7 @@ impl Needle {
             return Err(format!("query is longer than {MAX_QUERY} characters"));
         }
         let mut words: Vec<String> = Vec::new();
-        for word in query.split_whitespace().map(str::to_lowercase) {
+        for word in query.split_whitespace().map(fold) {
             if !words.contains(&word) {
                 words.push(word);
             }
@@ -47,6 +47,12 @@ impl Needle {
         }
         first
     }
+}
+
+/// `word` lowercased one character at a time, as [`Folded`] lowers the text it is looked for in
+/// (`str::to_lowercase` lowers a final sigma differently, so `ΟΣ` would never find `ΟΣ`).
+fn fold(word: &str) -> String {
+    word.chars().flat_map(char::to_lowercase).collect()
 }
 
 /// `text` lowercased, with the character index in `text` of each of its bytes, since lowercasing
@@ -163,6 +169,13 @@ mod tests {
         let turns = [turn("deploy it", "deployed"), turn("deploy again", "no")];
         let hit = find(&Needle::parse("deploy").expect("words"), &turns).expect("hit");
         assert_eq!((hit.turn, hit.role, hit.matches), (1, "prompt", 3));
+    }
+
+    #[test]
+    fn a_word_is_lowered_as_the_text_is() {
+        // A final capital sigma: `str::to_lowercase` gives `ς` in a word's last place, `σ` alone.
+        let hit = find(&Needle::parse("ΟΣ").expect("words"), &[turn("ΟΣ", "")]).expect("hit");
+        assert_eq!(hit.snippet, "ΟΣ");
     }
 
     #[test]

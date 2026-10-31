@@ -243,7 +243,7 @@ pub(crate) async fn run(cmd: ChatsCmd, json_out: bool) -> Result<()> {
         ChatsCmd::Search { words, harness, folder, limit } => {
             let mut params = list_params(harness.as_deref(), folder.as_deref(), None, None, limit);
             params.set("query", json!(words.join(" ")));
-            let found = client.request("_acpmux/chats_search", params).await?;
+            let found = search_all(&client, params, limit).await?;
             if json_out {
                 print_json(&found);
             } else {
@@ -330,6 +330,37 @@ pub fn list_text(page: &Value, now_ms: i64) -> String {
     out
 }
 
+/// `_acpmux/chats_search` page after page (each answer is bounded in time), until `limit` chats
+/// are found or every chat was searched: one answer with every page's hits.
+async fn search_all(client: &Client, mut params: Value, limit: usize) -> Result<Value> {
+    let limit = limit.max(1);
+    let mut hits: Vec<Value> = Vec::new();
+    let mut unreadable = 0;
+    loop {
+        params.set("limit", json!(limit - hits.len()));
+        let mut page = client.request("_acpmux/chats_search", params.clone()).await?;
+        let next = page.get("nextCursor").and_then(Value::as_str).map(str::to_owned);
+        if let Some(Value::Array(found)) = page.get_mut("hits").map(Value::take) {
+            hits.extend(found);
+        }
+        unreadable += page.get("unreadable").and_then(Value::as_u64).unwrap_or(0);
+        let done = page.get("ready").and_then(Value::as_bool) != Some(true)
+            || page.get("enabled").and_then(Value::as_bool) == Some(false);
+        match next {
+            Some(cursor) if !done && hits.len() < limit => {
+                params.set("cursor", json!(cursor));
+            }
+            next => {
+                page.set("hits", Value::Array(hits));
+                page.set("unreadable", json!(unreadable));
+                page.set("nextCursor", json!(next));
+                page.set("partial", json!(false));
+                return Ok(page);
+            }
+        }
+    }
+}
+
 /// The `search` text: each chat's key and title, then its newest matching message's snippet.
 pub fn search_text(found: &Value) -> String {
     let mut out = String::new();
@@ -361,12 +392,7 @@ pub fn search_text(found: &Value) -> String {
         out.push_str(&format!("({unreadable} chats could not be read)\n"));
     }
     if found.get("nextCursor").and_then(Value::as_str).is_some() {
-        let why = if found.get("partial").and_then(Value::as_bool) == Some(true) {
-            "stopped at the time limit"
-        } else {
-            "raise --limit"
-        };
-        out.push_str(&format!("(more chats not searched: {why})\n"));
+        out.push_str(&format!("(the first {} found; raise --limit for more)\n", hits.len()));
     }
     out
 }
@@ -460,7 +486,7 @@ mod tests {
 
     #[test]
     fn search_text_prints_each_chat_with_its_snippet_and_what_was_left_out() {
-        let found = json!({"ready": true, "enabled": true, "partial": true, "unreadable": 1,
+        let found = json!({"ready": true, "enabled": true, "unreadable": 1,
             "nextCursor": "k1.2", "hits": [
             {"chat": {"key": "codex:a", "title": "Bump\nit"}, "role": "answer", "snippet": "…to 1.2…"},
             {"chat": {"key": "claude-code:b", "title": null}, "role": "prompt", "snippet": "bump"},
@@ -468,7 +494,7 @@ mod tests {
         assert_eq!(
             search_text(&found),
             "codex:a  Bump it\n    answer: …to 1.2…\nclaude-code:b  (untitled)\n    prompt: bump\n\
-             (1 chats could not be read)\n(more chats not searched: stopped at the time limit)\n"
+             (1 chats could not be read)\n(the first 2 found; raise --limit for more)\n"
         );
         let none = json!({"ready": true, "enabled": true, "hits": [], "nextCursor": null});
         assert_eq!(search_text(&none), "no chat says that\n");
