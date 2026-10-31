@@ -877,16 +877,6 @@ impl Store for FileStore {
 
 /// The store of a pack in this Chief home on this machine.
 pub fn store(home: &Path, pack: &Pack) -> Box<dyn Store> {
-    // Debug builds only: with `OPTCHAT_CHIEF_TEST_FILE_SECRETS` set, the file store, so a test
-    // on macOS reads the secret it wrote and never the host's login keychain (cx-71g32y,
-    // tests/toolpack_mcp.rs). A release build has no seam: on macOS it reads the keychain.
-    #[cfg(debug_assertions)]
-    if std::env::var_os("OPTCHAT_CHIEF_TEST_FILE_SECRETS").is_some() {
-        return Box::new(FileStore {
-            path: secret_file(home, &pack.name),
-            pack: pack.clone(),
-        });
-    }
     if cfg!(target_os = "macos") && Path::new("/usr/bin/security").exists() {
         Box::new(Keychain {
             account: crate::paths::home_id(home),
