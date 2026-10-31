@@ -13,7 +13,7 @@ struct AppWebPaneUpdateTests {
         let oldRoot = bundle.appendingPathComponent("web")
         let newRoot = bundle.appendingPathComponent("ui")
         try writePage(root: oldRoot, entry: "index.html", version: "one")
-        let first = try record(bundle: bundle, root: "web", entry: "index.html", version: "1.0.0")
+        let first = try record(bundle: bundle, root: "web", entry: "index.html", version: "1.0.0", csp: "img-src 'self'")
         let transport = UpdatingPaneTransport(record: first)
         let client = AppsClient(transport: transport)
         client.start()
@@ -50,10 +50,10 @@ struct AppWebPaneUpdateTests {
         try "console.info('ready \(version)');".write(to: root.appendingPathComponent("app.js"), atomically: true, encoding: .utf8)
     }
 
-    private func record(bundle: URL, root: String, entry: String, version: String) throws -> AppRecord {
+    private func record(bundle: URL, root: String, entry: String, version: String, csp: String = "img-src 'none'") throws -> AppRecord {
         let manifest = try #require(AppManifest(json: [
             "manifestVersion": 2, "id": "local/board", "name": "Board", "version": .string(version),
-            "runtime": ["web": ["root": .string(root + "/"), "csp": "img-src 'none'"]],
+            "runtime": ["web": ["root": .string(root + "/"), "csp": .string(csp)]],
             "implements": ["cmux.pane/1": ["web": .string(root + "/" + entry), "title": "Board"]],
         ]))
         var record = AppRecord(manifest: manifest, tier: .unverified, installed: true, source: .registry)
