@@ -13,22 +13,30 @@ import Testing
         var density: SidebarDensity
         var minimal: SidebarMinimalMode
         var scenario: SidebarNestedFixture.Scenario
-        var testDescription: String { "\(density.rawValue)/minimal-\(minimal.rawValue)/\(scenario.rawValue)" }
+        /// `sidebar.textSize` (Lawrence msg 17752): the rail holds at every text size too.
+        var textSize: SidebarTextSize = .standard
+        var testDescription: String { "\(density.rawValue)/minimal-\(minimal.rawValue)/\(scenario.rawValue)/text-\(textSize.rawValue)" }
     }
 
-    nonisolated static let cases: [Case] = SidebarDensity.allCases.flatMap { density in
-        [SidebarMinimalMode.off, .both].flatMap { minimal in
-            [SidebarNestedFixture.Scenario.after, .deep, .narrow].map { Case(density: density, minimal: minimal, scenario: $0) }
+    nonisolated static let cases: [Case] = SidebarTextSize.allCases.flatMap { textSize in
+        SidebarDensity.allCases.flatMap { density in
+            [SidebarMinimalMode.off, .both].flatMap { minimal in
+                [SidebarNestedFixture.Scenario.after, .deep, .narrow].map {
+                    Case(density: density, minimal: minimal, scenario: $0, textSize: textSize)
+                }
+            }
         }
     }
 
-    /// Runs `body` with the shared sidebar density and Minimal Mode set, then puts them back.
-    static func with(_ density: SidebarDensity, _ minimal: SidebarMinimalMode, _ body: () throws -> Void) rethrows {
+    /// Runs `body` with the shared sidebar density, Minimal Mode and text size set, then puts them back.
+    static func with(_ density: SidebarDensity, _ minimal: SidebarMinimalMode, textSize: SidebarTextSize = .standard,
+                     _ body: () throws -> Void) rethrows {
         let design = DesignSettings.shared
         let saved = design.sidebarSections
         defer { design.sidebarSections = saved }
         design.sidebarSections.density = density
         design.sidebarSections.minimalMode = minimal
+        design.sidebarSections.textSize = textSize
         try body()
     }
 
@@ -53,7 +61,7 @@ import Testing
     /// Each drawn rail's left edge against its header bar's left edge, in list points, for every open group.
     @Test(arguments: cases)
     func theRailStartsAtTheHeaderBarsLeftEdge(_ c: Case) throws {
-        try Self.with(c.density, c.minimal) {
+        try Self.with(c.density, c.minimal, textSize: c.textSize) {
             let fixture = SidebarNestedFixture(scenario: c.scenario)
             let (list, window) = Self.list(fixture)
             defer { window.close() }

@@ -17,12 +17,20 @@ import Testing
         var density: SidebarDensity
         var minimal: SidebarMinimalMode
         var width: CGFloat
-        var testDescription: String { "\(density.rawValue)/minimal-\(minimal.rawValue)/\(Int(width))pt" }
+        /// `sidebar.textSize` (Lawrence msg 17752): the contract holds at Large and Larger too.
+        var textSize: SidebarTextSize = .standard
+        var testDescription: String { "\(density.rawValue)/minimal-\(minimal.rawValue)/\(Int(width))pt/text-\(textSize.rawValue)" }
     }
 
-    nonisolated static let cases: [Case] = SidebarDensity.allCases.flatMap { density in
-        [SidebarMinimalMode.off, .both].flatMap { minimal in [200, 260, 360].map { Case(density: density, minimal: minimal, width: $0) } }
-    }
+    /// Every density, Minimal Mode and width at every text size, plus the narrowest sidebar (about 181 pt,
+    /// `SidebarModel.minimumWidth` since a875) at Larger.
+    nonisolated static let cases: [Case] = SidebarTextSize.allCases.flatMap { textSize in
+        SidebarDensity.allCases.flatMap { density in
+            [SidebarMinimalMode.off, .both].flatMap { minimal in
+                [200, 260, 360].map { Case(density: density, minimal: minimal, width: $0, textSize: textSize) }
+            }
+        }
+    } + SidebarDensity.allCases.map { Case(density: $0, minimal: .off, width: 181, textSize: .larger) }
 
     static let loose = WorkspaceID("c-loose"), icon = WorkspaceID("c-icon"), member = WorkspaceID("c-member")
     static let nested = WorkspaceID("c-nested"), group = GroupID("c-group"), sub = GroupID("c-sub")
@@ -68,7 +76,7 @@ import Testing
     /// starts its title at the row's inset; a top-level group's member at the same x as an ungrouped row (#23975).
     @Test(arguments: cases)
     func titlesStartAsFarLeftAsTheRowAllows(_ c: Case) throws {
-        try SidebarGroupRailAlignmentTests.with(c.density, c.minimal) {
+        try SidebarGroupRailAlignmentTests.with(c.density, c.minimal, textSize: c.textSize) {
             let (list, window) = Self.list(width: c.width)
             defer { window.close() }
             let loose = try Self.row(list, Self.loose), member = try Self.row(list, Self.member)
@@ -86,7 +94,7 @@ import Testing
     /// A nested group's rows step in by exactly one indent step per level, and its text keeps the inset inside its row.
     @Test(arguments: cases)
     func aNestedMemberStepsInOneIndent(_ c: Case) throws {
-        try SidebarGroupRailAlignmentTests.with(c.density, c.minimal) {
+        try SidebarGroupRailAlignmentTests.with(c.density, c.minimal, textSize: c.textSize) {
             let (list, window) = Self.list(width: c.width)
             defer { window.close() }
             let nested = Self.textX(list, try Self.row(list, Self.nested)), member = Self.textX(list, try Self.row(list, Self.member))
@@ -97,7 +105,7 @@ import Testing
     /// Leo 2026-10-21 (#23783, kept by the owner): rows run to the list's inset on the right, every kind alike.
     @Test(arguments: cases)
     func rowsEndAtTheListsInset(_ c: Case) throws {
-        try SidebarGroupRailAlignmentTests.with(c.density, c.minimal) {
+        try SidebarGroupRailAlignmentTests.with(c.density, c.minimal, textSize: c.textSize) {
             let (list, window) = Self.list(width: c.width)
             defer { window.close() }
             let end = list.bounds.width - list.inset - SidebarStyle.rowTrailingTrim
