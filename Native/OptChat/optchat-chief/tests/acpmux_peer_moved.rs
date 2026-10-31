@@ -219,16 +219,23 @@ fn moved_peer_the_kernel_signature_of_a_peer_whose_executable_is_gone_is_read_an
     let running = code_signature::running_peer(&stream).unwrap();
     assert_eq!(running.flags & 0x3, 0x1, "valid and not ad hoc");
     // Apple signs clang with its own leaf (OU "Apple Software"), not a team
-    // OU: the CMS chain to Apple Root CA verifies, and the OU rule refuses.
+    // OU, and with no secure timestamp or signing time. While that leaf is
+    // valid the chain to Apple Root CA verifies and the OU rule refuses; once
+    // it has expired (Xcode 26.6's did, 2026-10-24) there is no time to check
+    // the chain at, and the chain rule refuses. Either is a signature rule.
     let apple = Signer {
         team: "59GAB85EFG".into(),
         identifier: "com.apple.clang".into(),
     };
+    let refused_by_a_signature_rule = |err: &str| {
+        err.contains("signing certificate's team (OU)")
+            || err.contains("certificate chain does not verify as of now, and the signature has no secure timestamp or signing time")
+    };
     let err = code_signature::verify(&running, &apple).unwrap_err();
-    assert!(err.contains("signing certificate's team (OU)"), "{err}");
+    assert!(refused_by_a_signature_rule(&err), "{err}");
 
-    // The whole peer check reaches the signature rule instead of stopping at
+    // The whole peer check reaches the signature rules instead of stopping at
     // the unknown executable, and still refuses this peer.
-    let err = optchat_chief::acpmux_peer::check(&stream, Some(&clang)).unwrap_err();
-    assert!(err.contains("signing certificate's team (OU)"), "{err}");
+    let whole = optchat_chief::acpmux_peer::check(&stream, Some(&clang)).unwrap_err();
+    assert!(refused_by_a_signature_rule(&whole), "{whole}");
 }
