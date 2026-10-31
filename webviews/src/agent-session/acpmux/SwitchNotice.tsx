@@ -27,14 +27,16 @@ export function SwitchNotice({
         <p className="acpmux-host-error-message">
           {t("switch.failed", { agent: switching.name, reason: switching.error ?? t("switch.unknownError") })}
         </p>
-        {action && onAction && (
-          <button type="button" onClick={() => onAction(action)}>
-            {t(action === "newCloudMachine" ? "switch.action.newCloudMachine" : "switch.action.chooseFolder")}
+        <div className="acpmux-host-error-actions">
+          {action && onAction && (
+            <button type="button" onClick={() => onAction(action)}>
+              {t(action === "newCloudMachine" ? "switch.action.newCloudMachine" : "switch.action.chooseFolder")}
+            </button>
+          )}
+          <button type="button" data-secondary={action && onAction ? "" : undefined} onClick={onRetry}>
+            {t("switch.retry")}
           </button>
-        )}
-        <button type="button" onClick={onRetry}>
-          {t("switch.retry")}
-        </button>
+        </div>
       </div>
     </div>
   );
