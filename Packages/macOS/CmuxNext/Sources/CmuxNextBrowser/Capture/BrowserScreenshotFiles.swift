@@ -1,3 +1,4 @@
+public import CmuxNextCompat
 public import CoreGraphics
 public import Foundation
 import ImageIO
@@ -6,12 +7,12 @@ import UniformTypeIdentifiers
 /// Encodes and stores browser captures off the main actor, with bounded retention.
 public nonisolated struct BrowserScreenshotFiles: Sendable {
     private let directory: URL
-    private let manager: FileManager
+    private let manager: CheckedFileManager
     private let keeping: Int
     private let lifetime: TimeInterval
 
     /// The caller chooses the output directory and file manager; defaults preserve capture retention.
-    public init(directory: URL, manager: FileManager = .default, keeping: Int = 32, lifetime: TimeInterval = 3600) {
+    public init(directory: URL, manager: CheckedFileManager = CheckedFileManager(), keeping: Int = 32, lifetime: TimeInterval = 3600) {
         self.directory = directory
         self.manager = manager
         self.keeping = keeping
