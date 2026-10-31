@@ -223,9 +223,10 @@ final class LinkOpener {
     /// A file of `machine` (#25581, a Cloud workspace's path): its page, read from that machine,
     /// placed as ``openFile(_:from:markdown:asText:at:)`` places a file of this Mac.
     @discardableResult
-    func openFile(_ file: URL, on machine: DaemonService, from source: PaneController?, at position: FilePosition? = nil) -> Bool {
-        open(from: source) { pane, placed in
-            pane.services.viewers.openFile(file, on: machine, in: pane, at: position, placed: placed)
+    func openFile(_ file: URL, on machine: DaemonService, from source: PaneController?, asText: Bool = false, at position: FilePosition? = nil) -> Bool {
+        guard !machine.isLocal else { return openFile(file, from: source, asText: asText, at: position) }
+        return open(from: source) { pane, placed in
+            pane.services.viewers.openFile(file, on: machine, in: pane, asText: asText, at: position, placed: placed)
         }
     }
 

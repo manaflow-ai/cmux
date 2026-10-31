@@ -53,10 +53,10 @@ final class ViewerService {
 
     /// An explicit file action in a machine's pane. Returns its refusal to the action caller;
     /// the remote path is never resolved or opened on this Mac.
-    func openFile(_ file: URL, on machine: DaemonService, in pane: PaneController?, userChose: Bool) -> String? {
-        guard !machine.isLocal else { return openFile(file, in: pane, userChose: userChose) }
+    func openFile(_ file: URL, on machine: DaemonService, in pane: PaneController?, userChose: Bool, asText: Bool = false) -> String? {
+        guard !machine.isLocal else { return openFile(file, in: pane, userChose: userChose, asText: asText) }
         guard let opener = fileOpener as? FilePageOpener else { return FilePageStrings.notAFile }
-        return opener.open(file, on: machine, in: pane, userChose: userChose)
+        return opener.open(file, on: machine, in: pane, userChose: userChose, asText: asText)
     }
 
     /// A local Markdown file a new browser tab would show as text opens the markdown page instead
@@ -147,14 +147,14 @@ final class ViewerService {
     }
 
     /// Opens `file` of `machine` (#25581: a path a Cloud workspace's terminal or diff named) in
-    /// its page, read from that machine (``FilePageOpener/open(_:on:in:userChose:at:placed:)``),
+    /// its page, read from that machine (``FilePageOpener/open(_:on:in:userChose:asText:at:placed:)``),
     /// placed as ``openFile(_:in:markdown:asText:at:placed:)`` places it. False when it did not
     /// open (the refusal shows). The recents are this Mac's files, so it records none.
     @discardableResult
-    func openFile(_ file: URL, on machine: DaemonService, in pane: PaneController?, at position: FilePosition? = nil,
+    func openFile(_ file: URL, on machine: DaemonService, in pane: PaneController?, asText: Bool = false, at position: FilePosition? = nil,
                   placed: (@MainActor (SurfaceID) -> Void)? = nil) -> Bool {
         guard let opener = fileOpener as? FilePageOpener else { return false }
-        if let reason = opener.open(file, on: machine, in: pane, userChose: true, at: position, placed: placed) {
+        if let reason = opener.open(file, on: machine, in: pane, userChose: true, asText: asText, at: position, placed: placed) {
             showRefusal(reason)
             return false
         }

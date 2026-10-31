@@ -478,11 +478,13 @@ enum AgentHandlers {
         // A path named in a Cloud pane belongs to that machine, including an absolute path
         // that also exists here. Refuse local editor apps before resolving anything on this Mac.
         guard let pane = context.paneController(invocation) else { return }
+        // Open as Text applies on the file's machine, including Cloud Markdown.
+        let asText = invocation["asText"]?.boolValue ?? (invocation["asText"]?.stringValue == "true")
         if !pane.daemon.isLocal {
             guard path.hasPrefix("/"), !path.contains("\u{0}") else { throw ActionFailure(message: MiscHandlerStrings.pathNotAbsolute(path)) }
             let url = URL(fileURLWithPath: path)
             guard target == .tab else { throw ActionFailure(message: FilePageStrings.remotePreview(url.lastPathComponent)) }
-            if let reason = context.services.viewers.openFile(url, on: pane.daemon, in: pane, userChose: invocation.origin == .user) {
+            if let reason = context.services.viewers.openFile(url, on: pane.daemon, in: pane, userChose: invocation.origin == .user, asText: asText) {
                 throw ActionFailure(message: reason)
             }
             return
@@ -496,8 +498,6 @@ enum AgentHandlers {
             if let session = invocation.callerAgentSession, let chat = context.services.agentTabs.tab(showing: session) {
                 context.services.chatQuoteOpeners.noteOpened(url, byAgentTab: chat)
             }
-            // `asText` (`cmux open --as-text`, MCP, u18462): HTML, SVG or Markdown opens as its source, as Open as Text does.
-            let asText = invocation["asText"]?.boolValue ?? (invocation["asText"]?.stringValue == "true")
             if let reason = context.services.viewers.openFile(url, in: pane, userChose: invocation.origin == .user, asText: asText) { throw ActionFailure(message: reason) }
             return
         }

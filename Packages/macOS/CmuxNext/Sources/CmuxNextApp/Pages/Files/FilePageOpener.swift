@@ -101,19 +101,19 @@ final class FilePageOpener: FileOpening {
     /// watching the file on that machine through its daemon. This Mac never renders, previews or
     /// reads another machine's file, so a web page shows its source and an image or PDF does not
     /// open. The local daemon opens through ``open(_:in:userChose:asText:at:placed:)``.
-    func open(_ file: URL, on machine: DaemonService, in pane: PaneController?, userChose: Bool, at position: FilePosition? = nil,
+    func open(_ file: URL, on machine: DaemonService, in pane: PaneController?, userChose: Bool, asText: Bool = false, at position: FilePosition? = nil,
               placed: (@MainActor (SurfaceID) -> Void)? = nil) -> String? {
-        guard !machine.isLocal else { return open(file, in: pane, userChose: userChose, at: position, placed: placed) }
+        guard !machine.isLocal else { return open(file, in: pane, userChose: userChose, asText: asText, at: position, placed: placed) }
         guard file.path.hasPrefix("/"), !file.path.contains("\u{0}") else { return FilePageStrings.notAFile }
         guard let pane = pane ?? services.windows.active?.focusedPane else { return FilePageStrings.noPane }
         let url = file.standardizedFileURL
-        switch Self.kind(for: url) {
-        case .markdown?:
+        switch Self.route(for: url, userChose: userChose, asText: asText) {
+        case .markdown:
             services.viewers.markdownPages.open(url, in: pane, focus: placed == nil, userChose: userChose, on: machine, placed: placed)
-        case .editor?:
+        case .editor, .renderedPage:
             services.viewers.editorPages.open(url, in: pane, focus: placed == nil, userChose: userChose, at: position, on: machine,
                                               placed: placed)
-        case nil:
+        case .preview:
             return FilePageStrings.remotePreview(url.lastPathComponent)
         }
         return nil

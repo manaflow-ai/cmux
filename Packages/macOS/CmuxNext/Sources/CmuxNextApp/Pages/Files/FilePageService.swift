@@ -133,6 +133,12 @@ final class FilePageService: InternalPageProvider {
     /// The file tab `key` shows, nil for the empty state or another tab.
     func file(_ key: String) -> URL? { tabs[key]?.provider?.file ?? tabs[key]?.file }
 
+    /// The file's origin, independent of its containing pane. A removed machine never falls back locally.
+    func location(_ key: String) -> (file: URL, machine: DaemonService)? {
+        guard let file = file(key), let id = tabs[key]?.machine, let machine = services.machines.anyDaemon(machine: id) else { return nil }
+        return (file, machine)
+    }
+
     /// A file that this Mac's Finder and external apps may open. Remote paths are never local URLs.
     func localFile(_ key: String) -> URL? {
         guard tabs[key]?.files.isLocal == true else { return nil }
