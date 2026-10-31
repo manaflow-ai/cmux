@@ -1840,10 +1840,9 @@ export function NewTabScreen(props: Props) {
                     aria-selected={index === current}
                     data-type={row.type}
                     className={index === current ? "nt-row is-selected" : "nt-row"}
-                    onMouseMove={() => {
-                      if (index === current) return;
-                      pick(index);
-                    }}
+                    // The pointer only lights the row (screen.css :hover); it never moves the
+                    // selection, so Return stays the prompt's, or the row the arrows picked (Leo
+                    // 2026-10-31: "i cant even press enter on that hello anymore").
                     onMouseDown={(event) => {
                       event.preventDefault();
                       activate(row);
@@ -1880,10 +1879,6 @@ export function NewTabScreen(props: Props) {
                         aria-selected={index === current}
                         data-type={row.type}
                         className={index === current ? "nt-create-strip-item is-selected" : "nt-create-strip-item"}
-                        onMouseMove={() => {
-                          if (index === current) return;
-                          pick(index);
-                        }}
                         onMouseDown={(event) => {
                           event.preventDefault();
                           activate(row);

@@ -799,7 +799,7 @@ export function NewTabPage({
                 tabIndex={-1}
                 aria-selected={index === selected}
                 className={index === selected ? "acpmux-omni-row is-selected" : "acpmux-omni-row"}
-                onMouseMove={() => index !== selected && setSelected(index)}
+                // The pointer only lights the row (styles.css :hover); Return stays the selection's.
                 onMouseDown={(event) => {
                   event.preventDefault();
                   activate(row);
