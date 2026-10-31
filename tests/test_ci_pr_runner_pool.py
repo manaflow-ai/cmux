@@ -3311,6 +3311,12 @@ class IOSRouting(unittest.TestCase):
         self.assertEqual(picker.get("name", "runner"), ios_pool.PICKER_JOB)
         steps = picker["steps"]
         pick = next(step for step in steps if step.get("id") == "pool")
+        self.assertEqual(pick["env"]["ROUTE_TOKEN"], BOTH_TOKENS)
+        for mint_id in ("route-token", "route-token-repo"):
+            mint = next(step for step in steps if step.get("id") == mint_id)
+            self.assertEqual(mint["with"]["permission-actions"], "read")
+            self.assertTrue(all(value == "read" for key, value in mint["with"].items()
+                                if key.startswith("permission-")))
         self.assertIn("--queue-rounds 0", pick["run"])
         uploads = [step for step in steps if "upload-artifact@" in step.get("uses", "")]
         self.assertEqual(len(uploads), 3)
