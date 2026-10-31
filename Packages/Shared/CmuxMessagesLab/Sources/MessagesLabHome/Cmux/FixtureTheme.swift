@@ -9,8 +9,8 @@ import CmuxHomeRender
 /// MessagesLab 806ef0c); this maps its roles onto the Fixture names the
 /// vendored drawing reads.
 /// Geometry, fonts and motion stay MessagesLab's.
-struct FixtureTheme: Equatable {
-    struct Colors: Equatable {
+struct FixtureTheme: Equatable, Sendable {
+    struct Colors: Equatable, Sendable {
         let palette: HomePalette
         let background: NSColor
         let incoming: NSColor
@@ -24,8 +24,18 @@ struct FixtureTheme: Equatable {
         let secondaryText: NSColor
         /// (2x px window y, colour), over the gradient's 1041 pt.
         let gradientStops: [(CGFloat, NSColor)]
-        /// nil when Core Graphics refuses the stops (bubbles then draw no gradient).
-        let outgoingGradient: CGGradient?
+        /// The sent bubble's gradient colours (sRGB CGColors, made once here) and their locations (0...1): the
+        /// palette's stops, else its caret alone.
+        private let outgoingColors: [CGColor]
+        private let outgoingLocations: [CGFloat]
+        /// The sent bubble's gradient, made from the ready ``outgoingColors`` when a bubble draws (row and tile renders,
+        /// which cache their bitmaps): a CGGradient is not Sendable (a CGColor is), so the theme keeps the colours, not
+        /// the gradient, and stays a checked Sendable value. nil when Core Graphics refuses the stops (bubbles then
+        /// draw no gradient).
+        var outgoingGradient: CGGradient? {
+            CGGradient(colorsSpace: CGColorSpace(name: CGColorSpace.sRGB), colors: outgoingColors as CFArray,
+                       locations: outgoingLocations)
+        }
         /// A light theme (background luminance above one half). MessagesLab
         /// measured a dark window only: on a dark theme the field and typing
         /// colours below keep its measured values; a light theme takes the
@@ -57,9 +67,8 @@ struct FixtureTheme: Equatable {
             let span = Fixture.gradientHeight * 2
             let stops = p.outgoingGradient.isEmpty ? [HomePalette.GradientStop(location: 0, color: p.caret)] : p.outgoingGradient
             gradientStops = stops.map { (span * $0.location, c($0.color)) }
-            outgoingGradient = CGGradient(colorsSpace: CGColorSpace(name: CGColorSpace.sRGB),
-                                          colors: stops.map { $0.color.cgColor } as CFArray,
-                                          locations: stops.map(\.location))
+            outgoingColors = stops.map { $0.color.cgColor }
+            outgoingLocations = stops.map(\.location)
             let bg = p.background
             let light = 0.2126 * bg.red + 0.7152 * bg.green + 0.0722 * bg.blue > 0.5
             isLight = light
