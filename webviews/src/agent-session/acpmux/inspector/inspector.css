@@ -344,7 +344,7 @@
 .acpmux-chat-inspector-slot[data-lifted] > .acpmux-chat-inspector-section {
   background: color-mix(in srgb, var(--cmux-elevated-background, #1e1e1e) 94%, transparent);
   box-shadow:
-    0 8px 24px var(--agent-shadow),
+    var(--elevation-2),
     0 0 0 var(--cmux-hairline, 0.5px) var(--agent-border);
 }
 /* Gallery alternative (rules): a hairline over every section but the first. */
