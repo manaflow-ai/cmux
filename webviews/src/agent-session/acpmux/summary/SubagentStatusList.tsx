@@ -143,6 +143,7 @@ export function SubagentStatusList({
   onOpen,
   autoOpen,
   onShowAll,
+  counts,
   onOpenInPane,
   subsessions = [],
   onOpenSession,
@@ -162,6 +163,8 @@ export function SubagentStatusList({
   autoOpen?: { on: boolean; set: (on: boolean) => void };
   /// Opens the card's Subagents tab; the title is a button only with it.
   onShowAll?: () => void;
+  /// Overall activity counts move here when the popover has no title row.
+  counts?: string;
   /// Opens Session Info's complete Subagents section beside the chat.
   onOpenInPane?: () => void;
   /// The other chats the agent started, after the sub-sessions.
@@ -177,13 +180,17 @@ export function SubagentStatusList({
     agents.filter((agent) => subagentStatus(agent, waiting) === "running").length +
     subsessions.filter((session) => session.state === "working" || sessionRetry(session).kind === "retrying").length +
     sessions.filter((child) => sessionStatus(child) === "running").length;
-  const heading = live > 0 ? `${title} · ${t("summary.subagents.running", { n: live })}` : title;
+  const heading = counts
+    ? `${title} · ${counts}`
+    : live > 0
+      ? `${title} · ${t("summary.subagents.running", { n: live })}`
+      : title;
   return (
     <section className="acpmux-summary-section acpmux-summary-agents" aria-label={title}>
       <h3 className="acpmux-summary-title">
         {onShowAll ? (
           <button type="button" className="acpmux-summary-title__button" onClick={onShowAll}>
-            {heading}
+            <span className="acpmux-summary-title__text">{heading}</span>
             <Icon name="disclosure.collapsed" size={10} />
           </button>
         ) : (
@@ -199,7 +206,6 @@ export function SubagentStatusList({
               {/* The tray's own line (subagents/AgentLine.tsx): a subagent reads the same here and above the composer. */}
               <AgentLine
                 name={agent.name}
-                detail={isRepeatedAgentKind(agent.kind) ? undefined : agent.kind}
                 mark={agent.harness}
                 status={status}
                 state={subagentStateText(t, agent, waiting)}
@@ -208,7 +214,13 @@ export function SubagentStatusList({
                 iconSize={ROW_ICON}
                 depth={depth}
                 current={agent.id === current}
-                title={agent.task}
+                // Its kind is no subtitle on the line (Leo, 2026-10-31: "a lot of these subtitles
+                // are bad"): the tooltip keeps it under its task.
+                title={
+                  [agent.task, agent.kind !== agent.name && !isRepeatedAgentKind(agent.kind) ? agent.kind : undefined]
+                    .filter(Boolean)
+                    .join("\n") || undefined
+                }
                 tone={agentTone(agent.id)}
                 onOpen={onOpen ? () => onOpen(agent.id) : undefined}
               />

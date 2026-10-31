@@ -257,7 +257,7 @@ export type AcpmuxRow = {
   received?: AcpmuxOfferResult;
   /// A prompt that is not the person's: another agent's message, or harness bookkeeping
   /// (conversation/incomingMessage.ts).
-  incoming?: Extract<IncomingPrompt, { kind: "message" | "notice" | "hidden" }>;
+  incoming?: Extract<IncomingPrompt, { kind: "message" | "notice" | "inbox" | "hidden" }>;
   /// The prompt as the agent got it, when the row shows something else (an incoming message's
   /// body): what Retry sends again.
   resend?: string;
@@ -627,6 +627,11 @@ export type AcpmuxContextBreakdown = {
   maxTokens: number;
 };
 
+/// A Claude Code chat's plan usage limits as acpmux reports them (claude_stdio `usage_limits`):
+/// `id` is `session` (5 hours), `weekly`, `weekly_opus` or `weekly_sonnet`; `usedPercent` is 0-100;
+/// `resetsAt` is unix seconds, only when Claude Code said when the window resets.
+export type AcpmuxUsageLimits = { windows: { id: string; usedPercent: number; resetsAt?: number }[] };
+
 /// Optional Labs workflow payload. acpmux does not emit this field yet; keeping the wire shape
 /// here gives the future event a typed adapter seam without deriving workflow state from rows.
 export type AcpmuxWorkflowWire = {
@@ -708,7 +713,8 @@ export type AcpmuxSnapshot = {
     baseUrl?: string;
     route?: string;
     settingsSources?: unknown;
-    usageLimits?: string;
+    /// acpmux's structured limits, or a harness's own text for them.
+    usageLimits?: AcpmuxUsageLimits | string;
     /// The model the agent last reported, when the pane draws a pick (`model`) it has not
     /// confirmed yet (harnessSwitch.ts). Unset otherwise: `model` is what it reported.
     confirmedModel?: string;
@@ -865,6 +871,13 @@ export type AcpmuxSnapshot = {
     };
   }[];
   canLoadOlder: boolean;
+  /**
+   * The chat's prompts older than the rows it holds, from acpmux's prompt index (one read at open):
+   * the thread rail lays out every turn from the first frame, and pages loaded later fill them in
+   * instead of adding ticks. Each is a `user` row (`user-<seq>`, its promptId and the start of its
+   * text) that opens a turn. Absent while unread, and for a chat with no older history.
+   */
+  earlierPrompts?: readonly AcpmuxRow[];
   /** The oldest event seq the pane holds: it moves with each older read, even one that drew no row. */
   historyFrom?: number;
   /** The agent's slash commands, for the composer's `/` menu. */
@@ -1157,7 +1170,10 @@ export const isLastFooter = (row: AcpmuxRow, next: AcpmuxRow | undefined) =>
     next.kind === PENDING_MESSAGES ||
     next.kind === LANE_NOTICE_BATCH ||
     ((next.kind === "user" || next.kind === QUEUED_MESSAGE) &&
-      (next.received !== undefined || next.incoming?.kind === "message" || next.incoming?.kind === "notice")));
+      (next.received !== undefined ||
+        next.incoming?.kind === "message" ||
+        next.incoming?.kind === "notice" ||
+        next.incoming?.kind === "inbox")));
 /// A completed turn followed by more of this chat's assistant. Incoming agents are user rows,
 /// so a user/agent speaker change keeps the full turn gap. Check only the next drawn row.
 export const isContinuationFooter = (row: AcpmuxRow, next: AcpmuxRow | undefined) =>
@@ -1552,6 +1568,26 @@ function measuredRowHeight(
     return finish(line + 2 + 4 + 16 + lines + (row.images?.length ? 128 : 0) + details);
   }
   if (row.incoming?.kind === "notice") return finish(2 + 26 + MESSAGE_GAP);
+  if (row.incoming?.kind === "inbox") {
+    // acpmux's inbox notice (conversation/InboxNoticeCard.tsx): a received line per thread, under
+    // the group's line when the group look holds two or more; an opened thread adds its panel as
+    // an opened message does, its text read from the notice (else its preview).
+    const { threads } = row.incoming.notice;
+    const line = 2 + 26 + 2;
+    const grouped = threads.length > 1 && inboxNoticeLook() === "group";
+    if (grouped && !messageOpened(sessionId, row.id)) return finish(line + MESSAGE_GAP);
+    const { lineHeight } = metrics();
+    if (receivedPrepared.size > 256) receivedPrepared.clear();
+    let height = (grouped ? line : 0) + (threads.length > 1 && inboxNoticeLook() === "card" ? 6 : 0);
+    for (const thread of threads) {
+      height += line;
+      if (!messageOpened(sessionId, inboxThreadKey(row.id, thread.threadId))) continue;
+      const text = thread.messages?.map((m) => m.text).join("\n\n") ?? thread.preview;
+      const inset = grouped ? 24 : 0;
+      height += 2 + 4 + 16 + (text ? textHeight(text, Math.max(80, width - 44 - inset), receivedPrepared) : lineHeight);
+    }
+    return finish(height + MESSAGE_GAP);
+  }
   // Bookkeeping alone: a turn's start that draws nothing (conversation/turns.ts).
   if (row.incoming?.kind === "hidden") return finish(0);
   // A finished step of only quiet thoughts draws nothing (conversation/ThoughtRow.tsx).
@@ -1806,6 +1842,8 @@ import { chiefEnvelope } from "./conversation/chiefEnvelope";
 import { chatColumn, type ChatColumn } from "./chatWidth";
 import { currentChatMetrics } from "./chatDisplay";
 import { messageOpened } from "./conversation/incomingOpened";
+import { inboxThreadKey } from "./conversation/inboxNotice";
+import { inboxNoticeLook } from "./conversation/inboxNoticeLook";
 
 /// The pane's fallback accessible name and problem-only header status. A handshake that is
 /// retrying (`connecting:`) says nothing here: the pane's retries are quiet, and a failure that

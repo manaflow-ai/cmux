@@ -190,11 +190,21 @@ jobs:
       attestations: write
       id-token: write
     if: github.event_name != 'workflow_dispatch' || ((inputs.probe_mode || 'off') == 'off' && inputs.promote_nightly_next_sha == '')
-    # This gate only resolves the fixed revision and publication decision.
-    # Keep its default on the hosted runner so a busy paid Linux pool cannot
-    # delay every nightly before the macOS work is admitted; retain the normal
-    # Linux runner fallback for repositories that do not set the override.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
+    # This gate only resolves the fixed revision and publication decision: a checkout,
+    # github-script and two stdlib Python helpers, which run the same on a Mac. It is the
+    # run's first job, so no picker can run before it. On attempt 1, a configured fleet
+    # Linux control runner takes this lightweight job first; when it is unavailable,
+    # a nightly-next push takes the owned nightly slot (vars.CI_NIGHTLY_NEXT_BUILD_RUNNER,
+    # glaeda's nightly-only runner on each mini, admitted ahead of every PR job). The
+    # owned-pool rescue watches that attempt and, when no slot takes decide within
+    # CI_OWNED_POOL_RESCUE_SECONDS and nothing of the run has started, re-runs it, and
+    # attempt 2 takes the Blacksmith Linux set below. Run 41234993713 (3017ef19) queued
+    # decide on blacksmith-32vcpu-ubuntu-2404 with no fleet route at all. Run 41245412350
+    # then waited 305 seconds for five Mac units even though decide only resolves metadata.
+    # Leo,
+    # 2026-10-31: "FOR OUR NIGHTLIES ARE THEY END TO END ON OUR FLEET? WE CAN'T BE
+    # RELYING ON BLACKSMITH THAT CUTS OUT".
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && !startsWith(vars.CI_CONTROL_RUNNER, 'blacksmith-') && vars.CI_CONTROL_RUNNER || github.ref == 'refs/heads/nightly-next' && github.event_name == 'push' && github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1' && vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
     outputs:
       should_build: ${{ steps.decide.outputs.should_build }}
       head_sha: ${{ steps.decide.outputs.head_sha }}
@@ -5084,6 +5094,21 @@ jobs:
       - name: Verify version surfaces
         if: env.TRACK == 'nightly-next'
         run: ./scripts/cmux-next/check-version-surfaces.sh "$CHANNEL_APP_PATH"
+
+      # Every CLI command that must work from the bundle alone runs from the
+      # signed app on this Mac (a subcommand once exec'd a cmux-vm binary no
+      # bundle shipped). A slice this Mac cannot run is checked by the
+      # variant that can.
+      - name: Verify bundled CLI commands run from the bundle alone
+        if: env.TRACK == 'nightly-next' && hashFiles('scripts/cmux-next/check-bundled-cli-commands.sh') != ''
+        run: |
+          set -euo pipefail
+          archs="$(lipo -archs "$CHANNEL_APP_PATH/Contents/Resources/bin/cmux")"
+          if [[ " $archs " == *" $(uname -m) "* ]]; then
+            ./scripts/cmux-next/check-bundled-cli-commands.sh "$CHANNEL_APP_PATH"
+          else
+            echo "bin/cmux is $archs; this runner is $(uname -m): the matching variant checks it"
+          fi
 
 
 
