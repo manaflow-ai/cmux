@@ -12,7 +12,7 @@ import Testing
             _ = try await connection.request("missing", .null, timeout: .milliseconds(20))
             Issue.record("A dropped reply succeeded")
         } catch let error as LinkError {
-            #expect(error.code == "reply_timeout")
+            #expect(error.code == "timeout")
         }
         // The old response cannot answer the next request.
         channel.push(Data(#"{"jsonrpc":"2.0","id":1,"result":"late"}"#.utf8))
@@ -57,8 +57,8 @@ import Testing
         var pairing = PairInviteTests.pairing(PairInvites())
         // Leave enough room for the first frame to be scheduled while still
         // proving that approval has its own budget after the handshake expires.
-        pairing.handshakeTimeout = .milliseconds(100)
-        pairing.approvalTimeout = .seconds(5)
+        pairing.handshakeTimeout = .seconds(1)
+        pairing.approvalTimeout = .seconds(10)
         let channel = DeadlineChannel()
         channel.push(Data(#"{"pending":true}"#.utf8))
         let waiting = AsyncStream<Void>.makeStream()
@@ -67,7 +67,7 @@ import Testing
         }
         var notices = waiting.stream.makeAsyncIterator()
         _ = await notices.next()
-        try await Task.sleep(for: .milliseconds(150))
+        try await Task.sleep(for: .milliseconds(1100))
         channel.push(Data(#"{"ok":true}"#.utf8))
         #expect(await task.value == .paired(macDevice: "test-mac"))
         waiting.continuation.finish()

@@ -117,7 +117,7 @@ public final class AcpmuxHub {
             self.isReady = false
             self.fullAccess = false
             self.lastError = self.lastError ?? "acpmux channel closed"
-            for entry in self.sources.values { entry.source?.linkDown() }
+            for source in self.liveSources { source.linkDown() }
         }
         do {
             let initialized = try await connection.request("initialize", .object([
@@ -150,7 +150,7 @@ public final class AcpmuxHub {
             isReady = false
             fullAccess = false
             lastError = LinkController.reason(error)
-            for entry in sources.values { entry.source?.linkDown() }
+            for source in liveSources { source.linkDown() }
             await connection.close()
             log.error("acpmux bind failed: \(String(describing: error), privacy: .public)")
         }

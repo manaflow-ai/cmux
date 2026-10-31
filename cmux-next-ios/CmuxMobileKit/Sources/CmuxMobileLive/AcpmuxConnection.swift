@@ -64,6 +64,7 @@ public actor AcpmuxConnection {
         rpcLog.debug("-> \(id) \(method, privacy: .public) \(data.count) bytes")
         return try await LinkDeadline.run(
             timeout: timeout,
+            timeoutError: LinkError(code: "timeout", message: "The Mac didn't answer (\(method))"),
             operation: { try await self.sendAndWait(id: id, data: data) },
             onCancel: { await self.fail(id, CancellationError()) }
         )
