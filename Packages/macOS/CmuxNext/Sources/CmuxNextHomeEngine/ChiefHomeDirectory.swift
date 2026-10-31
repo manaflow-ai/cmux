@@ -39,7 +39,7 @@ public actor ChiefHomeDirectory {
     /// this app never starts another live build's acpmux. A home no brain holds (NIGHTLY's old
     /// per-build home, a tagged build that quit) has no owner: its daemon starts again for the tab,
     /// as NIGHTLY's own acpmux does after its move to the app's. The app's makes an ``AcpmuxHost``
-    /// with its one ``AcpmuxLocalDaemons``.
+    /// with its one ``AcpmuxLocalDaemons`` and its approver key, which that host gives each home's daemon it connects.
     private let ownHost: @Sendable (_ environment: AcpmuxEnvironment?, _ startsDaemons: Bool) -> any AgentPaneHostProviding
     /// A Chief home found on disk and the Chief home whose acpmux runs its sessions.
     nonisolated struct Found: Sendable, Equatable {

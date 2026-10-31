@@ -6,27 +6,18 @@ import Foundation
 /// (``AcpmuxDaemonSummary/current(_:daemons:)``), so a handoff one host starts shows in that line
 /// and a second Restart acpmux from another pane finds the first:
 ///
-/// - ``unresponsive``: restarts a daemon that is alive but stopped answering, at most a few times
-///   per home in one launch;
 /// - the homes whose daemon a handoff or a takeover is stopping, until the lookup that starts the
 ///   bundled one settles (``mark(home:restarting:)``);
 /// - the daemons (by pid) a person asked to replace with Restart acpmux, while that runs
 ///   (``AcpmuxSocketOwner/takeOver(environment:owner:daemons:)``): two clicks never stop two.
 public nonisolated final class AcpmuxLocalDaemons: Sendable {
-    let unresponsive: AcpmuxUnresponsiveWatch
     /// Homes (standardized paths) whose daemon a handoff is stopping.
     private let restartingHomes = Mutex<Set<String>>([])
     /// Daemons (by pid) a Restart acpmux is stopping.
     private let stopping = Mutex<Set<Int32>>([])
 
-    /// The app's: the unresponsive-daemon watch on the wall clock.
-    public convenience init() {
-        self.init(unresponsive: AcpmuxUnresponsiveWatch(clock: ContinuousClock()))
-    }
-
-    init(unresponsive: AcpmuxUnresponsiveWatch) {
-        self.unresponsive = unresponsive
-    }
+    /// The app's one (`AppServices` makes it), or a test's own.
+    public init() {}
 
     /// Notes that a handoff is stopping the daemon of `home`, or that it settled: its shutdown
     /// failed, the old daemon did not exit, or the lookup that starts the bundled one ended.

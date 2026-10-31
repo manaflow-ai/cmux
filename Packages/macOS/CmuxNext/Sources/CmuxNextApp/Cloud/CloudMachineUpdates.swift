@@ -84,7 +84,7 @@ final class CloudMachineUpdates {
               let session = services.machines.session(machineID), let binary = services.cloud.move.cli else { return false }
         let cli = CloudMoveCLI(binary: binary, timeout: services.cloud.move.timeout)
         let target = CloudMachineUpdateTarget(machineID: machineID, displayName: session.machine.title,
-                                              source: Self.source(session, machines: services.machines, cli: cli, api: services.cloud.api,
+                                              source: Self.source(session, machines: services.machines, cli: cli, api: services.cloud.machineAPI,
                                                                   logger: logger))
         // task-owner: returns once the policy queued the machine; the policy's drain owns the update
         Task { [policy = services.daemonUpdates.policy] in await policy.offer(target) }

@@ -16,6 +16,7 @@
 // closes or unmounts, and a page shown again waits for the next minute. The header's pull request (the chat folder's, which the App reads live) wins over
 // the cache.
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { visibleInterval } from "../../../ui/pageClock";
 import { kindTotals } from "../../../fileKinds";
 import { callChipHost } from "../chips/host";
 import {
@@ -171,8 +172,7 @@ function statusesOf(key: string): ChangesStatuses {
 /// or unmounted); a minute while the page is hidden is skipped, not caught up, and a switch back
 /// to the page reads nothing of its own (shared-projections.md): the next minute does.
 export function keepChangesFresh(urls: readonly string[], every = REGISTER_EVERY_MS): () => void {
-  const timer = setInterval(() => refreshChanges(urls), every);
-  return () => clearInterval(timer);
+  return visibleInterval("changes-freshness", () => refreshChanges(urls), every);
 }
 
 /// What the App's cache has for `urls` while `shown` (the Inspector drawn); registered and asked
@@ -195,11 +195,14 @@ export function useChangesStatuses(urls: readonly string[], shown: boolean, acti
   // While the host reads, ask it again: a call to the App, which answers from its cache.
   useEffect(() => {
     if (!live || !reading) return;
-    const timer = setInterval(() => {
-      if (hidden()) return;
-      for (const url of live.split("\n")) if (pullRequestAnswer(url)?.reading) askPullRequest(url);
-    }, WAIT_MS);
-    return () => clearInterval(timer);
+    return visibleInterval(
+      "changes-reading",
+      () => {
+        if (hidden()) return;
+        for (const url of live.split("\n")) if (pullRequestAnswer(url)?.reading) askPullRequest(url);
+      },
+      WAIT_MS,
+    );
   }, [live, reading]);
   return value;
 }

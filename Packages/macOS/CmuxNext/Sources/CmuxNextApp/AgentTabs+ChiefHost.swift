@@ -78,8 +78,10 @@ struct ChiefHomeAcpmux {
     ///     without Home being shown (#25570).
     ///   - ownHost: the pane host of the Chief home's own acpmux (its environment) for a Chief
     ///     on the app's acpmux: the daemon its subagents ran on before the move; nil: an ``AcpmuxHost``.
+    ///     `peerApprover`: the app's approver key.
     init(home: ChiefHome, local: any AgentPaneHostProviding, daemons: AcpmuxLocalDaemons, ensureHost: @escaping @Sendable () async -> Void,
-         startHost: @escaping @Sendable () async -> Bool, ownHost: (@Sendable (AcpmuxEnvironment?) -> any AgentPaneHostProviding)? = nil) {
+         startHost: @escaping @Sendable () async -> Bool,
+         peerApprover: AgentPanePeerApprover? = nil, ownHost: (@Sendable (AcpmuxEnvironment?) -> any AgentPaneHostProviding)? = nil) {
         let host = Self.host(muxHome: home.muxHome)
         self.host = host
         // optchat-chief `brain::parent_tag`: optchat-chief:<home id>.
@@ -91,7 +93,8 @@ struct ChiefHomeAcpmux {
         // starting that daemon again when it ended, never to the app's daemon, which lacks the
         // chat and would say "This chat isn't available" (Lawrence 2026-10-21).
         if home.usesAppAcpmux {
-            let own: any AgentPaneHostProviding = ownHost?(environment) ?? AcpmuxHost(daemons: daemons, environment: environment)
+            let own: any AgentPaneHostProviding = ownHost?(environment)
+                ?? AcpmuxHost(daemons: daemons, environment: environment, peerApprover: peerApprover)
             let sessionsHome = home.acpmuxHome
             let router: @Sendable (any AgentPaneHostProviding) -> any AgentPaneHostProviding = { local in
                 AcpmuxChiefSessionRouter(local: local, chief: own, chiefEnvironment: environment, sessionsHome: sessionsHome, parentTag: tag)
@@ -108,7 +111,8 @@ struct ChiefHomeAcpmux {
             let heal = ChiefAcpmuxHeal(home: home, environment: environment, ensureHost: ensureHost)
             healReplaced = { @Sendable () async -> Bool in await heal.heal() }
         }
-        let chief = AcpmuxHost(daemons: daemons, environment: environment, startsDaemons: false, healReplaced: healReplaced, startOwner: startHost)
+        let chief = AcpmuxHost(daemons: daemons, environment: environment, startsDaemons: false, healReplaced: healReplaced,
+                               startOwner: startHost, peerApprover: peerApprover)
         paneHost = chief
         localRouter = { local in AcpmuxChiefSessionRouter(local: local, chief: chief, chiefEnvironment: environment, parentTag: tag) }
     }

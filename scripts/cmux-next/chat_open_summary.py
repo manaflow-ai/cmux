@@ -12,6 +12,10 @@ def _number(value):
 
 
 def valid(record):
+    # A trace that timed out or errored can still carry numbers (the time it waited, a first frame
+    # it saw before the wait gave up); they are not an open's times.
+    if record.get("timed_out") or record.get("error"):
+        return False
     return _number(record.get("first_content_ms")) and _number(record.get("longest_empty_ms"))
 
 

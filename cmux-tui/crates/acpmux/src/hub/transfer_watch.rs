@@ -16,7 +16,7 @@
 //! `alive` (touched by begin and each read), `read` (each file read to its end), `to` and
 //! `to-ssh` and `to-host`.
 
-use super::transfer_out::{bundle_files, transfers_dir};
+use super::transfer_out::{bundle_files, names_a_move, transfers_dir};
 use super::*;
 use cmux_json::JsonSet as _;
 
@@ -145,7 +145,7 @@ impl Hub {
     pub(super) fn watch_transfers(self: &Arc<Self>) {
         self.refreeze_stopped_moves();
         for session in self.sessions() {
-            if let Some(transfer_id) = session.moving() {
+            if let Some(transfer_id) = session.moving().filter(|id| names_a_move(id)) {
                 self.watch_transfer(&session, &transfer_id);
             }
         }
