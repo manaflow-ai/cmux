@@ -206,8 +206,12 @@ public struct RootView: View {
         // The account's own preferences (setup done, its Mac per team, last
         // tab) come back before the first frame of its session, so the same
         // account signing in again skips setup (verify/persistence.md).
-        .onChange(of: auth.isSignedIn ? auth.user?.id : nil, initial: true) { _, id in
-            guard let id, !auth.isMock else { return }
+        .onChange(of: auth.isResolved ? (auth.isSignedIn ? auth.user?.id : "") : nil, initial: true) { _, id in
+            guard auth.isResolved, !auth.isMock else { return }
+            // A restored session publishes the active push account too. A
+            // signed-out launch removes the old marker while retaining keys.
+            PushActiveAccountMirror.shared.update(userID: id?.isEmpty == true ? nil : id)
+            guard let id, !id.isEmpty else { return }
             AccountPreferences.standard.activate(userID: id)
             accountUserID = id
         }
@@ -297,6 +301,9 @@ public struct RootView: View {
     /// same account signs in again (verify/persistence.md). Removing it from
     /// the Macs is its own action (Settings → Devices).
     private func signedOut() {
+        // Unexpected session loss (without the manual sign-out hook) also
+        // makes queued notifications inert on this device.
+        if !auth.isMock { PushActiveAccountMirror.shared.update(userID: nil) }
         // A live Chief call (even minimized) ends with the account; a call asked for while signed out is dropped.
         ChiefLiveCall.shared.signedOut()
         ChiefCallLauncher.shared.cancelPending()
@@ -357,6 +364,9 @@ public struct RootView: View {
         // Before the session ends: stop pushes to this phone. The Macs keep
         // their approval of it (verify/persistence.md).
         auth.willSignOut = AccountSignOut().willSignOut {
+            // Withhold content before network sign-out can leave this device.
+            // The marker lives independently of the pairing keys we retain.
+            await PushActiveAccountMirror.shared.clearBeforeSignOut()
             await PushRegistration.shared.unregister()
             // Screen Sharing: end the session on screen and sign this phone out of the device hub
             // while the account can still reach it (docs/device-hub/PROTOCOL.md, sign-out).
