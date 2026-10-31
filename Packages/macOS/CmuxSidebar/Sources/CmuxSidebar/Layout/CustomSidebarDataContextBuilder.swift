@@ -179,6 +179,9 @@ public struct CustomSidebarDataContextBuilder {
         if let pid = agent.pid {
             fields["pid"] = .int(pid)
         }
+        if let icon = agent.iconAssetName, !icon.isEmpty {
+            fields["icon"] = .string(icon)
+        }
         return .object(fields)
     }
 
@@ -230,6 +233,9 @@ public struct CustomSidebarDataContextBuilder {
         }
         if let at = surface.latestSubmittedAt {
             surfaceFields["latestAt"] = .int(Int(at.timeIntervalSince1970))
+        }
+        if let icon = surface.agentIconAssetName, !icon.isEmpty {
+            surfaceFields["agentIcon"] = .string(icon)
         }
         return .object(surfaceFields)
     }
