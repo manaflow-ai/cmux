@@ -109,7 +109,7 @@ pub(crate) fn sort_workspaces(
         (!is_home(workspace)
             && (workspace["active"].as_bool() == Some(true)
                 || workspace["focused"].as_bool() == Some(true)))
-            .then_some(index)
+        .then_some(index)
     });
     let below_home = top + usize::from(placed.get(top).is_some_and(is_home));
     // Above this machine's archived tail, where adopting the new workspace puts it.

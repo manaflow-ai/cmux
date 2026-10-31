@@ -130,9 +130,7 @@ import Testing
         #expect(Self.order(sections) == ["ws-home", "ws-c", "ws-b", "ws-a", "ws-1", "ws-2", "ws-3"])
     }
 
-    /// With the machine section starting on a group (no Home row), the new row still lists first,
-    /// as its own loose run above the group.
-    @Test func aSectionThatStartsWithAGroupGetsTheNewRowAboveIt() {
+    static func groupProjection() -> SidebarDocProjection {
         let records = SidebarDocRecords(sections: [
             Self.machine: SidebarDocSection(id: Self.machine, kind: .machine(session: Self.session)),
         ], items: [
@@ -143,13 +141,38 @@ import Testing
             SidebarDocRow(key: "itm_g", kind: "group", section: Self.machine, item: "itm_g"),
             SidebarDocRow(key: "itm_2", kind: "item", section: Self.machine, parent: "itm_g", depth: 1, item: "itm_2", ref: Self.ref("ws-2")),
         ]
+        return SidebarDocProjection(rows: rows, records: records, revision: 1)
+    }
+
+    /// With the machine section starting on a group (no Home row), the new row still lists first,
+    /// as its own loose run above the group.
+    @Test func aSectionThatStartsWithAGroupGetsTheNewRowAboveIt() {
         let store = DaemonStore()
         store.apply(snapshot: DaemonTree(workspaces: ["ws-2", "ws-new"].enumerated().map { index, id in
             WorkspaceSnapshot(id: WorkspaceHandle(rawValue: UInt64(index + 1)), key: nil, resourceID: ResourceID(rawValue: id), name: id)
         }))
-        let sections = SidebarDocSections().sections(SidebarDocProjection(rows: rows, records: records, revision: 1),
-                                                     session: Self.session, workspaces: store.workspaces)
+        let sections = SidebarDocSections().sections(Self.groupProjection(), session: Self.session, workspaces: store.workspaces)
         #expect(Self.order(sections) == ["ws-new", "ws-2"])
         #expect(sections.first?.group == nil)
     }
+    @Test func aMissingAnchorKeepsTheTrailingRunAndGroupIntact() throws {
+        let store = DaemonStore()
+        store.apply(snapshot: DaemonTree(workspaces: ["ws-2", "ws-a", "ws-d", "ws-e"].enumerated().map { index, id in
+            WorkspaceSnapshot(id: WorkspaceHandle(rawValue: UInt64(index + 1)), key: nil, resourceID: ResourceID(rawValue: id), name: id)
+        }))
+        let a = try #require(store.workspaces.first { $0.resourceID?.rawValue == "ws-a" }).id
+        let doc = SidebarDocSections()
+        doc.placesNewRowsFirst = { false }
+        doc.unplacedAnchor = { workspace in
+            switch workspace.resourceID?.rawValue {
+            case "ws-d": .after("missing", fallbackFirst: true)
+            case "ws-e": .after(a)
+            default: nil
+            }
+        }
+        let sections = doc.sections(Self.groupProjection(), session: Self.session, workspaces: store.workspaces)
+        #expect(Self.order(sections) == ["ws-d", "ws-2", "ws-a", "ws-e"])
+        #expect(sections.filter { $0.group != nil }.count == 1)
+    }
+
 }
