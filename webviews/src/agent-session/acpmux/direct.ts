@@ -302,6 +302,9 @@ const SESSION_INFO_KIND = "session_info_update";
 const SESSION_START_ROW = "session-start";
 /// A record that opens a turn: older pages split before one, so each holds whole turns. A steer
 /// joins the running turn, so it opens none.
+/// The snapshot's `earlierPrompts` when there are none: one list, so the rail's memo holds.
+const NO_EARLIER_PROMPTS: readonly AcpmuxRow[] = [];
+
 const startsTurn = (event: EventRecord) =>
   event.dir === "mux" && event.kind === "user_message" && event.msg?.steer !== true;
 
@@ -2342,6 +2345,7 @@ export class AcpmuxDirectClient {
     for (const { timers } of this.deliveries.values()) timers.forEach(clearTimeout);
     this.deliveries.clear();
     this.firstSeq = undefined;
+    this.promptIndex = undefined;
     this.lastSeq = 0;
     this.clockOffset = undefined;
     this.summary = undefined;
@@ -3890,6 +3894,8 @@ export class AcpmuxDirectClient {
       if (!replaced) this.events = this.events.filter((event) => event.seq >= oldest);
       this.turnOpener = undefined;
       this.historyExhausted = false;
+      // The prompt index was read for the held history that just went: read it again.
+      this.promptIndex = undefined;
       this.usageFromSeq = Infinity;
       this.forkedAtSeq = undefined;
       this.usage = undefined;
@@ -5825,6 +5831,7 @@ export class AcpmuxDirectClient {
       catalog: [],
       commands: this.commands,
       canLoadOlder: this.seqHistoryLeft() || this.nativeBefore() !== undefined,
+      ...(this.shownEarlierPrompts().length ? { earlierPrompts: this.shownEarlierPrompts() } : {}),
       historyFrom: this.firstSeq,
       missingSession: this.selectedSessionId ? undefined : this.missingSession,
       unavailable: this.unavailableNow(),
@@ -8041,6 +8048,85 @@ export class AcpmuxDirectClient {
   harnessEnable(folder: string, id: string): Promise<unknown> {
     return this.request("_acpmux/harness_enable", { folder, id });
   }
+  /// The chat's every prompt older than its open page, read once per chat from acpmux's prompt
+  /// index (`_acpmux/events` `promptIndex`, `hub/paging.rs` `prompt_index`): seq, promptId and the
+  /// start of the text, in one reply however long the chat. A daemon without the index reads the
+  /// bounded `user_message` page the request also names, which covers what it holds.
+  private promptIndex?: { sessionId: string; generation: number; rows?: AcpmuxRow[] };
+  /// `shownEarlierPrompts`' last answer, by what it was read from.
+  private earlierShown?: { rows: AcpmuxRow[]; before: number; list: readonly AcpmuxRow[] };
+
+  /// The indexed prompts older than every held row (the snapshot's `earlierPrompts`). The first ask
+  /// for a chat with older history starts the index's one read.
+  private shownEarlierPrompts(): readonly AcpmuxRow[] {
+    const sessionId = this.selectedSessionId;
+    if (!sessionId || !this.seqHistoryLeft() || !this.firstSeq) return NO_EARLIER_PROMPTS;
+    const index = this.promptIndex;
+    if (!index || index.sessionId !== sessionId || index.generation !== this.selectionGeneration) {
+      this.readPromptIndex(sessionId, this.firstSeq);
+      return NO_EARLIER_PROMPTS;
+    }
+    if (!index.rows) return NO_EARLIER_PROMPTS;
+    // The turn opener drawn above the held page is held: only prompts before it are earlier.
+    const before = Math.min(this.firstSeq, this.turnOpener?.seq ?? Infinity);
+    const kept = this.earlierShown;
+    if (kept && kept.rows === index.rows && kept.before === before) return kept.list;
+    let end = index.rows.length;
+    while (end > 0 && Number(index.rows[end - 1]!.id.slice(5)) >= before) end -= 1;
+    const list = end === index.rows.length ? index.rows : index.rows.slice(0, end);
+    this.earlierShown = { rows: index.rows, before, list };
+    return list;
+  }
+
+  private readPromptIndex(sessionId: string, before: number): void {
+    const generation = this.selectionGeneration;
+    const entry: { sessionId: string; generation: number; rows?: AcpmuxRow[] } = { sessionId, generation };
+    this.promptIndex = entry;
+    void this.typed("_acpmux/events", {
+      sessionId,
+      beforeSeq: before,
+      promptIndex: true,
+      kinds: ["user_message"],
+      limit: 5000,
+      maxBytes: OLDER_PAGE_BYTES,
+    })
+      .then((result: any) => {
+        if (this.closed || this.promptIndex !== entry) return;
+        entry.rows = records(result?.events)
+          .filter(startsTurn)
+          .map((event): AcpmuxRow => {
+            const promptId = typeof event.msg?.promptId === "string" ? event.msg.promptId : undefined;
+            return {
+              id: `user-${event.seq}`,
+              version: 1,
+              at: event.at,
+              kind: "user",
+              text: String(event.msg?.text ?? "").slice(0, 240),
+              ...(promptId ? { promptId } : {}),
+            };
+          });
+        this.emit();
+      })
+      .catch(() => {
+        // Without the index the rail grows as pages load, as it did before it.
+        if (this.promptIndex === entry) entry.rows = [];
+      });
+  }
+
+  /// Pages history in until the record at `seq` is held: a click on the rail's tick of a prompt
+  /// older than the held rows (`earlierPrompts`). Each step is `loadOlder`, with its guards; a step
+  /// that moves nothing, or another chat, ends it.
+  async loadThrough(seq: number): Promise<void> {
+    const generation = this.selectionGeneration;
+    for (let pages = 0; pages < 200; pages++) {
+      const from = this.firstSeq;
+      if (generation !== this.selectionGeneration || from === undefined || from <= seq || !this.seqHistoryLeft())
+        return;
+      await this.loadOlder();
+      if (this.firstSeq === from) return;
+    }
+  }
+
   /// Pages older transcript events in without reattaching, so the live summary,
   /// queue and permission stay as they are. A page that lands after the
   /// selection changed belongs to another session and is dropped.
