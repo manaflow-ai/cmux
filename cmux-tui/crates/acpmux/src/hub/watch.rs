@@ -133,7 +133,7 @@ impl Hub {
                 };
                 let more = offset > watching.offset && !lines.is_empty();
                 if offset != watching.offset {
-                    hub.show_watched(&session, &lines, offset);
+                    hub.show_watched(&session, &lines, offset).await;
                 }
                 if !more {
                     tokio::time::sleep(POLL).await;
@@ -168,6 +168,9 @@ impl Hub {
         if start == 0 || mark.is_none() {
             return;
         }
+        // Publishing the native-history marker belongs to the watched side of the
+        // takeover boundary, even if the file scan finished after Take Over began.
+        let _turn = session.turn_lock.lock().await;
         {
             let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
             match m.watching.as_mut() {
@@ -186,7 +189,15 @@ impl Hub {
 
     /// Appends what `lines` add as history and moves the read position to `offset`, unless the
     /// chat was taken over meanwhile.
-    fn show_watched(&self, session: &Session, lines: &[String], offset: u64) {
+    async fn show_watched(&self, session: &Session, lines: &[String], offset: u64) {
+        // This journal is also written by a live turn. Keep the entire watched
+        // batch, its checkpoint and the takeover transition in one order.
+        let _turn = session.turn_lock.lock().await;
+        if session.purged.load(std::sync::atomic::Ordering::SeqCst)
+            || session.status() == SessionStatus::Closed
+        {
+            return;
+        }
         let Some(mut watching) = session.meta().watching else { return };
         let open = &mut watching.open;
         let agent_sid = session.meta().agent_session_id.unwrap_or_default();
@@ -311,6 +322,13 @@ impl Hub {
                     .with_data(json!({"reason": "adopt.live", "details": live.details(&family)})));
             }
         }
+        // A file read can finish at the same time as Take Over. Wait for its
+        // complete journal append and checkpoint before removing watch ownership;
+        // hold the gate through watch_taken_over so later tails see no watch.
+        let _turn = session.turn_lock.lock().await;
+        if session.meta().watching.is_none() {
+            return Err(RpcError::invalid_params("this chat is no longer watching a conversation"));
+        }
         let fork = if_live == IfLive::Fork;
         let open = {
             let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
@@ -395,9 +413,21 @@ mod tests {
         assert!(!taking.is_finished(), "takeover raced a watched tail into the journal");
         assert!(session.meta().watching.is_some(), "the view-only owner changed before the tail finished");
 
+        // These lines were read before Take Over, but the reader has yet to
+        // append them. The watch must be gone by the time it acquires the gate.
+        let late_line = json!({"type": "user", "message": {"content": "late watched prompt"}}).to_string();
+        let late_tail = tokio::spawn({
+            let (hub, session) = (hub.clone(), session.clone());
+            async move { hub.show_watched(&session, &[late_line], 128).await }
+        });
+        tokio::task::yield_now().await;
+        assert!(!late_tail.is_finished(), "the tail escaped the turn gate");
+
         drop(tail_guard);
         taking.await.unwrap().unwrap();
+        late_tail.await.unwrap();
         assert!(session.meta().watching.is_none());
+        assert_eq!(session.meta().turn_count, 0, "a watched turn was appended after Take Over");
         hub.shutdown_all().await;
     }
 
