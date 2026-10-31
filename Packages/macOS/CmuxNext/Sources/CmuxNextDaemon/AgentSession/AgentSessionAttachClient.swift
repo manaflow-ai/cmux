@@ -53,6 +53,8 @@ public actor AgentSessionAttachClient {
     /// A Cloud machine's running link id while its attach answer says the caller owns it, else nil
     /// (`CloudMachineLink.ownerLink`).
     public typealias OwnerLink = @Sendable () async -> Int?
+    /// Whether a Cloud machine's link says it is a teammate's (`CloudMachineLinks.teammate`).
+    public typealias Teammate = @Sendable () async -> Bool
     /// Asked once when a connection fails (its endpoint, its socket or its handshake): true once
     /// the machine's link came back, and the connection is tried once more.
     public typealias Reconnect = @Sendable () async -> Bool
@@ -546,6 +548,14 @@ public struct AgentSessionAttachError: Error, Sendable, Equatable {
     }
 
     public static let needsKeyedStart = "agent_session.needs_keyed_start"
+    /// The refusal of a start on a teammate's Cloud machine (the card's New Cloud Machine, startRefusal.ts).
+    public static let teamMachine = "agent_session.team_vm_blocked"
+
+    /// The code the card sees: an owner check's refusal (`host_unverified`) on a machine its link
+    /// says is a teammate's is that teammate refusal; every other code is as it came.
+    public static func classified(_ code: String, teammate: Bool) -> String {
+        code == "agent_session.host_unverified" && teammate ? teamMachine : code
+    }
 }
 
 /// The current push handler, read on the transport's reader thread.
