@@ -89,6 +89,20 @@ enum DebugDialog {
         return .object(result)
     }
 
+    /// `debug.dialog_strip`: fixture `open` (default `confirm`) opening and closing frame by frame
+    /// (``CmuxDialogCenter/frameStrip(_:in:close:leadMs:holdMs:tailMs:scale:dir:)``).
+    static func strip(_ params: [String: JSONValue], _ services: AppServices?) async -> JSONValue {
+        guard let window = services?.windows.active?.window else { return .object(["error": .string("no window")]) }
+        let fixture = params["open"]?.stringValue ?? "confirm"
+        guard let spec = fixtures(origin: nil)[fixture] else { return .object(["error": .string("unknown fixture \(fixture)")]) }
+        let dir = params["dir"]?.stringValue ?? (NSTemporaryDirectory() as NSString).appendingPathComponent("dialog-strip-\(UUID().uuidString)")
+        let report = await CmuxDialogCenter.shared.frameStrip(
+            spec, in: window, close: params["close"]?.stringValue ?? "escape", leadMs: params["lead_ms"]?.doubleValue ?? 150,
+            holdMs: params["hold_ms"]?.doubleValue ?? 700, tailMs: params["tail_ms"]?.doubleValue ?? 600,
+            scale: params["scale"]?.doubleValue ?? 0.5, dir: dir)
+        return JSONValue(foundation: report) ?? .null
+    }
+
     private static func key(_ name: String) -> (CmuxDialogKeys.Key, CmuxDialogKeys.Modifiers)? {
         switch name {
         case "return": return (.return, [])

@@ -22,9 +22,9 @@ pub(crate) struct BillingMessages {
 }
 
 pub(super) const ENGLISH: BillingMessages = BillingMessages {
-    usage: "usage: cmux billing <checkout|status|portal> [OPTIONS] [--json]\n\nStart, read and manage a cmux plan. The cmux app asks cmux.com for a Stripe\nCheckout page bound to your signed-in account. No card data passes through\ncmux, and nothing is charged until you pay on the Stripe page.\n\n  cmux billing checkout [--plan pro|max|team] [--team ID] [--open auto|cmux|default|none]\n      Open a checkout for the plan (default pro). auto: a cmux browser tab when\n      the cmux browser is signed in to Stripe Link, else your default browser.\n      Team needs --team (a team you administer). --no-open prints the URL only.\n  cmux billing status [--team ID]\n      Your plan, where it is billed, and your team's plan.\n  cmux billing portal [--team ID] [--open auto|cmux|default|none]\n      Open billing management (change plan, cards, invoices, cancel).\n\nPlans: Pro $50/mo, Max $200/mo, Team $60/seat/mo. Each includes Cloud VMs,\nCodeRouter model usage and Chief credits; see https://cmux.com/pricing.\n",
+    usage: "usage: cmux billing <checkout|status|portal> [OPTIONS] [--json]\n\nStart, read and manage a cmux plan. The cmux app asks cmux.com for a Stripe\nCheckout page bound to your signed-in account. No card data passes through\ncmux, and nothing is charged until you pay on the Stripe page.\n\n  cmux billing checkout [--plan plus|pro|max|team] [--team ID] [--open auto|cmux|default|none]\n      Open a checkout for the plan (default pro). auto: a cmux browser tab when\n      the cmux browser is signed in to Stripe Link, else your default browser.\n      Team needs --team (a team you administer). --no-open prints the URL only.\n  cmux billing status [--team ID]\n      Your plan, where it is billed, and your team's plan.\n  cmux billing portal [--team ID] [--open auto|cmux|default|none]\n      Open billing management (change plan, cards, invoices, cancel).\n\nPlans: Plus $15/mo, Pro $50/mo, Max $200/mo, Team $60/seat/mo. Each includes Cloud VMs,\nCodeRouter model usage and Chief credits; see https://cmux.com/pricing.\n",
     unknown_verb: "unknown billing verb \"{verb}\"; use checkout, status or portal",
-    unknown_plan: "unknown plan \"{plan}\"; use pro, max or team",
+    unknown_plan: "unknown plan \"{plan}\"; use plus, pro, max or team",
     unknown_open: "--open takes auto, cmux, default or none, not \"{value}\"",
     plan_required_team: "--plan team needs --team ID (a team you administer)",
     unexpected_argument: "{command}: unexpected argument \"{value}\"",
@@ -42,9 +42,9 @@ pub(super) const ENGLISH: BillingMessages = BillingMessages {
 };
 
 pub(super) const JAPANESE: BillingMessages = BillingMessages {
-    usage: "使い方: cmux billing <checkout|status|portal> [オプション] [--json]\n\ncmux のプランを開始・確認・管理します。cmux アプリがサインイン中のアカウントに\n結び付いた Stripe Checkout ページを cmux.com に依頼します。カード情報は cmux を\n通らず、Stripe のページで支払うまで請求は発生しません。\n\n  cmux billing checkout [--plan pro|max|team] [--team ID] [--open auto|cmux|default|none]\n      プランの購入ページを開きます (既定は pro)。auto: cmux ブラウザが Stripe Link に\n      サインイン済みなら cmux のブラウザタブ、そうでなければ既定のブラウザ。\n      Team には --team (管理者であるチーム) が必要です。--no-open は URL のみ表示します。\n  cmux billing status [--team ID]\n      あなたのプラン、請求元、チームのプラン。\n  cmux billing portal [--team ID] [--open auto|cmux|default|none]\n      請求の管理 (プラン変更、カード、請求書、解約) を開きます。\n\nプラン: Pro 月 $50、Max 月 $200、Team 1 席あたり月 $60。いずれも Cloud VM、\nCodeRouter のモデル利用、Chief クレジットを含みます。https://cmux.com/pricing を参照。\n",
+    usage: "使い方: cmux billing <checkout|status|portal> [オプション] [--json]\n\ncmux のプランを開始・確認・管理します。cmux アプリがサインイン中のアカウントに\n結び付いた Stripe Checkout ページを cmux.com に依頼します。カード情報は cmux を\n通らず、Stripe のページで支払うまで請求は発生しません。\n\n  cmux billing checkout [--plan plus|pro|max|team] [--team ID] [--open auto|cmux|default|none]\n      プランの購入ページを開きます (既定は pro)。auto: cmux ブラウザが Stripe Link に\n      サインイン済みなら cmux のブラウザタブ、そうでなければ既定のブラウザ。\n      Team には --team (管理者であるチーム) が必要です。--no-open は URL のみ表示します。\n  cmux billing status [--team ID]\n      あなたのプラン、請求元、チームのプラン。\n  cmux billing portal [--team ID] [--open auto|cmux|default|none]\n      請求の管理 (プラン変更、カード、請求書、解約) を開きます。\n\nプラン: Plus 月 $15、Pro 月 $50、Max 月 $200、Team 1 席あたり月 $60。いずれも Cloud VM、\nCodeRouter のモデル利用、Chief クレジットを含みます。https://cmux.com/pricing を参照。\n",
     unknown_verb: "billing の動詞「{verb}」は不明です。checkout、status、portal のいずれかを使ってください",
-    unknown_plan: "プラン「{plan}」は不明です。pro、max、team のいずれかを使ってください",
+    unknown_plan: "プラン「{plan}」は不明です。plus、pro、max、team のいずれかを使ってください",
     unknown_open: "--open には auto、cmux、default、none のいずれかを指定してください (「{value}」は不正)",
     plan_required_team: "--plan team には --team ID (管理者であるチーム) が必要です",
     unexpected_argument: "{command}: 予期しない引数「{value}」",

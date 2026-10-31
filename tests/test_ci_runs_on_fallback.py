@@ -72,6 +72,15 @@ POOL_FALLBACK = re.compile(r"\|\|\s*(?:'[^'\s]+'|vars\.(?![A-Z0-9_]*TRUSTED_RUNN
 # the runs-on alternative that reads it must check it is set, then fall through to a later pool literal, so a busy,
 # unregistered or unread slot never holds a feed's compile.
 RESERVED_OUTPUT = re.compile(r"needs\.[\w-]+\.outputs\.(fresh_runner)\b")
+# Runner variables that name an owned, reserved or otherwise single-host route.
+# A terminal value from any of these is a dead-end queue when its listener is
+# offline; every one needs a later pool fallback in the same runs-on chain.
+RESERVED_RUNNER_VARIABLES = (
+    "vars.CI_SIDE_LANE_RUNNER", "vars.CI_LIGHT_LANE_RUNNER", "vars.CI_FAST_LANE_RUNNER",
+    "vars.CI_SESSION_LANE_RUNNER", "vars.CI_NIGHTLY_NEXT_BUILD_RUNNER",
+    "vars.CI_DEV_COMPILE_RUNNER", "vars.CI_NIGHTLY_TRUSTED_RUNNER",
+    "vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER", "vars.CI_IOS_INTERNAL_RUNNER",
+)
 # An owned GUI or session label: one console-token or logged-in-session queue per pool, a single pool with no
 # second member (glaeda_fleet_labels.gui_label(), session_label()). GitHub never moves a job queued on it.
 OWNED_ROLE_LABEL = re.compile(r"'(glaeda-(?:[a-z]+-)*?(?:gui|session)-[a-z0-9.-]+)'")
@@ -110,6 +119,25 @@ def unconditional(alternative: str) -> bool:
     if len(alternatives) > 1:
         return any(unconditional(part) for part in alternatives)
     return re.fullmatch(r"'[^'\s]+'", alternative) is not None
+
+
+def terminal_reserved(expression: str, variable: str) -> bool:
+    """Whether the final value of a runs-on chain is a reserved label variable.
+
+    A variable in a guarded preference is safe only when a later alternative
+    names a pool. If the final ``||``/``&&`` value is the reserved variable,
+    an offline or non-listening reservation leaves GitHub with one dead queue.
+    Keep this structural check independent of the particular runner class so
+    newly added reserved labels cannot bypass the no-single-host rule.
+    """
+    text = unwrap(expression)
+    alternatives = split_top(text, "||")
+    if len(alternatives) > 1:
+        return terminal_reserved(alternatives[-1], variable)
+    operands = split_top(text, "&&")
+    if len(operands) > 1:
+        return terminal_reserved(operands[-1], variable)
+    return text.strip() == variable
 
 
 def conjuncts(text: str) -> list[str]:
@@ -573,8 +601,29 @@ class RunsOnFallbackTests(unittest.TestCase):
                 alternate = match.group(1) + ("alternate" if match.group(2) == "runner" else "sign_alternate")
                 if f"|| github.run_attempt > 1 && {alternate} {match.group(0)}" not in text:
                     failures.append(f"nightly.yml {job_id}: {match.group(1)}{match.group(2)} has no re-run alternative")
-        self.assertTrue({"build-sign-notarize-nightly", "sign-nightly-identity-legacy"} <= seen, seen)
+        self.assertIn("build-sign-notarize-nightly", seen)
         self.assertEqual(failures, [], "a picked signing label needs `github.run_attempt > 1 && <alternate>` before it")
+
+    def test_a_picked_owned_mac_is_read_only_on_the_attempt_that_picked_it(self) -> None:
+        # The owned-only form of the rule above. Nightlies never use Blacksmith (Lawrence, 2026-10-30, a7b6a61175c),
+        # so sign-nightly-identity-legacy and its verify read the picker's owned Mac, not a Blacksmith label with an
+        # alternate. A re-run of failed jobs keeps the old pick, so the owned read must hold only on the attempt that
+        # ran the picker; a re-run then falls through to the owned slot or pool, never to the Mac that stalled.
+        jobs = load(WORKFLOWS / "nightly.yml")["jobs"]
+        owned = re.compile(r"needs\.(pick-nightly-sign-runner)\.outputs\.(?:sign_owned|owned)\b")
+        failures, seen = [], set()
+        for job_id, job in jobs.items():
+            for expression in EXPRESSION.findall(runs_on_text(job)):
+                for alternative in split_top(unwrap(expression), "||"):
+                    match = owned.search(alternative)
+                    if not match:
+                        continue
+                    seen.add(job_id)
+                    guards = {f"needs.{match.group(1)}.outputs.attempt == github.run_attempt", "github.run_attempt == 1"}
+                    if not guards & {term.strip() for term in conjuncts(alternative)}:
+                        failures.append(f"nightly.yml {job_id}: {alternative.strip()}")
+        self.assertTrue({"sign-nightly-identity-legacy", "verify-nightly-identity-legacy"} <= seen, seen)
+        self.assertEqual(failures, [], "an owned pick needs its picker's attempt check in the same alternative")
 
     def test_a_reserved_slot_always_has_a_fallback(self) -> None:
         failures, seen = [], 0
@@ -626,6 +675,27 @@ class RunsOnFallbackTests(unittest.TestCase):
                     failures.append(f"{path.name} {job_id}: {why}")
         self.assertEqual(failures, [], "a gui or session pool is one queue: it needs a member off it")
         self.assertGreaterEqual(seen, 3, "cmux-next's swift-test, daemon-test and generated-files read the gui pool")
+
+    def test_no_runs_on_chain_ends_on_the_reserved_side_label(self) -> None:
+        failures = []
+        for path in workflows():
+            for job_id, job in (load(path).get("jobs") or {}).items():
+                for expression in EXPRESSION.findall(runs_on_text(job)):
+                    for variable in RESERVED_RUNNER_VARIABLES:
+                        if terminal_reserved(expression, variable):
+                            failures.append(f"{path.name} {job_id}: terminal {variable} has no pool fallback")
+        self.assertEqual(failures, [], "a reserved runner label must never be the final runs-on value")
+
+    def test_cmux_next_fast_tier_uses_the_cascade_before_deferring_to_base_queue(self) -> None:
+        fast = load(WORKFLOWS / "cmux-next.yml")["jobs"]["fast-tier"]
+        expression = runs_on_text(fast)
+        retry = expression.index("needs.macos-placement.outputs.retry_runner")
+        deferred = expression.index("needs.macos-placement.outputs.deferred_runner")
+        legacy = expression.index("vars.CI_SIDE_LANE_RUNNER")
+        self.assertLess(retry, deferred)
+        self.assertLess(deferred, legacy)
+        self.assertIn(".github/workflows/cmux-next.yml", rescued_paths())
+        self.assertNotIn("needs.macos-placement.outputs", fast["if"])
 
     def test_the_role_label_rule_catches_what_it_is_for(self) -> None:
         here = ".github/workflows/x.yml"

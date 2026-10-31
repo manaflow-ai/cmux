@@ -393,7 +393,13 @@ export type AcpmuxRow = {
   joined?: string[];
   /// The messages other sessions sent that the agent has not read yet, drawn as one group
   /// (conversation/pendingMessages.ts, PendingMessagesCard.tsx), each once, oldest first.
-  pendingMessages?: { rows: readonly AcpmuxRow[] };
+  pendingMessages?: { rows: readonly AcpmuxRow[]; displayRows?: readonly AcpmuxRow[] };
+  laneNoticeBatch?: {
+    kind: "report" | "inbox";
+    rows: readonly AcpmuxRow[];
+    verdicts: Partial<Record<"SHIP" | "BLOCK" | "FIX" | "HOLD", number>>;
+    threads: readonly { id: string; sender: string }[];
+  };
   /// A shell mode command's block (shell/shellRuns.ts), which the page adds; never from acpmux.
   shell?: ShellRun;
   /// A subagent group's subagents (subagents/subagentFold.ts).
@@ -529,6 +535,8 @@ export type AcpmuxPermission = {
   kind?: string;
   /// The tool call it asks about: a subagent's own call when a subagent asks (summary/SubagentStatusList.tsx).
   toolCallId?: string;
+  /// Proposed changes from this ask only; these have not been applied to the workspace.
+  diffs?: AcpmuxFileDiff[];
   pending: boolean;
   options: {
     id: string;
@@ -844,7 +852,14 @@ export type AcpmuxSnapshot = {
   commands?: SlashCommand[];
   /** A harness switch the pane draws ahead of acpmux (harnessSwitch.ts): starting, applying to
    * the next turn while one streams (deferred), or failed with acpmux's reason. */
-  switching?: { harness: string; name: string; phase: "starting" | "deferred" | "failed"; error?: string };
+  switching?: {
+    harness: string;
+    name: string;
+    phase: "starting" | "deferred" | "failed";
+    error?: string;
+    /// The start refusal's code, for the failed card's one-click way out (startRefusal.ts).
+    code?: string;
+  };
   /** A `cmux://session/<id>` link named this session and the daemon has none: the pane says so
    * instead of showing another chat. Unset once a session is selected. */
   missingSession?: string;
@@ -1105,6 +1120,7 @@ export const isBeforeFooter = (row: AcpmuxRow, next: AcpmuxRow | undefined) =>
 export const QUEUED_MESSAGE = "queuedMessage";
 /// The row kind of the one group of messages that wait for the agent (conversation/pendingMessages.ts).
 export const PENDING_MESSAGES = "pendingMessages";
+export const LANE_NOTICE_BATCH = "laneNoticeBatch";
 /// A row that draws nothing (a turn's bookkeeping, conversation/turns.ts).
 const drawsNothing = (row: AcpmuxRow) => row.incoming?.kind === "hidden";
 /// The row after `index` that draws something.
@@ -1120,6 +1136,7 @@ export const isLastFooter = (row: AcpmuxRow, next: AcpmuxRow | undefined) =>
   row.kind === "turnSummary" &&
   (!next ||
     next.kind === PENDING_MESSAGES ||
+    next.kind === LANE_NOTICE_BATCH ||
     ((next.kind === "user" || next.kind === QUEUED_MESSAGE) &&
       (next.received !== undefined || next.incoming?.kind === "message" || next.incoming?.kind === "notice")));
 /// A completed turn followed by more of this chat's assistant. Incoming agents are user rows,
@@ -1424,8 +1441,8 @@ export const onlyQuietThoughts = (row: AcpmuxRow) =>
 /**
  * UserBubble renders this narrow class as literal spans. Keep the fast path deliberately
  * conservative: anything whose Markdown meaning could differ from its source stays on the
- * parser-backed estimator until the DOM can measure it. It is a superset of PromptText's
- * PROMPT_MARKDOWN characters (`$` included), so a row PromptText sends to Markdown never lands here.
+ * parser-backed estimator until the DOM can measure it. Every Markdown marker promptMarkdown.ts
+ * looks for (`$` too) is excluded here, so a row PromptText sends to Markdown never lands here.
  */
 const PLAIN_MARKDOWN_CHARS = "\\`*_~<>[]{}#|&/$";
 
@@ -1467,17 +1484,29 @@ function measuredRowHeight(
   // The messages that wait, as one group (conversation/PendingMessagesCard.tsx): its 26px head in
   // 2px margins and the message gap; opened, each sender's 22px head, then each of its messages as
   // its own row draws it, 24px in, less the gap the row frame gives a row, which the group has once.
+  if (row.kind === LANE_NOTICE_BATCH && row.laneNoticeBatch) {
+    const head = finish(2 + 26 + 2 + MESSAGE_GAP);
+    if (!messageOpened(sessionId, row.id)) return head;
+    return (
+      head +
+      row.laneNoticeBatch.rows.reduce(
+        (height, member) =>
+          height + measuredRowHeight(member, Math.max(80, width - 24), cache, false, false, sessionId) - MESSAGE_GAP,
+        0,
+      )
+    );
+  }
   if (row.kind === PENDING_MESSAGES && row.pendingMessages) {
     const head = finish(2 + 26 + 2 + MESSAGE_GAP);
     if (!messageOpened(sessionId, row.id)) return head;
     const senders = new Set<string>();
     let height = head;
-    for (const member of row.pendingMessages.rows) {
+    for (const member of row.pendingMessages.displayRows ?? row.pendingMessages.rows) {
       const from =
         member.incoming?.kind === "message"
           ? (member.incoming.message.sessionId ?? member.incoming.message.name)
           : member.id;
-      if (!senders.has(from)) {
+      if (member.kind !== LANE_NOTICE_BATCH && !senders.has(from)) {
         senders.add(from);
         height += 22;
       }

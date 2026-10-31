@@ -52,6 +52,31 @@ fn public_tab(tab: &Value, evicted: &HashSet<String>) -> Value {
     if let Some(page) = tab["conversation"]["page"].as_str() {
         public.set("page", json!(page));
     }
+    // Keep the canonical agent-tab identity in closed history so clients can
+    // still recognize a New Tab that became a chat. Host/install metadata is
+    // daemon-owned and stays private; the public record carries only the
+    // session id and harness type needed to identify the chat.
+    if let Some(agent) = tab
+        .get("conversation")
+        .and_then(|conversation| conversation.get("agent_session"))
+        .and_then(Value::as_object)
+    {
+        public.set("kind", json!(super::conversation_tabs_store::CONVERSATION_KIND));
+        let string_or_null = |key: &str| {
+            agent
+                .get(key)
+                .and_then(Value::as_str)
+                .filter(|value| !value.is_empty())
+                .map_or(Value::Null, |value| json!(value))
+        };
+        public.set(
+            "agent_session",
+            json!({
+                "session": string_or_null("session"),
+                "harness": string_or_null("harness"),
+            }),
+        );
+    }
     if reopens_empty(tab) {
         public.set("empty", json!(true));
     }

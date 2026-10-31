@@ -1,5 +1,15 @@
 import AppKit
 
+/// What VoiceOver reaches on a group's header, for the one row a group draws as (`SidebarLayout+SoleMember`): the
+/// header's expanded state and its editor, menu, New Workspace and fold actions, beside the workspace's own.
+struct StandingGroupAccess {
+    var expanded: Bool
+    var toggle: () -> Void
+    var edit: () -> Void
+    var menu: () -> Void
+    var add: (() -> Void)?
+}
+
 extension WorkspaceRowView {
     /// Routes AXPress through the sidebar's shared workspace selection action.
     override func accessibilityPerformPress() -> Bool {
@@ -25,6 +35,13 @@ extension WorkspaceRowView {
         }
         if let onMore {
             actions.append(NSAccessibilityCustomAction(name: Strings.workspaceMenu) { onMore(); return true })
+        }
+        if let group = standingGroup {
+            actions.append(NSAccessibilityCustomAction(name: GroupEditorStrings.editor) { group.edit(); return true })
+            actions.append(NSAccessibilityCustomAction(name: GroupEditorStrings.moreActions) { group.menu(); return true })
+            if let add = group.add { actions.append(NSAccessibilityCustomAction(name: GroupEditorStrings.newWorkspace) { add(); return true }) }
+            let fold = group.expanded ? GroupEditorStrings.collapse : GroupEditorStrings.expand
+            actions.append(NSAccessibilityCustomAction(name: fold) { group.toggle(); return true })
         }
         return actions.isEmpty ? nil : actions
     }
@@ -58,13 +75,13 @@ extension WorkspaceRowView {
         if let text = Strings.activity(content.activity) { parts.append(text) }
         if ws.muted { parts.append(Strings.notificationsMuted) }
         parts += ws.usageWarnings
-        // A one-list row on another computer leads its second line with the computer's name
-        // (`SidebarLayout.machineLabel`): VoiceOver says it once. The whole name is compared, so a
-        // name with " · " in it still counts.
-        if let machine = content.machine,
-           !(detail == machine.name || detail?.hasPrefix(machine.name + WorkspaceRowContent.separator) == true) {
-            parts.append(machine.name)
-        }
+        // The computer: a one-list row on another computer says it with its status when it cannot connect
+        // (`SidebarLayout.machineLabel`, "gpu-box · Failed to start"), whether or not the row draws a mark
+        // (with one machine listed it draws none). No line draws it (Leo 2026-10-30: "remove the second
+        // line"), and the detail now holds only the facts the person turned on, so it is said on its own,
+        // never matched against them: a branch named like the machine is no proof the machine was said
+        // (review of #28510 at 4acab8c2).
+        if let spoken = content.machineLabel ?? content.machine?.name { parts.append(spoken) }
         parts += presence.map(Strings.presenceLine)
         return parts.joined(separator: ", ")
     }
