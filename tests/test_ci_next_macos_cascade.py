@@ -887,11 +887,16 @@ class Rerun(unittest.TestCase):
                 # The idle mini races for the canary; the scheme compile gets 12 vCPU either way.
                 self.assertEqual(lines["owned_jobs"], " fast-tier ")
                 self.assertEqual(lines["blacksmith_12_jobs"], " cmux-scheme-compile ")
-                routes = ("runner", "gui_runner", "session_runner", "free_gui_runner", "free_session_runner",
-                          "fast_runner", "gateway_runner", "gateway_attempt", "nightly_runner_ready")
+                routes = ("runner", "fast_runner", "gateway_runner", "gateway_attempt", "nightly_runner_ready")
                 if attempt == "2":
-                    # The GUI, session, fast and gateway jobs keep the routes a re-run always had.
+                    # The fast and gateway jobs keep the routes a re-run always had.
                     self.assertEqual({key: lines[key] for key in routes if key in lines}, {})
+                    # No GUI or session runner is idle (the mini carries none), so the GUI jobs take Blacksmith.
+                    self.assertEqual({key: lines[key] for key in ("gui_runner", "session_runner", "free_gui_runner",
+                                                                    "free_session_runner")},
+                                     dict.fromkeys(("gui_runner", "session_runner", "free_gui_runner",
+                                                    "free_session_runner"), ""))
+                    self.assertEqual(lines["gui_overflow"], SMALL)
                     self.assertEqual(lines["retry_runner"], "")
                 else:
                     self.assertEqual(lines["runner"], SIDE)
@@ -1782,6 +1787,49 @@ class DeadLabel(unittest.TestCase):
         spec.loader.exec_module(sign)
         snap = observed_dead(38)
         self.assertEqual(sign.dead(snap, NOW), set(cascade.dead(snap, NOW)))
+
+
+
+class GuiOverflow(unittest.TestCase):
+    """The GUI jobs' Blacksmith leg (swift-test, daemon-test, generated-files): the largest size that starts them now.
+
+    Run 41123927916 (cmux#28497, 2026-10-30) sent swift-test to 6 vCPU on both attempts, where tests that take
+    under a second idle took 78-227 s and the 300 s stall watchdog cut them. 12 vCPU was stalled that day, so
+    6 vCPU was the right pick then; the leg was 6 vCPU whatever 12 vCPU's state, though.
+    """
+
+    MOVING = cascade.Seen(waits={LARGE: 0.0, SMALL: 0.0})
+
+    def free(self) -> dict:
+        return {LARGE: 0, SMALL: 0}
+
+    def test_the_large_size_while_it_moves_and_starts_every_gui_job(self):
+        self.assertEqual(cascade.gui_overflow_label(self.free(), self.free(), self.MOVING), LARGE)
+        self.assertEqual(cascade.gui_overflow_label({LARGE: 1, SMALL: 2}, self.free(), self.MOVING, jobs=3), LARGE)
+
+    def test_the_small_size_when_the_large_one_cannot_start_them_now(self):
+        cases = {
+            # Run 41123927916's attempt 1 placement: 0 in flight + 158 queued, oldest queued 1431 min.
+            "stalled": ({LARGE: 0, SMALL: 4}, {LARGE: 158, SMALL: 0},
+                        cascade.Seen(waits={LARGE: 1431.0, SMALL: 0.0})),
+            # A cleared queue on a label that started nothing for an hour reads as free slots.
+            "dead": (self.free(), self.free(), cascade.Seen(waits={LARGE: 0.0, SMALL: 0.0}, dead=frozenset({LARGE}))),
+            "full": ({LARGE: 5, SMALL: 0}, self.free(), self.MOVING),
+            "no slot for each job": ({LARGE: 3, SMALL: 0}, self.free(), self.MOVING),
+            # Ten 6 vCPU jobs hold the 60 vCPU pool: twelve are not free at once.
+            "pool full": ({LARGE: 0, SMALL: 10}, self.free(), self.MOVING),
+            # A queued Blacksmith job takes each freed slot first (fits()).
+            "pool queue": ({LARGE: 0, SMALL: 2}, {LARGE: 0, SMALL: 1}, self.MOVING),
+            "freshness work queued for it": (self.free(), self.free(),
+                                             cascade.Seen(waits={LARGE: 0.0, SMALL: 0.0}, reserved={LARGE: 1})),
+            "runner groups unread": (None, self.free(), self.MOVING),
+            "snapshot unread": (self.free(), None, None),
+            "no snapshot waits": (self.free(), self.free(), None),
+            "stale snapshot": (self.free(), self.free(), cascade.Seen(waits={}, stale=True)),
+        }
+        for name, (live, waiting, seen) in cases.items():
+            with self.subTest(name):
+                self.assertEqual(cascade.gui_overflow_label(live, waiting, seen, jobs=3), SMALL)
 
 
 if __name__ == "__main__":

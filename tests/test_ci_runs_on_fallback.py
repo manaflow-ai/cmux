@@ -418,6 +418,44 @@ def role_label_problems(path: str, text: str, rescued: set[str]) -> list[str]:
         if f"needs.{placement}.outputs.gui_overflow" not in text:
             found.append(f"reads needs.{placement}'s gui route without its gui_overflow")
     return found
+# A pull request from a fork: its own fixed route, before any placement output is read.
+FORK_CLAUSE = "head.repo.full_name != github.repository"
+# A Blacksmith macOS label literal.
+BLACKSMITH_MAC_LITERAL = re.compile(r"'blacksmith-[0-9]+vcpu-macos-[0-9.]+'")
+
+
+def flat_alternatives(expression: str) -> list[str]:
+    """The `||` alternatives of `expression` in the order they are tried, with parenthesized groups of
+    alternatives flattened: `a || (b || c) || d` -> [a, b, c, d]."""
+    found = []
+    for part in split_top(unwrap(expression), "||"):
+        part = unwrap(part)
+        found += flat_alternatives(part) if len(split_top(part, "||")) > 1 else [part]
+    return found
+
+
+def overflow_preempted(text: str) -> list[str]:
+    """The alternatives that send a GUI job to a fixed Blacksmith macOS label before its placement's gui_overflow.
+
+    side_lane_placement.py writes gui_overflow as the Blacksmith size the GUI jobs take when no owned GUI runner
+    has room (next_macos_cascade.gui_overflow_label(): 12 vCPU while it moves, else 6 vCPU), on attempt 1 and
+    on the rescue's re-run. An alternative before it that names a Blacksmith literal decides the size instead:
+    run 41123927916 (cmux#28497, 2026-10-30) ran swift-test on 6 vCPU on both attempts through such legs
+    (`runner != '' && 'blacksmith-6vcpu-macos-26'`, `github.run_attempt != 1 && 'blacksmith-6vcpu-macos-26'`).
+    Only a fork's clause may come first; a literal after the gui_overflow read is the last resort.
+    """
+    found = []
+    for expression in EXPRESSION.findall(text) or [text]:
+        if "outputs.gui_overflow" not in expression:
+            continue
+        for alternative in flat_alternatives(expression):
+            if "outputs.gui_overflow" in alternative:
+                break
+            if BLACKSMITH_MAC_LITERAL.search(alternative) and FORK_CLAUSE not in alternative:
+                found.append(alternative)
+    return found
+
+
 # Side-workflow Mac jobs placed through cmux-next's cascade (scripts/ci/side_lane_placement.py and
 # next_macos_cascade.py): (workflow, job) -> (the placing job, the key the placement lists the job under).
 # Such a job takes an idle owned Mac, else a free Blacksmith macOS slot, and never waits on one busy side
@@ -666,6 +704,33 @@ class RunsOnFallbackTests(unittest.TestCase):
         self.assertTrue(role_label_problems(here, placed, {here}))
         self.assertEqual(role_label_problems(here, placed.replace(
             "|| github.run_attempt == 1", "|| needs.p.outputs.gui_overflow || github.run_attempt == 1"), {here}), [])
+
+    def test_no_fixed_blacksmith_leg_comes_before_the_gui_overflow(self) -> None:
+        failures, seen = [], 0
+        for path in workflows():
+            for job_id, job in (load(path).get("jobs") or {}).items():
+                labels = {"runs-on": runs_on_text(job)}
+                runner_copy = (job.get("env") or {}).get("CMUX_NEXT_RUNNER")
+                if isinstance(runner_copy, str):
+                    labels["CMUX_NEXT_RUNNER"] = runner_copy
+                for key, text in labels.items():
+                    seen += "outputs.gui_overflow" in text
+                    failures += [f"{path.name} {job_id} {key}: {alternative}" for alternative in overflow_preempted(text)]
+        self.assertEqual(failures, [], "a GUI job takes the Blacksmith size its placement names (gui_overflow); a fixed "
+                                       "Blacksmith leg may come only after it, as the last resort, or for a fork")
+        self.assertGreaterEqual(seen, 6, "cmux-next's swift-test, daemon-test and generated-files read gui_overflow")
+
+    def test_the_overflow_rule_catches_what_it_is_for(self) -> None:
+        overflow = "needs.p.outputs.gui_overflow != '' && needs.p.outputs.gui_overflow"
+        fork = "github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26'"
+        small = "'blacksmith-6vcpu-macos-26'"
+        self.assertEqual(overflow_preempted(f"${{{{ {fork} || needs.p.outputs.gui_runner || {overflow} || {small} }}}}"), [])
+        # Run 41123927916's two legs, at the top level or inside a group.
+        self.assertTrue(overflow_preempted(f"${{{{ (needs.p.outputs.runner != '' && {small}) || {overflow} || {small} }}}}"))
+        self.assertTrue(overflow_preempted(f"${{{{ a || ({fork} || github.run_attempt != 1 && {small} || {overflow}) }}}}"))
+        self.assertTrue(overflow_preempted(f"${{{{ x && 'blacksmith-12vcpu-macos-26' || {overflow} || {small} }}}}"))
+        # No gui_overflow read: another rule's business.
+        self.assertEqual(overflow_preempted(f"${{{{ a && {small} || 'glaeda-side-std-xcode-26.6' }}}}"), [])
 
     def test_compile_and_fallback_routes_never_evict_another_head(self) -> None:
         failures = []

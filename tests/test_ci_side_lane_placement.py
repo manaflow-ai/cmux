@@ -233,7 +233,8 @@ class Decide(unittest.TestCase):
     def test_main_sends_the_gui_jobs_to_blacksmith_when_the_gui_queue_has_no_room(self):
         busy = [runner(f"mini-{host}-glaeda-4", busy=True, labels=(STD, SIDE, GUI)) for host in "abc"]
         small, large = placement.cascade.SMALL, placement.cascade.LARGE
-        for owned, expected in (({GUI: 5}, ("", small)), ({GUI: 1}, (GUI, ""))):
+        # A moving, empty 12 vCPU starts the GUI jobs now: they take it, the largest size (gui_overflow()).
+        for owned, expected in (({GUI: 5}, ("", large)), ({GUI: 1}, (GUI, ""))):
             with self.subTest(owned_queued=owned), tempfile.TemporaryDirectory() as tmp:
                 output = Path(tmp) / "out"
                 seen = placement.cascade.Seen(waits={}, owned_queued=owned)
@@ -303,7 +304,8 @@ class Decide(unittest.TestCase):
             lines = dict(line.split("=", 1) for line in output.read_text().splitlines())
         # No idle mini took a job, so the cascade sees none placed, and the fast tier takes a free Blacksmith slot.
         self.assertEqual(places, [()])
-        self.assertEqual(lines["gui_overflow"], small)
+        # 12 vCPU, empty and moving, still has a slot for each GUI job after the fast tier's.
+        self.assertEqual(lines["gui_overflow"], large)
         self.assertIn(" fast-tier ", lines["blacksmith_12_jobs"] + lines["blacksmith_6_jobs"])
 
     def test_main_weighs_the_session_lane_like_the_role_routes(self):
@@ -335,6 +337,36 @@ class Decide(unittest.TestCase):
                                    GITHUB_OUTPUT=str(output)))
             lines = dict(line.split("=", 1) for line in output.read_text().splitlines())
             self.assertEqual(lines["session_lane_runner"], "")
+
+    def test_the_rescues_full_rerun_takes_an_idle_gui_runner_first(self):
+        """The routing order on the rescue's re-run, as on attempt 1: an owned GUI runner idle now, else the
+        largest Blacksmith macOS size that starts the GUI jobs (run 41123927916's attempt 2 took 6 vCPU with
+        no owned runner ever weighed)."""
+        small, large = placement.cascade.SMALL, placement.cascade.LARGE
+        idle_gui = runner("mini-a-glaeda-4", labels=(STD, GUI))
+        busy_gui = runner("mini-b-glaeda-4", busy=True, labels=(STD, GUI))
+        idle_session = runner("mini-c-glaeda-5", labels=(STD, SESSION))
+        moving = placement.cascade.Seen(waits={large: 0.0, small: 0.0})
+        stalled = placement.cascade.Seen(waits={large: 1431.0, small: 0.0})
+        cases = (
+            ([idle_gui, busy_gui], moving, {"gui_runner": GUI, "session_runner": GUI, "free_gui_runner": GUI,
+                                            "free_session_runner": GUI, "gui_overflow": ""}),
+            ([busy_gui, idle_session], moving, {"gui_runner": "", "session_runner": SESSION, "free_gui_runner": "",
+                                                "free_session_runner": SESSION, "gui_overflow": large}),
+            ([busy_gui], stalled, {"gui_runner": "", "session_runner": "", "free_gui_runner": "",
+                                   "free_session_runner": "", "gui_overflow": small}),
+        )
+        for fleet, seen, expected in cases:
+            queued = {large: 158 if seen is stalled else 0, small: 0}
+            with self.subTest(expected=expected), tempfile.TemporaryDirectory() as tmp, \
+                    contextlib.redirect_stdout(io.StringIO()):
+                output = Path(tmp) / "out"
+                with mock.patch.object(placement.cascade, "read",
+                                       return_value=({large: 0, small: 0}, queued, seen)):
+                    placement.rerun_main(env(GITHUB_RUN_ATTEMPT="2", GITHUB_TRIGGERING_ACTOR="cmux-bot[bot]",
+                                             GITHUB_OUTPUT=str(output)), fleet)
+                lines = dict(line.split("=", 1) for line in output.read_text().splitlines())
+                self.assertEqual({key: lines.get(key) for key in expected}, expected)
 
     def test_the_rescues_full_rerun_names_the_gui_overflow(self):
         # Its GUI jobs never read gui_runner; with no route written they fell back to the fixed gui label.
@@ -959,8 +991,8 @@ class CmuxNextWiring(unittest.TestCase):
     def test_missing_gui_label_uses_blacksmith_instead_of_a_dead_gui_queue(self):
         jobs = self.workflow()["jobs"]
         context = self.context(runner=STD)
-        # With no online gui or session runner, placement writes both empty.
-        context["needs"][self.PLACEMENT]["outputs"].update(gui_runner="", session_runner="")
+        # With no online gui or session runner, placement writes both empty and names the overflow (main()).
+        context["needs"][self.PLACEMENT]["outputs"].update(gui_runner="", session_runner="", gui_overflow=FALLBACK)
         for name in GUI_JOBS:
             self.assertEqual(evaluate(jobs[name]["runs-on"], context), FALLBACK, name)
 
@@ -1154,19 +1186,57 @@ class CmuxNextWiring(unittest.TestCase):
                     self.assertEqual(evaluate(expression, self.context(runner=STD)), on(name, STD))
                     self.assertEqual(evaluate(expression, self.context("2", runner=STD)),
                                      FALLBACK if name in GUI_JOBS else on(name, STD))
-                    # The rescue's attempt 2 takes the free Blacksmith slot the placement found.
+                    # The rescue's attempt 2 takes the free Blacksmith slot the placement found. A GUI job's
+                    # placement (rerun_main()) found no idle GUI or session runner: it names only the overflow.
                     free = self.context("2", runner=STD, triggering_actor=bot)
                     free["needs"][self.PLACEMENT]["outputs"]["retry_runner"] = FALLBACK
+                    if name in GUI_JOBS:
+                        free["needs"][self.PLACEMENT]["outputs"].update(gui_runner="", session_runner="",
+                                                                        gui_overflow=FALLBACK)
                     self.assertEqual(evaluate(expression, free), FALLBACK)
                     # The fast tier's own fast-lane mini is left the same way.
                     free["needs"][self.PLACEMENT]["outputs"]["fast_runner"] = "glaeda-fast-std-xcode-26.6"
                     self.assertEqual(evaluate(expression, free), FALLBACK)
                     # With no free slot it waits behind the fleet, never in a Blacksmith queue, as attempt 3 does.
                     full = self.context("2", runner=STD, triggering_actor=bot)
+                    if name in GUI_JOBS:
+                        full["needs"][self.PLACEMENT]["outputs"].update(gui_runner="", session_runner="",
+                                                                        gui_overflow=FALLBACK)
                     self.assertEqual(evaluate(expression, full), SIDE if name == "fast-tier" else overflow(name))
                     # A dispatch run's attempt 2 overflows the same way.
                     free["github"].update(event_name="workflow_dispatch", ref="refs/heads/topic")
                     self.assertEqual(evaluate(expression, free), FALLBACK)
+
+    def test_the_rescues_rerun_takes_the_owned_gui_runner_or_the_overflow_its_placement_found(self):
+        """Run 41123927916 (cmux#28497): both attempts of swift-test ran on 6 vCPU. Attempt 1 because a
+        `runner != ''` leg sent every declined GUI job there before gui_overflow was read, the bot's attempt 2
+        because its GUI jobs never read gui_runner. The routing order holds on both now: an owned GUI or session
+        runner idle now, else the Blacksmith size placement names (12 vCPU while it moves), 6 vCPU last."""
+        jobs = self.workflow()["jobs"]
+        large = "blacksmith-12vcpu-macos-26"
+        for name in GUI_JOBS:
+            job = jobs[name]
+            for key, expression in (("runs-on", job["runs-on"]), ("CMUX_NEXT_RUNNER", job["env"]["CMUX_NEXT_RUNNER"])):
+                with self.subTest(job=name, key=key):
+                    for actor in RESCUE_BOTS:
+                        # rerun_main() saw an idle GUI runner (and so a session route) for this attempt.
+                        idle = self.context("2", triggering_actor=actor)
+                        idle["needs"][self.PLACEMENT]["outputs"].update(
+                            gui_runner=GUI, session_runner=GUI, free_gui_runner=GUI, free_session_runner=GUI)
+                        self.assertEqual(evaluate(expression, idle), GUI, actor)
+                        # None idle: the size it named, never 6 vCPU by a fixed leg.
+                        busy = self.context("2", triggering_actor=actor)
+                        busy["needs"][self.PLACEMENT]["outputs"]["gui_overflow"] = large
+                        self.assertEqual(evaluate(expression, busy), large, actor)
+                    # Attempt 1 with the GUI queue declined (the side route set): the size placement named.
+                    declined = self.context(runner=STD)
+                    declined["needs"][self.PLACEMENT]["outputs"].update(gui_runner="", session_runner="",
+                                                                        gui_overflow=large)
+                    self.assertEqual(evaluate(expression, declined), large)
+                    # The same reading carried into a later attempt is stale: 6 vCPU, the last resort.
+                    carried = self.context("3", runner=STD)
+                    carried["needs"][self.PLACEMENT]["outputs"].update(gui_runner="", gui_overflow=large)
+                    self.assertEqual(evaluate(expression, carried), FALLBACK)
 
     def test_placement_starts_only_where_attempt_1_may_take_the_side_label(self):
         # A fork, another owner, owned pools off or a re-run starts no Linux runner before the Mac jobs.
