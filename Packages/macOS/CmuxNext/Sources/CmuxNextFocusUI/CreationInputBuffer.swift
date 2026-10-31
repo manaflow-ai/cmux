@@ -137,12 +137,12 @@ public final class CreationInputBuffer {
 
     /// Held keys at the hold's end, in typing order (``take(focused:)``).
     public enum HeldKey {
-        /// Keys of a lane whose terminal is not the focused one, typed one after another: that terminal types them
-        /// with its own key encoding, never the focused terminal (a held Ctrl-C must not stop another process).
+        /// Keys of a lane whose terminal is not the focused one, in order, typed as one run (one daemon send when its
+        /// view is gone, so no key passes another): that terminal's own key encoding, never the focused terminal (a held
+        /// Ctrl-C must not stop another process). Chords that are no app shortcut (Ctrl-C, Ctrl-U) stay in the run.
         case type([NSEvent], lane: HeldLane)
-        /// A chord (Command or Control) typed for a lane whose terminal is not the focused one: an app shortcut (Cmd-D,
-        /// Ctrl-`, Ctrl-Tab) runs with that terminal's tab as its target (as a key press there); any other chord
-        /// (Ctrl-C) is that terminal's key.
+        /// An app shortcut (Cmd-D, Ctrl-`, Ctrl-Tab) typed for a lane whose terminal is not the focused one: it runs with
+        /// that terminal's tab as its target, as a key press there.
         case command(NSEvent, lane: HeldLane)
         /// A key that runs again as typed: the focused lane's (`lane`), or a key typed for no creation (nil).
         case run(NSEvent, lane: HeldLane?)
@@ -168,14 +168,15 @@ public final class CreationInputBuffer {
     }
 
     /// Ends the hold: every held key in typing order, each for its own terminal while the focus is on tab `focused`.
-    public func take(focused: String?) -> [HeldKey] {
+    /// `isShortcut(event, tab)`: whether `event` runs an app shortcut in tab `tab`'s context.
+    public func take(focused: String?, isShortcut: (NSEvent, String) -> Bool) -> [HeldKey] {
         var keys: [HeldKey] = []
         for (event, id) in events {
             guard let lane = heldLane(id), lane.tab != focused else {
                 keys.append(.run(event, lane: heldLane(id)))
                 continue
             }
-            if !event.modifierFlags.isDisjoint(with: [.command, .control]) {
+            if !event.modifierFlags.isDisjoint(with: [.command, .control]), isShortcut(event, lane.tab) {
                 keys.append(.command(event, lane: lane))
             } else if case .type(let earlier, let last)? = keys.last, last == lane {
                 keys[keys.count - 1] = .type(earlier + [event], lane: lane)

@@ -155,7 +155,9 @@ final class CreationInputCoordinator {
             switch key {
             case .run(let event, _): runKey(event, window)
             case .type(let events, let lane): type(events, into: lane)
-            case .command(let event, let lane): runCommand(event, for: lane, in: window)
+            case .command(let event, let lane): // with that terminal's tab as its target; no binding now: its key
+                guard let (binding, context) = shortcut(event, tab: lane.tab, in: window), let router else { type([event], into: lane); break }
+                RegistryKeyBindings(router.registry).run(binding, keyContext: context.bits, target: ActionTargetRef(kind: .tab, id: lane.tab))
             }
             replaying = false
             if let next = buffers[window.windowNumber], next !== buffer || next.openedCount != opened {
@@ -186,15 +188,13 @@ final class CreationInputCoordinator {
         }
     }
 
-    /// A held Command chord typed for `lane`'s terminal while another has the focus: an app shortcut runs with that
-    /// terminal's tab as its target and its key context, as a key press there; any other chord is that terminal's key.
-    private func runCommand(_ event: NSEvent, for lane: CreationInputBuffer.HeldLane, in window: NSWindow) {
-        guard let router, let controller = router.focus(for: window).0 else { return }
+    /// The app shortcut `event` runs in terminal `tab`'s key context, as a key press there; nil: the key is the terminal's.
+    private func shortcut(_ event: NSEvent, tab: String, in window: NSWindow) -> (KeyBinding, KeyContext)? {
+        guard let router, let controller = router.focus(for: window).0 else { return nil }
         var state = controller.focus.currentState()
-        if let pane = controller.content?.panes.values.first(where: { $0.currentTabKey == lane.tab }) { state.resolved = .terminal(pane: pane.paneKey, tab: lane.tab) }
+        if let pane = controller.content?.panes.values.first(where: { $0.currentTabKey == tab }) { state.resolved = .terminal(pane: pane.paneKey, tab: tab) }
         let context = router.keyContext(for: state, facts: router.facts(in: window, controller: controller))
-        guard let binding = router.resolve(event, context: context) else { return type([event], into: lane) }
-        RegistryKeyBindings(router.registry).run(binding, keyContext: context.bits, target: ActionTargetRef(kind: .tab, id: lane.tab))
+        return router.resolve(event, context: context).map { ($0, context) }
     }
 
     /// The focused terminal's tab when its shown view has the keyboard (never another view: a composer, a text field).
@@ -265,9 +265,9 @@ final class CreationInputCoordinator {
         }
         buffers[window.windowNumber] = nil
         let end = holdEnds.end(in: window.windowNumber, forced: force ? forcedEnd : nil)
-        let pending = buffer.take(focused: Self.keyboardTerminal(controller, window)) // as typed only into a terminal with the keyboard
+        let pending = buffer.take(focused: Self.keyboardTerminal(controller, window)) { self.shortcut($0, tab: $1, in: window) != nil }
         if end == .limitReached {
-            // The person's keys for a new terminal waited the whole bound and go on now, into whatever has the focus.
+            // The person's keys for a new terminal waited the whole bound and go on now, each to the terminal it was typed for.
             Self.logger.notice("creation hold of window \(window.windowNumber, privacy: .public) ended at its limit, not on focus: \(pending.count, privacy: .public) held key(s) go on now; last action \(router.lastInterception?.action.rawValue ?? "-", privacy: .public)")
         }
         _ = runAgain(pending, from: buffer, in: window)
