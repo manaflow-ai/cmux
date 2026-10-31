@@ -159,7 +159,7 @@ jobs:
         id: warm-restore
         if: inputs.parts != 'pane-overflow-fade'
         continue-on-error: true
-        uses: ./.github/actions/cache-restore
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: |
             ${{ runner.temp }}/tipguard-cache
@@ -190,7 +190,9 @@ jobs:
           [[ "$TIP_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "tip_sha must be a full lowercase commit SHA" >&2; exit 2; }
           actual="$(git rev-parse HEAD)"
           [ "$actual" = "$TIP_SHA" ] || { echo "checkout SHA $actual differs from requested $TIP_SHA" >&2; exit 2; }
-          git fetch --no-tags --depth=50 origin feat-cmux-next
+          # Deep enough that a tip measured again an hour or two later (the warm-cache case) is still found:
+          # feat-cmux-next lands about 50 commits an hour.
+          git fetch --no-tags --depth=500 origin feat-cmux-next
           branch_tip="$(git rev-parse FETCH_HEAD)"
           git merge-base --is-ancestor "$actual" "$branch_tip" || { echo "requested SHA is not an ancestor of feat-cmux-next" >&2; exit 2; }
           started="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
