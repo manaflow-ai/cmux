@@ -27,14 +27,14 @@ pub fn names(tools: &Value) -> impl Iterator<Item = &str> {
 pub fn nearest<'a>(name: &str, known: impl IntoIterator<Item = &'a str>) -> Option<&'a str> {
     let name_trimmed = name.trim();
     // A char is at most 4 bytes: a longer name is refused before it is read again.
-    if name_trimmed.len() > MAX_NAME * 4 || name_trimmed.chars().count() > MAX_NAME {
+    if name_trimmed.len() > MAX_NAME_BYTES || name_trimmed.chars().count() > MAX_NAME {
         return None;
     }
     let wanted: Vec<char> = name_trimmed.to_lowercase().chars().collect();
     if wanted.is_empty() {
         return None;
     }
-    let limit = if wanted.len() <= 3 { 1 } else { (wanted.len() / 3).max(2) };
+    let limit = if wanted.len() <= 3 { 1 } else { wanted.len().checked_div(3).unwrap_or(0).max(2) };
     let mut best: Option<(usize, &str)> = None;
     for candidate in known {
         if candidate == name || candidate.chars().count() > MAX_NAME {
@@ -60,28 +60,44 @@ pub fn nearest<'a>(name: &str, known: impl IntoIterator<Item = &'a str>) -> Opti
 
 /// The longest tool name a hint is looked for (tool names are short identifiers).
 pub const MAX_NAME: usize = 128;
+/// [`MAX_NAME`] characters of at most 4 bytes each.
+const MAX_NAME_BYTES: usize = MAX_NAME * 4;
 
 /// Optimal string alignment distance: insertions, deletions, substitutions and swaps of two
-/// neighbouring characters.
+/// neighbouring characters. Three rows of the table, read with `get` and added with saturating
+/// arithmetic, so no input can make it panic.
 fn distance(a: &[char], b: &[char]) -> usize {
-    let mut d = vec![vec![0; b.len() + 1]; a.len() + 1];
-    for (i, row) in d.iter_mut().enumerate() {
-        row[0] = i;
-    }
-    for (j, cell) in d[0].iter_mut().enumerate() {
-        *cell = j;
-    }
-    for i in 1..=a.len() {
-        for j in 1..=b.len() {
-            let cost = usize::from(a[i - 1] != b[j - 1]);
-            let mut best = (d[i - 1][j] + 1).min(d[i][j - 1] + 1).min(d[i - 1][j - 1] + cost);
-            if i > 1 && j > 1 && a[i - 1] == b[j - 2] && a[i - 2] == b[j - 1] {
-                best = best.min(d[i - 2][j - 2] + 1);
-            }
-            d[i][j] = best;
+    let width = b.len().saturating_add(1);
+    // The rows two above, one above, and this one; the first row is the distance from "".
+    let mut above2 = vec![0; width];
+    let mut above: Vec<usize> = (0..width).collect();
+    let mut row = vec![0; width];
+    for (i, &ac) in a.iter().enumerate() {
+        if let Some(first) = row.first_mut() {
+            *first = i.saturating_add(1);
         }
+        for (j, &bc) in b.iter().enumerate() {
+            let at = |cells: &[usize], k: usize| cells.get(k).copied().unwrap_or(usize::MAX);
+            let cost = usize::from(ac != bc);
+            let mut best = at(&above, j.saturating_add(1))
+                .saturating_add(1)
+                .min(at(&row, j).saturating_add(1))
+                .min(at(&above, j).saturating_add(cost));
+            // A swap of two neighbouring characters (`ab` for `ba`) is one edit.
+            if let (Some(pi), Some(pj)) = (i.checked_sub(1), j.checked_sub(1))
+                && a.get(pi) == Some(&bc)
+                && b.get(pj) == Some(&ac)
+            {
+                best = best.min(at(&above2, pj).saturating_add(1));
+            }
+            if let Some(cell) = row.get_mut(j.saturating_add(1)) {
+                *cell = best;
+            }
+        }
+        std::mem::swap(&mut above2, &mut above);
+        std::mem::swap(&mut above, &mut row);
     }
-    d[a.len()][b.len()]
+    above.last().copied().unwrap_or(0)
 }
 
 #[cfg(test)]
@@ -165,5 +181,10 @@ mod tests {
         assert_eq!(d("ab", "ba"), 1);
         assert_eq!(d("", "abc"), 3);
         assert_eq!(d("same", "same"), 0);
+        assert_eq!(d("abc", ""), 3);
+        assert_eq!(d("abcd", "acbd"), 1);
+        assert_eq!(d("team_sned", "team_send"), 1);
+        // Optimal string alignment edits no substring twice: "ca" to "abc" is 3, not 2.
+        assert_eq!(d("ca", "abc"), 3);
     }
 }
