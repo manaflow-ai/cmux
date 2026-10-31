@@ -1326,6 +1326,25 @@ class HoldPath(unittest.TestCase):
         with self.assertRaises(self.NotRun):
             self.ext.step_smoke_creation(j, {"action": "hold", "n": 1})
 
+    def test_the_wait_ends_when_the_new_panes_terminal_view_is_first_responder(self):
+        seq = [{"windows": [{"id": "W", "is_key": True, "appkit": {"first_responder": "TerminalSurfaceView", "classified": "content:A"}}]},
+               {"windows": [{"id": "W", "is_key": True, "appkit": {"first_responder": "NSView", "classified": "content:B"}}]},
+               {"windows": [{"id": "W", "is_key": True, "appkit": {"first_responder": "TerminalSurfaceView", "classified": "content:B"}}]}]
+
+        class App:
+            def rpc(self_, method, params=None):
+                return seq.pop(0) if len(seq) > 1 else seq[0]
+        j = self._j()
+        j.app, j.smoke_snapshots = App(), {"before_splits": {"focused_pane": "A"}}
+        sleep, self.ext.time.sleep = self.ext.time.sleep, lambda s: None
+        clock = iter(range(1000))
+        now, self.ext.D.now = self.ext.D.now, staticmethod(lambda: next(clock) * 0.01)
+        try:
+            done = self.ext.step_smoke_wait_new_view(j, {"since": "before_splits", "timeout": 5})
+        finally:
+            self.ext.time.sleep, self.ext.D.now = sleep, now
+        self.assertEqual((done["reached"], done["pane"]), (True, "B"))
+
     def test_a_burst_without_a_hold_counter_is_not_proven(self):
         with self.assertRaises(self.NotRun) as no:
             self.ext.step_smoke_hold_path(self._j(burst=None), {})

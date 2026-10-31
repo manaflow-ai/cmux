@@ -1190,22 +1190,28 @@ def step_smoke_creation(j, step):
 
 def step_smoke_wait_new_view(j, step):
     """After a key that makes a terminal (Cmd-D) while its creation is held (smoke_creation hold): waits, at most
-    TIMEOUT s (default 5), until a pane shows a terminal view the journey has not seen and that pane is the focused
-    one: the new pane's early view has the keyboard. The P0 1193 owner: from then on the keys typed for it, the second
-    Cmd-D too, go straight through while creation 1 is still pending (the race of TIP RED 1193). Never adopts the
-    terminal and never waits for the daemon (its reply is held). Not reached in time: recorded, the journey goes on
-    (smoke_hold_path then judges whether the race happened)."""
-    end, last = D.now() + float(step.get("timeout", 5)), None
-    t0 = D.now()
+    TIMEOUT s (default 5), until AppKit's first responder of the key window is a terminal view inside another pane than
+    the one focused at the smoke_snapshot SINCE (the pane that was split): the new pane's early view has the keyboard
+    (debug.focus `appkit.first_responder` == "TerminalSurfaceView" and `appkit.classified` == "content:<pane>"; the
+    focus model's `focused` moves in the key's own turn, before the view takes the keyboard). The P0 1193 owner: from
+    then on the keys typed for it, the second Cmd-D too, go straight through while creation 1 is still pending (the race
+    of TIP RED 1193). Reads only; polls every 75 ms. Not reached in time: recorded, the journey goes on (smoke_hold_path
+    then judges whether the race happened)."""
+    old = (getattr(j, "smoke_snapshots", {}).get(step.get("since", "before_splits")) or {}).get("focused_pane")
+    end, last, t0 = D.now() + float(step.get("timeout", 5)), None, D.now()
     while D.now() < end:
-        views = [v for v in j.app.panes() if v.get("kind", "terminal") == "terminal" and v.get("terminal_id")]
-        new = [v for v in views if v["terminal_id"] not in j.known_views]
-        focused = [v for v in new if v.get("focused")]
-        if focused:
-            return {"reached": True, "after_s": round(D.now() - t0, 3), "pane": focused[0].get("pane"),
-                    "terminal_id": focused[0]["terminal_id"]}
-        last = {"new_views": [(v.get("pane"), v.get("focused")) for v in new][:4]}
-        time.sleep(0.02)
+        report = j.app.rpc("debug.focus") or {}
+        for w in report.get("windows", []) if isinstance(report, dict) else []:
+            kit = w.get("appkit") or {}
+            where = str(kit.get("classified") or "")
+            last = {"window": w.get("id"), "is_key": w.get("is_key"), "first_responder": kit.get("first_responder"),
+                    "classified": where, "split_pane": old}
+            if not w.get("is_key") or kit.get("first_responder") != "TerminalSurfaceView" or not where.startswith("content:"):
+                continue
+            pane = where[len("content:"):]
+            if pane and pane != old:
+                return {"reached": True, "after_s": round(D.now() - t0, 3), "pane": pane, "split_pane": old}
+        time.sleep(0.075)
     return {"reached": False, "after_s": round(D.now() - t0, 3), "last": last}
 
 
