@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextDesign
+import CmuxNextTestSupport
 import Testing
 
 /// Lawrence 2026-10-20 (screen recording of Home's "Chief" pill popover: "animation needs to be
@@ -8,7 +9,7 @@ import Testing
 /// did not show, and grew it from 0.97 on a 0.135 s spring, too small and short to read as
 /// coming out of the pill. Native popup owners now open at once, with no opacity or transform
 /// entrance; every close may still fade and shrink toward its anchor.
-@MainActor @Suite(.serialized) struct PopupGrowMotionTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct PopupGrowMotionTests {
     private static let pivot = CGPoint(x: 150, y: 200)
 
     /// A borderless window on screen, at alpha 0 as a popup owner leaves it before an open.
@@ -45,7 +46,7 @@ import Testing
         Motion.reduceMotionOverride = false
         defer { Motion.reduceMotionOverride = nil }
         let (window, layer) = try Self.popupWindow()
-        defer { window.resetPopupScale(); window.orderOut(nil) }
+        defer { window.resetPopupScale(); window.closeAfterTest() }
 
         window.openPopup(pivot: Self.pivot)
 
@@ -61,7 +62,7 @@ import Testing
         Motion.reduceMotionOverride = false
         defer { Motion.reduceMotionOverride = nil }
         let (window, layer) = try Self.popupWindow()
-        defer { window.resetPopupScale(); window.orderOut(nil) }
+        defer { window.resetPopupScale(); window.closeAfterTest() }
 
         window.openPopup(pivot: Self.pivot)
 
@@ -77,7 +78,7 @@ import Testing
         Motion.reduceMotionOverride = false
         defer { Motion.reduceMotionOverride = nil }
         let (window, layer) = try Self.popupWindow()
-        defer { window.orderOut(nil) }
+        defer { window.closeAfterTest() }
         window.openPopup(pivot: Self.pivot)
 
         var ended = false
@@ -103,7 +104,7 @@ import Testing
         Motion.reduceMotionOverride = true
         defer { Motion.reduceMotionOverride = nil }
         let (window, layer) = try Self.popupWindow()
-        defer { window.resetPopupScale(); window.orderOut(nil) }
+        defer { window.resetPopupScale(); window.closeAfterTest() }
 
         window.openPopup(pivot: Self.pivot)
 

@@ -452,6 +452,7 @@ impl Hub {
                     from_harness: crate::prompt_provenance::sender_of(q.run.provenance.as_ref()).1,
                     class: q.run.class,
                     author: crate::author::listed(q.run.provenance.as_ref()),
+                    subagent_retry: super::subagent_retry::listed(q.run.provenance.as_ref()),
                     // By attachment id: `_acpmux/attachment` reads each back.
                     images: super::prompt_images::named(&q.run.blocks)
                         .into_iter()
