@@ -366,8 +366,8 @@ export function HarnessesScreen({
                 : doing.retryLaunch && action(row)
                   ? { label: action(row)!, run: () => act(row) }
                   : row.docsUrl
-                  ? { label: t("harnesses.setupGuide"), run: () => openDocs(row) }
-                  : { label: t("harnesses.checkAgain"), run: () => checkAgain(row) }
+                    ? { label: t("harnesses.setupGuide"), run: () => openDocs(row) }
+                    : { label: t("harnesses.checkAgain"), run: () => checkAgain(row) }
               : undefined;
           const label =
             doing?.kind === "installing" || doing?.kind === "waiting" ? undefined : (failedFix?.label ?? action(row));

@@ -65,7 +65,9 @@ export function harnessRows(
           ? "checking"
           : checked.auth === "signedOut"
             ? "signIn"
-            : checked.auth === "unknown" || entry.unavailable
+            : // Ready only on evidence of a sign-in: an answer without one (no `auth`, unknown, or a
+              // state this page does not know) is not ready, and the row offers its fix instead.
+              checked.auth !== "signedIn" || entry.unavailable
               ? "unavailable"
               : "ready";
       return {

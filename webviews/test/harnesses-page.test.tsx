@@ -303,6 +303,29 @@ for (const result of ["rejected", "empty", "unknown"] as const) {
   });
 }
 
+test("a health answer with no sign-in is unknown: never Ready or Start Chat, and offers a fix", async () => {
+  const calls: Call[] = [];
+  const closed: string[] = [];
+  const container = await renderPage(calls, closed, {
+    // acpmux answered, but said nothing about the sign-in (no `auth`).
+    healthReply: (id) =>
+      Promise.resolve({ health: id === "grok" ? { id, login: "grok login" } : { id, auth: "signedIn" } }),
+  });
+  const grok = row(container, "Grok")!;
+  expect(grok.dataset.harnessStatus).toBe("unavailable");
+  expect(grok.textContent).not.toContain("Ready");
+  expect(grok.textContent).not.toContain("Start Chat");
+  expect(grok.querySelector(".acpmux-harness-spinner")).toBeNull();
+  const fix = grok.querySelector<HTMLButtonElement>("button")!;
+  expect(["Setup guide", "Check again"]).toContain(fix.textContent ?? "");
+  await act(async () => fix.click());
+  expect(calls.some((call) => call.method === "chat.new")).toBe(false);
+  expect(closed).toEqual([]);
+  // The known cases keep their actions: signed in starts a chat, signed out signs in.
+  expect(row(container, "Claude Code")!.dataset.harnessStatus).toBe("ready");
+  expect(row(container, "Claude Code")!.querySelector("button")!.textContent).toBe("Start Chat");
+});
+
 for (const [name, method, label] of [
   ["Codex", "tab.open", "Sign In"],
   ["Grok", "chat.new", "Start Chat"],
