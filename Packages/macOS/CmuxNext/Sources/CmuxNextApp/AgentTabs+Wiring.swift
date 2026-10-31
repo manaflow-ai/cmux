@@ -385,8 +385,6 @@ extension AgentTabStore {
             var request = NewConversationTabRequest(agentSession: record, pane: pane, origin: createOrigin, mutationID: key,
                                                     transaction: transaction)
             request.split = split
-            // One mutation id for every send: a tab (and a split's pane) the daemon made after the
-            // deadline replays, so the shown tab is never taken back (#26689).
             let response = try await DaemonConnection.retryingLateReplies(NewConversationTabRequest.command) { try await connection.request(request) }
             let created = AgentTabCreated(key: response.tabResourceID?.rawValue ?? "surface:\(response.surface.rawValue)",
                                           surface: response.surface)
