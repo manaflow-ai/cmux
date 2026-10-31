@@ -22,8 +22,20 @@ const PREVIEW_BYTES: usize = 1 << 10;
 /// Room kept for the `omitted` mark [`fit_object`] adds.
 const MARK_BYTES: usize = 4 << 10;
 
-/// The fields a row is found, paged and filtered by: never trimmed.
-const KEEP: &[&str] = &["sessionId", "peer", "status", "updatedAt", "name"];
+/// The fields a row is found, paged, filtered and opened by: never trimmed. The same set the
+/// attach reply's session keeps (`_acpmux/attach`).
+const KEEP: &[&str] = &[
+    "sessionId",
+    "id",
+    "qualifiedSessionId",
+    "sessionReceipt",
+    "peer",
+    "status",
+    "harness",
+    "cwd",
+    "updatedAt",
+    "name",
+];
 
 fn size(value: &Value) -> usize {
     serde_json::to_string(value).map_or(usize::MAX, |text| text.len())
@@ -155,7 +167,9 @@ mod tests {
         let mut detail = json!({"sessionId": "s", "name": "n".repeat(REPLY_BYTES), "cwd": "/w"});
         fit_reply_object(&mut detail);
         assert_eq!(detail["sessionId"], "s");
-        assert!(detail.get("name").is_none() && detail.get("cwd").is_none());
+        // The kept fields that are small stay, the huge one goes.
+        assert!(detail.get("name").is_none());
+        assert_eq!(detail["cwd"], "/w");
         assert_eq!(detail["omitted"]["reason"], "too_large");
     }
 
