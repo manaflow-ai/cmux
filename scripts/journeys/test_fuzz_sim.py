@@ -139,6 +139,9 @@ class FakeApp:
             tab = next(t for t in pane["tabs"] if t["id"] == pane["selected"])
             line = getattr(self, "typed", "")
             self.typed = ""
+            if "split_keys_to_last" in self.bugs and time.monotonic() - self.last_split < 0.5 and line.startswith("echo st"):
+                self.held = getattr(self, "held", []) + [line]  # held while the pane is made, replayed later
+                return {"handled_by": "keyRouter"}
             if tab["term"] and line.startswith("echo "):
                 pane_cols = self.cols_of(pane)
                 words = line[5:].replace("$(stty size)", "24 80" if "pty_mismatch" in self.bugs else f"30 {pane_cols}").split()
@@ -191,8 +194,19 @@ class FakeApp:
                                      "frame_height": 488.0}})
         return out
 
+    def flush_held(self):
+        """The planted TIP RED 1193: held lines run, all of them, in the pane focused when the hold ends."""
+        held = getattr(self, "held", [])
+        if held and time.monotonic() - self.last_split >= 0.5:
+            pane = self.focused_pane()
+            tab = next(t for t in pane["tabs"] if t["id"] == pane["selected"])
+            for line in held:
+                self.terms[tab["term"]]["text"] += "\n" + line + "\n" + line[5:] + "\n$ "
+            self.held = []
+
     def rpc(self, method, params=None, timeout=None):
         params = params or {}
+        self.flush_held()
         if method == "snapshot.get":
             return {"topology": self.topology()}
         if method == "debug.surfaces":
@@ -277,8 +291,8 @@ class SimJourney:
 
 def run(bugs=(), seq=None, seed=5, count=40, shrink=True, actions="full"):
     ext_fuzz.counts = lambda j: {"fds": 50, "processes": 2, "helpers": 0, "ptys": j.app.ptys}
-    saved = (ext_fuzz.CREATE_TIMEOUT, ext_fuzz.SETTLE, ext_fuzz.LEAK_SETTLE)
-    ext_fuzz.CREATE_TIMEOUT, ext_fuzz.SETTLE, ext_fuzz.LEAK_SETTLE = 0.3, 0.1, 0.1
+    saved = (ext_fuzz.CREATE_TIMEOUT, ext_fuzz.SETTLE, ext_fuzz.LEAK_SETTLE, ext_fuzz.SPLIT_LINES_TIMEOUT)
+    ext_fuzz.CREATE_TIMEOUT, ext_fuzz.SETTLE, ext_fuzz.LEAK_SETTLE, ext_fuzz.SPLIT_LINES_TIMEOUT = 0.3, 0.1, 0.1, 1.5
     try:
         j = SimJourney(FakeApp(bugs), tempfile.mkdtemp())
         weights = {"resize_window": 0, "drag_divider": 0, "relaunch": 0, "paste": 0, "open_url": 0}
@@ -291,7 +305,7 @@ def run(bugs=(), seq=None, seed=5, count=40, shrink=True, actions="full"):
             return j.fuzz_report, str(error)
         return j.fuzz_report, None
     finally:
-        ext_fuzz.CREATE_TIMEOUT, ext_fuzz.SETTLE, ext_fuzz.LEAK_SETTLE = saved
+        ext_fuzz.CREATE_TIMEOUT, ext_fuzz.SETTLE, ext_fuzz.LEAK_SETTLE, ext_fuzz.SPLIT_LINES_TIMEOUT = saved
 
 
 class Sim(unittest.TestCase):
@@ -318,6 +332,20 @@ class Sim(unittest.TestCase):
             used = {i["a"] for b in report["log"] for i in b["burst"]}
             self.assertLessEqual(used, set(ext_fuzz.SETS["layout"]) | {"close_all"})
             self.assertIn("new_column", used)
+
+    def test_split_and_type_at_once_is_clean_on_a_correct_app(self):
+        seq = [{"a": "new_terminal", "t": "slow"}, {"a": "split_type", "t": "slow", "down": [False, True]}]
+        report, error = run(seq=seq, shrink=False, actions="layout")
+        self.assertIsNone(error, json.dumps(report["log"][-2:])[:1500])
+        rec = report["log"][-1]["recs"][0]
+        self.assertEqual(len(rec["split_lines"]), 2)
+
+    def test_both_lines_in_the_second_pane_is_a_keys_red(self):
+        seq = [{"a": "new_terminal", "t": "slow"}, {"a": "split_type", "t": "slow", "down": [False, False]}]
+        report, error = run(bugs={"split_keys_to_last"}, seq=seq, shrink=False, actions="layout")
+        self.assertIsNotNone(report["failure"], error)
+        self.assertEqual(report["failure"]["oracle"], "keys", report["failure"])
+        self.assertIn("split + type at once", report["failure"]["detail"])
 
     def test_second_split_lost_is_a_create_failure_and_shrinks(self):
         seq = [{"a": "new_workspace", "t": "slow"}, {"a": "new_terminal", "t": "slow"}, {"a": "type_line", "t": "slow"},

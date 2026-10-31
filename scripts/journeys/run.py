@@ -434,10 +434,10 @@ def run_lease(specs, build, out, frame_interval, exclusive=False, hog_swap_gb=0.
             log(f"[{host}] {line}")
         if drove.returncode not in (0, 1):
             log(f"driver exited {drove.returncode}: {drove.stderr.decode(errors='replace').strip()[-600:]}")
-        set_phase(ch, lease, "idle")  # the journeys ended: results are fetched, then the lease is released
         files = remote(host, f"cd {q(work + '/out')} && tar c --exclude 'frames' . | head -c {RESULT_TAR_MAX_BYTES}",
                        timeout=left(150), check=False).stdout
         take_results(files, out, set(ids))
+        set_phase(ch, lease, "idle")  # the journeys ran and their results are here: only the clean-up and release left
         if hog_started:
             hog_log = remote(host, f"tail -c 2000000 {q(work + '/hog.jsonl')}", timeout=left(60), check=False).stdout
             (out / f"hog-{lease}.jsonl").write_bytes(hog_log or b"")

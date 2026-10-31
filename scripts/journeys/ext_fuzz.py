@@ -88,6 +88,11 @@ ACTIONS = {
     "close_pane": {"action": "closePane", "closes": "pane"},                      # no default key: the menu's route
     "close_workspace": {"key": "w", "mods": ["cmd", "shift"], "closes": "workspace"},  # Cmd-Shift-W
     "switch_workspace": {"special": True},                                        # Cmd-1 .. Cmd-4
+    # cmux-ad 10:48Z, TOP P0 TIP RED 1193 (STATUS 1202): a split, then a line typed AT ONCE (keys held while the pane is
+    # made), then a second split SPLIT_GAP later with its own line. Each line must run in the pane made for it,
+    # exactly once, and in no other pane (ext_smoke's smoke_new_terminals, the gate's own check). Normal mode only:
+    # --diagnostic waits out the creation hold before each line, so there it is weak.
+    "split_type": {"special": True, "creates": "pane", "count": 2, "inside": True, "alone": True},
     "resize_window": {"special": True},                                           # drag the window's corner
     "drag_divider": {"special": True},                                            # drag a split's divider
     "type_line": {"special": True},                                               # a line typed into the terminal
@@ -96,12 +101,12 @@ ACTIONS = {
     "close_all": {"special": True, "alone": True},                                # every workspace closed; leak check
 }
 # How often a plan picks each action: creates more often than closes, so the app keeps something to act on.
-WEIGHTS = {"new_column": 2, "new_tab": 3, "new_workspace": 2, "split_right": 3, "split_down": 2, "new_terminal": 4, "open_url": 1,
+WEIGHTS = {"new_column": 2, "split_type": 2, "new_tab": 3, "new_workspace": 2, "split_right": 3, "split_down": 2, "new_terminal": 4, "open_url": 1,
            "close_tab": 2, "close_pane": 1, "close_workspace": 1, "switch_workspace": 2, "resize_window": 2,
            "drag_divider": 2, "type_line": 3, "paste": 1, "relaunch": 0.3, "close_all": 1}
 # The action sets (journey option fuzz_set): `layout` (cmux-ad 06:42Z, fuzz-catalog row m, the first mode: the layout
 # invariants R3a and R3b under the actions that change the layout) and `full` (every action above).
-SETS = {"layout": {"new_column": 3, "split_right": 3, "split_down": 2, "new_terminal": 3, "close_pane": 1.5,
+SETS = {"layout": {"new_column": 3, "split_right": 3, "split_down": 2, "split_type": 3, "new_terminal": 3, "close_pane": 1.5,
                    "drag_divider": 2, "resize_window": 2, "relaunch": 0.3},
         "full": WEIGHTS}
 TIMINGS = {"now": 0.0, "pair": 0.06, "slow": 1.5}
@@ -116,6 +121,9 @@ CREATE_TIMEOUT = 20.0
 SETTLE = 3.0
 STALL_MS = 100.0
 HOLD_SECONDS = 2.5  # driver.CREATION_HOLD_SECONDS; repeated so fuzz.py can import this file without the driver
+# split_type: the second split this long after the first line's Return (cmux-ad 10:48Z: about 30 ms).
+SPLIT_GAP = 0.03
+SPLIT_LINES_TIMEOUT = 15.0
 # Actions after which the model cannot predict counts (exact create checks and R3b are off for that burst).
 DISTURB = {"close_tab", "close_pane", "close_workspace", "switch_workspace", "relaunch", "close_all"}
 # Actions that change pane sizes on purpose (R3b is off for that burst).
@@ -151,13 +159,18 @@ CORPUS = {
                                {"a": "new_column", "t": "slow"}, {"a": "new_column", "t": "slow"},
                                {"a": "split_right", "t": "slow"}, {"a": "split_down", "t": "slow"},
                                {"a": "new_column", "t": "pair"}, {"a": "new_column", "t": "slow"}],
+    # TIP RED 1193 (STATUS 1202, pa-d's red journey journeys/p0/tipred-1193-split-type-at-once.json): two fast Cmd-D,
+    # each with its line typed at once; both lines ran in the second new pane on feat 5097a275a876 (cmux18, key window).
+    "tipred-1193-split-type": [{"a": "new_workspace", "t": "slow"}, {"a": "new_terminal", "t": "slow"},
+                               {"a": "split_type", "t": "slow", "down": [False, False]},
+                               {"a": "split_type", "t": "slow", "down": [False, True]}],
     "lawrence-cmd-t-slow": [{"a": "new_workspace", "t": "slow"}, {"a": "new_terminal", "t": "slow"},
                             {"a": "new_tab", "t": "slow"}, {"a": "new_tab", "t": "pair"}, {"a": "new_tab", "t": "slow"}],
 }
 
 
 # The corpus entries each set plays (fuzz.py --corpus): the layout set's are the layout reports.
-CORPUS_SETS = {"layout": ("lawrence-cmd-d-twice", "lawrence-ctrl-backtick-twice", "lawrence-resize", "lawrence-column-widths"),
+CORPUS_SETS = {"layout": ("tipred-1193-split-type", "lawrence-cmd-d-twice", "lawrence-ctrl-backtick-twice", "lawrence-resize", "lawrence-column-widths"),
                "full": tuple(CORPUS)}
 
 
@@ -208,14 +221,20 @@ def plan(seed, count, weights=None, actions="full"):
             item["by"] = rng.choice((-1, 1)) * rng.randint(24, 200)
         elif name == "switch_workspace":
             item["n"] = rng.randint(1, 4)
+        elif name == "split_type":
+            item["down"] = [rng.random() < 0.35, rng.random() < 0.35]  # Cmd-D or Split Down, for each of the two
         out.append(item)
     return out
 
 
 def bursts(seq):
-    """The plan cut into bursts: actions that follow at once or as a pair, at most MAX_BURST, then a slow one."""
+    """The plan cut into bursts: actions that follow at once or as a pair, at most MAX_BURST, then a slow one; an
+    `alone` action (relaunch, close-all, split + type) is always a burst of its own."""
     out, cur = [], []
     for item in seq:
+        if cur and ACTIONS.get(item["a"], {}).get("alone"):
+            out.append(cur)  # an `alone` action is a burst of its own: it never joins the actions before it
+            cur = []
         cur.append(item)
         if item.get("t", "slow") == "slow" or len(cur) >= MAX_BURST or ACTIONS.get(item["a"], {}).get("alone"):
             out.append(cur)
@@ -466,6 +485,8 @@ class Fuzz:
             j.key("return", [])
         elif name == "switch_workspace":
             rec["at"], _ = self.press(str(item.get("n", 1)), ["cmd"])
+        elif name == "split_type":
+            rec.update(self.split_type(item))
         elif name == "resize_window":
             self.wait_hold()
             rec["at"] = D.now()
@@ -501,6 +522,47 @@ class Fuzz:
         if spec.get("closes"):
             rec["dialog"] = self.answer_dialog()
         return rec
+
+    def split_type(self, item):
+        """Two splits, each followed at once by its own line (see ACTIONS["split_type"]); returns the record with the
+        lines and the snapshot name the oracle reads."""
+        import ext_smoke  # beside this file
+        j = self.j
+        if not self.focused_terminal():
+            # Cmd-D on Home or on a page splits nothing a line can be typed in: nothing to judge (the layout set's
+            # ensure_target puts a workspace with a terminal first).
+            return {"at": D.now(), "skipped": "the focused tab is not a terminal"}
+        self.splits = getattr(self, "splits", 0) + 1
+        snap = f"fz-split-{self.splits}"
+        ext_smoke.step_smoke_snapshot(j, {"name": snap})
+        lines, at = [], None
+        for k, down in enumerate(item.get("down") or [False, False]):
+            if k:
+                time.sleep(SPLIT_GAP)
+            t, _ = self.press("d", ["cmd", "shift"] if down else ["cmd"])
+            at = at or t
+            self.last_create = t
+            line = f"st{j.nonce}-{self.splits}-{k + 1}"
+            # At once in normal mode (type_text waits out the creation hold only in --diagnostic).
+            self.type_text(f"echo {line}")
+            lines.append(line)
+        return {"at": at, "split_lines": lines, "split_snapshot": snap, "at_once": not self.diagnostic}
+
+    def split_lines(self, rec):
+        """The split_type oracle: ext_smoke.cond_smoke_new_terminals (placement new_panes, the last line on the focused
+        terminal), polled until it holds or SPLIT_LINES_TIMEOUT."""
+        import ext_smoke
+        want = {"since": rec["split_snapshot"], "lines": rec["split_lines"], "focused": rec["split_lines"][-1],
+                "placement": "new_panes"}
+        end, detail = D.now() + SPLIT_LINES_TIMEOUT, {}
+        while True:
+            ok, detail = ext_smoke.cond_smoke_new_terminals(self.j, want, {})
+            if ok:
+                return []
+            if D.now() >= end:
+                return [("keys", f"split + type at once{'' if rec.get('at_once') else ' (diagnostic: after the hold)'}: "
+                                 f"{'; '.join(detail.get('problems') or [])} (holders {json.dumps(detail.get('holders'))[:300]})")]
+            time.sleep(0.25)
 
     def focused_terminal(self):
         st = state(self.j)
@@ -585,10 +647,11 @@ class Fuzz:
                 if on_ws is not True:
                     exact = False
                     continue
-                want["tabs"] += 1
+                n = int(ACTIONS[item["a"]].get("count", 1))
+                want["tabs"] += n
                 if kind == "pane":
-                    want["panes"] += 1
-                    want["terminals"] += 1
+                    want["panes"] += n
+                    want["terminals"] += n
                 sure = True
         if not exact and not sure:
             return none
@@ -947,6 +1010,8 @@ class Fuzz:
         for r in recs:
             if r["a"] == "type_line":
                 problems += (r.get("probe") or {}).get("problems", [])
+            if r.get("split_lines") and not any(p[0] == "create" for p in problems):
+                problems += self.split_lines(r)
         made_terminal = any(ACTIONS[a].get("creates") in ("terminal", "pane") for a in names)
         if made_terminal and not any(p[0] == "create" for p in problems):
             self.arm_winch(None)

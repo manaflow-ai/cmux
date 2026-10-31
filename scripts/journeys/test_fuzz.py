@@ -74,7 +74,9 @@ class Pure(unittest.TestCase):
 
     def test_alone_action_ends_the_burst_before_it(self):
         seq = [{"a": "new_terminal", "t": "now"}, {"a": "close_all", "t": "slow"}]
-        self.assertEqual([[i["a"] for i in b] for b in ext_fuzz.bursts(seq)], [["new_terminal", "close_all"]])
+        self.assertEqual([[i["a"] for i in b] for b in ext_fuzz.bursts(seq)], [["new_terminal"], ["close_all"]])
+        seq = [{"a": "split_right", "t": "pair"}, {"a": "split_type", "t": "now"}, {"a": "new_column", "t": "slow"}]
+        self.assertEqual([[i["a"] for i in b] for b in ext_fuzz.bursts(seq)], [["split_right"], ["split_type"], ["new_column"]])
         for burst in ext_fuzz.bursts(ext_fuzz.plan(9, 500)):
             self.assertLessEqual(len(burst), ext_fuzz.MAX_BURST)
             for item in burst[:-1]:
@@ -100,7 +102,7 @@ class Pure(unittest.TestCase):
 
     def test_corpus_uses_known_actions(self):
         for name, seq in ext_fuzz.CORPUS.items():
-            self.assertTrue(name.startswith("lawrence-"))
+            self.assertTrue(name.startswith(("lawrence-", "tipred-")))
             for item in seq:
                 self.assertIn(item["a"], ext_fuzz.ACTIONS)
 
