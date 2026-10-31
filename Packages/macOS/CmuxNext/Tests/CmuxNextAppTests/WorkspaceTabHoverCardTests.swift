@@ -343,7 +343,9 @@ struct WorkspaceTabHoverCardTests {
         #expect(selected == TabID("shell"), "tab did not activate on mouse-up")
     }
 
-    @Test func interactiveCardPassesKeysThroughWhilePointerStaysOnWorkspaceRow() async throws {
+    /// Needs a real window number for the key event's window; a fleet worker at the login window has none.
+    @Test(.enabled("this host puts windows on screen") { await MaskedScreenshotTests.hostShowsWindows() })
+    func interactiveCardPassesKeysThroughWhilePointerStaysOnWorkspaceRow() async throws {
         _ = NSApplication.shared
         let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 240, height: 600), styleMask: [.borderless],
                               backing: .buffered, defer: false)

@@ -90,11 +90,13 @@ import CmuxNextWakeupsTestSupport
         list.hoverCard.timelineSource = { _, limit in
             (0..<min(limit, 40)).map { SidebarTimelineEntry(kind: .prompt, date: now.addingTimeInterval(-Double($0) * 60), text: "Prompt \($0)") }
         }
-        let card = try await Self.showCard(list, coordinator, clock, row: try #require(rows.first))
+        _ = try await Self.showCard(list, coordinator, clock, row: try #require(rows.first))
         let shown = try #require(coordinator.machine.shownTarget)
         let body = try #require(coordinator.panel?.glass.contentView.subviews.compactMap { $0 as? WorkspaceHoverCardView }.first)
+        // The card opens tabs-first; Show details reveals the history and refits the card in place.
         body.detailsToggle.performClick(nil)
         try #require(!body.timeline.isHidden, "the card shows no history")
+        let card = try #require(coordinator.panel).cardFrame
         #expect(body.timeline.scrollOffset == 0)
         let history = body.timeline.scrollView
         let frame = try #require(history.window).convertToScreen(history.convert(history.bounds, to: nil))
