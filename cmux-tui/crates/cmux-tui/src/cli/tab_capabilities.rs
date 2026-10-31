@@ -12,7 +12,7 @@ pub(super) fn negotiate(
     let id = wire::random_request_id()
         .map_err(|error| resolve::Failure::Transport(error.to_string()))?;
     let request = json!({"id":id,"cmd":"set-client-info","capabilities":[
-        "conversation-tabs-v1","agent-session-tabs-v1","page-tabs-v1"
+        "conversation-tabs-v1","agent-session-tabs-v1","page-tabs-v1","closed-conversation-tabs-v1"
     ]});
     let bytes = resolve::encode_request_bytes(&request).map_err(resolve::Failure::Transport)?;
     resolve::send_request(reader, &bytes)?;

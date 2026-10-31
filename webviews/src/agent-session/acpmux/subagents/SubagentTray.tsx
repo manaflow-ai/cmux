@@ -33,7 +33,7 @@
 //
 // A line is quiet at rest: no fill of its own inside the tray's glass, so the tray is one box, not
 // a box in a box. Hovering a line that opens something fills that whole line, its stop button
-// included, to the tray's own edges (one inset), and shows the hand; a line says its kind first
+// included, to the tray's own edges (one inset), with the arrow; a line says its kind first
 // ("Command", "Subagent") and ends in a chevron. A command's whole shell line is its tooltip; its
 // stop button stops only that command (`_acpmux/process/kill`), which the composer's Stop does not
 // (that cancels the turn, and the command outlives it), so its tooltip says so. (Leo 2026-10-21 on

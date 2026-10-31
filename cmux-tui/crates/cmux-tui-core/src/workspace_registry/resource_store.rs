@@ -1602,8 +1602,8 @@ impl WorkspaceRegistry {
         validate_identifier("projection subject", subject_key)?;
         let fingerprint = canonical_json(fingerprint)?;
         let projection_json = canonical_json(projection)?;
-        if projection_json.len() > MAX_PROJECTION_BYTES {
-            anyhow::bail!("frontend projection exceeds {MAX_PROJECTION_BYTES} bytes");
+        if projection_json.len() > MAX_RESOURCE_API_PROJECTION_BYTES {
+            anyhow::bail!("frontend projection exceeds {MAX_RESOURCE_API_PROJECTION_BYTES} bytes");
         }
         let result_json = canonical_json(result)?;
         let db = self.connection.get();
