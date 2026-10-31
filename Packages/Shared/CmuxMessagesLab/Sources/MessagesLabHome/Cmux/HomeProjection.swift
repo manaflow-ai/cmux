@@ -118,6 +118,9 @@ final class HomeProjection: @preconcurrency ChatIntents {
     private(set) var appliedUpdates = 0
     /// Store reads of this conversation (`refresh`), changed or not (tests: traffic for other conversations costs none).
     private(set) var refreshPasses = 0
+    /// Bench: main-thread ms of each step of the projection passes since it was set to `[:]`,
+    /// summed per step name (`passStep`, HomeStateChangePerfTests); nil, the default, records nothing.
+    var passLog: [String: Double]?
     /// This conversation's store inputs at the last observed pass (HomeProjection+Observe.swift): a
     /// change to another conversation wakes the observation, not the transcript.
     var observedInputs: HomeProjectionInputs?
@@ -173,16 +176,21 @@ final class HomeProjection: @preconcurrency ChatIntents {
             _ = send(thread: deferredThread)
             deferredThread = (nil, nil)
         }
+        var mark = CACurrentMediaTime()
         // One value: the transcript and its running replies, in display order (HomeTimeline).
         let live = homeStore.liveRun(in: conversation)
         let timeline = homeStore.timeline(for: conversation)
+        passStep("timeline", &mark)
         apply(items: timeline.items, summary: homeStore.summary(conversation),
               typing: homeStore.typists(in: conversation),
               hasOlder: homeStore.hasOlderMessages(in: conversation), streams: timeline.streams)
+        mark = CACurrentMediaTime()
         // The line closes on the frame after the one that shows the reply in the bubble's place (cx-zz30r, cx-06vn1).
         if let activity = live?.activity { liveLine.show(activity, thought: live?.thought) } else { liveLine.hide(after: controller) }
+        passStep("liveLine", &mark)
         revealIfLoaded()
         refreshThreadHeader()
+        passStep("reveal+threadHeader", &mark)
     }
 
     /// The whole current value; unchanged values return before any work.
@@ -190,6 +198,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
                hasOlder newHasOlder: Bool, streams: [HomeStreamRow] = []) {
         // MessagesLab hides a sender's typing dots while its stream has text (ask 11). Whole
         // messages: each running reply is its author's typing dots until its messages post.
+        var mark = CACurrentMediaTime()
         let typing = wantedTyping.union(core.replyTypists(streams))
         guard let store = controller.store else {
             install(items: items, summary: summary, typing: typing, hasOlder: newHasOlder)
@@ -206,6 +215,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
         // never ahead of a keystroke (HomeStreamPacer; home-streaming-perf-DESIGN.md). Any other
         // change commits now, with the newest stream text.
         let streamOnly = items == shown && summary == shownSummary && !typingChanged && newHasOlder == hasOlder
+        passStep("compare", &mark)
         guard !streamOnly || core.streamsDiffer(streams) else { return }
         if streamOnly, !streamPacer.admit(inputFrame: controller.inKeystrokeFrame, nextFrame: controller.nextFrame,
                                           refresh: { [weak self] in if let self, !self.stopped { self.refresh() } }) { return }
@@ -217,8 +227,11 @@ final class HomeProjection: @preconcurrency ChatIntents {
         hasOlder = newHasOlder
         let titleChanged = HomeMapping.title(summary, me: me) != HomeMapping.title(shownSummary, me: me)
         let summaryChanged = summary != shownSummary
+        passStep("title", &mark)
         let diff = core.step(items: items, summary: summary)
+        passStep("diff", &mark)
         let streamed = core.streams(streams, state: store.state)
+        passStep("streams", &mark)
         // MessagesLab bd65bbf: a keystroke goes first. Statuses and typing that arrive in a
         // keystroke frame are committed at the start of the next display frame; anything
         // else (a message, a tapback, a page) is committed now, in order.
@@ -248,19 +261,27 @@ final class HomeProjection: @preconcurrency ChatIntents {
             if cut >= diff.actions.count { dispatchStreamed(streamed) }
             // The store's order is the only order (plans/cmux-next/home-chat-pipeline-DESIGN.md 2.3): a
             // projection that came out of these actions in another order is rebuilt in the store's.
+            passStep("dispatch", &mark)
             if diff.rebuild || !orderMatchesStore() { rebuild() }
+            passStep("order+rebuild", &mark)
             for a in core.typing(store.state, wanted: typing) { controller.dispatch(a) }
+            passStep("typing", &mark)
         }
         // A token moves rows (the inline videos follow) and changes nothing else this side tracks:
         // no attachment, title, summary, read cursor or older page work per token.
         video.place()
+        passStep("video", &mark)
         if streamOnly { return }
         if titleChanged { applyHeader() }
         refreshAttachments()
+        passStep("attachments", &mark)
         if summaryChanged { onSummaryChange(summary) }
+        passStep("summaryChange", &mark)
         onRowsChange()
+        passStep("rowsChange", &mark)
         askForOlderIfNeeded()
         reportReadIfNeeded()
+        passStep("older+read", &mark)
     }
 
     private func install(items: [TranscriptItem], summary: ConversationSummary?, typing: Set<ParticipantID>, hasOlder: Bool) {
