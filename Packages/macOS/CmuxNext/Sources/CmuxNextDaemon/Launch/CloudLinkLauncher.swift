@@ -30,7 +30,7 @@ private final class CloudLinkCredentialServer: @unchecked Sendable {
     }
 
     func start() async throws {
-        try await withCheckedThrowingContinuation { continuation in
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
             queue.async { [weak self] in
                 guard let self else { continuation.resume(throwing: StartError.unavailable("credential server deallocated")); return }
                 do { try self.bind(); continuation.resume() }
