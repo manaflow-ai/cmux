@@ -101,7 +101,7 @@ mod protected_hold;
 mod queue;
 mod queue_edit;
 pub use digest::{MAX_FROM_AGENT_CHARS, declared_sender};
-pub use queue::{QueuedPrompt, Withdrawn, supersede::key as supersede_key};
+pub use queue::{Approver, QueuedPrompt, Withdrawn, supersede::key as supersede_key};
 mod resolve;
 mod route_switch;
 pub use pool::{PrewarmRequest, RssProbe, tree_rss_bytes};
@@ -629,6 +629,9 @@ pub struct Hub {
     /// Tests only: delay a Stop before its notification reaches the child writer.
     #[cfg(test)]
     pub(super) cancel_write_seam: Arc<full_access_bound::WriteSeam>,
+    /// Tests only: runs right before a queued prompt's `queued` record is logged (`enqueue`).
+    #[cfg(test)]
+    pub(super) queued_log_seam: StdMutex<Option<Box<dyn FnOnce() + Send>>>,
     pub(super) harness_watch: harness_watch::HarnessWatchState,
     /// The settings file watched for start-mode changes (`settings_watch.rs`).
     pub(super) settings_watch: settings_watch::SettingsWatchState,
@@ -824,6 +827,8 @@ impl Hub {
             copy_seam: Default::default(),
             #[cfg(test)]
             cancel_write_seam: Arc::new(Default::default()),
+            #[cfg(test)]
+            queued_log_seam: Default::default(),
             #[cfg(test)]
             prompt_start_seam: Default::default(),
             #[cfg(test)]
