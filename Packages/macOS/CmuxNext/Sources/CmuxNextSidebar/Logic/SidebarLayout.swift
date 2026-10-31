@@ -83,6 +83,7 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
     public static func == (lhs: SidebarLayout, rhs: SidebarLayout) -> Bool {
         lhs.rows == rhs.rows && lhs.totalHeight == rhs.totalHeight && lhs.gapY == rhs.gapY && lhs.gapHeight == rhs.gapHeight
             && lhs.gapShift == rhs.gapShift && lhs.rowSpacing == rhs.rowSpacing
+            && lhs.pinnedChatsY == rhs.pinnedChatsY && lhs.earlierChatsY == rhs.earlierChatsY
     }
 
     public func hash(into hasher: inout Hasher) {
@@ -92,6 +93,8 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
         hasher.combine(gapHeight)
         hasher.combine(gapShift)
         hasher.combine(rowSpacing)
+        hasher.combine(pinnedChatsY)
+        hasher.combine(earlierChatsY)
     }
 
     /// Replaces a workspace row's content in place, keeping its frame
