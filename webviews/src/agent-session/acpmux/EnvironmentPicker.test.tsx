@@ -163,7 +163,8 @@ test("Cloud only (Labs off, Start New Chats In: Cloud): the Cloud row, never a S
   const { container } = await render("cloud", true);
   await open(container);
   expect(document.querySelector('.acpmux-env-popover [data-mode="cloud"]')).not.toBeNull();
-  await act(async () => window.dispatchEvent(new KeyboardEvent("keydown", { altKey: true, key: "Alt" })));
+  const view = container.ownerDocument.defaultView!;
+  await act(async () => view.dispatchEvent(new view.KeyboardEvent("keydown", { altKey: true, key: "Alt" })));
   await settle();
   expect(document.querySelector('.acpmux-env-popover [data-mode="sandboxed"]')).toBeNull();
 });
