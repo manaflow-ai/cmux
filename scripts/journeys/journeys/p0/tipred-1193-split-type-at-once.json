@@ -1,0 +1,41 @@
+{
+  "id": "tipred-1193-split-type-at-once",
+  "priority": "P0",
+  "title": "TIP RED 1193 red journey: Cmd-N, Ctrl-`, then Cmd-D + a line typed at once, Cmd-D + a line typed at once: each line runs in its own new pane",
+  "why": "TIP RED 1193 (STATUS 1202, cmux-ad 10:48Z): on feat 5097a275a876 (cmux18, whole host, real key window) the line typed at once after the first Cmd-D and the line after the second Cmd-D both ran in the second new pane, 2 of 3 rounds. Keys typed for a terminal that is still being made must reach that terminal. Needs a real key window (run.py --whole-host on a CuaDriver-granted mini); lines are typed at once, never after the creation hold.",
+  "source": "the dogfood smoke gate's step 'Cmd-D twice fast' (journeys/dogfood/smoke-dogfood.json), cut to the failing sequence",
+  "budget_seconds": 150,
+  "steps": [
+    {"do": "smoke_ready", "timeout": 60},
+    {"do": "smoke_remember_workspaces"},
+    {"do": "smoke_make_key"},
+    {"do": "key", "key": "n", "modifiers": ["cmd"], "mark": "ws"},
+    {"do": "expect", "title": "Cmd-N makes a workspace", "since": "ws", "timeout": 20,
+     "all": [
+       {"smoke_workspaces": {"new": 1}},
+       {"smoke_frame": {}}
+     ]},
+    {"do": "key", "key": "`", "modifiers": ["control"], "mark": "term"},
+    {"do": "smoke_type_now", "text": "echo w1-${nonce}-$((6*7))"},
+    {"do": "expect", "title": "the workspace's Ctrl-` terminal runs its line", "since": "term", "timeout": 30,
+     "all": [
+       {"smoke_daemon_lines": {"lines": ["w1-${nonce}-42"]}},
+       {"smoke_key_window": {}}
+     ]},
+    {"do": "smoke_snapshot", "name": "before_splits"},
+    {"do": "key", "key": "d", "modifiers": ["cmd"], "mark": "split1"},
+    {"do": "smoke_type_now", "text": "echo d1-${nonce}-$((6*7))"},
+    {"do": "key", "key": "d", "modifiers": ["cmd"], "mark": "split2"},
+    {"do": "smoke_type_now", "text": "echo d2-${nonce}-$((6*7))"},
+    {"do": "expect", "title": "Cmd-D twice fast, a line typed at once after each: two new panes, each line ran in its own new pane and nowhere else", "since": "split1", "timeout": 30,
+     "all": [
+       {"smoke_new_terminals": {"since": "before_splits", "lines": ["d1-${nonce}-42", "d2-${nonce}-42"], "focused": "d2-${nonce}-42", "placement": "new_panes"}},
+       {"smoke_key_window": {}},
+       {"frame_screen": {"shows": ["d1-${nonce}-42", "d2-${nonce}-42"]}}
+     ]},
+    {"do": "smoke_no_key_gaps"}
+  ],
+  "finally": [
+    {"do": "smoke_close_all"}
+  ]
+}
