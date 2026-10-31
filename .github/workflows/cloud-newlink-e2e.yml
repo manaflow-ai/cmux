@@ -4,6 +4,9 @@ name: Cloud NEXT new-link create E2E
 # separate from the classic /api/vm smoke jobs.
 on:
   workflow_dispatch: {}
+  push:
+    branches:
+      - lane/cloud-newlink-integration
 
 permissions:
   contents: read
