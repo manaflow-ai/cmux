@@ -25,6 +25,15 @@ final class CloudUploads {
         var binary: URL
     }
 
+    /// A staged file's transfer: the CLI's answer, the file's name, and where it went.
+    private struct Delivery: Sendable {
+        var answer: CloudAccessCLI.Answer
+        var name: String
+        var socket: String?
+        var binary: URL
+        var remoteRoot: String
+    }
+
     /// This Mac's staged Cloud uploads: files of any size, in `cmux-pastes` until the machine has them.
     private let stages = AgentPaneStagedUploads<Target>(owner: "CloudUploads.stageExpiry")
 
@@ -138,14 +147,20 @@ final class CloudUploads {
             return AgentPaneReply.success(["offset": received])
         case .finish(let token):
             guard current() != nil else { return failed }
-            let done = await stages.finish(token, owns: owns, work: services.work) { staged -> (answer: CloudAccessCLI.Answer, name: String) in
+            let done = await stages.finish(token, owns: owns, work: services.work, transfer: { staged -> Delivery in
                 let target = staged.target
                 guard let socket = await target.machine.daemon.connection?.endpoint?.socketPath else {
-                    return (CloudAccessCLI.Answer(ok: false, errorCode: "link_error"), staged.name)
+                    return Delivery(answer: CloudAccessCLI.Answer(ok: false, errorCode: "link_error"), name: staged.name, socket: nil, binary: target.binary, remoteRoot: target.remoteRoot)
                 }
                 let answer = try? await CloudAccessCLI(binary: target.binary).upload(socket: socket, remoteRoot: target.remoteRoot, files: [staged.file.path])
-                return (answer ?? CloudAccessCLI.Answer(ok: false, errorCode: "upload_failed"), staged.name)
-            }
+                return Delivery(answer: answer ?? CloudAccessCLI.Answer(ok: false, errorCode: "upload_failed"), name: staged.name, socket: socket, binary: target.binary, remoteRoot: target.remoteRoot)
+            }, undo: { done in
+                // A cancel after the file arrived (the chip's x as the answer comes back) removes it from the machine.
+                guard done.answer.ok, !done.answer.uploadIDs.isEmpty, let socket = done.socket else { return nil }
+                return {
+                    try? await CloudAccessCLI(binary: done.binary).removeUploads(socket: socket, remoteRoot: done.remoteRoot, ids: done.answer.uploadIDs)
+                }
+            })
             guard let done else { return failed }
             return Self.reply(done.answer, names: [done.name], services: services)
         case .cancel(let token):

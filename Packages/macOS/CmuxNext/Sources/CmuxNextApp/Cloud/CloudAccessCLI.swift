@@ -54,6 +54,8 @@ nonisolated struct CloudAccessCLI: Sendable {
         var failures = 0
         /// `upload`: where each file went on the machine, in the order given.
         var uploaded: [String] = []
+        /// `upload`: each file's upload id, in the same order (``removeUploads(socket:remoteRoot:ids:)``).
+        var uploadIDs: [String] = []
     }
 
     let binary: URL
@@ -81,38 +83,60 @@ nonisolated struct CloudAccessCLI: Sendable {
     }
 
     /// `upload`: copies `files` (in this Mac's temporary `cmux-pastes`) to the machine, each under `remoteRoot`.
+    /// Each file goes in its own call under an id of this app's (``Answer/uploadIDs``), so any count
+    /// of files is taken, and a failure or a cancel removes every file of this upload from the
+    /// machine, the partial one and those already sent, before it answers.
     func upload(socket: String, remoteRoot: String, files: [String]) async throws -> Answer {
+        var sent = Answer(ok: true)
+        for file in files {
+            let answer: Answer
+            do { answer = try await uploadOne(socket: socket, remoteRoot: remoteRoot, file: file) } catch {
+                try await removeUploads(socket: socket, remoteRoot: remoteRoot, ids: sent.uploadIDs)
+                throw error
+            }
+            guard answer.ok, answer.uploaded.count == 1 else {
+                try await removeUploads(socket: socket, remoteRoot: remoteRoot, ids: sent.uploadIDs + answer.uploadIDs)
+                return Answer(ok: false, errorCode: answer.errorCode, error: answer.error)
+            }
+            sent.uploaded += answer.uploaded
+            sent.uploadIDs += answer.uploadIDs
+        }
+        return sent
+    }
+
+    /// One file under a fresh upload id; a failed or cancelled transfer removes its partial file.
+    private func uploadOne(socket: String, remoteRoot: String, file: String) async throws -> Answer {
         // Upload emits a heartbeat after every remote chunk. Only a silent link times out;
         // elapsed time while bytes keep moving never imposes a file-size ceiling.
-        // The staged path owns one transfer. Keep the older multi-file call's existing contract.
-        guard files.count == 1 else {
-            return try await run(["link", "access", "upload", "--socket", socket, "--remote-root", remoteRoot] + files,
-                                 progressIdle: .seconds(30), outputTailBytes: Self.uploadOutputTailBytes)
-        }
         let id = UUID().uuidString.lowercased().replacingOccurrences(of: "-", with: "")
-        let answer: Answer
+        var answer: Answer
         do {
-            answer = try await run(["link", "access", "upload", "--socket", socket, "--remote-root", remoteRoot, "--upload-id", id] + files,
+            answer = try await run(["link", "access", "upload", "--socket", socket, "--remote-root", remoteRoot, "--upload-id", id, file],
                                    progressIdle: .seconds(30), outputTailBytes: Self.uploadOutputTailBytes)
         } catch {
-            try await cleanupUpload(socket: socket, remoteRoot: remoteRoot, id: id)
+            try await removeUploads(socket: socket, remoteRoot: remoteRoot, ids: [id])
             throw error
         }
         if !answer.ok || Task.isCancelled {
-            try await cleanupUpload(socket: socket, remoteRoot: remoteRoot, id: id)
+            try await removeUploads(socket: socket, remoteRoot: remoteRoot, ids: [id])
             try Task.checkCancellation()
+            return answer
         }
+        answer.uploadIDs = [id]
         return answer
     }
 
-    /// ProcessRunner reaps the stopped child before returning. Cleanup runs outside the cancelled
-    /// caller's task so the remote partial file and its unique directory are removed before cancel answers.
-    private func cleanupUpload(socket: String, remoteRoot: String, id: String) async throws {
-        let cleanup = Task.detached(priority: .userInitiated) {
-            try await run(["link", "access", "upload-cancel", "--socket", socket, "--remote-root", remoteRoot, "--upload-id", id], outputTailBytes: Self.uploadOutputTailBytes)
+    /// Removes uploads `ids` (each one's own folder) from the machine. ProcessRunner reaps a stopped
+    /// child before returning; this runs outside a cancelled caller's task, so the files are gone
+    /// before a cancel answers.
+    func removeUploads(socket: String, remoteRoot: String, ids: [String]) async throws {
+        for id in ids {
+            let cleanup = Task.detached(priority: .userInitiated) {
+                try await run(["link", "access", "upload-cancel", "--socket", socket, "--remote-root", remoteRoot, "--upload-id", id], outputTailBytes: Self.uploadOutputTailBytes)
+            }
+            let answer = try await cleanup.value
+            guard answer.ok else { throw CancellationError() }
         }
-        let answer = try await cleanup.value
-        guard answer.ok else { throw CancellationError() }
     }
 
     /// `sync`: copies chat `session`'s granted folders on the machine again.

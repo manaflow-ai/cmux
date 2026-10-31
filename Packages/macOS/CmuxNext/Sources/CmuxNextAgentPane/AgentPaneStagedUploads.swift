@@ -46,8 +46,17 @@ package final class AgentPaneStagedUploads<Target> {
         var authorization: AgentPaneUploadBatch
     }
 
+    /// A stage whose transfer delivered it, kept for a cancel that comes after: the page may drop
+    /// the file once the answer is on its way (its x in that moment).
+    private struct Delivered {
+        var target: Target
+        var undo: @MainActor () async -> Void
+        var expires: Date
+    }
+
     private var stages: [String: Stage] = [:]
     private var batches: [String: Batch] = [:]
+    private var delivered: [String: Delivered] = [:]
     private let expiry: DemandTimer
 
     /// `owner` names the expiry deadline in the wakeup ledger.
@@ -114,14 +123,19 @@ package final class AgentPaneStagedUploads<Target> {
 
     /// Runs `transfer` once on stage `token`'s complete file, when `owns` its target, then removes the
     /// stage: what `transfer` answered, or nil when the stage is not there, not complete or not idle.
-    /// Cancelling the caller cancels the transfer.
+    /// Cancelling the caller cancels the transfer. `undo` names how to take back what an answer
+    /// delivered (nil: nothing to take back); a cancel within ``lifetime`` after it runs that.
     package func finish<Answer: Sendable>(_ token: String, owns: (Target) -> Bool, work: BackgroundWork,
-                                          transfer: @escaping @MainActor (Staged) async -> Answer) async -> Answer? {
+                                          transfer: @escaping @MainActor (Staged) async -> Answer,
+                                          undo: @escaping @MainActor (Answer) -> (@MainActor () async -> Void)? = { _ in nil }) async -> Answer? {
         guard let stage = stages[token], stage.idle, owns(stage.staged.target), stage.received == stage.size else { return nil }
         let staged = stage.staged
         // task-owner: the stage's one transfer; cancel() stops it, and the stage is removed only after it returns.
         let task = Task { @MainActor [self] () -> Answer in
             let answer = await transfer(staged)
+            if let undo = undo(answer) {
+                delivered[token] = Delivered(target: staged.target, undo: undo, expires: Date().addingTimeInterval(Self.lifetime))
+            }
             await remove(token, work: work)
             return answer
         }
@@ -131,22 +145,27 @@ package final class AgentPaneStagedUploads<Target> {
     }
 
     /// Drops stage `token` when `owns` its target: its transfer, if one runs, stops first; the staged
-    /// file is removed before this returns.
+    /// file is removed before this returns. A stage its transfer already delivered is taken back.
     package func cancel(_ token: String, owns: (Target) -> Bool, work: BackgroundWork) async {
-        guard let stage = stages[token], owns(stage.staged.target) else { return }
-        if let transfer = stage.transfer {
+        if let stage = stages[token] {
+            guard owns(stage.staged.target) else { return }
+            guard let transfer = stage.transfer else { await remove(token, work: work); return }
             transfer.cancel()
             await transfer.settled()
-            return
         }
-        await remove(token, work: work)
+        guard let done = delivered[token], owns(done.target) else { return }
+        delivered.removeValue(forKey: token)
+        arm(work)
+        await done.undo()
     }
 
-    /// Removes the idle stages past their deadline and the batches no stage keeps alive.
+    /// Removes the idle stages past their deadline, the batches no stage keeps alive, and forgets
+    /// deliveries too old to take back.
     package func purge(work: BackgroundWork) async {
         let now = Date()
         for token in stages.filter({ $0.value.idle && $0.value.expires < now }).map(\.key) { await remove(token, work: work) }
         batches = batches.filter { $0.value.authorization.isAlive() }
+        delivered = delivered.filter { $0.value.expires >= now }
     }
 
     private func remove(_ token: String, work: BackgroundWork) async {
@@ -171,10 +190,11 @@ package final class AgentPaneStagedUploads<Target> {
         await cleanup.value
     }
 
-    /// Arms the one deadline for the earliest idle stage's or ownerless batch's expiry; nothing is
+    /// Arms the one deadline for the earliest idle stage's, ownerless batch's or delivery's expiry; nothing is
     /// pending when there is none.
     private func arm(_ work: BackgroundWork) {
         let deadlines = stages.values.compactMap { $0.idle ? $0.expires : nil } + batches.values.compactMap { $0.authorization.abandonmentDeadline }
+            + delivered.values.map(\.expires)
         guard let next = deadlines.min() else { expiry.cancel(); return }
         expiry.schedule(after: .seconds(max(1, next.timeIntervalSinceNow))) { @MainActor [weak self] in
             // task-owner: one timer-fired cleanup, outside the timer's own task (which the rearm
