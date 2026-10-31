@@ -115,7 +115,7 @@ final class BrowserPageRequests: BrowserTabDelegate {
             return pageClosedBeforeAdoption(page)
         }
         guard let services, let key = services.cache.key(of: page) ?? services.popups.openerKey(of: page),
-              let (openerTab, pane) = services.locateTab(key) else {
+              let (openerTab, pane) = services.locateTabOnAnyMachine(key) else {
             // The opener is gone: nowhere to show a new page.
             switch intent {
             case .adoptTab(let child, _), .openPopup(let child, _): child.close()
@@ -167,12 +167,15 @@ final class BrowserPageRequests: BrowserTabDelegate {
             if let insert = request.insertLeading { return insert(leading) }
             let target = ActionTargetRef(kind: .tab, id: key)
             let host = services.registry.makeContextMenu(for: .browserPage, target: target,
-                                                         entries: ContextMenuCatalog.shared.browserPageAfterEngineMenu,
+                                                         entries: services.registry.browserPageAfterEngineMenu,
                                                          implied: .browserFocused)
             let extra = BrowserProfileLinkMenu.items(for: request.target.linkURL, target: ActionTargetRef(kind: .pane, id: pane.id),
                                                      services: services) + host.items + PageShareMenu.items(for: page.state.url)
             host.removeAllItems()
-            services.contextMenus.present(request, in: page.contentView, leading: leading, extra: extra)
+            // The engine's menu holds the page rows: Customize Menu… ends it as it ends every whole menu.
+            // The engine's menu puts a separator before the extra rows; one more only after rows of ours.
+            let customize = services.registry.customizeMenuItem(for: .browserPage).map { extra.isEmpty ? [$0] : [NSMenuItem.separator(), $0] } ?? []
+            services.contextMenus.present(request, in: page.contentView, leading: leading, extra: extra + customize)
         case .notice(let text):
             services.cache.existingBrowser(key)?.chrome.showNotice(text)
         case .download(let item):
@@ -260,7 +263,7 @@ final class BrowserPageRequests: BrowserTabDelegate {
     /// `page` shows a New Tab page and is the last tab of its pane.
     private func isNewTabPageAtEnd(_ page: any BrowserTab) -> Bool {
         guard BrowserNewTabPage.isNewTabPage(page.state.url), let services, let key = services.cache.key(of: page),
-              let (_, pane) = services.locateTab(key) else { return false }
+              let (_, pane) = services.locateTabOnAnyMachine(key) else { return false }
         return pane.tabs.last?.id == key
     }
 

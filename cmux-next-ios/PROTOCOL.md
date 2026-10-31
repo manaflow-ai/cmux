@@ -547,6 +547,19 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   256 KiB arrives as several data frames, and the receiver joins frames until
   they parse as one JSON value (at most 32 MiB from the phone).
 - `file`: `{"path"}` read-only stream of a file inside a workspace root, for artifact preview.
+  Any size: data frames until `eof`, up to the size the file had when it was opened. A host
+  before 2026-10-28 refuses a file over 64 MiB with `too_large`.
+- `file-preview`: `{"path"}` uses the same authorization and confinement as `file`.
+  Its first data frame is JSON `{"size": <bytes>}`, from the same open descriptor
+  used to stream the file. Subsequent data frames contain raw file bytes until `eof`,
+  up to that initial size, with no file-size cap. A file truncated while streaming
+  may end earlier; the phone treats a stream that ends short of the size, or runs past
+  it, as a file that changed while downloading, removes the partial copy and asks the
+  person to try again. Refusals before streaming send no metadata. The phone uses this
+  size to check available storage before downloading and rechecks during the stream;
+  insufficient space cancels the preview and removes the partial temporary file.
+  Older hosts refuse this service with `unknown_service`; clients must not parse the
+  legacy `file` service's raw bytes as metadata.
 - `upload`: `{"name","size","cwd"?}` (`size` a number or a decimal string).
   The phone sends exactly `size` bytes as data frames. The Mac writes them to
   a new file and answers one data frame `{"path","size"}`, then `eof`. With
@@ -686,6 +699,8 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   until the person allows iPhone connections again on the Mac, so the
   phone's removal copy can say so. Absent (older hosts): the Mac may add
   itself back.
+  `file-preview-v1`: `file-preview` sends a size metadata frame before file bytes,
+  allowing a phone to check available storage without a separate stat/open race.
   `browser-stream-v1`: the host streams browser tabs (`browser`); the Mac
   build bundles a browser host (Release builds ship none yet). A host that
   says `removal-v1` without it refuses `browser` with `no_browser_host`, and
@@ -694,6 +709,17 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   (the media lane above), on WebRTC and, since 2026-10-14, on WireGuard.
   `surface-stream-v1` (2026-10-22): the host streams the Mac's phone tabs
   (`surface`, below).
+  `localhost-forward-v1` (2026-10-30): the host serves `localhost` (below).
+- `localhost` (2026-10-30): `{"port"}` (1 to 65535, a number or a decimal
+  string) one TCP connection to that port on the Mac's loopback: `127.0.0.1`,
+  then `[::1]`. Data frames are the connection's bytes in each direction;
+  either side closing ends it. The phone opens one channel per connection a
+  native browser tab makes to its own `127.0.0.1:<port>` / `[::1]:<port>`
+  (Open on iPhone at `http(s)://localhost:<port>`), so the page keeps its
+  origin. Nothing listening: `unavailable` "Nothing is listening on port N on
+  this Mac."; a missing or bad port: `bad_request`; an older Mac:
+  `unknown_service`, and the phone keeps that tab mirrored. The phone never
+  names a host.
 - `surface`: `{"tab", "video"?, "video_tag"?}` a Mac phone tab showing a
   booted iOS simulator, streamed like a browser tab
   (verify/simulator-surface.md). `tab` is the phone tab's key `s<surface>`;

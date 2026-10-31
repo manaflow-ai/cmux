@@ -16,6 +16,8 @@ pub enum PathKind {
     ViaCloudRegion,
     /// Binary WebSocket frames through the target host's Durable Object.
     DoRelay,
+    /// UDP through a TURN server's relayed address (RFC 8656).
+    TurnRelay,
 }
 
 /// The two ranks the selector compares first: any live direct path beats
@@ -27,13 +29,20 @@ pub enum PathClass {
 }
 
 impl PathKind {
-    pub const ALL: [PathKind; 4] =
-        [PathKind::DirectLan, PathKind::DirectWan, PathKind::ViaCloudRegion, PathKind::DoRelay];
+    pub const ALL: [PathKind; 5] = [
+        PathKind::DirectLan,
+        PathKind::DirectWan,
+        PathKind::ViaCloudRegion,
+        PathKind::DoRelay,
+        PathKind::TurnRelay,
+    ];
 
     pub fn class(self) -> PathClass {
         match self {
             PathKind::DirectLan | PathKind::DirectWan => PathClass::Direct,
-            PathKind::ViaCloudRegion | PathKind::DoRelay => PathClass::Relayed,
+            PathKind::ViaCloudRegion | PathKind::DoRelay | PathKind::TurnRelay => {
+                PathClass::Relayed
+            }
         }
     }
 
@@ -45,6 +54,7 @@ impl PathKind {
             PathKind::DirectWan => "direct_wan",
             PathKind::ViaCloudRegion => "via_cloud_region",
             PathKind::DoRelay => "do_relay",
+            PathKind::TurnRelay => "turn_relay",
         }
     }
 }
