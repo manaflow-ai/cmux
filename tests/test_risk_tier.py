@@ -75,6 +75,8 @@ class ClassifyTests(unittest.TestCase):
             "Packages/macOS/CmuxComputerUseHelper/Sources/CmuxCuaHelperCore/HostConsentServer.swift",
             NEXT + "CmuxNextComputerUse/ComputerUseHelperV2+Secret.swift",
             NEXT + "CmuxNextApp/AgentTabs+PaneSource.swift",
+            NEXT + "CmuxNextAgentPane/AcpmuxEnvironment+Resolve.swift",
+            NEXT + "CmuxNextAgentPane/AcpmuxEnvironment+DebugOverride.swift",
             "cmux-tui/crates/acpmux/src/agent_tools/cua_helper.rs",
             "scripts/cmux-cua-helper-trust.sh",
             NEXT + "CmuxNextComputerUse/ComputerUseHelperStaging.swift",
@@ -95,6 +97,8 @@ class ClassifyTests(unittest.TestCase):
             ("Native/OptChat/optchat-chief/src/cloud/signature_cache.rs", "normal"),
             # The launcher itself: its acpmux admission rule lives in ComputerUseHelperV2+Admission.swift.
             (NEXT + "CmuxNextComputerUse/ComputerUseHelperV2.swift", "normal"),
+            # Where the daemon lives and its environment: the executable choice is in +Resolve.
+            (NEXT + "CmuxNextAgentPane/AcpmuxEnvironment.swift", "normal"),
         ):
             with self.subTest(path=path):
                 self.assertEqual(risk.classify_path(path)[0], tier)
