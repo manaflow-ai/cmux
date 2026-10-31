@@ -786,6 +786,7 @@ class SettleThroughTheDriver(unittest.TestCase):
 
     def run_step(self, lose_after):
         sys.path.insert(0, str(HERE))
+        sys.path.insert(0, str(HERE.parent / "cmux-next"))  # driver.py imports build_names from there
         import driver
         import ext_smoke
         ext_smoke.install(driver)
@@ -822,6 +823,7 @@ class SettleThroughTheDriver(unittest.TestCase):
 
     def test_a_frame_lost_during_the_settle_is_not_judged(self):
         sys.path.insert(0, str(HERE))
+        sys.path.insert(0, str(HERE.parent / "cmux-next"))
         import driver
         with self.assertRaises(driver.NotRun):
             self.run_step(0.3)

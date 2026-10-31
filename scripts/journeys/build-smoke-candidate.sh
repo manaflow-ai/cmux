@@ -64,6 +64,7 @@ fi
 # The tag must be one the conf builds as bench.
 matched=0
 read -r -a globs <<<"$(sed -n 's/^release_bench_tags=//p' "$conf" | tail -1)"
+[ "${#globs[@]}" -gt 0 ] || { echo "$conf names no release_bench_tags: nothing would build as bench" >&2; exit 2; }
 for glob in "${globs[@]}"; do
   # shellcheck disable=SC2053
   if [[ "$tag" == $glob ]]; then matched=1; fi
@@ -75,7 +76,21 @@ if [ "$dry" = 1 ]; then
   echo "  cmux-ci build cmux --ref $head --tag $tag --workspace $branch --release --backend-mode local"
   exit 0
 fi
-git push -q origin "HEAD:refs/heads/$branch"
+# A second run for the same SHA: reuse the pushed candidate when it holds the same tree (a new cherry-pick has
+# another commit id); a different tree on that branch is refused, never overwritten.
+remote="$(git ls-remote origin "refs/heads/$branch" | cut -f1)"
+if [ -n "$remote" ]; then
+  git fetch -q origin "$remote"
+  if [ "$(git rev-parse "$remote^{tree}")" = "$(git rev-parse "HEAD^{tree}")" ]; then
+    head="$remote"
+    echo "==> $branch already holds this candidate ($head): reusing it"
+  else
+    echo "$branch exists with another tree ($remote): not overwritten; remove it or build from it" >&2
+    exit 2
+  fi
+else
+  git push -q origin "HEAD:refs/heads/$branch"
+fi
 receipt="${TMPDIR:-/tmp}/smoke-candidate-$short-submit.json"
 cmux-ci build cmux --ref "$head" --tag "$tag" --workspace "$branch" --release --backend-mode local --receipt "$receipt" >/dev/null
 job="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["id"])' "$receipt")"
