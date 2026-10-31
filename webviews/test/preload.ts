@@ -15,6 +15,7 @@ export {};
 // checkout state. Best effort: a missing translation fails strings.test.ts, not every file.
 {
   const { writeStrings } = await import("../scripts/pages/gen-strings.mjs");
+  writeStrings({ ifStale: true, bestEffort: true, log: () => {} });
   // The agent pane table is consumed immediately below. Regenerate it unconditionally so a
   // restored ignored output cache cannot leave tests rendering localization keys.
   writeStrings({ only: ["agentPane"], bestEffort: true, log: () => {} });
