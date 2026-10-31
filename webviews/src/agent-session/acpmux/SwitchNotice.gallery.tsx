@@ -35,7 +35,7 @@ export default componentEntry<Props>({
   styles: () => Promise.all([import("./styles.css"), import("./conversation/conversation.css")]).then(() => undefined),
   load: async () => GallerySwitchNotice,
   variants: {
-    teammateMachine: {
+    "teammate-machine": {
       props: {
         error:
           "build-box is a teammate's machine, so its owner starts chats there. Pick your own machine, or create one with New Cloud Machine.",
@@ -44,7 +44,7 @@ export default componentEntry<Props>({
       play: newMachine,
       note: "A teammate's machine: the person's own new machine is one click away, beside Retry.",
     },
-    noFolder: {
+    "no-folder": {
       props: {
         error: "build-box has no work folder to start in. Use Choose folder to pick one there.",
         code: "app.folder_needed",
