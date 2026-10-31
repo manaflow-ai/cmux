@@ -91,6 +91,15 @@ if (( STATIC_ONLY )); then
   exit 0
 fi
 
+# The handshake runs the sidecar, so this host must be able to execute one
+# of its slices. An x86_64-only nightly variant prepared on an Apple silicon
+# runner without Rosetta cannot run; its static checks above still hold.
+HOST_ARCH="$(uname -m)"
+if [[ " $ARCHS " != *" $HOST_ARCH "* ]] && ! { [[ " $ARCHS " == *" x86_64 "* ]] && arch -x86_64 /usr/bin/true >/dev/null 2>&1; }; then
+  echo "diff sidecar: ${SIZE_BYTES} bytes, architectures: ${ARCHS}, minimum macOS: 14.0, ${SIGNING_STATE}; handshake skipped (${HOST_ARCH} host cannot run ${ARCHS} without Rosetta)"
+  exit 0
+fi
+
 # shellcheck source=ci/lib/signing-runtime-guard.sh
 source "$SCRIPT_DIR/ci/lib/signing-runtime-guard.sh"
 cmux_signing_runtime_guard
