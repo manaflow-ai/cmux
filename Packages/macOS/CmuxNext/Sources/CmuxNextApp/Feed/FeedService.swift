@@ -304,6 +304,3 @@ final class FeedService {
         return reply
     }
 }
-
-/// The Worker call's error, in CmuxNextCloud since `HomeDirectory` (CmuxNextHostedChief) throws and reads it too.
-typealias FeedServiceError = CmuxNextCloud.FeedServiceError

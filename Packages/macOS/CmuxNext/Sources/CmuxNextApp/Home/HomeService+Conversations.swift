@@ -1,8 +1,9 @@
 import CmuxHomeCore
+import CmuxNextChiefPetWiring
+import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextFloating
-import CmuxNextChiefPetWiring
 import CmuxNextHome
 import CmuxNextHomeEngine
 import CmuxNextHostedChief

@@ -606,14 +606,10 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         // Hosted Chief (Lawrence 2026-10-19): the Hosted Chief is the default Chief in Home;
         // the one-time copy of this Mac's Chief into it, its brain check, the cloud Chief
-        // models and the Chief switch, and HomeDirectory (the account's people and Chiefs
-        // through the API Worker). No AppServices; the App's HomeService wires it.
+        // models and the Chief switch. No AppServices; the App's HomeService wires it.
         .target(
             name: "CmuxNextHostedChief",
-            dependencies: [
-                "CmuxNextCloud", "CmuxNextCompat", "CmuxNextDaemon", "CmuxNextHome", "CmuxNextHomeEngine",
-                .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
-            ],
+            dependencies: ["CmuxNextCompat", "CmuxNextDaemon", "CmuxNextHomeEngine"],
             resources: [
                 .process("Resources"),
             ],

@@ -1,5 +1,5 @@
 /// Why a call to the API Worker as the signed-in user (the App's `FeedService.call`) failed;
-/// `HomeDirectory` throws and reads it too.
+/// `HomeDirectory` (CmuxNextHomeEngine) throws and reads it too.
 public enum FeedServiceError: Error, Sendable {
     /// No signed-in account.
     case signedOut
