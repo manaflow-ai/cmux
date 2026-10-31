@@ -184,6 +184,9 @@ export type NewTabScreenActions = NewTabCommandActions & {
   ): boolean | string;
   /// How a Cloud send from here goes (CloudStartView): shown over the box while Cloud is the mode.
   cloudStatus?: React.ReactNode;
+  /// A Cloud start from here is out: the box takes no input until it ends (inert), since the tab
+  /// closes once the chat opens on the machine and an edit made meanwhile would go with it.
+  cloudStarting?: boolean;
   /// The page goes with an unsent draft (a typed prompt, staged attachments): handed over so the
   /// view that replaces it can keep it (the tab's Sandboxed run taking the chat view).
   onLeaveDraft?(text: string, attachments: ComposerAttachment[]): void;
@@ -1610,7 +1613,7 @@ export function NewTabScreen(props: Props) {
             field). Leo 2026-10-29: "project and cloudness at the top ... and stop making them take
             up so much space"; the quiet row under the box keeps the mode and the model. */}
         {!pill && <div className="nt-above">{folderStrip}</div>}
-        <div ref={setBox} className="ui-glass ui-glass-floats nt-box">
+        <div ref={setBox} className="ui-glass ui-glass-floats nt-box" inert={props.cloudStarting === true}>
           {commandsOpen && (
             <SlashMenu
               matches={commandMatches}

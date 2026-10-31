@@ -90,6 +90,9 @@ export type ComposerBoxProps = {
   /// Drawn in the composer's bottom area, centered: the chat's look dots (LookSwitch.tsx), in the
   /// quiet row's empty middle, or under the box in Codex's look.
   bottom?: React.ReactNode;
+  /// Nothing in the box takes input (inert): a Cloud start is out, and this tab closes once its
+  /// chat opens on the machine, so an edit made meanwhile would go with it (App.tsx `cloudStarting`).
+  inert?: boolean;
 };
 
 /// The one composer box every surface draws (one-composer: the chat pane, New Tab, Quick
@@ -128,6 +131,7 @@ export function ComposerBox({
   trailing,
   chromeItems,
   bottom,
+  inert = false,
 }: ComposerBoxProps) {
   // Debug Settings' plain footer look (composerSettings.ts plainFooter, composerLocation.css): the
   // chips stay in the quiet row under the box in either look; Codex's keeps the ring and the look dots in
@@ -215,6 +219,7 @@ export function ComposerBox({
         ref={boxRef}
         className="ui-glass ui-glass-floats acpmux-composer-box"
         data-attachment-view={attachmentView}
+        inert={inert}
         onMouseDown={focusFromCard}
       >
         {top}

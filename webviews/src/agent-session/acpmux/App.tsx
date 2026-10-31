@@ -7184,6 +7184,10 @@ function AcpmuxPane() {
   const cloudPickedNotOffered = cloudPicked && !sandboxOffered;
   const [startCloud] = useState(() => oneCloudStart(callNative));
   const [cloudStart, setCloudStart] = useState<CloudStartProgress>();
+  /// A Cloud start is out: the composer takes no edits until it ends (#28686 review). On success the
+  /// host closes this tab with only the sent prompt, so text or files added meanwhile would be lost;
+  /// on failure the prompt is still in the composer to edit and send again.
+  const cloudStarting = cloudStart?.state === "starting";
   const sendToCloud = (text: string, attachmentCount: number, start: Omit<CloudStart, "task">): string | false => {
     const refused = cloudPageRefusal(sandboxOffered, attachmentCount);
     if (refused === "cloud_not_now")
@@ -11536,6 +11540,7 @@ function AcpmuxPane() {
         {/* An attached image opens in the chat's image viewer, as a transcript image does. */}
         <ImageViewerContext.Provider value={openImage}>
           <Composer
+            locked={cloudStarting}
             snapshot={composerSnapshot}
             headerCwd={snapshot.summary?.cwd ?? ""}
             sessionId={snapshot.sessionId ?? snapshot.summary?.sessionId}
@@ -12153,6 +12158,7 @@ function AcpmuxPane() {
                         // A page-side refusal goes to the chat view, which says why (SandboxRunView), with
                         // the prompt and attachments put back in its composer.
                         ...(cloudStart ? { cloudStatus: <CloudStartView start={cloudStart} bubble={false} /> } : {}),
+                        cloudStarting,
                         onCloud: (
                           harness: string,
                           text: string,

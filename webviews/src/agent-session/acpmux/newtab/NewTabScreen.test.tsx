@@ -433,6 +433,31 @@ test("with Cloud picked, a send goes to onCloud with its prompt, not a new chat;
   expect(container.querySelector<HTMLTextAreaElement>("textarea")!.value).toBe("fix the flaky test");
 });
 
+test("while a Cloud start is out the box takes no edits, and takes them again once it ends", async () => {
+  const page = (cloudStarting: boolean) => (
+    <NewTabScreen
+      snapshot={noChat()}
+      onAsk={() => {}}
+      onOpen={() => {}}
+      onSearch={() => {}}
+      onShell={() => {}}
+      onJump={() => {}}
+      onOpenSession={() => {}}
+      onShowAll={() => {}}
+      environments
+      runMode={{ mode: "cloud", onMode: () => {} }}
+      onCloud={() => false}
+      cloudStarting={cloudStarting}
+    />
+  );
+  // The tab closes once the chat opens on the machine: an edit made meanwhile would go with it.
+  await act(async () => root!.render(page(true)));
+  expect(container.querySelector(".nt-box")!.hasAttribute("inert")).toBe(true);
+  // A failed start keeps the prompt here to edit and send again.
+  await act(async () => root!.render(page(false)));
+  expect(container.querySelector(".nt-box")!.hasAttribute("inert")).toBe(false);
+});
+
 test("picking Cloud drops a saved environment picked before: the send names the folder chip's folder, not the tab's inherited one", async () => {
   const clouded: unknown[][] = [];
   const repoB: SavedEnvironment = { id: "b", name: "Repo B", kind: "local", folder: "/repo/B", updatedAt: 1 };
