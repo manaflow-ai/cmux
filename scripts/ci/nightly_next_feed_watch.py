@@ -325,11 +325,13 @@ def legacy_lag(now: dt.datetime, next_xml: str, legacy_xml: str,
     if old_published is not None and not any(build <= old for build in next_builds):
         since = min(since, old_published)
     waited = (now - since).total_seconds() / 60
-    newest = missing[-1][0]
+    # Retry from the oldest missing run. The newest run may still be active
+    # while an older failed signer is the one that actually stranded the feed.
+    retry_build = missing[0][0]
     if waited <= max_lag_minutes:
-        return None, f"build {newest} is {waited:.0f} min behind; the legacy jobs have {max_lag_minutes:g}"
-    return newest, (f"cmux NIGHTLY's feed {LEGACY_FEED_URL} is at build {old}, {waited:.0f} min behind "
-                    f"cmux NEXT (newest {newest})")
+        return None, f"build {retry_build} is {waited:.0f} min behind; the legacy jobs have {max_lag_minutes:g}"
+    return retry_build, (f"cmux NIGHTLY's feed {LEGACY_FEED_URL} is at build {old}, {waited:.0f} min behind "
+                         f"cmux NEXT (retry begins at {retry_build})")
 
 
 def legacy_rerun(gh: GitHub, build: int) -> str:

@@ -169,6 +169,14 @@ class LegacyFeedTests(unittest.TestCase):
         self.assertEqual(build, 4023540480101)
         self.assertIn("4020374816001", reason)
 
+    def test_multiple_missing_builds_retry_the_oldest_run_first(self):
+        next_xml = appcast((4025000000101, 5, "cmux-next"),
+                           (4023540480101, 40, "cmux-next"),
+                           (4020374816001, 450, "cmux-next"))
+        build, reason = watch.legacy_lag(NOW, next_xml, self.OLD)
+        self.assertEqual(build, 4023540480101)
+        self.assertIn("retry begins at 4023540480101", reason)
+
     def test_fresh_or_non_nightly_items_do_not_trigger_lag(self):
         self.assertIsNone(watch.legacy_lag(
             NOW, appcast((4023540480101, 5, "cmux-next")), appcast((4023540480101, 5, "cmux-next")))[0])
