@@ -238,6 +238,23 @@ fn care_a_worktree_a_program_has_open_stays() {
     assert_eq!(git(&main, &["for-each-ref", "refs/cmux/archive"]).trim(), "");
 }
 
+/// The host-wide merge-tree lock that scans with no state folder of their
+/// own share (`.merge-tree.lock` in `Store::default_dir()`), held until the
+/// file is dropped. Waits for a merge-tree another process is running.
+fn host_merge_tree_lock() -> std::fs::File {
+    let dir = Store::default_dir().expect("a home folder");
+    std::fs::create_dir_all(&dir).unwrap();
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .read(true)
+        .write(true)
+        .open(dir.join(".merge-tree.lock"))
+        .unwrap();
+    file.lock().unwrap();
+    file
+}
+
 #[test]
 fn care_a_squash_merged_branch_is_finished() {
     let (base, main) = repository("squash");
@@ -255,6 +272,10 @@ fn care_a_squash_merged_branch_is_finished() {
     git(&main, &["commit", "-qam", "later"]);
     git(&main, &["push", "-q", "origin", "HEAD:main"]);
     git(&main, &["fetch", "-q", "origin"]);
+    // A merge-tree elsewhere on this machine (another test process, the
+    // person's own cleanup daemon) holds the host-wide lock through the scan:
+    // what this test reads must not depend on what else runs on the host.
+    let _host_busy = host_merge_tree_lock();
     let repo = scan(&main);
     let (_, facts) = facts_of(&repo, &wt);
     assert_eq!(facts.unpushed, 2);
