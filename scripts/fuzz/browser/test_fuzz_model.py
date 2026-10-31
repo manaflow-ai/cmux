@@ -92,6 +92,17 @@ class OracleTests(unittest.TestCase):
         self.assertIn("web page", ok("file:///etc/hosts", "hosts", agent_op=False, via_web=True))
         self.assertIsNone(ok("file:///etc/hosts", "hosts", agent_op=False, via_web=False))
 
+    def test_canary_is_judged_once_the_tab_leaves_script_nav(self):
+        # A tab that showed /script-nav before and now shows another page: a payload title there is a finding.
+        self.assertEqual(model.judged_title("http://localhost:1/page?id=3", model.CANARY), model.CANARY)
+        self.assertIn("payload ran", model.committed_url_violation(
+            "http://localhost:1/page?id=3", model.judged_title("http://localhost:1/page?id=3", model.CANARY),
+            agent_op=True, via_web=False))
+        # The page that runs its own script is not judged, also after a reload.
+        self.assertEqual(model.judged_title("http://localhost:1/script-nav?to=javascript%3Ax", model.CANARY), "")
+        # A query that only names /script-nav does not exempt a page.
+        self.assertEqual(model.judged_title("http://localhost:1/page?from=/script-nav", model.CANARY), model.CANARY)
+
     def test_download_path(self):
         with tempfile.TemporaryDirectory() as folder:
             self.assertIsNone(model.download_violation({"destination": os.path.join(folder, "fuzz.bin")}, folder))
@@ -105,10 +116,14 @@ class OracleTests(unittest.TestCase):
         b = {"frames": ["CmuxNextApp 0x2000beef +0x4d2 cmux.Foo.bar()", "AppKit 0x2 -[NSView display]"]}
         self.assertEqual(model.stall_signature(a), model.stall_signature(b))
         self.assertNotIn("0x", model.stall_signature(b))
+        bare = {"frames": ["7ff81a2b3c4d cmux.Foo.bar()"]}
+        other = {"frames": ["7ff8000b0c0d cmux.Foo.bar()"]}
+        self.assertEqual(model.stall_signature(bare), model.stall_signature(other))
 
     def test_touches_external(self):
         self.assertTrue(model.touches_external("mailto:x@example.test"))
         self.assertTrue(model.touches_external("cmux://history"))
+        self.assertTrue(model.touches_external("ftp://127.0.0.1/"))
         self.assertTrue(model.touches_external("{origin}/redirect?n=1&to=mailto%3Afuzz%40example.test"))
         self.assertFalse(model.touches_external("{origin}/redirect?n=1&to=chrome%3A%2F%2Fsettings"))
         self.assertFalse(model.touches_external("https://example.com/"))
