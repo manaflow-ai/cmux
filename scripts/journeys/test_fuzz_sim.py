@@ -508,6 +508,19 @@ class Sim(unittest.TestCase):
         self.assertEqual(report["findings"][0]["oracle"], "desync")
         self.assertGreater(report["findings"][0]["count"], 1)
 
+    def test_daemon_agrees_does_not_count_a_desync_finding_again(self):
+        j = SimJourney(FakeApp({"desync"}), tempfile.mkdtemp())
+        ext_fuzz.counts = lambda jj: {"fds": 50, "processes": 2, "helpers": 0, "ptys": jj.app.ptys}
+        saved = (ext_fuzz.CREATE_TIMEOUT, ext_fuzz.SETTLE)
+        ext_fuzz.CREATE_TIMEOUT, ext_fuzz.SETTLE = 0.3, 0.1
+        try:
+            ext_fuzz.step_fuzz_run(j, {"sequence": [{"a": "new_terminal", "t": "slow"}], "budget_s": 30})
+        finally:
+            ext_fuzz.CREATE_TIMEOUT, ext_fuzz.SETTLE = saved
+        self.assertTrue(j.fuzz_report["findings"])
+        ok, detail = ext_fuzz.cond_fuzz_daemon_agrees(j, {}, {})
+        self.assertTrue(ok, detail)
+
     def test_pty_leak_after_close_all(self):
         seq = [{"a": "new_workspace", "t": "slow"}, {"a": "new_terminal", "t": "slow"}, {"a": "close_all", "t": "slow"},
                {"a": "new_workspace", "t": "slow"}, {"a": "new_terminal", "t": "slow"}, {"a": "close_all", "t": "slow"}]

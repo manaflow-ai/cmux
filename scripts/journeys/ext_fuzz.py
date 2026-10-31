@@ -1297,7 +1297,9 @@ def cond_fuzz_daemon_agrees(j, want, cache):
     fz = getattr(j, "fuzz", None)
     if fz is None:
         return False, {"error": "no fuzz_run before this check"}
-    found = fz.topology(state(j))
+    # Only the daemon-vs-app topology: the app's own desync monitor (debug.desync) is the RECORD oracle `desync`,
+    # already a finding of the run (fuzz_clean), never judged a second time here as a broken round.
+    found = [(o, d) for o, d in fz.topology(state(j)) if o not in RECORD]
     return not found, {"problems": [d for _, d in found]}
 
 
