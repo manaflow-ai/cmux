@@ -403,6 +403,58 @@ test("previews on: one list in This Mac, My machines and Cloud and VMs sections,
   ]);
 });
 
+// Leo, 2026-10-30, on a chat seeded onto a Cloud machine: "the ui is so ass in general for this tho".
+// The host's `machineName` named the Cloud machine (`kind-aqua-sandpiper`), the page titled This Mac
+// with it, and this Mac (cosmic-gray) was listed nowhere. This Mac is always this Mac's own name.
+test("a Cloud machine is never listed under This Mac, and This Mac keeps this Mac's name", async () => {
+  const { thisMacName } = await import("../src/agent-session/acpmux/environments");
+  const cloudChat = { sessionId: "", harness: "claude", host: "kind-aqua-sandpiper", hostKind: "cloud" };
+  for (const [host, localMachineName, expected] of [
+    ["current", "cosmic-gray", "cosmic-gray"],
+    // A host that predates `localMachineName` sends the chat's machine as `machineName`.
+    ["older", undefined, t("composer.thisMac")],
+  ] as const) {
+    act(() => root?.unmount());
+    await mount(true, {
+      summary: cloudChat,
+      sessions: [{ sessionId: "c", cwd: "/root/work", host: "kind-aqua-sandpiper", hostKind: "cloud", updatedAt: 0 }],
+      localName: thisMacName(localMachineName, "kind-aqua-sandpiper", cloudChat),
+    });
+    await openPicker();
+    const shown = machineRows();
+    const section = (label: string) => {
+      let current: string | null = null;
+      for (const row of shown) {
+        current = row.querySelector(".acpmux-env-row")!.getAttribute("data-section") ?? current;
+        if (row.querySelector(".acpmux-menu-label")?.textContent === label) return current;
+      }
+      return undefined;
+    };
+    const thisMacRows = shown.filter(
+      (row) => section(row.querySelector(".acpmux-menu-label")!.textContent!) === t("composer.thisMac"),
+    );
+    expect(
+      thisMacRows.map((row) => row.querySelector(".acpmux-menu-label")?.textContent),
+      host,
+    ).toEqual([expected]);
+    expect(section("kind-aqua-sandpiper"), host).toBe(t("composer.envFleet"));
+    await press(doc().querySelector(".acpmux-env-popover input")!, { key: "Escape" });
+  }
+});
+
+test("This Mac's name is the host's own name, never the machine a seeded chat runs on", async () => {
+  const { thisMacName } = await import("../src/agent-session/acpmux/environments");
+  expect(thisMacName("cosmic-gray", "kind-aqua-sandpiper", { peer: "kind-aqua-sandpiper" })).toBe("cosmic-gray");
+  // An older host: `machineName` is the chat's peer or Cloud host, so it is not this Mac's.
+  expect(thisMacName(undefined, "kind-aqua-sandpiper", { peer: "kind-aqua-sandpiper" })).toBeUndefined();
+  expect(
+    thisMacName(undefined, "kind-aqua-sandpiper", { hostKind: "cloud", host: "kind-aqua-sandpiper" }),
+  ).toBeUndefined();
+  // An older host with a chat on this Mac: its `machineName` is this Mac's.
+  expect(thisMacName(undefined, "cosmic-gray", { hostKind: "local", host: "cosmic-gray" })).toBe("cosmic-gray");
+  expect(thisMacName(undefined, undefined)).toBeUndefined();
+});
+
 test("with no cloud machine yet, New Cloud Machine heads its own Cloud section and opens the create flow", async () => {
   const calls = await mount(true, {
     sessions: [{ sessionId: "a", cwd: "/home/dev/model", host: "gpu-box", peer: "gpu-box", updatedAt: 0 }],
