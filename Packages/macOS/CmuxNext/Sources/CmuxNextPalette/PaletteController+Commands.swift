@@ -12,9 +12,11 @@ extension PaletteController {
     /// Built once per change of the registry's bindings and kept per focus context
     /// (``PaletteCommandEntryCache``): a surface that lists them on every open takes the kept rows.
     public func commandEntries() -> [PaletteCommandEntry] {
-        commandEntryCache.entries(registry, hidden: hiddenActionIDs?() ?? []) {
+        commandEntryCache.entries(registry, hidden: hiddenActionIDs?() ?? []) { context in
             captureContext()
-            return makeRegistryProvider().makeItems().compactMap { item in
+            let provider = makeRegistryProvider()
+            provider.context = context
+            return provider.makeItems().compactMap { item in
                 guard item.isEnabled, let id = item.actionID else { return nil }
                 return PaletteCommandEntry(id: id, title: item.title, section: item.section.title, keywords: item.keywords,
                                            keycaps: item.keycaps ?? [], symbol: item.symbol)

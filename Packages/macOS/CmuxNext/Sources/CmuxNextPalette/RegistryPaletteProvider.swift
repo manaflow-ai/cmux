@@ -26,6 +26,10 @@ public final class RegistryPaletteProvider: PaletteProvider {
     public var argumentSwatches: PaletteArgumentSwatches?
     /// Palette-internal actions that should not list themselves.
     public var hiddenIDs: Set<ActionID> = ["commandPalette"]
+    /// The focus facts the rows are decided in; nil reads the registry's current ones. A kept list
+    /// (``PaletteCommandEntryCache``) passes the context it is keyed on, so its build does not observe the
+    /// registry's context, which every focus move writes.
+    public var context: ActionContext?
     /// Opens the shortcut recorder for an action (the Actions menu's Edit
     /// Keyboard Shortcut…); nil hides that command.
     public var editShortcut: (@MainActor (ActionID) -> Void)?
@@ -71,7 +75,7 @@ public final class RegistryPaletteProvider: PaletteProvider {
         }
         for entry in registry.entries {
             let descriptor = entry.descriptor
-            guard descriptor.isPaletteVisible, !hiddenIDs.contains(descriptor.id), registry.isAvailable(descriptor.id) else { continue }
+            guard descriptor.isPaletteVisible, !hiddenIDs.contains(descriptor.id), registry.isAvailable(descriptor.id, in: context) else { continue }
             // An override is decided when its row runs (`PaletteEffect.deferred`), never on open:
             // Rename Tab and Rename Workspace read every tab and workspace, an action page builds
             // its page. Declining there (nothing to rename) falls back to the action itself.
@@ -79,7 +83,7 @@ public final class RegistryPaletteProvider: PaletteProvider {
             guard entry.isBound || override != nil || includeUnbound else { continue }
             // A row whose run would refuse for the focused object (a chat control that chat lacks) says so here.
             let paletteReason = override == nil ? registry.action(for: descriptor.id)?.paletteUnavailableReason?() : nil
-            let isEnabled = override != nil || (registry.canPerform(descriptor.id) && paletteReason == nil)
+            let isEnabled = override != nil || (registry.canPerform(descriptor.id, in: context) && paletteReason == nil)
             let fallback = defaultEffect(for: descriptor)
             let effect = override.map { decide in PaletteEffect.deferred { decide() ?? fallback } } ?? fallback
             let actionID = descriptor.id

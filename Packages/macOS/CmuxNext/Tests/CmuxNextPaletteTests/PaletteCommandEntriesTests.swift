@@ -64,14 +64,14 @@ struct PaletteCommandEntriesTests {
         #expect(cache.builds == 4)
     }
 
-    /// The opt-in check (`CMUX_NEXT_PALETTE_ENTRY_CHECK=1`): a kept list that a fresh build disagrees with is
+    /// The opt-in check (`verifiesHits`): a kept list that a fresh build disagrees with is
     /// counted and the fresh rows are returned, so a source the cache misses shows up in a dogfood run.
     @Test func theCheckReturnsFreshRowsWhenAKeptListIsStale() {
         let registry = Self.registry()
         var open = true // a plain variable: not observable, so the cache cannot see it change
         registry.bind("newWindow", isEnabled: { open }) {}
-        let palette = PaletteController(registry: registry, frecencyPersistence: nil)
-        palette.commandEntryCache.verifiesHits = true
+        let palette = PaletteController(registry: registry, frecencyPersistence: nil,
+                                        commandEntryCache: PaletteCommandEntryCache(verifiesHits: true))
         #expect(palette.commandEntries().contains { $0.id == "newWindow" })
         open = false
         #expect(!palette.commandEntries().contains { $0.id == "newWindow" })

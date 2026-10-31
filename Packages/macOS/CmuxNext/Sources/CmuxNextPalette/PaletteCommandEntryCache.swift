@@ -19,13 +19,14 @@ import os
 ///   availability closure reads (the registry's bindings, catalog, shortcuts and features, and the app
 ///   state those closures read) drops every kept list on its first write;
 /// - the registry's binding inputs are also read explicitly, so they are watched even when no row reads them;
-/// - what is not observable is part of the key: the focus facts (`ActionRegistry.context`, which change on
-///   every focus move, so a list is kept per context and focus that leaves and comes back builds nothing),
+/// - what changes too often to watch, or is not observable, is part of the key: the focus facts
+///   (`ActionRegistry.context`, written on every focus move; the build decides the rows in the key's context
+///   and never reads the live one, so focus that leaves a New Tab page and comes back builds nothing),
 ///   the rows the app hides, and the key window (Stop All Agents reads the front window).
 ///
 /// A row whose availability reads state that is neither observable nor in the key would be stale. With
-/// `CMUX_NEXT_PALETTE_ENTRY_CHECK=1` in the app's environment (DEBUG and bench builds; a bench
-/// or dogfood run sets it), every kept list is compared with a fresh build: a difference is logged as
+/// ``verifiesHits`` (a construction parameter; the cache's tests set it), every kept list is compared with a
+/// fresh build: a difference is logged as
 /// `palette.entries` "stale kept list" with the rows, counted (`staleHits`), and the fresh rows are returned.
 /// Chromium keeps its omnibox providers' data the same way: an index rebuilt on change, never per keystroke or
 /// per new tab.
@@ -48,25 +49,24 @@ public final class PaletteCommandEntryCache {
     public private(set) var builds = 0
     /// Kept lists that differed from a fresh build (``verifiesHits``; the cache's tests read it).
     public private(set) var staleHits = 0
-    /// Whether every kept list is compared with a fresh build (`CMUX_NEXT_PALETTE_ENTRY_CHECK=1`, DEBUG and
-    /// bench builds only): the check costs the build it saves, so it is a diagnostic, never the default.
-    public var verifiesHits: Bool
+    /// Whether every kept list is compared with a fresh build: the check costs the build it saves, so it is a
+    /// diagnostic its owner passes at construction, never the default.
+    public let verifiesHits: Bool
 
-    public init(environment: [String: String] = ProcessInfo.processInfo.environment) {
-        #if DEBUG || CMUX_BENCH_HOOKS
-        verifiesHits = environment["CMUX_NEXT_PALETTE_ENTRY_CHECK"] == "1"
-        #else
-        verifiesHits = false
-        #endif
+    /// - Parameter verifiesHits: Compare every kept list with a fresh build (a diagnostic).
+    public init(verifiesHits: Bool = false) {
+        self.verifiesHits = verifiesHits
     }
 
-    /// The kept rows for the registry's context, `hidden` and the key window, else `build()`'s, which are then kept.
-    func entries(_ registry: ActionRegistry, hidden: Set<ActionID>, _ build: () -> [PaletteCommandEntry]) -> [PaletteCommandEntry] {
+    /// The kept rows for the registry's context, `hidden` and the key window, else `build(context)`'s, which are
+    /// then kept. `build` decides the rows in the context it is given, never the registry's live one.
+    func entries(_ registry: ActionRegistry, hidden: Set<ActionID>,
+                 _ build: (ActionContext) -> [PaletteCommandEntry]) -> [PaletteCommandEntry] {
         let key = Key(context: registry.context, hidden: hidden, keyWindow: NSApp?.keyWindow.map(ObjectIdentifier.init))
         if let list = lists[key] {
             order.removeAll { $0 == key }
             order.append(key)
-            return verifiesHits ? checked(list, build) : list
+            return verifiesHits ? checked(list) { build(key.context) } : list
         }
         builds += 1
         let armed = generation
@@ -79,7 +79,7 @@ public final class PaletteCommandEntryCache {
             _ = registry.keyBindingLayers
             _ = registry.keyTierOverrides
             _ = registry.disabledFeatures
-            return build()
+            return build(key.context)
         } onChange: { [weak self] in
             if Thread.isMainThread {
                 MainActor.assumeIsolated { self?.drop(armed) } // main-proof: checked on the line above
