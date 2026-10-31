@@ -126,6 +126,25 @@ struct GatherWindowsTests {
         #expect(here.state.profileID == Self.rooms[1])
     }
 
+    /// A workspace being created in a window the move closes (claimed, not reported yet) lands in
+    /// this window when it arrives: its claim follows the move, so the closed window never reopens.
+    @Test func aWorkspaceBeingCreatedInAClosedWindowFollowsTheMove() throws {
+        let services = try Self.services()
+        defer { Self.closeAll(services) }
+        let here = try Self.open(["k0"], services), there = try Self.open(["k2"], services)
+        let other = try Self.open(["k1"], services)
+        services.windows.claimNew(workspaceID: "k-new-1", window: there.state.id)
+        services.windows.claimNew(workspaceID: "k-new-2", window: other.state.id)
+
+        try services.windows.bringSpace(Self.rooms[1], into: here.state)
+        #expect(services.windows.registry.value.window(there.state.id) == nil, "the emptied window stayed")
+        #expect(services.windows.pendingClaims["k-new-1"] == here.state.id, "the claim still names the closed window")
+
+        try services.windows.mergeWindows(into: here.state)
+        #expect(services.windows.registry.value.window(other.state.id) == nil)
+        #expect(services.windows.pendingClaims["k-new-2"] == here.state.id, "the claim still names the merged window")
+    }
+
     /// An incognito space, or an incognito window, takes part in no move (rule 2).
     @Test func incognitoIsRefused() throws {
         let services = try Self.services()
