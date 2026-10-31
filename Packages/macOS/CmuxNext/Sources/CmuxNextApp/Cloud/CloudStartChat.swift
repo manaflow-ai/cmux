@@ -29,14 +29,14 @@ struct CloudStartChat {
                 return AgentPaneReply.failure(code: "unavailable", message: CloudMoveStrings.notAChat)
             }
             return await CloudStartChat(services: services).reply(start, tab: tab) { [weak view] step in
-                if let view { start.progress(step.name, folder: step.folder, machine: step.machine, size: step.size, to: view) }
+                if let view { start.progress(step, to: view) }
             }
         }
     }
 
     /// The page's reply: success with the machine's name, or a refusal in the person's words.
     /// `report` tells the page's card each step as it begins (``AgentPaneCloudStart/progress(_:folder:machine:size:to:)``).
-    func reply(_ start: AgentPaneCloudStart, tab: TabModel, report: @MainActor (Step) -> Void = { _ in }) async -> [String: Any] {
+    func reply(_ start: AgentPaneCloudStart, tab: TabModel, report: @MainActor (AgentPaneCloudStart.Step) -> Void = { _ in }) async -> [String: Any] {
         if let refusal = Self.refusal(services) { return AgentPaneReply.failure(code: refusal, message: refusal) }
         let toastID = "cloud-start-" + tab.id
         CloudMove.toast(services, toastID, CloudMoveStrings.moving, duration: .seconds(600))
@@ -69,49 +69,14 @@ struct CloudStartChat {
         return appServerLink ? "unavailable" : nil
     }
 
-    /// Whether `folder` is what the send may copy: for a folder the page named, exactly the upload
-    /// root the pane checked against its roots; for the tab's own folder (no `cwd`), only that folder
-    /// itself, never a Git working copy found above it, which no check covered (a tab in
-    /// /repo/project never uploads /repo, its siblings and its history).
-    /// The tab's own folder also never when it is the home folder or above it, by its canonical
-    /// path too (a tab in /Users would copy every home folder's credentials).
-    nonisolated static func uploads(_ folder: CloudMoveFolder, as start: AgentPaneCloudStart,
-                                    home: String? = NSHomeDirectory()) -> Bool {
-        guard start.cwd != nil else {
-            guard folder.subpath.isEmpty else { return false }
-            let canonicalHome = home.flatMap(AgentHome.canonical) ?? home
-            for path in [folder.root, AgentHome.canonical(folder.root)].compactMap({ $0 })
-            where AgentHome.isHomeOrAbove(path, home: canonicalHome) || AgentHome.isHomeOrAbove(path, home: home) {
-                return false
-            }
-            return AgentPaneCloudStart.gitFoldersAreInside(folder.root) // its git folders are copied too
-        }
-        return start.uploadRoot == folder.root
-    }
-
     /// Whether `path` is an existing folder, read off the main thread.
     @concurrent nonisolated private static func isFolder(_ path: String) async -> Bool {
         var isFolder: ObjCBool = false
         return FileManager.checked.fileExists(atPath: path, isDirectory: &isFolder) && isFolder.boolValue
     }
 
-    /// A step of the start as the page's card shows it.
-    struct Step {
-        var name: String
-        var folder: String?
-        var machine: String?
-        var size: String?
-    }
-
-    /// A machine's size in the card's words: "4 CPU · 16 GB".
-    static func sizeText(_ size: CloudMachine.Size?) -> String? {
-        guard let cpu = size?.cpu, cpu > 0 else { return nil }
-        guard let memory = size?.memoryMb, memory > 0 else { return "\(cpu) CPU" }
-        return "\(cpu) CPU · \(Int((Double(memory) / 1024).rounded())) GB"
-    }
-
     /// The start; returns the machine's name.
-    private func run(_ start: AgentPaneCloudStart, tab: TabModel, report: @MainActor (Step) -> Void) async throws -> String {
+    private func run(_ start: AgentPaneCloudStart, tab: TabModel, report: @MainActor (AgentPaneCloudStart.Step) -> Void) async throws -> String {
         // The folder the page named, as Move to Cloud's `path` takes one: an existing folder, never
         // the home folder or the disk's root. A page could already start a chat on this Mac in it.
         guard let chat = start.cwd ?? tab.cwd, await Self.isFolder(chat),
@@ -119,12 +84,12 @@ struct CloudStartChat {
         guard !folder.isTooBroad else { throw CloudMove.Failure(message: CloudMoveStrings.homeFolder) }
         // A folder the page named is copied only as the pane checked it: its upload root, in the
         // pane's roots (``AgentPaneHandOff``). A `.git` found above it since then is refused.
-        guard Self.uploads(folder, as: start) else { throw CloudMove.Failure(message: CloudMoveStrings.noFolder) }
+        guard start.uploads(folder) else { throw CloudMove.Failure(message: CloudMoveStrings.noFolder) }
         guard let binary = services.cloud.move.cli else { throw ActionFailure(message: CloudStrings.noClient) }
         let cli = CloudMoveCLI(binary: binary, timeout: services.cloud.move.timeout)
         let invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab.id), origin: .user)
         let folderName = URL(fileURLWithPath: chat).lastPathComponent
-        report(Step(name: "machine", folder: folderName))
+        report(.init(name: "machine", folder: folderName))
         // The machine, the pin and the keys are cmux-tui's (`cmux link start-chat`, +Machine).
         let account = services.cloud.account
         let (machine, plan) = try await self.machine(for: start, account: account, cli: cli, invocation: invocation) {
@@ -136,8 +101,8 @@ struct CloudStartChat {
         }
         // The account may have changed while the machine connected: copy nothing then.
         try Self.checkAccount(account, now: services.cloud.account, listCurrent: services.cloud.hasLoadedCurrentMachines)
-        let size = Self.sizeText(machine.machine.size)
-        report(Step(name: "folder", folder: folderName, machine: name, size: size))
+        let size = AgentPaneCloudStart.sizeText(machine.machine.size)
+        report(.init(name: "folder", folder: folderName, machine: name, size: size))
         // Each copy goes to a new folder of the send's own, under its account as its pin; a retry whose
         // copy finished opens its chat without copying again, which would overwrite what it changed.
         let copy: (CloudMoveCLI.Answer, (chat: String, copied: Bool))
@@ -155,7 +120,7 @@ struct CloudStartChat {
         try Self.checkAccount(account, now: services.cloud.account, listCurrent: services.cloud.hasLoadedCurrentMachines)
         let context = AppActionContext(services: services)
         let anchor = try await CloudHandlers.terminalAnchor(on: machine, context)
-        report(Step(name: "opening", folder: folderName, machine: name, size: size))
+        report(.init(name: "opening", folder: folderName, machine: name, size: size))
         let seed = start.seed(cwd: remoteChat)
         let pending = try services.agentTabs.open(in: anchor.pane.handle, of: machine.daemon, seed: AgentPaneSeedSource(seed),
                                                  idempotencyKey: plan.tabKey)

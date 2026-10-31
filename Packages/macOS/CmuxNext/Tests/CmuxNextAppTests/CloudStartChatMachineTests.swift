@@ -46,14 +46,14 @@ struct CloudStartChatMachineTests {
     @Test func aPageNamedFolderIsCopiedOnlyAsItsCheckedUploadRoot() throws {
         let folder = try #require(CloudMoveFolder(chat: "/Users/me/src/paint"))
         var start = try #require(AgentPaneCloudStart(params: ["task": "t", "cwd": "/Users/me/src/paint", "key": UUID().uuidString]))
-        #expect(!CloudStartChat.uploads(folder, as: start))
+        #expect(!start.uploads(folder))
         start.uploadRoot = folder.root
-        #expect(CloudStartChat.uploads(folder, as: start))
+        #expect(start.uploads(folder))
         start.uploadRoot = "/Users/me/src/paint/sub"
-        #expect(!CloudStartChat.uploads(folder, as: start))
+        #expect(!start.uploads(folder))
         // The tab's own folder (no `cwd`): only that folder itself, never a working copy above it.
         let tabs = try #require(AgentPaneCloudStart(params: ["task": "t", "key": UUID().uuidString]))
-        #expect(CloudStartChat.uploads(folder, as: tabs))
+        #expect(tabs.uploads(folder))
         let repo = FileManager.default.temporaryDirectory.appendingPathComponent("cn-start-\(UUID().uuidString.prefix(8))")
         defer { try? FileManager.default.removeItem(at: repo) }
         let project = repo.appendingPathComponent("project")
@@ -61,16 +61,16 @@ struct CloudStartChatMachineTests {
         try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
         let inRepo = try #require(CloudMoveFolder(chat: project.path))
         #expect(!inRepo.subpath.isEmpty)
-        #expect(!CloudStartChat.uploads(inRepo, as: tabs))
+        #expect(!tabs.uploads(inRepo))
         let atRoot = try #require(CloudMoveFolder(chat: repo.path))
-        #expect(CloudStartChat.uploads(atRoot, as: tabs))
+        #expect(tabs.uploads(atRoot))
         // Never the home folder or a folder above it (a tab in /Users), whatever `isTooBroad` says.
         let users = try #require(CloudMoveFolder(chat: "/Users"))
-        #expect(!CloudStartChat.uploads(users, as: tabs, home: "/Users/me"))
+        #expect(!tabs.uploads(users, home: "/Users/me"))
         let home = try #require(CloudMoveFolder(chat: "/Users/me"))
-        #expect(!CloudStartChat.uploads(home, as: tabs, home: "/Users/me"))
-        #expect(!CloudStartChat.uploads(try #require(CloudMoveFolder(chat: "/")), as: tabs, home: "/Users/me"))
-        #expect(CloudStartChat.uploads(atRoot, as: tabs, home: "/Users/me"))
+        #expect(!tabs.uploads(home, home: "/Users/me"))
+        #expect(!tabs.uploads(try #require(CloudMoveFolder(chat: "/")), home: "/Users/me"))
+        #expect(tabs.uploads(atRoot, home: "/Users/me"))
     }
 
     /// Router review at 6beb0f2: with no `cwd` the tab's own folder is copied, and its `.git` file
@@ -87,11 +87,11 @@ struct CloudStartChatMachineTests {
         let tabs = try #require(AgentPaneCloudStart(params: ["task": "t", "key": UUID().uuidString]))
         let folder = try #require(CloudMoveFolder(chat: project.path))
         #expect(folder.subpath.isEmpty)
-        #expect(!CloudStartChat.uploads(folder, as: tabs, home: "/Users/nobody"))
+        #expect(!tabs.uploads(folder, home: "/Users/nobody"))
         // A working copy whose git folder is its own `.git` folder is copied.
         try FileManager.default.removeItem(at: project.appendingPathComponent(".git"))
         try FileManager.default.createDirectory(at: project.appendingPathComponent(".git"), withIntermediateDirectories: true)
-        #expect(CloudStartChat.uploads(try #require(CloudMoveFolder(chat: project.path)), as: tabs, home: "/Users/nobody"))
+        #expect(tabs.uploads(try #require(CloudMoveFolder(chat: project.path)), home: "/Users/nobody"))
     }
 
     /// The create's key is the plan's, so a retry after a lost create answer never makes a second VM;
