@@ -43,12 +43,15 @@ import AppKit
             return tab(forward: true)
         case .upArrow?, .downArrow?:
             let stops = stops
-            let current = list.focusedGroup.map(Stop.group) ?? model.activeWorkspaceID.map(Stop.workspace)
+            let current = list.focusedGroup.map(stop(focusing:)) ?? model.activeWorkspaceID.map(Stop.workspace)
             guard let current, let index = stops.firstIndex(of: current) else {
                 setFocus(nil)
                 return false
             }
-            let next = index + (event.specialKey == .upArrow ? -1 : 1)
+            // Focus on a group drawn as its one row stands where its header stood, just above its member: Down selects
+            // that row, as Down on a header selects its first member.
+            let standing = list.focusedGroup.map { stop(focusing: $0) != .group($0) } ?? false
+            let next = index + (event.specialKey == .upArrow ? -1 : standing ? 0 : 1)
             // Past the first or last stop, focus moves on to the items around the list (cx-qno.10).
             if stops.indices.contains(next) {
                 focus(stops[next])
@@ -82,6 +85,15 @@ import AppKit
         default:
             return false
         }
+    }
+
+    /// The stop keyboard focus on `group` stands at: its header, or, once the group draws as its one row
+    /// (`SidebarLayout+SoleMember`: opening a collapsed same-named group takes its header away), that row's place.
+    private func stop(focusing group: GroupID) -> Stop {
+        guard list.displayed.row(for: .group(group)) == nil,
+              let row = list.displayed.rows.first(where: { $0.standsForGroup && $0.group == group }),
+              case let .workspace(id) = row.key else { return .group(group) }
+        return .workspace(id)
     }
 
     func focus(_ stop: Stop) {
