@@ -15,6 +15,8 @@ export interface Principal {
   /** Automation principals only (built by the API Worker): the run that is calling. */
   readonly run?: string
   readonly grant?: string
+  /** Install authority incarnation, resolved by UserDO for owner socket and network fences. */
+  readonly install_authority?: string
   /**
    * How the connection authenticated: a human session or an install token.
    * `system` is built only inside a Durable Object for its own internal ops

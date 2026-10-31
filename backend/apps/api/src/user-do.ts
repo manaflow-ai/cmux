@@ -22,7 +22,7 @@ import { SecondaryStream } from "./secondary-stream.ts"
 import { pullLargeRows, readInboxOp } from "./user-inbox.ts"
 import { checkPresenceKey, type PresenceKeyBody } from "./user-presence-key.ts"
 import { homeRateTakeSql, type HomeRateGate, type HomeRateOp } from "./home-rate.ts"
-import { installAuthorityVersion, withInstallAuthority } from "./domains/user-authority.ts"
+import { installAuthorityVersion } from "./domains/user-authority.ts"
 
 const CHALLENGE_TTL_MS = 2 * 60_000
 
@@ -48,7 +48,7 @@ export class UserDO extends OwnerDO<UserState> {
   protected homePushSender = apnsHomePushSender(this.env)
 
   constructor(ctx: DurableObjectState, env: Env) {
-    super(ctx, env, withInstallAuthority(makeUserDomain(appIdHashFor(env.IOS_APP_ID))), "user")
+    super(ctx, env, makeUserDomain(appIdHashFor(env.IOS_APP_ID)), "user")
     ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS auth_challenges (nonce TEXT PRIMARY KEY, install TEXT NOT NULL, expires_at INTEGER NOT NULL)`)
     ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS auth_team_challenges (nonce TEXT PRIMARY KEY, install TEXT NOT NULL, team TEXT NOT NULL, expires_at INTEGER NOT NULL)`)
     this.homePush = new HomePushQueue(this.sqlStore)

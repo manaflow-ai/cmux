@@ -8,6 +8,7 @@ import { reducePushTarget, type PushTargetsState } from "./user-push.ts"
 import { user as homeUser } from "@cmux/home-core"
 import { confirmEnv, PREVIOUS_EMAIL_WINDOW_MS, reduceConfirm, revokePresenceKey, USER_CONFIRM_OPS } from "./user-confirm.ts"
 import { chiefActive, CHIEF_OPS, reduceChief, type ChiefsState } from "./user-chief.ts"
+import { withInstallAuthority, type InstallAuthorityState } from "./user-authority.ts"
 
 type UserProfile = typeof UserProfileSchema.Type
 type Mutable<T> = { -readonly [K in keyof T]: T[K] }
@@ -19,6 +20,8 @@ const TEAM_KINDS: ReadonlySet<string> = new Set(["personal", "stack"])
 
 export interface UserState extends PushTargetsState, ChiefsState {
   readonly user: UserProfile | null
+  /** Reducer-owned install authority generation and incarnations. */
+  readonly install_authority?: InstallAuthorityState
   /** Text confirmation level and presence keys (home-core user/), absent until first used. */
   readonly confirm?: homeUser.UserConfirmState
   /** Home settings (home-messaging.md section 4.2), absent until the first home.settings.set. */
@@ -228,7 +231,7 @@ export const defaultInstallClasses = (kind: string): ReadonlyArray<(typeof INSTA
         : INSTALL_CLASSES
 const defaultClasses = defaultInstallClasses
 
-export const makeUserDomain = (appIdHash: string): Domain<UserState> => ({
+export const makeUserDomain = (appIdHash: string): Domain<UserState> => withInstallAuthority({
   initial: () => ({ user: null, installs: {}, grants: {} }),
 
   authorize: (state, op, _params, principal) => {
