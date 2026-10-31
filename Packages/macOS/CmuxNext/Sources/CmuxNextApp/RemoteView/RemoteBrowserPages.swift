@@ -192,10 +192,21 @@ enum RemoteBrowserPages {
     /// (`x`, `y`) send a wheel or hover event; `menu_choose` (`id` or `index`, `tab`?)
     /// answers the open native menu; `menu_cancel` dismisses it; `click`
     /// (`x`, `y`, `button`, `modifiers`) clicks the page.
+    /// Only a unique session may be implicit. A specified tab must resolve exactly:
+    /// a stale or malformed tab id never drives another remote browser.
+    @MainActor
+    static func debugTarget<T>(requested: JSONValue?, in live: [String: T]) -> T? {
+        if let requested {
+            guard let id = requested.stringValue, !id.isEmpty else { return nil }
+            return live[id]
+        }
+        return live.count == 1 ? live.values.first : nil
+    }
+
     @MainActor
     static func debug(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
         let live = sessions.compactMapValues(\.value)
-        let target = params["tab"]?.stringValue.flatMap { live[$0] } ?? live.values.first
+        let target = debugTarget(requested: params["tab"], in: live)
         switch params["action"]?.stringValue ?? "state" {
         case "open", "open_local":
             // A background app has no active window: `pane` names one, else
