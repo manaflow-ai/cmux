@@ -94,6 +94,23 @@ import Testing
         #expect(layout.row(for: .workspace(WorkspaceID("w-release")))?.standsForGroup == false, "the matching workspace stays a workspace row")
     }
 
+    /// Review on #27875 at e40af6fb: a drag of B out of group G (members G and B) lays the list out without B, and its
+    /// preview lays it out with B moved out. Both must agree on G's header, or the drop's coordinates shift by a header:
+    /// the dragged-out member does not count, as in the preview, while a member a filter hides does.
+    @Test func aMemberDraggedOutCountsAsMovedOut() throws {
+        let group = SidebarGroup(id: GroupID("g"), name: "G", workspaces: [ws("w-g", "G"), ws("w-b", "B")])
+        var dragging = SidebarLayoutOptions()
+        dragging.excludedWorkspaces = [WorkspaceID("w-b")]
+        let base = layout([.group(group), .workspace(ws("w-c", "C"))], options: dragging)
+        let moved = SidebarGroup(id: GroupID("g"), name: "G", workspaces: [ws("w-g", "G")])
+        let preview = layout([.group(moved), .workspace(ws("w-b", "B")), .workspace(ws("w-c", "C"))])
+        #expect((base.row(for: .group(GroupID("g"))) == nil) == (preview.row(for: .group(GroupID("g"))) == nil),
+                "the drag's base and its preview disagree on G's header")
+        #expect(base.row(for: .workspace(WorkspaceID("w-g")))?.standsForGroup == true)
+        #expect(base.row(for: .workspace(WorkspaceID("w-c")))?.y == preview.row(for: .workspace(WorkspaceID("w-b")))?.y,
+                "C sits where the preview puts B: no header's height between them")
+    }
+
     @Test func aGroupWithSubgroupsKeepsItsHeader() {
         let parent = SidebarGroup(id: GroupID("g-coord"), name: "release-coord", workspaces: [ws("w-coord", "release-coord")])
         var child = SidebarGroup(id: GroupID("g-sub"), name: "Sub", workspaces: [ws("w-sub", "sub")])
