@@ -32,6 +32,16 @@ fn group(mux: &Arc<Mux>, name: &str) -> String {
         .to_string()
 }
 
+/// A group made with an explicit index, so it forms after every loose row
+/// (with none it forms below Home under `workspaces.newPlacement` top).
+fn group_after_loose_rows(mux: &Arc<Mux>, name: &str) -> String {
+    mutate(mux, "workspace_group.create", json!({"name": name, "index": 0}), &format!("group-{name}"))
+        ["id"]
+        .as_str()
+        .unwrap()
+        .to_string()
+}
+
 /// A group moves between loose rows, its members show at its slot in the
 /// personal order, and null puts it back after every loose workspace.
 #[test]
@@ -270,7 +280,7 @@ fn a_new_workspace_follows_the_before_current_setting() {
         .to_string();
     let a = empty_workspace(&mux, "a");
     let b = empty_workspace(&mux, "b");
-    let work = group(&mux, "Work");
+    let work = group_after_loose_rows(&mux, "Work");
     mutate(&mux, "workspace.place", json!({"workspace": a, "group": work}), "a-in-work");
     // Personal order now: home, b, then Work [a] after every loose row.
     let before = NewWorkspacePlacement::BeforeCurrent.set_for_test();
@@ -368,7 +378,7 @@ fn a_new_workspace_follows_the_creating_clients_current_workspace() {
     let (g_key, g) = create("g", None);
     let (_, h) = create("h", None);
     drop(bottom);
-    let work = group(&mux, "Work");
+    let work = group_after_loose_rows(&mux, "Work");
     mutate(&mux, "workspace.place", json!({"workspace": a, "group": work}), "a-in-work");
     mutate(&mux, "workspace.place", json!({"workspace": g, "group": work}), "g-in-work");
     mutate(&mux, "workspace.place", json!({"workspace": h, "group": work}), "h-in-work");
