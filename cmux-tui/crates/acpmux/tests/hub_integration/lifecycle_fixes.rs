@@ -497,7 +497,9 @@ async fn an_agent_that_never_answers_its_start_fails_with_a_deadline() {
     let gate = std::env::temp_dir().join(format!("acpmux-start-gate-{}", uuid::Uuid::now_v7()));
     std::fs::write(&gate, b"").unwrap();
     let env = BTreeMap::from([("FAKE_START_GATE".to_owned(), gate.to_string_lossy().into_owned())]);
-    let (hub, mut c) = setup_env(PermissionPolicy::ApproveAll, env).await;
+    let (hub, _person) = setup_env(PermissionPolicy::ApproveAll, env).await;
+    // An agent's connection: the person's start has no deadline (the tests below).
+    let mut c = agent_client(&hub);
     let created = c
         .request(
             method::SESSION_NEW,
@@ -524,5 +526,166 @@ async fn an_agent_that_never_answers_its_start_fails_with_a_deadline() {
     hub.config.write().await.agent_start_timeout_ms = None;
     let answered = c.request(method::SESSION_PROMPT, prompt).await.unwrap();
     assert!(answered["stopReason"].is_string(), "{answered}");
+    let _ = std::fs::remove_file(&gate);
+}
+
+/// A connection that is not the person: an agent's or a lane's `acpmux` client.
+fn agent_client(hub: &Arc<Hub>) -> TestClient {
+    let (in_tx, in_rx) = mpsc::channel(64);
+    let (out_tx, out_rx) = mpsc::channel(4096);
+    tokio::spawn(serve_connection(hub.clone(), in_rx, out_tx));
+    TestClient { tx: in_tx, rx: out_rx, next: 0 }
+}
+
+/// A hub with two harnesses: `fake`, and `gated`, whose agent starts only once `gate` exists.
+async fn gated_hub(gate: &std::path::Path, extra: &[(&str, &str)]) -> (Arc<Hub>, TestClient) {
+    let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+    let profile = |env: BTreeMap<String, String>| HarnessProfile {
+        kind: Default::default(),
+        argv: vec!["python3".into(), fake.into()],
+        env,
+        description: None,
+        fallback: None,
+        family: None,
+        models: vec![],
+        model: None,
+        effort: None,
+        policy: None,
+    };
+    let mut gated = BTreeMap::from([("FAKE_START_GATE".to_owned(), gate.display().to_string())]);
+    gated.extend(extra.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())));
+    let harnesses = BTreeMap::from([
+        ("fake".to_owned(), profile(BTreeMap::new())),
+        ("gated".to_owned(), profile(gated)),
+    ]);
+    let mut cfg = Config { harnesses, default_harness: Some("fake".into()), ..Default::default() };
+    cfg.store.mode = StoreMode::Memory;
+    cfg.permission_policy = PermissionPolicy::ApproveAll;
+    let store = acpmux::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+    let hub = Hub::new(cfg, store);
+    hold_person_key(&hub);
+    let c = connect(&hub).await;
+    (hub, c)
+}
+
+fn new_params(name: &str, harness: &str) -> Value {
+    json!({"cwd": cwd(), "mcpServers": [], "_meta": {"acpmux": {"name": name, "harness": harness}}})
+}
+
+/// The `agent_start_waiting` records of session `name` (`Hub::person_start`).
+fn start_waits(hub: &Hub, name: &str) -> usize {
+    let Ok(s) = hub.resolve(name) else { return 0 };
+    hub.events(&s.id, 0, 100_000)
+        .unwrap()
+        .iter()
+        .filter(|e| e.kind == "agent_start_waiting")
+        .count()
+}
+
+/// Leo, 2026-10-31: "I TSHOULDN'T FUCKING MATTER IF MY COMPUTER IS LOADED" / "I SHOULD BE ALWAYS
+/// ABLE TO SATRT NEW FUCKGN CHATS". On a host at load ~390 the person's new chats failed with "no
+/// harness session within 90s". The person's start has no deadline: past `agentStartTimeoutMs` it
+/// keeps waiting and says so (`agent_start_waiting`), and the chat starts once its agent answers.
+#[tokio::test]
+async fn the_persons_slow_start_keeps_waiting_past_the_start_budget_and_says_so() {
+    let gate = std::env::temp_dir().join(format!("acpmux-person-gate-{}", uuid::Uuid::now_v7()));
+    let (hub, mut person) = gated_hub(&gate, &[]).await;
+    hub.config.write().await.agent_start_timeout_ms = Some(300);
+    let started = tokio::spawn(async move {
+        person.request(method::SESSION_NEW, new_params("slow-host", "gated")).await
+    });
+    let deadline = std::time::Instant::now() + Duration::from_secs(20);
+    while start_waits(&hub, "slow-host") < 3 {
+        assert!(!started.is_finished(), "the person's start ended: {:?}", started.await);
+        assert!(std::time::Instant::now() < deadline, "the start never said it still waits");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    // Several budgets later the start still waits: the agent answers now.
+    assert!(!started.is_finished(), "the person's start ended: {:?}", started.await);
+    std::fs::write(&gate, b"").unwrap();
+    let created = tokio::time::timeout(Duration::from_secs(20), started)
+        .await
+        .expect("the start never ended once its agent answered")
+        .unwrap()
+        .expect("the person's slow start failed");
+    assert!(created["sessionId"].is_string(), "{created}");
+    let _ = std::fs::remove_file(&gate);
+}
+
+/// The person's start still fails at once on a real error: its agent exits.
+#[tokio::test]
+async fn the_persons_start_fails_when_its_agent_exits() {
+    let gate = std::env::temp_dir().join(format!("acpmux-person-die-{}", uuid::Uuid::now_v7()));
+    std::fs::write(&gate, b"").unwrap();
+    let (hub, mut person) = gated_hub(&gate, &[("FAKE_DIE_AT_START", "no login")]).await;
+    hub.config.write().await.agent_start_timeout_ms = Some(300);
+    let refused = tokio::time::timeout(
+        Duration::from_secs(30),
+        person.request(method::SESSION_NEW, new_params("dies", "gated")),
+    )
+    .await
+    .expect("the person's start waited on an agent that exited")
+    .expect_err("an agent that exited started");
+    assert!(!refused.contains("did not finish within"), "{refused}");
+    let _ = std::fs::remove_file(&gate);
+}
+
+/// A stop ends the person's start that is still waiting: nothing holds the chat.
+#[tokio::test]
+async fn a_stop_ends_the_persons_start_that_still_waits() {
+    let gate = std::env::temp_dir().join(format!("acpmux-person-stop-{}", uuid::Uuid::now_v7()));
+    let (hub, mut person) = gated_hub(&gate, &[]).await;
+    hub.config.write().await.agent_start_timeout_ms = Some(300);
+    let started = tokio::spawn(async move {
+        person.request(method::SESSION_NEW, new_params("stopped", "gated")).await
+    });
+    let deadline = std::time::Instant::now() + Duration::from_secs(20);
+    while start_waits(&hub, "stopped") == 0 {
+        assert!(std::time::Instant::now() < deadline, "the start never said it still waits");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let id = hub.resolve("stopped").unwrap().id.clone();
+    let mut other = connect(&hub).await;
+    other.request(method::MUX_KILL, json!({"sessionId": id})).await.unwrap();
+    let ended = tokio::time::timeout(Duration::from_secs(20), started)
+        .await
+        .expect("the person's start outlived its stop")
+        .unwrap();
+    assert!(ended.is_err(), "{ended:?}");
+}
+
+/// A person's new chat never waits behind agents' starts: with four lanes' agents stuck in their
+/// start, the person's chat on another harness starts at once.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_persons_start_never_waits_behind_lanes_that_are_stuck_starting() {
+    let gate = std::env::temp_dir().join(format!("acpmux-lanes-gate-{}", uuid::Uuid::now_v7()));
+    let (hub, mut person) = gated_hub(&gate, &[]).await;
+    let mut lanes = Vec::new();
+    for i in 0..4 {
+        let mut lane = agent_client(&hub);
+        lanes.push(tokio::spawn(async move {
+            lane.request(method::SESSION_NEW, new_params(&format!("lane-{i}"), "gated")).await
+        }));
+    }
+    let deadline = std::time::Instant::now() + Duration::from_secs(20);
+    while (0..4).filter(|i| hub.resolve(&format!("lane-{i}")).is_ok()).count() < 4 {
+        assert!(std::time::Instant::now() < deadline, "the lanes' chats were never created");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let began = std::time::Instant::now();
+    let created = tokio::time::timeout(
+        Duration::from_secs(20),
+        person.request(method::SESSION_NEW, new_params("person-chat", "fake")),
+    )
+    .await
+    .expect("the person's start waited behind the lanes")
+    .expect("the person's start failed");
+    assert!(created["sessionId"].is_string(), "{created}");
+    assert!(lanes.iter().all(|l| !l.is_finished()), "a lane's start ended before its gate opened");
+    eprintln!("person start beside 4 stuck lane starts: {:?}", began.elapsed());
+    std::fs::write(&gate, b"").unwrap();
+    for lane in lanes {
+        let _ = tokio::time::timeout(Duration::from_secs(30), lane).await;
+    }
     let _ = std::fs::remove_file(&gate);
 }

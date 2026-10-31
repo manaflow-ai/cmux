@@ -149,6 +149,10 @@ pub struct Session {
     /// (`processes.rs` `backgrounds_work`), or by what an adopted host runs
     /// (`hosts.rs`), never by the config read later.
     pub(super) backgrounds_work: AtomicBool,
+    /// The person started this chat or wrote to it (`NewRequest::person`, a person's prompt):
+    /// its agent start has no deadline while its harness works on it, and says it is still
+    /// starting (`lifecycle.rs` `person_start`). Never set by an agent's or a lane's request.
+    pub(super) person: AtomicBool,
     /// Steers into the running turn by prompt id (`steer_end.rs`): Send now stops the agent's
     /// step for one that waits (`queue_edit.rs`).
     pub(super) steer_now: StdMutex<SteerNow>,
@@ -309,6 +313,12 @@ pub struct Session {
 }
 
 impl Session {
+    /// The person wrote to this chat (`Session::person`): its next agent start waits as long as
+    /// its harness works on it.
+    pub(crate) fn person_wrote(&self) {
+        self.person.store(true, Ordering::SeqCst);
+    }
+
     /// Fence untagged compaction metadata for this live session. Claude's
     /// boundary and summary lines carry no turn id, so a forced Stop keeps
     /// them out of the controller log until this session is replaced.
