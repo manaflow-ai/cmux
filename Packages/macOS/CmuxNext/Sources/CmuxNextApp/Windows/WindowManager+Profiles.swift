@@ -133,6 +133,7 @@ extension WindowManager {
             state.enterProfile(profile)
         }
         transition(select: preferred) { $0.move(moving, to: state.id) }
+        retargetClaims(from: Set(sources.map(\.id)), to: state.id)
         recordSaver.stateDidChange(state)
     }
 
@@ -159,7 +160,19 @@ extension WindowManager {
             }
         }
         transition { $0.move(moving, to: state.id) }
+        retargetClaims(from: Set(sources.map(\.id)), to: state.id)
         recordSaver.stateDidChange(state)
+    }
+
+    /// A workspace being created in a source window the move closed (claimed, not reported yet)
+    /// lands in `target` instead: reconcile would otherwise reopen the closed window for it.
+    private func retargetClaims(from sources: Set<String>, to target: String) {
+        let value = registry.value
+        for (workspace, window) in pendingClaims where sources.contains(window) && value.window(window)?.isOpen != true {
+            pendingClaims[workspace] = target
+            pendingFrames[window] = nil
+            behindWindows.remove(window)
+        }
     }
 
     /// The workspaces `profile` last showed, best first: the one each window showing it shows
