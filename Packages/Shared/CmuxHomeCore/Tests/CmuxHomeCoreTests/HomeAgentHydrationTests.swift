@@ -34,7 +34,14 @@ import CmuxHomeCoreTestSupport
         // Current Home folds all 300 reports behind the assignment's one disclosure.
         let collapsed = store.transcript(for: conversation).filter(\.isReadOnly)
         #expect(collapsed.count == 1)
-        #expect(collapsed.first?.plainText.contains("a299") == true)
+        // The fold keeps all identities even when its visible name preview is capped.
+        if case let .fold(count, peers, expanded)? = collapsed.first?.agentMessage?.kind {
+            #expect(count == 300)
+            #expect(Set(peers).count == 300)
+            #expect(!expanded)
+        } else {
+            #expect(false, "Expected the 300-report fold")
+        }
         let group = HomeAgentMessageRow.groupID(author: chief, anchor: questionKey)
         store.toggleAgentMessages(group, in: conversation)
         #expect(store.isAgentMessagesExpanded(group, in: conversation))
