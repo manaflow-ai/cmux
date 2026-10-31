@@ -1,5 +1,6 @@
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import Foundation
 import Observation
 
@@ -14,20 +15,20 @@ import Observation
 final class SessionRegistrar {
     private unowned let machines: MachineRegistry
     private var observation: Task<Void, Never>?
-    /// Sessions recorded in this app run, with what was sent.
-    private var recorded: [String: SessionSnapshot] = [:]
+    /// Sends each record and acts on the answer (`SessionRegistration`): a refusal is shown once
+    /// through `notice` and not sent again unchanged; a failure with no answer backs off.
+    private let registration: SessionRegistration<SessionRegistrationRecord>
     private var importing: Set<String> = []
     /// This Mac's name, resolved off the main actor (`MacName`).
     private var computerName: String?
 
-    struct SessionSnapshot: Hashable {
-        var sessionName: String?
-        var capabilities: [String]
-        var transport: JSONValue
-    }
 
-    init(machines: MachineRegistry) {
+    init(machines: MachineRegistry, notice: @escaping @MainActor (_ session: String, _ message: String) -> Bool,
+         withdraw: @escaping @MainActor (_ session: String) -> Void) {
         self.machines = machines
+        registration = SessionRegistration<SessionRegistrationRecord>(policy: .sessionRegistration, notice: notice,
+                                                                      withdraw: withdraw)
+        registration.onRetryDue = { [weak self] in self?.sync() }
     }
 
     func start() {
@@ -35,38 +36,68 @@ final class SessionRegistrar {
         Task { [weak self] in
             let name = await MacName().displayName()
             self?.computerName = name
-            self?.recorded.removeAll()
             self?.sync()
         }
         let machines = machines
         observation = Task { [weak self] in
             for await _ in ObservationStream({ () -> [String] in
-                [String(machines.local.store.personal.revision), String(machines.local.store.personal.isLoaded),
-                 String(machines.local.store.isProvisional)]
-                    + machines.daemons.map { "\($0.machineID):\($0.store.isLoaded):\($0.store.registryID ?? "")" }
-                    + machines.ssh.map { "\($0.machineID):\($0.autoConnect)" }
-                    + machines.servers.map { "\($0.machineID):\($0.autoConnect)" }
+                let store = machines.local.store
+                // connectionState changes on each reconnect; sync reads the connection epoch.
+                let link: String = Self.homeKey(store.connectionState, epoch: store.connectionEpoch)
+                let home: [String] = [String(store.personal.revision), String(store.personal.isLoaded),
+                                      String(store.isProvisional), link]
+                let daemons: [String] = machines.daemons.map { "\($0.machineID):\($0.store.isLoaded):\($0.store.registryID ?? "")" }
+                let ssh: [String] = machines.ssh.map { "\($0.machineID):\($0.autoConnect)" }
+                let servers: [String] = machines.servers.map { "\($0.machineID):\($0.autoConnect)" }
+                return home + daemons + ssh + servers
             }) {
                 self?.sync()
             }
         }
     }
 
-    func stop() { observation?.cancel() }
+    /// The home connection's part of the observation key: it changes on each reconnect.
+    /// State case, pid, generation and epoch, never the capability list (main actor, each check). The epoch keys a
+    /// same-process reconnect that lands within one check; it moves only with `connectionState` (no extra wakeup).
+    static func homeKey(_ state: DaemonConnectionState, epoch: Int) -> String {
+        switch state {
+        case .connecting: "connecting"
+        case .connected(let identity): "connected:\(identity.pid):\(identity.generation.rawValue):\(epoch)"
+        case .disconnected: "disconnected"
+        case .failed: "failed"
+        }
+    }
+
+    /// Whether records can be sent to home now.
+    static func canRegister(_ state: DaemonConnectionState) -> Bool {
+        if case .connected = state { return true }
+        return false
+    }
+
+    /// Shows the refusal notices no window could show yet (a window became key).
+    func showPendingNotices() { registration.showPendingNotices() }
+
+    func stop() {
+        observation?.cancel()
+        registration.stop()
+    }
 
     private func sync() {
         let home = machines.local
-        guard home.store.personal.isLoaded, !home.store.isProvisional, let connection = home.connection else { return }
+        guard home.store.personal.isLoaded, !home.store.isProvisional, Self.canRegister(home.store.connectionState),
+              let connection = home.connection else { return }
+        var present = Set<String>()
         for daemon in machines.daemons where daemon.store.isLoaded {
             guard let session = daemon.store.registryID, let identity = daemon.store.identity else { continue }
-            let snapshot = SessionSnapshot(sessionName: identity.session, capabilities: identity.capabilities.sorted(),
-                                           transport: transport(daemon))
-            if recorded[session] != snapshot {
-                recorded[session] = snapshot
-                let request = PutSessionRequest(sessionID: session, machineName: machineName(daemon), sessionName: identity.session,
-                                                transport: snapshot.transport, capabilities: snapshot.capabilities)
-                home.send("put-session") { _ = try await $0.putSession(request) }
-            }
+            present.insert(session)
+            let name = machineName(daemon)
+            // Unique and sorted: the daemon refuses a list that names a capability twice.
+            let snapshot = SessionRegistrationRecord(machineName: name, sessionName: identity.session,
+                                                     capabilities: Set(identity.capabilities).sorted(), transport: transport(daemon))
+            let request = PutSessionRequest(sessionID: session, machineName: name, sessionName: identity.session,
+                                            transport: snapshot.transport, capabilities: snapshot.capabilities)
+            registration.submit(session: session, record: snapshot, machine: name ?? identity.session,
+                                epoch: home.store.connectionEpoch) { _ = try await connection.putSession(request) }
             let record = home.store.personal.session(session)
             if daemon !== home, record?.migrated == false, !importing.contains(session) {
                 importing.insert(session)
@@ -77,6 +108,7 @@ final class SessionRegistrar {
                 }
             }
         }
+        registration.retain(sessions: present)
     }
 
     /// A remote daemon's shared groups and sidebar order, as the one-time

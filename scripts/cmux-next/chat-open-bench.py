@@ -44,6 +44,9 @@ Runs on a fleet mini through scripts/measure/chat-open.sh, never on an interacti
   chat-open-bench.py --app BUNDLE [--runs 3] [--turns 3000] [--sessions 1500]
                      [--conditions idle,load,load_utility,load_nice] [--cases sidebar,reopen,subagent,big,restore]
                      [--json FILE] [--md FILE]
+The table is also printed between CHAT-OPEN-TABLE-BEGIN and -END. A fleet step returns ONE file (`cmux-ci run
+--artifact` takes a single path; a second one replaces the first), so ask for artifacts/chat-open.json: it has
+every open's marks, frames, page timing and wire log, and the table can be rebuilt from it.
 Kills only the processes it started (the app it launched through bench_memory, the seeding daemon,
 and the load's own process groups).
 """
@@ -489,7 +492,8 @@ def main():
 def markdown(results):
     lines = [f"chat-open-bench on {results['host']} ({results['model']}, {results['ncpu']} CPUs); "
              f"median of {opts.runs} opens, milliseconds from the action to the first frame of chat content; "
-             f"FAILED: a case with an open that showed no content or no empty time (no median over the rest)",
+             f"a cell reads FAILED when an open of its case timed out, errored, or showed no content or no empty time "
+             f"(no median over the rest)",
              "", "| case | " + " | ".join(CONDITIONS) + " |", "|---|" + "---|" * len(CONDITIONS)]
     for case in CASES:
         cells = []
