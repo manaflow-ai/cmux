@@ -39,7 +39,17 @@ RUNNER_TEMP="$out" GITHUB_PATH="$out/bun-path" ./scripts/cmux-next/private-bun.s
 PATH="$(tail -n 1 "$out/bun-path"):$PATH"
 export PATH
 apps=()
-echo "DEVTOOLS-CALLS-DISK free at start: $(df -g "$HOME" | awk 'NR == 2 {print $4}') GiB"
+free_gib="$(df -g "$HOME" | awk 'NR == 2 {print $4}')"
+echo "DEVTOOLS-CALLS-DISK free at start: $free_gib GiB"
+# Each arm's setup (worktree, submodules, GhosttyKit) takes about 2 GiB before reload.sh checks its 40 GiB floor
+# (CMUX_NEXT_MIN_FREE_GIB, tour-requirements.json), and only one build is on disk at a time (below). The floor is
+# kept; a host with less than 43 GiB free stops here, before any clone, instead of four minutes in (run 1, job
+# b872d155: 40 GiB at start, 38 GiB at the first build). The mini scheduler admits this step at 48 GiB.
+need_gib=43
+if [ "$free_gib" -lt "$need_gib" ]; then
+  echo "devtools-calls: $free_gib GiB free on the home volume; this step needs $need_gib GiB (reload.sh's 40 GiB floor after each arm's ~2 GiB setup)" >&2
+  exit 1
+fi
 IFS=',' read -r -a arm_list <<< "$arms"
 for arm in "${arm_list[@]}"; do
   label="${arm%%:*}" sha="${arm#*:}"
@@ -81,9 +91,9 @@ for arm in "${arm_list[@]}"; do
     exit 1
   fi
   # Only one build at a time fits: reload.sh needs 40 GiB free before each build, a cold build takes about 27 GiB,
-  # and a perf mini starts this step with 40-60 GiB (the first run on cmux20 stopped at 38 GiB before the first
-  # build). The app bundle is self-contained (embed-cef.sh copies Chromium in; cmux-tui and acpmux are copied in),
-  # so it moves out to $out/apps and the arm's whole per-tag DerivedData and worktree go before the next arm builds.
+  # and a perf mini has 40-60 GiB free. The app bundle is self-contained (embed-cef.sh copies Chromium in; cmux-tui
+  # and acpmux are copied in), so it moves out to $out/apps and the arm's whole per-tag DerivedData and worktree go
+  # before the next arm builds; the next arm then starts with about the space the step started with.
   derived="$(cd "$app/../../../.." && pwd)"
   if [[ "$(basename "$derived")" != cmux-* || "$app" != "$derived/Build/Products/"* ]]; then
     echo "devtools-calls: unexpected app path $app (not under a per-tag DerivedData)" >&2
