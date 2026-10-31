@@ -1718,8 +1718,13 @@ mod tests {
         std::fs::write(dir.join("zeros.bin"), vec![0_u8; limit as usize + 1]).unwrap();
         let error = archive_within(&dir, MAX_SYNC_BYTES, limit).unwrap_err();
         assert!(error.message().contains("unpack"), "{}", error.message());
-        // Just under, with room for tar's headers: it syncs.
-        std::fs::write(dir.join("zeros.bin"), vec![0_u8; limit as usize - 4096]).unwrap();
+        // Just under, with room for tar's headers and its padding to a whole
+        // 10 KiB record: it syncs.
+        std::fs::write(
+            dir.join("zeros.bin"),
+            vec![0_u8; limit as usize - 16 * 1024],
+        )
+        .unwrap();
         let (bytes, synced) = archive_within(&dir, MAX_SYNC_BYTES, limit).unwrap();
         assert!(!bytes.is_empty() && (bytes.len() as u64) < limit);
         assert_eq!(synced.files, vec![PathBuf::from("zeros.bin")]);
