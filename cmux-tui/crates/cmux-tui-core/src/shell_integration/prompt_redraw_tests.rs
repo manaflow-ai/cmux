@@ -2,10 +2,15 @@
 //! starts the real shell with the injected Ghostty integration in a PTY,
 //! narrows the PTY and the daemon's terminal together, and parses the
 //! shell's own SIGWINCH redraw. The prompt must show once: the terminal
-//! clears it so the redraw replaces it, as in the Ghostty app. A shell that
-//! is not installed skips its test.
+//! clears it so the redraw replaces it, as in the Ghostty app.
+//!
+//! The shells are the fork-count guard's (`test_pty::shell_path`): on macOS
+//! /bin/zsh and the pinned bash 5.3 and fish 4.9.3 on every host, so these
+//! tests never pass there without their shell. Elsewhere a shell that is not
+//! installed skips its test with a `PROMPT-REDRAW-SKIP` line, which the step
+//! log keeps.
 
-use super::test_pty::TestPty;
+use super::test_pty::{self, TestPty, shell_path};
 use super::*;
 use std::time::{Duration, Instant};
 
@@ -13,37 +18,41 @@ use std::time::{Duration, Instant};
 /// narrower grid reflows the copy already on the screen onto two rows.
 const LINE_ONE: &str = "LINE-ONE-OF-THE-PROMPT..............EOL";
 
-/// The screen's rows with their trailing blanks removed, joined, so a
-/// soft-wrapped row and its continuation read as one line.
-fn joined_rows(text: &str) -> String {
-    text.lines().map(str::trim_end).collect()
+/// Text that only a copy of line 1 (or a piece of one) puts on the screen.
+/// Whatever the host prints before the first prompt (a greeting, Ubuntu's
+/// /etc/bash.bashrc sudo hint) has none of it.
+const LINE_ONE_PIECES: [&str; 4] = ["LINE-ONE", "-OF-THE-", "EOL", "…"];
+
+/// Where the one copy of line 1 starts at the end of `shown`, as the shell
+/// draws it at `cols` columns. zsh and bash wrap a line wider than the
+/// terminal, so it shows whole. fish truncates it instead: an ellipsis, then
+/// the end of the line that fits (`…-OF-THE-PROMPT..............EOL` at 32
+/// columns).
+fn line_one_start(shown: &str, cols: u16) -> Option<usize> {
+    if shown.ends_with(LINE_ONE) {
+        return Some(shown.len() - LINE_ONE.len());
+    }
+    let start = shown.rfind('…')?;
+    let end = &shown[start + '…'.len_utf8()..];
+    (!end.is_empty() && end.chars().count() < usize::from(cols) && LINE_ONE.ends_with(end))
+        .then_some(start)
 }
 
-/// Whether `shown` is one copy of line 1 as the shell draws it at `cols`
-/// columns. zsh and bash wrap a line wider than the terminal, so it shows
-/// whole. fish truncates it instead: an ellipsis, then the end of the line
-/// that fits (`…-OF-THE-PROMPT..............EOL` at 32 columns).
-fn is_one_line_one(shown: &str, cols: u16) -> bool {
-    shown == LINE_ONE
-        || shown.strip_prefix('…').is_some_and(|end| {
-            !end.is_empty() && end.chars().count() < usize::from(cols) && LINE_ONE.ends_with(end)
-        })
-}
-
-/// Checks that the screen holds exactly one prompt: one copy of line 1, then
-/// `> `. A row the redraw left behind (the reflowed start or end of the old
-/// line 1) adds text before or after the copy, so the check fails on it.
+/// Checks that the screen ends with exactly one prompt (one copy of line 1,
+/// then `> `) and holds no other piece of line 1. The rows are joined with
+/// their trailing blanks removed, so a soft-wrapped line reads whole. A row
+/// the redraw left behind (the reflowed start or end of the old line 1)
+/// holds a piece of line 1, so the check fails on it.
 fn assert_one_prompt(term: &mut ghostty_vt::Terminal, cols: u16, what: &str) {
     let text = term.plain_text().unwrap();
-    let shown = joined_rows(&text);
+    let shown: String = text.lines().map(str::trim_end).collect();
+    let before = shown
+        .strip_suffix('>')
+        .and_then(|rest| line_one_start(rest, cols).map(|start| &rest[..start]));
     assert!(
-        shown.strip_suffix('>').is_some_and(|line_one| is_one_line_one(line_one, cols)),
-        "{what}: the screen is not one prompt (line 1, then `> `):\n{text}"
+        before.is_some_and(|before| LINE_ONE_PIECES.iter().all(|piece| !before.contains(piece))),
+        "{what}: not one prompt (line 1, then `> `) and no other piece of line 1:\n{text}"
     );
-}
-
-fn find(candidates: &[&str]) -> Option<PathBuf> {
-    candidates.iter().map(PathBuf::from).find(|path| path.is_file())
 }
 
 fn temp_base(name: &str) -> PathBuf {
@@ -122,9 +131,8 @@ fn launch(shell: Shell, exe: &Path, base: &Path, env: Vec<(String, String)>) -> 
 
 #[test]
 fn prompt_redraw_zsh_two_line_prompt_narrows_without_leftovers() {
-    let Some(zsh) = find(&["/bin/zsh", "/usr/bin/zsh"]) else {
-        eprintln!("skipped: zsh is not installed");
-        return;
+    let Some(zsh) = shell_path(Shell::Zsh) else {
+        return test_pty::skip("PROMPT-REDRAW-SKIP", "zsh", "zsh is not installed");
     };
     let base = temp_base("zsh");
     let user = base.join("user");
@@ -141,10 +149,8 @@ fn prompt_redraw_zsh_two_line_prompt_narrows_without_leftovers() {
 
 #[test]
 fn prompt_redraw_fish_two_line_prompt_narrows_without_leftovers() {
-    let Some(fish) = find(&["/opt/homebrew/bin/fish", "/usr/local/bin/fish", "/usr/bin/fish"])
-    else {
-        eprintln!("skipped: fish is not installed");
-        return;
+    let Some(fish) = shell_path(Shell::Fish) else {
+        return test_pty::skip("PROMPT-REDRAW-SKIP", "fish", "fish is not installed");
     };
     let base = temp_base("fish");
     let config = base.join("config");
@@ -165,11 +171,10 @@ fn prompt_redraw_fish_two_line_prompt_narrows_without_leftovers() {
 
 #[test]
 fn prompt_redraw_bash_two_line_prompt_narrows_without_leftovers() {
-    // Apple's /bin/bash gets no integration (see detect_shell).
-    let Some(bash) = find(&["/opt/homebrew/bin/bash", "/usr/local/bin/bash", "/usr/bin/bash"])
-    else {
-        eprintln!("skipped: an integrated bash is not installed");
-        return;
+    // Apple's /bin/bash 3.2 gets no integration (see detect_shell); macOS
+    // takes the pinned bash 5.3.
+    let Some(bash) = shell_path(Shell::Bash) else {
+        return test_pty::skip("PROMPT-REDRAW-SKIP", "bash", "an integrated bash is not installed");
     };
     let base = temp_base("bash");
     fs::write(base.join(".bashrc"), format!("PS1='{LINE_ONE}\\n> '\n")).unwrap();
