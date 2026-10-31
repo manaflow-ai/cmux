@@ -414,7 +414,7 @@ final class GroupHeaderRowView: SidebarRowView {
         pin.frame = NSRect(x: (pinX * scale).rounded() / scale, y: (b.height - pinSide) / 2, width: pinSide, height: pinSide)
         // After a pin, the header's own icon and name move one icon column in, as a pinned row's do.
         let inner = pinned ? SidebarStyle.columns(rowWidth: b.width, leadingOffset: railReach + columns.text - columns.lead) : columns
-        glyph.frame = NSRect(x: inner.lead, y: (b.height - glyphSide) / 2, width: glyphSide, height: glyphSide)
+        glyph.frame = NSRect(x: inner.lead + (inner.iconBox - glyphSide) / 2, y: (b.height - glyphSide) / 2, width: glyphSide, height: glyphSide)
         // The label's frame sits its text inset left of the column, as a workspace title's does.
         let nx = inner.text(hasLeadingMark: hasIcon) - SidebarStyle.labelCellPadding
         let countWidth = count.stringValue.isEmpty || renaming ? 0 : Self.drawnWidth(count)

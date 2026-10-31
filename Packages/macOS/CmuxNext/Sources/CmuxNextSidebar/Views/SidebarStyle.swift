@@ -18,11 +18,13 @@ enum SidebarStyle {
     /// Placeholder bar widths, as shares of the title width.
     static let placeholderFractions: [CGFloat] = [0.72, 0.5, 0.62]
     /// Icon frame; the glyph inside is `kindGlyphSize`.
-    static var iconBox: CGFloat { SidebarDensityTokens.iconBox }
+    static var iconBox: CGFloat { Metrics.smallIconSize + Metrics.space2 }
+    /// The icon column's width on the sidebar grid (16; 20 at comfortable): glyphs keep `iconBox` and center in it.
+    static var iconColumnBox: CGFloat { SidebarDensityTokens.iconBox }
     /// The one leading icon column (Leo 2026-10-28: "the alignment"): in a row whose leading slot starts at `leading`,
     /// every leading glyph (a band row's, a pinned row's pin, a workspace row's icon) centers its ink here, one
     /// `iconBox` wide, so glyphs of different shapes and margins share one center x at every density.
-    static func iconColumnCenterX(leading: CGFloat) -> CGFloat { leading + iconBox / 2 }
+    static func iconColumnCenterX(leading: CGFloat) -> CGFloat { leading + iconColumnBox / 2 }
     /// A workspace row's leading glyph: the size an icon takes beside the
     /// row title (cap height and stroke matched to the text).
     static var kindGlyphSize: CGFloat { .iconRowSize(forLabelPointSize: titleFont.pointSize) }
@@ -54,10 +56,7 @@ enum SidebarStyle {
     /// the row-height square, so its click target scales with the display density. #23757 grew it
     /// to the square but a hairline (22 pt); Lawrence 2026-10-21 reverted that: "bottom footer
     /// thing too big, revert to old icon sizes".
-    static var avatarDiameter: CGFloat { chromeIconBox }
-    /// The icon box of the sidebar's chrome outside the row columns (the footer's avatar and glyph column,
-    /// chips): base's app-density size, which the rows' density-dependent `iconBox` does not change.
-    static var chromeIconBox: CGFloat { Metrics.smallIconSize + Metrics.space2 }
+    static var avatarDiameter: CGFloat { iconBox }
     static var footerHeight: CGFloat { Metrics.sidebarRowHeightWithSubtitle - Metrics.space2 }
     /// The margin under everything the sidebar draws: the 4 pt grid step (space2 at compact). It was
     /// space4 (8 pt) since Leo 2026-10-20. Lawrence 2026-10-27 (message 13901): the footer is still too

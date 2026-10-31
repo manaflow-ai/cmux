@@ -231,9 +231,7 @@ class SidebarItemRowView: NSView {
         let inset = SidebarStyle.horizontalInset
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        // Chips and icon-only items are chrome, not list rows: they keep base's icon box at every density.
-        let side = isRailButton ? SidebarStyle.railIconBox
-            : style == .chip || style.isIconOnly ? SidebarStyle.chromeIconBox : SidebarStyle.iconBox
+        let side = isRailButton ? SidebarStyle.railIconBox : SidebarStyle.iconBox
         // A text-only workspace item beside its title draws no glyph (WORKSPACE-ROWS-NO-DEFAULT-ICON).
         let bare = info.textOnly && !style.isIconOnly
         // One leading inset for every row (Lawrence 2026-10-28, "home and pinned are not aligned"): the first ink
@@ -247,7 +245,7 @@ class SidebarItemRowView: NSView {
         let lead = style == .chip ? Metrics.space2 : inner.lead
         let iconFrame = style.isIconOnly
             ? NSRect(x: (b.width - side) / 2, y: (b.height - side) / 2, width: side, height: side)
-            : NSRect(x: lead, y: (b.height - side) / 2, width: side, height: side)
+            : NSRect(x: lead + (style == .chip ? 0 : (inner.iconBox - side) / 2), y: (b.height - side) / 2, width: side, height: side)
         pin.isHidden = !info.leadingPin
         pin.frame = pinFrame
         // Icon-only items keep their pill around the glyph (a full-width fill reads
@@ -259,7 +257,7 @@ class SidebarItemRowView: NSView {
         pill.cornerRadius = isRailButton ? SidebarStyle.railTileCornerRadius : SidebarStyle.rowCornerRadius
         // A text-only workspace with a color draws it as its list row does: a dot before the title.
         let dot = SidebarStyle.dotSize
-        chip.frame = showsSwatchDot ? NSRect(x: lead + (side - dot) / 2, y: (b.height - dot) / 2, width: dot, height: dot)
+        chip.frame = showsSwatchDot ? NSRect(x: lead + (inner.iconBox - dot) / 2, y: (b.height - dot) / 2, width: dot, height: dot)
             : style == .list && !bare ? iconFrame : .zero
         chip.cornerRadius = showsSwatchDot ? dot / 2 : Metrics.space1 + 1
         CATransaction.commit()

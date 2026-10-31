@@ -60,7 +60,7 @@ import Testing
             #expect(abs(SidebarStyle.horizontalInset - (c.comfortable ? 8 : 6)) <= 0.5)
             #expect(abs(SidebarStyle.rowEdgeGap - 1.5) <= 0.5)
             #expect(abs(SidebarStyle.groupGutter - 7) <= 0.5)
-            #expect(abs(SidebarStyle.iconBox - icon) <= 0.5)
+            #expect(abs(SidebarStyle.columns(rowWidth: width).iconBox - icon) <= 0.5)
             #expect(abs(SidebarDensityTokens.rowHeight - height) <= 0.5)
             let headerHeight = Metrics.sidebarHeaderHeight + (c.comfortable ? Metrics.space2 : 0)
             #expect(abs(SidebarDensityTokens.headerHeight - headerHeight) <= 0.5)
