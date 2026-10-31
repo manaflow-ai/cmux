@@ -241,6 +241,9 @@ mod hook_callback;
 #[cfg(test)]
 mod hook_callback_tests;
 mod inbound;
+// What the log keeps of Claude's raw assistant and user lines (`logged_bodies.rs`).
+mod logged_bodies;
+pub use logged_bodies::leave_out_bodies;
 mod outbound;
 #[cfg(test)]
 mod steer_now_tests;

@@ -68,13 +68,20 @@ enum WorkspaceCreation {
         let sent = await NewWorkspacePlacements.sending(rule, key: key, on: connection, ledger: ledger)
         let result = try await repair.populating(key) {
             try await withTerminal(
-                key, createWorkspace: { _ = try await connection.createWorkspaceRetryingLateReplies(name: name, key: key, placesBySetting: sent != nil, current: sent?.current.map { WorkspaceKey(rawValue: $0) }, placement: sent?.placement.rawValue) },
+                key, createWorkspace: { _ = try await connection.createWorkspaceWaitingForReply(name: name, key: key, placesBySetting: sent != nil, current: sent?.current.map { WorkspaceKey(rawValue: $0) }, placement: sent?.placement.rawValue) },
                 createTerminal: terminal,
                 closeWorkspace: { try await closeHalfCreated($0, on: connection, repair: repair) }
             )
         }
         completed = true
         return result
+    }
+
+    /// The first terminal of new workspace `key` (Cmd-N's way for every caller of ``create(_:name:on:repair:terminal:)``):
+    /// keyed and waited for through a late start, so a busy daemon never makes the workspace the person sees close
+    /// (P0 2026-10-30, R3).
+    static func firstTerminal(in key: WorkspaceKey, cwd: String?, on connection: DaemonConnection) async throws -> CreateTerminalResult {
+        try await connection.createTerminalWaitingForStart(in: key, cwd: cwd)
     }
 
     /// Creates workspace `key` and its first tab from `firstTab`, which gets

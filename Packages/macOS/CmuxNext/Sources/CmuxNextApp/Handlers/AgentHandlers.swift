@@ -432,7 +432,7 @@ enum AgentHandlers {
                 case .workspace, .window:
                     if let rule { NewWorkspacePlacements.expect(key.rawValue, in: nil, byDefault: rule, windows: windows) }
                     surface = try await WorkspaceCreation.create(key, name: nil, placedBy: rule, ledger: context.services.windows.newPlacements, on: connection, repair: repair) { created in
-                        try await connection.createTerminal(in: created, cwd: options.cwd).surface
+                        try await WorkspaceCreation.firstTerminal(in: created, cwd: options.cwd, on: connection).surface
                     }
                     workspace = key
                 }
@@ -447,8 +447,11 @@ enum AgentHandlers {
             } catch {
                 if workspace == nil { NewWorkspacePlacements.forget(key.rawValue, windows: windows) }
                 logger.error("fork-agent-conversation failed: \(String(describing: error), privacy: .public)")
-                // The person asked for a fork: say why there is none (acpmux's reason).
-                refusals.show(error.localizedDescription, in: windows.active?.window)
+                // The person asked for a fork: say why there is none (acpmux's reason). A pane still opening was shown
+                // already where the request was refused (`DaemonConnection.observePaneNotReady`), once.
+                if (error as? PaneNotReady)?.shown != true {
+                    refusals.show(error is PaneNotReady ? MiscHandlerStrings.paneNotReady : error.localizedDescription, in: windows.active?.window)
+                }
             }
         }
     }

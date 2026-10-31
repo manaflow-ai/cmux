@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 1c4e43cbfb07349610053e6cbb3909dedc17784ddbd130c1d3e6157b06ec0837.
+// cmux-tui mux protocol 12, IR 1403b64f41399c8ef663aaffc9176aed93814c9457fb45a152f1d89d1bd1cd4e.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -1726,6 +1726,20 @@ pub struct ServerStatsJournalWriter {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsLockDetail {
+    pub by_hold_p99: Vec<ServerStatsLockSiteDetail>,
+    pub by_hold_total: Vec<ServerStatsLockSiteDetail>,
+    pub contended_acquisitions: u64,
+    pub hold_us: ServerStatsHistogram,
+    pub holder: Nullable<ServerStatsLockHolder>,
+    pub last_stall: Nullable<ServerStatsLockStall>,
+    pub sites: u64,
+    pub stalls: u64,
+    pub wait_us: ServerStatsHistogram,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ServerStatsLockHolder {
     pub held_for_us: u64,
     pub site: String,
@@ -1742,10 +1756,30 @@ pub struct ServerStatsLockSite {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsLockSiteDetail {
+    pub acquisitions: u64,
+    pub hold_max_us: u64,
+    pub hold_p99_us: u64,
+    pub hold_total_us: u64,
+    pub site: String,
+    pub wait_max_us: u64,
+    pub wait_p99_us: u64,
+    pub wait_total_us: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ServerStatsLockStall {
     pub blocker: Nullable<String>,
     pub waited_us: u64,
     pub waiter: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsLocks {
+    pub registry: ServerStatsLockDetail,
+    pub state: ServerStatsLockDetail,
 }
 
 #[rustfmt::skip]
@@ -1789,6 +1823,8 @@ pub struct ServerStatsResult {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub hook_queue: Option<ServerStatsHookQueue>,
     pub journal_writer: Nullable<ServerStatsJournalWriter>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub locks: Option<ServerStatsLocks>,
     pub registry_lock: ServerStatsRegistryLock,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub resource_projection: Option<ServerStatsResourceProjection>,

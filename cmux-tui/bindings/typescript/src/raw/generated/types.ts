@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 1c4e43cbfb07349610053e6cbb3909dedc17784ddbd130c1d3e6157b06ec0837. */
+/* cmux-tui mux protocol 12, IR 1403b64f41399c8ef663aaffc9176aed93814c9457fb45a152f1d89d1bd1cd4e. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -1050,6 +1050,18 @@ export type ServerStatsJournalWriter = {
   "terminal_queued": bigint;
 };
 
+export type ServerStatsLockDetail = {
+  "by_hold_p99": Array<ServerStatsLockSiteDetail>;
+  "by_hold_total": Array<ServerStatsLockSiteDetail>;
+  "contended_acquisitions": bigint;
+  "hold_us": ServerStatsHistogram;
+  "holder": (ServerStatsLockHolder) | null;
+  "last_stall": (ServerStatsLockStall) | null;
+  "sites": bigint;
+  "stalls": bigint;
+  "wait_us": ServerStatsHistogram;
+};
+
 export type ServerStatsLockHolder = {
   "held_for_us": bigint;
   "site": string;
@@ -1062,10 +1074,26 @@ export type ServerStatsLockSite = {
   "site": string;
 };
 
+export type ServerStatsLockSiteDetail = {
+  "acquisitions": bigint;
+  "hold_max_us": bigint;
+  "hold_p99_us": bigint;
+  "hold_total_us": bigint;
+  "site": string;
+  "wait_max_us": bigint;
+  "wait_p99_us": bigint;
+  "wait_total_us": bigint;
+};
+
 export type ServerStatsLockStall = {
   "blocker": (string) | null;
   "waited_us": bigint;
   "waiter": string;
+};
+
+export type ServerStatsLocks = {
+  "registry": ServerStatsLockDetail;
+  "state": ServerStatsLockDetail;
 };
 
 export type ServerStatsRegistryLock = {
@@ -1102,6 +1130,7 @@ export type ServerStatsResult = {
   "connections": ServerStatsConnections;
   "hook_queue"?: ServerStatsHookQueue;
   "journal_writer": (ServerStatsJournalWriter) | null;
+  "locks"?: ServerStatsLocks;
   "registry_lock": ServerStatsRegistryLock;
   "resource_projection"?: ServerStatsResourceProjection;
   "schema": number;

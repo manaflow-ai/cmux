@@ -20,10 +20,13 @@ extension PaletteModel {
                 deferred.append(provider)
                 continue
             }
-            if let items = provider.immediateItems {
-                state.providerItems[provider.id] = items
+            // Read once: most providers build their rows in `immediateItems` (the command page's
+            // registry builds a row per catalog action, Go to Workspace one per workspace).
+            let immediate = provider.immediateItems
+            if let immediate {
+                state.providerItems[provider.id] = immediate
             }
-            if provider.immediateItems == nil || provider.refreshesOnOpen {
+            if immediate == nil || provider.refreshesOnOpen {
                 pending.insert(provider.id)
             }
         }

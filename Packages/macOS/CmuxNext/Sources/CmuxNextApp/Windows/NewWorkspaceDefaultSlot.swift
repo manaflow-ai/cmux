@@ -5,6 +5,16 @@ import CmuxNextSidebar
 
 typealias NewWorkspaceDefaultSlot = CmuxNextBridge.NewWorkspaceDefaultSlot
 
+extension NewWorkspaceDefaultSlot {
+    /// Whether a window's rows built at `rowsAt` (the document's `shownChanges` then; nil: not built from its
+    /// projection) are behind the sidebar document: its drawn projection is behind its version, or the window's
+    /// rows pass has not run since the projection changed (a cold or updated layout a hop before its rows show).
+    static func layoutCatchingUp(rowsAt: UInt64? = nil) -> Bool {
+        guard let store = SidebarDocStore.current, store.isActive else { return false }
+        return store.shown == nil || store.shownVersion != store.version || rowsAt != store.shownChanges
+    }
+}
+
 /// Registering new workspaces for placement, outside `WindowManager` (its
 /// type budget): the rule for a window, and the pending placement that
 /// `WindowManager.applyPendingPlacements` resolves once the daemon reports
@@ -22,9 +32,40 @@ enum NewWorkspacePlacements {
     /// the daemon places the new row against the same workspace, or none.
     static func rule(for windowID: String?, in windows: WindowManager) -> NewWorkspaceDefaultSlot {
         let placement = windows.services.settings?.snapshot.newWorkspacePlacement ?? CmuxConfigSnapshot.newWorkspacePlacementFallback
-        let state = (windowID ?? windows.registry.value.mostRecentOpen()).flatMap { windows.states[$0] }
-        return NewWorkspaceDefaultSlot(placement: placement, current: state?.page == nil ? state?.workspaceID : nil)
+        let window = windowID ?? windows.registry.value.mostRecentOpen()
+        let state = window.flatMap { windows.states[$0] }
+        let current = state?.page == nil ? state?.workspaceID : nil
+        let model = window.flatMap { windows.controller(for: $0)?.sidebar.model }
+        let currentMachine = current.flatMap { id in
+            model.map { shownInBand(id, layout: $0.layout, room: $0.activeProfileID?.rawValue,
+                                   legacy: windows.services.sidebarLayout.unavailableReason != nil, machines: windows.services.machines) } == true
+                ? nil : windows.services.machines.daemon(forWorkspace: id)?.machineID
+        }
+        return NewWorkspaceDefaultSlot(placement: placement, current: current, currentMachine: currentMachine)
     }
+
+    /// Whether workspace `id` shows outside the window's workspace list: an item of a section of
+    /// `layout` that shows in the window's space `room` (pinned, the top region, a custom section), or, while
+    /// the sidebar layout is unavailable (`legacy`), a pin (`workspace-pin-v1`, the Pinned list section).
+    static func shownInBand(_ id: String, layout: SidebarLayoutDocument, room: String?, legacy: Bool, machines: MachineRegistry) -> Bool {
+        // The list's own projection (`SidebarTopProjection`): the pin flag only while pins are not layout tiles.
+        if legacy { return machines.workspace(id: id)?.0.pinned == true }
+        guard let ref = WorkspaceLayoutRefs(machines: machines).ref(forWorkspace: id) else { return false }
+        return layout.sections.contains { $0.isVisible(inRoom: room) && $0.items.contains { $0.ref == ref } }
+    }
+
+    /// Whether window `windowID` lists workspace `id` once its rows catch up: no other window owns it and the
+    /// window's space shows it. A cold Cmd-N waits only for such a row.
+    static func lists(_ id: String, in windowID: String, windows: WindowManager) -> Bool {
+        if let owner = windows.registry.value.owner(of: id), owner != windowID { return false }
+        guard let profile = windows.controller(for: windowID)?.state.profileID else { return true }
+        let machines = windows.services.machines
+        return WindowProfiles.shows(id, profile: profile, machines: machines, membership: WindowProfiles.membership(machines))
+    }
+
+    /// How long a placement waits for the window's current row (`awaitsCurrentAnchor`) before it resolves by the
+    /// fallback: a cold layout shows its rows well within it; a row that never comes cannot hold the placement.
+    static let anchorWaitLimit: Duration = .seconds(3)
 
     /// Places workspace `id` at `slot`, else by `byDefault`, in window
     /// `windowID` (nil: the window that lists it): now when it is mirrored,

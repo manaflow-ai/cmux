@@ -25,14 +25,33 @@ package struct NewWorkspaceDefaultSlot: Hashable, Sendable {
     /// The workspace the window showed when the new one was asked for.
     package var current: String?
 
-    package init(placement: NewWorkspacePlacement, current: String?) {
+    /// The known machine of a current row expected in the window's workspace list.
+    package var currentMachine: String?
+
+    package init(placement: NewWorkspacePlacement, current: String?, currentMachine: String? = nil) {
         self.placement = placement
         self.current = current
+        self.currentMachine = currentMachine
+    }
+
+    /// The current row is expected in this machine section but is not in the
+    /// stale layout yet. Returning true keeps Cmd-N pending until the row is
+    /// realized, instead of resolving the slot against an empty layout. Only
+    /// while the window's rows are a projection behind the sidebar document
+    /// (`catchingUp`, `layoutCatchingUp(rowsAt:)`): once they have caught up, a row still missing was
+    /// left out on purpose (a filter, another space, a close) and the slot
+    /// falls back as documented.
+    package func awaitsCurrentAnchor(section: SectionID, in sections: [SidebarRowSection], home: String? = nil, catchingUp: Bool) -> Bool {
+        guard catchingUp, (placement == .beforeCurrent || placement == .afterCurrent), let current, let currentMachine,
+              current != home,
+              case let .machine(machine) = section, machine.rawValue == currentMachine,
+              !sections.flatMap(\.workspaces).contains(where: { $0.id.rawValue == current }) else { return false }
+        return true
     }
 
     /// The slot for new workspace `id` in `section` of a window's `sections`;
     /// nil keeps the daemon's place. `home` is the home workspace's id.
-    package func slot(for id: String, section: SectionID, in sections: [SidebarRowSection], home: String?) -> WorkspaceSlot? {
+    package func slot(for id: String, section: SectionID, in sections: [SidebarRowSection], home: String?, catchingUp: Bool = false) -> WorkspaceSlot? {
         switch placement {
         case .bottom:
             if let current, current != id, current != home,
@@ -41,6 +60,7 @@ package struct NewWorkspaceDefaultSlot: Hashable, Sendable {
             }
             return nil
         case .beforeCurrent, .afterCurrent:
+            if awaitsCurrentAnchor(section: section, in: sections, home: home, catchingUp: catchingUp) { return nil }
             let beside: WorkspaceSlot? = current.map { placement == .beforeCurrent ? .above($0) : .below($0) }
             if let current, let beside, current != id, current != home,
                beside.position(moving: [id], section: section, in: sections) != nil {
@@ -62,8 +82,8 @@ package struct NewWorkspaceDefaultSlot: Hashable, Sendable {
     /// last under `bottom`), so a second write would be a second state change and a second render
     /// for the same order (plans/cmux-next/sidebar-ordering-DESIGN.md). Only a slot the daemon does
     /// not know is moved to: inside the current workspace's group, after the window's current one.
-    package func move(for id: String, section: SectionID, in sections: [SidebarRowSection], home: String?) -> WorkspaceSlot? {
-        guard let slot = slot(for: id, section: section, in: sections, home: home) else { return nil }
+    package func move(for id: String, section: SectionID, in sections: [SidebarRowSection], home: String?, catchingUp: Bool = false) -> WorkspaceSlot? {
+        guard let slot = slot(for: id, section: section, in: sections, home: home, catchingUp: catchingUp) else { return nil }
         if slot == Self.top(for: id, section: section, in: sections, home: home) { return nil }
         return slot
     }

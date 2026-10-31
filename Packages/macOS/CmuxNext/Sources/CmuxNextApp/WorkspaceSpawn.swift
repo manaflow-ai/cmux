@@ -197,7 +197,7 @@ struct WorkspaceSpawner {
         if let page = try await FirstTabHold.creating(key.rawValue, windows: windows, { try await WorkspaceCreation.newTabPage(spawn, key, cwd: cwd, placedBy: rule, ledger: windows.newPlacements, on: daemon, repair: repair, tabs: services.agentTabs) }) { return page }
         let command = spawn.command
         return try await WorkspaceCreation.create(key, name: spawn.name, placedBy: rule, ledger: windows.newPlacements, on: connection, repair: repair) { created in
-            _ = try await connection.request(CreateTerminalRequest(
+            _ = try await connection.createTerminalWaitingForStart(CreateTerminalRequest(
                 workspace: .key(created), command: command, cwd: cwd,
                 terminalID: terminal, env: env, keep: keep, mutation: connection.mutation()))
             return created.rawValue

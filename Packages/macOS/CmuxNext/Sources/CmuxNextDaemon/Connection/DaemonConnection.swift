@@ -55,7 +55,7 @@ public actor DaemonConnection {
     private var pacer: RetryPacer
     private let wake: RetryWake
     private let healthy: DemandTimer
-    private let heartbeat = ConnectionHeartbeat()
+    private nonisolated let heartbeat = ConnectionHeartbeat()
 
     /// Identity of the current (or last) daemon.
     public private(set) var identity: DaemonIdentity?
@@ -70,6 +70,8 @@ public actor DaemonConnection {
     var handoffHoldNext: UInt64 = 0
     var handoffQueue: [CheckedContinuation<Void, Never>] = []
     var handoffHoldTimer: DemandTimer?
+    /// Shows a request refused because it names a pane still opening (``PaneNotReady``); see ``observePaneNotReady(_:)``.
+    private var paneNotReadyObserver: (@Sendable (PaneNotReady) -> Void)?
     /// The launch's first snapshot, fetched right after the handshake (``prefetchSnapshot()``).
     var prefetchedSnapshot: (serial: UInt64, fetch: Task<(tree: DaemonTree, barrier: UInt64), any Error>)?
 
@@ -116,6 +118,15 @@ public actor DaemonConnection {
         continuation.finish()
     }
 
+    /// False while the connected daemon left its heartbeat's asks unanswered and its process is alive
+    /// (``ConnectionHeartbeat/answering``): the connection stays open and its requests keep waiting.
+    public nonisolated var daemonAnswering: Bool { heartbeat.answering }
+
+    /// Calls `observer` with ``daemonAnswering`` after each change, off the main actor; nil stops.
+    public nonisolated func observeAnswering(_ observer: (@Sendable (Bool) -> Void)?) {
+        heartbeat.observeAnswering(observer)
+    }
+
     public var isReady: Bool {
         if case .ready = phase { return true }
         return false
@@ -139,18 +150,28 @@ public actor DaemonConnection {
         guard R.self is any TerminalSpawningRequest.Type else {
             return try await self.request(request, timeout: configuration.requestTimeout)
         }
-        var request = request
-        if identity?.supports(DaemonCapability.terminalShellArgs.rawValue) == true,
-           let carrier = request as? any ShellIntegrationArgumentCarrying,
-           let integrated = carrier.addingShellIntegrationArguments() as? R {
-            request = integrated
-        }
         do {
-            return try await self.request(request, timeout: configuration.spawnTimeout)
+            return try await self.request(withShellIntegration(request), timeout: configuration.spawnTimeout)
         } catch DaemonError.timedOut(let what) {
             // cmux-tui keeps starting the terminal after the client gave up.
             throw DaemonError.terminalStartTimedOut(what)
         }
+    }
+
+    /// A terminal start the daemon makes exactly once under its client-chosen terminal id (`new-tab` with
+    /// `terminal-placement-env-v1`): sent once, with the shell-integration arguments ``request(_:)`` adds, and answered
+    /// by its reply or the connection's end (``LineTransport`` fails every pending request on close). No client deadline
+    /// decides it: the start's outcome is the daemon's (principled-audit R5, R-L5).
+    func requestAwaitingStart<R: TerminalSpawningRequest>(_ request: R) async throws -> R.Response {
+        try await self.request(withShellIntegration(request), timeout: nil)
+    }
+
+    /// `request` with Ghostty's shell-integration arguments when this daemon serves them.
+    private func withShellIntegration<R: DaemonRequest>(_ request: R) -> R {
+        guard identity?.supports(DaemonCapability.terminalShellArgs.rawValue) == true,
+              let carrier = request as? any ShellIntegrationArgumentCarrying,
+              let integrated = carrier.addingShellIntegrationArguments() as? R else { return request }
+        return integrated
     }
 
     public func request<R: DaemonRequest>(_ request: R, timeout: Duration?) async throws -> R.Response {
@@ -159,9 +180,32 @@ public actor DaemonConnection {
         requestStarted()
         defer { requestEnded() }
         try R.requireServed(by: identity)
-        let response = try await Self.perform(request, on: ready.transport, timeout: timeout)
+        let response: R.Response
+        do {
+            response = try await Self.perform(request, on: ready.transport, timeout: timeout)
+        } catch let refused as PaneNotReady {
+            throw reported(refused)
+        }
         DaemonCommandScope.noteCreated(by: request, response: response)
         return response
+    }
+
+    /// Rule (a) of the P0 2026-10-30, at the one place every sender's request goes through: a request refused because
+    /// it names a pane still opening shows why once, for every sender (a `DaemonService` funnel, or a handler that calls
+    /// this connection itself). An open action scope (`action.run` from the CLI or MCP) answers the refusal itself, so
+    /// it shows nothing here. The returned error is marked shown, so no reporter shows it again.
+    private func reported(_ refused: PaneNotReady) -> PaneNotReady {
+        guard DaemonCommandScope.current?.isOpen != true, let paneNotReadyObserver else { return refused }
+        var shown = refused
+        shown.shown = true
+        paneNotReadyObserver(shown)
+        return shown
+    }
+
+    /// Sets what shows a request refused because it names a pane still opening (``PaneNotReady``) when no open action
+    /// scope answers it; `DaemonService` sets it on each connection it makes. Runs on this connection's executor.
+    public func observePaneNotReady(_ observer: (@Sendable (PaneNotReady) -> Void)?) {
+        paneNotReadyObserver = observer
     }
 
     /// The event sequence this connection has routed so far, or nil when
@@ -269,6 +313,8 @@ public actor DaemonConnection {
         if case .ready = phase {} else if case .connecting = phase {} else { return }
         phase = .waiting
         healthy.cancel()
+        // The connection ended: nothing answers on it, and the next connection's run starts answering.
+        heartbeat.stop()
         let detail: String = switch reason {
         case .closedByClient: "closed"
         case .daemonShutdown: "daemon shut down"
