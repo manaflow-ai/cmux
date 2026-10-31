@@ -248,13 +248,15 @@ struct ClickedLinkFocusTests {
             var invocation = ActionInvocation(target: ActionTargetRef(kind: .pane, id: pane.paneKey), origin: .cli)
             invocation.besideCaller = true
             invocation.newColumnBeside = true
+            print("t3diag lone before: \(T3DiagDump.lone(pane, services)) chat=\(store.tab(surface: chat.surface)?.id ?? "nil") " + T3DiagDump.layout(content))
             let placed = AgentBesidePlacement.placed(invocation, in: pane, then: nil)
             let agents = try await connection.newFrontendBrowserTab(url: "https://example.com/agent", engine: .webkit,
                                                                     in: model.handle, activate: false)
             placed(agents.surface)
             @MainActor func dock() -> PaneModel? { store.workspaces.flatMap(\.screens).flatMap(\.panes).first { $0.tabs.contains { $0.surface == chat.surface } } }
             try await PinnedPageTests.until({ dock().map { $0 !== model } == true && content.focusedPane?.pane === dock() },
-                                            report: { "the chat did not dock with the focus: " + Self.describe(content, chat.surface.description) })
+                                            report: { "the chat did not dock with the focus: chat \(store.tab(surface: chat.surface)?.id ?? "nil") asked \(asked) " + T3DiagDump.layout(content) })
+            print("t3diag lone after: " + T3DiagDump.layout(content))
             #expect(content.focus.state.generation == asked, "the app's refocus of the chat counted as the person acting")
         }
     }

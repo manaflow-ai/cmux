@@ -125,13 +125,19 @@ struct CloseTabKeepsPaneTests {
         try await PinnedPageTests.withApp { services, connection in
             let setup = try await Self.emptiablePanes(services, connection)
             let emptiedAt = try await Self.emptyTheRightPane(services, setup)
+            let t1 = ProcessInfo.processInfo.systemUptime
             let content = try #require(services.windows.active?.workspaceContent)
             try await Self.nextCommit()
+            let t2 = ProcessInfo.processInfo.systemUptime
             let before = Set(content.panes.keys)
             #expect(services.registry.perform("splitRight", invocation: ActionInvocation(origin: .user)))
+            let t3 = ProcessInfo.processInfo.systemUptime
             let made = try #require(content.panes.keys.first { !before.contains($0) }, "the split showed no pane")
             try await Self.nextCommit()
+            let t4 = ProcessInfo.processInfo.systemUptime
             try await Task.sleep(for: .milliseconds(50))
+            let t5 = ProcessInfo.processInfo.systemUptime
+            print("t3diag cmdw: emptied+wait \(t1 - emptiedAt) commit1 \(t2 - t1) split \(t3 - t2) commit2 \(t4 - t3) sleep \(t5 - t4)")
             // Well inside the old quick-press window of the emptying press.
             let pressedAt = ProcessInfo.processInfo.systemUptime
             #expect(pressedAt - emptiedAt < 0.5)
@@ -224,6 +230,8 @@ struct CloseTabKeepsPaneTests {
         let content = try #require(services.windows.active?.workspaceContent)
         let pressedAt = ProcessInfo.processInfo.systemUptime
         #expect(press(services, .key(repeat: false, at: pressedAt)))
+        let local = ProcessInfo.processInfo.systemUptime
+        print("t3diag empty: press handled \(local - pressedAt) focus moved \(content.focusedPane === setup.left) tab gone \(services.daemon.store.tab(id: setup.rightPage) == nil)")
         try await PinnedPageTests.until({ services.daemon.store.tab(id: setup.rightPage) == nil && content.focusedPane === setup.left },
                                         report: { describe(content, setup.leftPage) })
         return pressedAt

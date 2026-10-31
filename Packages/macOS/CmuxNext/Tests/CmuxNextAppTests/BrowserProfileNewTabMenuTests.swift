@@ -148,9 +148,14 @@ struct BrowserProfileNewTabMenuTests {
             }
             try await PasswordManagerRouteTests.until({ isDaemons(window.focusedPane) }, report: { "the focused pane is not the daemon's yet" })
             let first = try #require(window.focusedPane)
+            var diagRefusals: [String] = []
+            let diagPrevious = services.registry.refusalObserver
+            services.registry.refusalObserver = { reason, quiet in diagRefusals.append(reason); diagPrevious?(reason, quiet) }
+            print("t3diag badge before split: " + T3DiagDump.layout(window.workspaceContent))
             #expect(services.registry.perform("splitRight", invocation: ActionInvocation(origin: .user)))
             try await PasswordManagerRouteTests.until({ (window.workspaceContent?.panes.count ?? 0) > 1 && isDaemons(window.focusedPane) && window.focusedPane !== first },
-                                                       report: { "panes \(window.workspaceContent?.panes.keys.map { "\($0)" } ?? []), focused \(window.focusedPane?.paneKey ?? "none")" })
+                                                       report: { "panes \(window.workspaceContent?.panes.keys.map { "\($0)" } ?? []), focused \(window.focusedPane?.paneKey ?? "none") refusals \(diagRefusals) " + T3DiagDump.layout(window.workspaceContent) })
+            print("t3diag badge after split: refusals \(diagRefusals) " + T3DiagDump.layout(window.workspaceContent))
             let focused = try #require(window.focusedPane)
             let pane = first
             // A browser tab in the pane without the focus; the focus stays where it is.
@@ -170,8 +175,9 @@ struct BrowserProfileNewTabMenuTests {
                 _ = services.registry.perform(run.id, invocation: ActionInvocation(target: run.target, arguments: run.arguments))
             }
             #expect(refusal == nil, "\(action) refused: \(refusal ?? "")")
+            print("t3diag badge after perform: pane \(pane.paneKey) run target \(String(describing: run.target)) args \(run.arguments) " + T3DiagDump.layout(window.workspaceContent))
             try await PasswordManagerRouteTests.until({ Self.browserTabs(pane, services).contains { !before.contains($0.id) } }, within: .seconds(30), report: {
-                "no new tab in the right-clicked tab's pane \(pane.paneKey); focused pane \(focused.paneKey) has \(Self.browserTabs(focused, services).map(\.id))"
+                "no new tab in the right-clicked tab's pane \(pane.paneKey); focused pane \(focused.paneKey) has \(Self.browserTabs(focused, services).map(\.id)) refusals \(diagRefusals) " + T3DiagDump.layout(window.workspaceContent)
             })
         }
     }
