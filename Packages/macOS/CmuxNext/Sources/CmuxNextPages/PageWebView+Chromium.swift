@@ -308,6 +308,8 @@ extension PageWebView {
         guard let dragged = chromiumDragged else { return }
         chromiumDragged = nil
         guard now().timeIntervalSince(dragged.at) < Self.chromiumDropWindow else { return }
+        droppedEnteredAt = dragged.at
+        defer { droppedEnteredAt = nil }
         onFilesDropped?(dragged.urls)
     }
 

@@ -139,6 +139,24 @@ struct AttachmentSourceTests {
         #expect(record.source(.drop, names: ["three.png"], gestureAt: clocks.wall - 0.0009) != nil)
     }
 
+    /// A Chromium drop is recorded after its page took the drop (the page's drop message), dated by
+    /// its drag's entry: its own ask, made between the two, still finds it.
+    @Test func aChromiumDropsOwnAskFindsItsRecord() {
+        final class Clocks { var uptime: TimeInterval = 100; var wall: TimeInterval = 1_793_000_000 }
+        let clocks = Clocks()
+        let record = AgentPaneDroppedPaths(now: { clocks.uptime }, wall: { clocks.wall })
+        let entered = clocks.wall
+        // The page takes the drop 2 s after the drag entered, and asks; the host hears of the drop a
+        // little later still.
+        let gestureAt = entered + 2
+        clocks.wall = entered + 2.2
+        record.stashSource([URL(fileURLWithPath: "/tmp/shot.png")], items: 1, claimed: nil, kind: .drop, madeAt: entered)
+        #expect(record.source(.drop, names: ["shot.png"], gestureAt: gestureAt)?.urls == [URL(fileURLWithPath: "/tmp/shot.png")])
+        // Undated, the same record would be newer than the gesture, and its own ask would get nothing.
+        record.stashSource([URL(fileURLWithPath: "/tmp/shot.png")], items: 1, claimed: nil, kind: .drop)
+        #expect(record.source(.drop, names: ["shot.png"], gestureAt: gestureAt) == nil)
+    }
+
     @Test func theAskCarriesTheGesturesTime() {
         let request = AgentPaneRequest(body: ["method": "chat.attach.source",
                                               "params": ["kind": "paste", "names": ["a.png"], "gestureAt": 1_793_000_000_500]])
