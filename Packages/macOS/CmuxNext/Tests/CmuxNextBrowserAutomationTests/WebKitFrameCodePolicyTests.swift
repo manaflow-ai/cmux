@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextBrowser
 @testable import CmuxNextBrowserAutomation
+@testable import CmuxNextControl
 import CmuxNextDesign
 import Foundation
 import Network
@@ -45,7 +46,11 @@ import WebKit
         #expect(try await loaded.marker() == .null)
     }
 
-    @Test func sourceCannotEscapeWebKitsGeneratedFunctionBeforeTheOriginCheck() async throws {
+    @Test(arguments: [
+        "function(){});}); this.document.body.dataset.ran = 'yes'; (async function(__args){ return (function(){}",
+        "() => 42); function Error() { globalThis.document.body.dataset.ran = 'yes'; } return (() => 42",
+    ])
+    func sourceCannotEscapeWebKitsGeneratedFunctionBeforeTheOriginCheck(_ source: String) async throws {
         let server = try await Server.start()
         defer { server.stop() }
         var page: Page?
@@ -56,7 +61,6 @@ import WebKit
         let loaded = Page(policy: policy)
         page = loaded
         try await loaded.load(server.url("/plain"))
-        let source = "function(){});}); this.document.body.dataset.ran = 'yes'; (async function(__args){ return (function(){}"
         _ = try? await loaded.evaluate(source, world: "page")
         #expect(try await loaded.marker() == .null)
     }
@@ -75,12 +79,58 @@ import WebKit
         #expect(ended.contains(server.childOrigin))
     }
 
-    @Test func anAdmittedStrictCSPPageStillRunsAFunction() async throws {
+    @Test(arguments: ["page", "agent"])
+    func anAdmittedStrictCSPPageStillRunsAFunction(_ world: String) async throws {
         let server = try await Server.start()
         defer { server.stop() }
         let page = Page(policy: BrowserFrameCodePolicy(admit: { _, _ in nil }, ran: { _, _ in }))
         try await page.load(server.url("/strict"))
-        #expect(try await page.evaluate("() => 42", world: "page") == .number(42))
+        #expect(try await page.evaluate("() => 42", world: world) == .number(42))
+    }
+
+    @Test(arguments: ["expression", "statements", "wait"])
+    func controlScriptsStillRunOnAStrictCSPPage(_ mode: String) async throws {
+        let server = try await Server.start()
+        defer { server.stop() }
+        let page = Page(policy: BrowserFrameCodePolicy(admit: { _, _ in nil }, ran: { _, _ in }))
+        try await page.load(server.url("/strict"))
+        let origin = "http://127.0.0.1:\(server.port)"
+        let value: BrowserJSValue
+        if mode == "wait" {
+            let body = BrowserPageScripts.waitScript(.function("true"), timeoutMs: 50)
+            value = try await page.tab.evaluateAsync(BrowserPageScripts.pinnedAgentBody(body, origin: origin))
+            guard case .object(let result) = value else { Issue.record("wait returned no result"); return }
+            #expect(result["met"] == .bool(true))
+        } else {
+            let source = mode == "expression" ? BrowserPageScripts.jsonSafe("42") : "let answer = 42; answer;"
+            value = try await page.tab.evaluate(BrowserPageScripts.pinnedAgentExpression(source, origin: origin), world: .page, gesture: .agent)
+            #expect(value == .number(42))
+        }
+    }
+
+    @Test func controlAsyncSourceCannotEscapeWebKitsFunction() async throws {
+        let server = try await Server.start()
+        defer { server.stop() }
+        let page = Page(policy: BrowserFrameCodePolicy(admit: { _, _ in nil }, ran: { _, _ in }))
+        try await page.load(server.url("/plain"))
+        let body = "}); this.document.body.dataset.ran = 'yes'; (async function(){"
+        _ = try? await page.tab.evaluateAsync(BrowserPageScripts.pinnedAgentBody(body, origin: "https://other.test"))
+        #expect(try await page.marker() == .null)
+    }
+
+    @Test(arguments: [false, true])
+    func controlOriginMismatchCannotInvokeAHoistedError(_ asyncBody: Bool) async throws {
+        let server = try await Server.start()
+        defer { server.stop() }
+        let page = Page(policy: BrowserFrameCodePolicy(admit: { _, _ in nil }, ran: { _, _ in }))
+        try await page.load(server.url("/plain"))
+        let source = "function Error() { globalThis.document.body.dataset.ran = 'yes'; }"
+        if asyncBody {
+            _ = try? await page.tab.evaluateAsync(BrowserPageScripts.pinnedAgentBody(source, origin: "https://other.test"))
+        } else {
+            _ = try? await page.tab.evaluate(BrowserPageScripts.pinnedAgentExpression(source, origin: "https://other.test"), world: .page, gesture: .agent)
+        }
+        #expect(try await page.marker() == .null)
     }
 
     @Test func aBlankTabStillRunsCodeAndReservesOpaqueOrigins() async throws {
@@ -95,7 +145,7 @@ import WebKit
         let server = try await Server.start()
         defer { server.stop() }
         let page = Page(policy: BrowserFrameCodePolicy(admit: { _, _ in nil }, ran: { _, _ in }))
-        try await page.load(server.url("/plain"))
+        try await page.load(server.url("/strict"))
         // The driver lazily installs its agent on agent-world evaluation, as the host does.
         _ = try await page.evaluate("() => true", world: "agent")
         #expect(try await page.evaluate("(el) => el.id", world: "page", handles: ["handle"]) == .string("handle"))
