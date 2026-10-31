@@ -174,20 +174,31 @@ export class SubsessionStore {
     let changed = false;
     const named = new Map<string, string>();
     const harnesses = new Map<string, string>();
-    // A name a later chat shares never takes an earlier chat's place; a live chat's name comes
-    // before an archived one's.
-    const live = [...sessions].sort((a, b) => Number(Boolean(a.archived)) - Number(Boolean(b.archived)));
-    for (const field of ["name", "shortName"] as const)
-      for (const entry of live) {
-        const name = entry[field]?.trim();
-        if (name && !named.has(name)) named.set(name, entry.sessionId);
-      }
-    // A chat on another machine is listed as `<peer>/<name>` (acpmux hub/peers.rs); its message
-    // signs with the bare name ("[chief-ui] ..."), which finds it after every chat's full name.
-    for (const entry of live) {
+    // The sending chat can arrive with only a name (no session ID). Across peers, two
+    // live chats can share that name: opening the first one would show the wrong chat.
+    // A name resolves only when it identifies exactly one live session; archived chats
+    // are a fallback when no live session uses the name. All aliases of the same session
+    // count once (its full name, short name and a peer's bare name).
+    const candidates = new Map<string, { live: Set<string>; archived: Set<string> }>();
+    const addName = (name: string | undefined, entry: AcpmuxSessionEntry) => {
+      const label = name?.trim();
+      if (!label) return;
+      let matches = candidates.get(label);
+      if (!matches) candidates.set(label, (matches = { live: new Set(), archived: new Set() }));
+      (entry.archived ? matches.archived : matches.live).add(entry.sessionId);
+    };
+    for (const entry of sessions) {
+      addName(entry.name, entry);
+      addName(entry.shortName, entry);
+      // A peer chat may be listed as `<peer>/<name>` but sign a message with the
+      // bare name. The bare alias is safe only when unique across listed chats.
       const name = entry.name?.trim();
       const bare = entry.peer && name?.startsWith(`${entry.peer}/`) ? name.slice(entry.peer.length + 1) : undefined;
-      if (bare && !named.has(bare)) named.set(bare, entry.sessionId);
+      addName(bare, entry);
+    }
+    for (const [name, matches] of candidates) {
+      const active = matches.live.size ? matches.live : matches.archived;
+      if (active.size === 1) named.set(name, active.values().next().value!);
     }
     const hosts = new Map<string, string>();
     const places = new Map<string, SenderPlace>();
