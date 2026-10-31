@@ -4,9 +4,8 @@ import Testing
 @testable import CmuxNextAgentPane
 
 /// A call that missed its deadline says so, also when its teardown makes the operation fail
-/// first. A hung acpmux's status call came back `closed` (the teardown cancels its socket, and the
-/// cancelled read is EOF) on a loaded run, so the miss was not counted and the hung daemon kept
-/// running (AcpmuxUnresponsiveRestartTests.aHungDaemonGetsSigtermAndANewDaemonStarts, job 122240111475).
+/// first. A status call came back `closed` (the teardown cancels its socket, and the cancelled
+/// read is EOF) on a loaded run instead of saying it missed its deadline (job 122240111475).
 struct AgentPaneDeadlineTests {
     private struct Closed: Error {}
 
