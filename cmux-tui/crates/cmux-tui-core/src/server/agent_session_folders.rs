@@ -49,7 +49,12 @@ pub(super) struct FoldersParams {
 
 /// `agent-session-folders` of a trusted local connection (the parent checked
 /// trust).
-pub(super) fn folders(mux: &Arc<Mux>, id: Option<Value>, params: FoldersParams, writer: &MessageWriter) -> bool {
+pub(super) fn folders(
+    mux: &Arc<Mux>,
+    id: Option<Value>,
+    params: FoldersParams,
+    writer: &MessageWriter,
+) -> bool {
     if !own_agent_tab(mux, params.surface) {
         return refuse(writer, id, Refusal::UnknownTab);
     }
@@ -148,7 +153,10 @@ mod tests {
         let got = answer(Some(&home), true);
         let work = home.join("work");
         assert!(work.is_dir());
-        assert_eq!(got, json!({"default": work.to_string_lossy(), "folders": [work.to_string_lossy()]}));
+        assert_eq!(
+            got,
+            json!({"default": work.to_string_lossy(), "folders": [work.to_string_lossy()]})
+        );
         let _ = std::fs::remove_dir_all(home);
     }
 
@@ -167,7 +175,13 @@ mod tests {
         assert_eq!(got["default"], json!(work.to_string_lossy()));
         assert_eq!(
             got["folders"],
-            json!([work.to_string_lossy(), path("repo"), path("Alpha"), path("beta"), path("zeta")])
+            json!([
+                work.to_string_lossy(),
+                path("repo"),
+                path("Alpha"),
+                path("beta"),
+                path("zeta")
+            ])
         );
         let _ = std::fs::remove_dir_all(home);
     }

@@ -17,6 +17,8 @@ use serde_json::{Value, json};
 
 #[path = "agent_session_children.rs"]
 pub(super) mod agent_session_children;
+#[path = "agent_session_folders.rs"]
+mod agent_session_folders;
 #[path = "agent_session_link.rs"]
 pub(super) mod agent_session_link;
 #[path = "agent_session_observe.rs"]
@@ -25,20 +27,18 @@ pub(super) mod agent_session_observe;
 pub(super) mod agent_session_start;
 #[path = "agent_session_trust.rs"]
 mod agent_session_trust;
-#[path = "agent_session_folders.rs"]
-mod agent_session_folders;
 #[path = "agent_session_inventory_socket.rs"]
 mod inventory_socket;
 use super::{MessageWriter, OutboundStream, Response, SurfaceId, send_response};
 use crate::mux::Mux;
 use crate::state::conversation_tabs_store::ConversationTabRecord;
+pub use agent_session_folders::AGENT_SESSION_FOLDERS_CAPABILITY;
 use agent_session_link::{AcpmuxLink, Inbound, LinkError};
 pub use agent_session_start::{
     AGENT_SESSION_START_CAPABILITY, AGENT_SESSION_START_KEYED_REASON_CAPABILITY,
     AGENT_SESSION_START_MODEL_CAPABILITY, AGENT_SESSION_START_VM_KIND_CAPABILITY, AcpmuxStarter,
     AgentStartHost, AgentStartHostSource,
 };
-pub use agent_session_folders::AGENT_SESSION_FOLDERS_CAPABILITY;
 pub use agent_session_trust::{
     AGENT_SESSION_TRUST_CAPABILITY, AGENT_SESSION_TRUST_VM_KIND_CAPABILITY,
 };
