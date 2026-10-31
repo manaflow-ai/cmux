@@ -82,14 +82,23 @@ public nonisolated struct OmnibarGlassLook: Sendable, Hashable {
     }
 }
 
-/// The look cmux.json asks for, written by the App on every settings load
+/// The look and size cmux.json asks for, written by the App on every settings load
 /// (`BrowserOmnibarPreference`) and read by every omnibar
 /// (`OmnibarGlassLook.current`), which follows it live.
 @MainActor @Observable
 public final class OmnibarGlassAppearance {
     public static let shared = OmnibarGlassAppearance()
     public private(set) var look = OmnibarGlassLook.standard
+    /// `browser.omnibar.height` and `fontSize` in points; nil follows density (`OmnibarMetrics.current`).
+    public private(set) var height: Double?
+    public private(set) var fontSize: Double?
     private init() {}
+
+    /// Sets the bar's size overrides; nil follows density. Unchanged values notify nothing.
+    public func applySize(height: Double?, fontSize: Double?) {
+        if self.height != height { self.height = height }
+        if self.fontSize != fontSize { self.fontSize = fontSize }
+    }
 
     /// cmux.json's `browser.omnibar` look keys (`BrowserOmnibarSetting`):
     /// an unknown word keeps the default; `cornerRadius` nil is the theme's,

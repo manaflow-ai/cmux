@@ -3014,6 +3014,91 @@
         }
       }
     },
+    "settings.choice.matchDensity": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Match Density"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "密度に合わせる"
+          }
+        }
+      }
+    },
+    "settings.browser.omnibar.height": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Address Bar Height"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アドレスバーの高さ"
+          }
+        }
+      }
+    },
+    "settings.browser.omnibar.height.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Match Density follows the density. The bar always grows to fit its text."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「密度に合わせる」は密度に従います。バーは常に文字が収まる高さまで広がります。"
+          }
+        }
+      }
+    },
+    "settings.browser.omnibar.fontSize": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Address Bar Text Size"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アドレスバーの文字サイズ"
+          }
+        }
+      }
+    },
+    "settings.browser.omnibar.fontSize.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The size of the address and the suggestions. Match Density follows the density."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アドレスと候補の文字サイズです。「密度に合わせる」は密度に従います。"
+          }
+        }
+      }
+    },
     "settings.tabs.nativeNewTabPage": {
       "extractionState": "manual",
       "localizations": {

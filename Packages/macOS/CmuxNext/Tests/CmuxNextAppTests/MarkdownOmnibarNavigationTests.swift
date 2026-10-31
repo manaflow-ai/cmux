@@ -87,5 +87,7 @@ import Testing
             open: { _, _ in }, returnFocus: {}, liveLink: { _ in nil }, openInBrowser: { _ in },
             back: {}, forward: {}, reload: {}))
         #expect(bar.toolbar.preferredHeight == OmnibarStyle.toolbarHeight(scale: NSScreen.main?.backingScaleFactor ?? 2))
+        // The row sizes the bar (its intrinsic height), so a density change resizes the Markdown tab's row too.
+        #expect(bar.fittingSize.height == bar.toolbar.preferredHeight)
     }
 }
