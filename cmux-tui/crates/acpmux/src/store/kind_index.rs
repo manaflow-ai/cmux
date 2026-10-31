@@ -383,9 +383,14 @@ impl LocalStore {
         if born_ns == 0 {
             return Ok(());
         }
-        // Never makes the chat's folder: a scan that outlived a delete leaves none behind.
+        // Never makes the chat's folder: a scan that outlived a delete leaves none behind. Owner-only
+        // whatever the umask: under 002 it would be group-writable, and `private_state_dir`
+        // refuses that.
         let dir = self.dir(id).join(DIR);
-        if let Err(e) = std::fs::create_dir(&dir)
+        let mut made = std::fs::DirBuilder::new();
+        #[cfg(unix)]
+        std::os::unix::fs::DirBuilderExt::mode(&mut made, 0o700);
+        if let Err(e) = made.create(&dir)
             && e.kind() != std::io::ErrorKind::AlreadyExists
         {
             return Err(e.into());
