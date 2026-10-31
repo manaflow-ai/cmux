@@ -326,6 +326,10 @@ describe("Chief jobs on Upstash Workflow", { timeout: 120_000 }, () => {
     const junk = JSON.stringify({ v: 1, job: id })
     expect((await deliver(junk, await sign(junk, SIGNING.current))).ok).toBe(false)
     expect(q.runs()).toHaveLength(0)
+    // Ordinary signed deliveries must be cron messages with a delivery id; SDK-triggered runs use its protocol.
+    expect((await worker.fetch(WORKFLOW_URL, { method: "POST", headers: { "upstash-signature": await sign(raw, SIGNING.current) }, body: raw })).status).toBe(400)
+    const manual = JSON.stringify({ ...fire, trigger: "manual" })
+    expect((await deliver(manual, await sign(manual, SIGNING.current))).status).toBe(400)
     // A signed fire (as the schedule delivers it) starts the workflow run through QStash.
     const signature = await sign(raw, SIGNING.next)
     const first = await deliver(raw, signature, "msg_cron_1")
@@ -340,6 +344,10 @@ describe("Chief jobs on Upstash Workflow", { timeout: 120_000 }, () => {
     // The next cron occurrence is a different message and must get its own run.
     expect((await deliver(raw, signature, "msg_cron_2")).status).toBe(200)
     expect(q.runs()[2]!.id).not.toBe(runId)
+    q.down.batch = true
+    expect((await deliver(raw, signature, "msg_cron_3")).status).toBe(503)
+    q.down.batch = false
+    expect((await deliver(raw, signature, "msg_cron_3")).status).toBe(200)
 
     // The step: the job's note in the Chief's conversation, once per run, and a turn that posts.
     for (const r of scheduled) expect(await st.cjStore(a.team, { op: "fire", body: r.body, run: r.id! })).toEqual({ ok: true })

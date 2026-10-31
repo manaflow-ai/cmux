@@ -270,6 +270,28 @@ const parseFire = (body: string | undefined): FireBody | null => {
 export const handleUpstashChiefJob = async (request: Request, env: Env): Promise<Response> => {
   const c = upstashConfig(env)
   if (!c) return Response.json({ error: "chief jobs do not run on Upstash here" }, { status: 404 })
+  const receiver = new Receiver({ currentSigningKey: c.current, nextSigningKey: c.next })
+  const protocol = ["upstash-workflow-sdk-version", "upstash-workflow-unknown-sdk", "upstash-workflow-is-failure", "upstash-workflow-failure-callback"].some((h) => request.headers.has(h))
+  if (!protocol) {
+    // A schedule sends an ordinary QStash message. serve() would choose a fresh workflow id on each
+    // redelivery, so authenticate it first and trigger with the same id for that scheduled message.
+    const raw = await request.text()
+    try {
+      if (!(await receiver.verify({ body: raw, signature: request.headers.get("upstash-signature") ?? "", url: c.url }))) return Response.json({ error: "invalid QStash signature" }, { status: 401 })
+    } catch {
+      return Response.json({ error: "invalid QStash signature" }, { status: 401 })
+    }
+    const body = parseFire(raw)
+    const message = request.headers.get("upstash-message-id")
+    if (!body || body.trigger !== "cron" || !message || message.length > 256) return Response.json({ error: "not a scheduled chief job" }, { status: 400 })
+    try {
+      await senderOf(c)(await runIdOf(body.job, `qstash:${message}`), body)
+      return Response.json({ ok: true })
+    } catch {
+      // The schedule retries with the same message id, including when Upstash took the run but its ack was lost.
+      return Response.json({ error: "chief job workflow unavailable" }, { status: 503 })
+    }
+  }
   const handler = serve<FireBody>(
     async (context) => {
       const body = context.requestPayload
@@ -281,7 +303,7 @@ export const handleUpstashChiefJob = async (request: Request, env: Env): Promise
     {
       url: c.url,
       qstashClient: qstash(c),
-      receiver: new Receiver({ currentSigningKey: c.current, nextSigningKey: c.next }),
+      receiver,
       initialPayloadParser: (body) => {
         const job = parseFire(body)
         if (!job) throw new Error("not a chief job")
