@@ -352,8 +352,8 @@ await requireBrowserLane("summary-scroll-steady.test.ts", async () => {
         const seen = await scrollAndWatch(page, selector, 400);
         // Once the scroll settles, the paged-in edit reaches the card's Changes, in one change.
         await page.waitForFunction(
-          ([selector, text]) => (document.querySelector(selector)?.textContent ?? "") !== text,
-          [selector, before.text] as const,
+          (selector) => document.querySelector(selector)?.textContent?.includes("Changes"),
+          selector,
         );
         const after = await read();
         console.log(`${name} showing summary while an older edit pages in: ${JSON.stringify({ before, after, seen })}`);
@@ -364,6 +364,7 @@ await requireBrowserLane("summary-scroll-steady.test.ts", async () => {
           pagedToTop: seen.lowest,
           reserve: before.reserve,
         }).toEqual({ changes: [], boxes: 1, replaced: false, pagedToTop: 0, reserve: false });
+        expect(before.text).not.toContain("Changes");
         expect(after.text).toContain("Changes");
       } finally {
         await page.close();
