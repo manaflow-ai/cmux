@@ -48,6 +48,13 @@ def open_(first, empty=0.0, **extra):
     return {"first_content_ms": first, "longest_empty_ms": empty, "flashes": 0, **extra}
 
 
+
+class SubagentNameTests(unittest.TestCase):
+    def test_opens_click_the_newest_subagents_first(self):
+        bench = load_bench("--runs=3")
+        # The chat holds Auditor 0..3; the oldest is out of the rendered rows.
+        self.assertEqual([bench.subagent_name(i) for i in range(3)], ["Auditor 3", "Auditor 2", "Auditor 1"])
+
 class SummaryTests(unittest.TestCase):
     def test_complete_case_reports_medians(self):
         summary = cos.summarize([open_(100, 10), open_(300, 30), open_(200, 20)])

@@ -396,6 +396,13 @@ def why(record):
     return (" " + " ".join(parts)) if parts else ""
 
 
+def subagent_name(index):
+    """The subagent line open `index` clicks, newest first. The click needs the line in the page,
+    and the chat renders only its newest rows: "Auditor 0", the oldest, was never there, so every
+    condition's first subagent open failed with "no visible element matches" (2026-10-31)."""
+    return f"Auditor {(SUBAGENTS - 1 - index) % SUBAGENTS}"
+
+
 def measure_case(run, case, sessions, index):
     session = sessions[case][index] if case != "reopen" else sessions["reopen"][index]
     if case in ("sidebar", "big", "bloated"):
@@ -407,7 +414,7 @@ def measure_case(run, case, sessions, index):
         return traced(run, lambda: open_workspace(run, session))
     if case == "subagent":
         settle_open(run, session)
-        name = f"Auditor {index}"
+        name = subagent_name(index)
         return traced(run, lambda: run.rpc("debug.agent_pane", {"action": "click", "text": name}))
     raise ValueError(case)
 
