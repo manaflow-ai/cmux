@@ -48,12 +48,7 @@ enum NewWorkspacePlacements {
     /// ignores the fields, or with no ledger to record it in, so the app still sends its own placement afterwards.
     static func sending(_ rule: NewWorkspaceDefaultSlot?, key: WorkspaceKey, on connection: DaemonConnection,
                         ledger: Ledger?) async -> NewWorkspaceDefaultSlot? {
-        guard let rule, let ledger else { return nil }
-        // Read before the create goes out: the window places the workspace only once the daemon lists it.
-        guard await connection.identity?.supports(DaemonCapability.workspaceCreateCurrent.rawValue) == true else { return nil }
-        ledger.placedByDaemon.insert(key.rawValue)
-        if let anchor = ledger.groupAnchors.removeValue(forKey: key.rawValue) { ledger.anchors[key.rawValue] = anchor }
-        return rule
+        await ledger?.sending(rule, key: key, on: connection)
     }
 
     /// Drops what a create that ended without its workspace left for it.

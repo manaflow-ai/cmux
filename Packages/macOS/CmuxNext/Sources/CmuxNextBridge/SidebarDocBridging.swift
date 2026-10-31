@@ -238,7 +238,9 @@ public final class SidebarDocSections {
             if first || anchor.fallsBackToFirst {
                 let before = sections.count
                 Self.insertFirst([workspace], into: &sections, machineSections: own)
-                own += sections.count - before
+                let inserted = sections.count - before
+                own += inserted
+                if let last = trailing { trailing = last + inserted }
             } else if let last = trailing {
                 sections[last] = CmuxNextDaemon.SidebarSection(group: nil, workspaces: sections[last].workspaces + [workspace])
             } else {

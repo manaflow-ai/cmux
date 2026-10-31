@@ -32,6 +32,7 @@ extension WindowManager {
         var refreshed: Set<String> = []
         for id in ready {
             guard let pending = pendingPlacements.removeValue(forKey: id) else { continue }
+            newPlacements.groupAnchors[id] = nil
             let named = newPlacements.placedByDaemon.remove(id) != nil
             guard let window = pending.window ?? registry.value.owner(of: id), let bridge = controller(for: window)?.sidebar,
                   let daemon = services.machines.daemon(forWorkspace: id) else { continue }

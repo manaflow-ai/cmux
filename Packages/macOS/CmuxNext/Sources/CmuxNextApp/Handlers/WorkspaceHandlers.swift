@@ -84,8 +84,8 @@ enum WorkspaceHandlers {
                 await daemon.closeTicket(ticket, label: "create workspace", error: DaemonError.notConnected)
                 return
             }
+            let key = workspaceKey ?? WorkspaceKey.generate()
             do {
-                let key = workspaceKey ?? WorkspaceKey.generate()
                 if let rule { NewWorkspacePlacements.expect(key.rawValue, in: target, byDefault: rule, windows: windows) }
                 windows.claimNew(workspaceID: key.rawValue, window: target)
                 if let room, let session = daemon.store.registryID, let homeConnection = home.connection {
@@ -98,6 +98,7 @@ enum WorkspaceHandlers {
                 }
                 await daemon.closeTicket(ticket, label: "create workspace", error: nil, replying: connection)
             } catch {
+                NewWorkspacePlacements.forget(key.rawValue, windows: windows)
                 services.daemon.logger.error("create workspace failed: \(String(describing: error), privacy: .public)")
                 await daemon.closeTicket(ticket, label: "create workspace", error: error)
             }
