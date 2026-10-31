@@ -1,7 +1,7 @@
 // The summary card's Subagents section (SummaryCard.tsx): every subagent of the chat, nested ones
 // indented under the agent that spawned them, with its live state (running, waiting on the user,
-// done, failed) and its time. A row shows that subagent (`onOpen`): its pane when it has one. Its
-// title opens the card's Subagents tab (`onShowAll`, SubagentsTab.tsx). The sub-sessions the chat's
+// done, failed) and its time. A row shows that subagent (`onOpen`): in a pane of its own while
+// the section's switch is on, else in the chat. Its title opens the card's Subagents tab (`onShowAll`, SubagentsTab.tsx). The sub-sessions the chat's
 // agent started with its `start_session` tool (subagents/subsessions.ts) follow, theirs indented under
 // each, with their live state, an unread dot, how many messages wait for them and what a working
 // one does now; a click opens its chat beside this one (`onOpenSession`). After them, the other
