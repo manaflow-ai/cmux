@@ -92,15 +92,11 @@ fn walk(ws: Option<Arc<dyn Workspaces>>) -> (String, bool, String) {
 }
 
 #[test]
-fn a_fresh_chief_with_a_workspace_host_answers_a_workspace_and_a_linked_reply() {
+fn a_fresh_chief_with_a_workspace_host_defers_the_workspace_and_links_the_reply() {
     let ws: Arc<dyn Workspaces> = Arc::new(Opened::default());
     let (answer, granted, reply) = walk(Some(ws));
     assert!(granted, "the default grant lets a Chief spawn and tell");
-    assert!(answer.contains("workspace \"First task\""), "{answer}");
-    assert!(
-        answer.contains("ws_"),
-        "the real workspace id is in the answer: {answer}"
-    );
+    assert!(answer.contains("no cmux workspace yet"), "{answer}");
     assert!(
         reply.contains("](cmux://chief/"),
         "the reply links a1: {reply}"

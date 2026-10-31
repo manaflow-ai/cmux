@@ -140,10 +140,10 @@ impl Workspaces for Recorder {
     }
 }
 
-/// "I don't like the checkmark": a finished subagent's workspace keeps the
-/// name it was opened with; no title ever gets a ✓.
+/// A Chief spawn does not open a workspace or add a sidebar row. The explicit
+/// open action still uses the task title and group helpers covered above.
 #[test]
-fn a_finished_subagents_workspace_keeps_its_name_without_a_check_mark() {
+fn a_finished_subagent_spawn_does_not_open_or_rename_a_workspace() {
     let mut h = Harness::new(default_script());
     let recorder = Arc::new(Recorder::default());
     let ws: Arc<dyn Workspaces> = recorder.clone();
@@ -177,7 +177,7 @@ fn a_finished_subagents_workspace_keeps_its_name_without_a_check_mark() {
         h.brain
             .state()
             .sub("a1")
-            .is_some_and(|(_, s)| s.workspace.is_some() && s.status == SubStatus::Running)
+            .is_some_and(|(_, s)| s.session_id.is_some() && s.status == SubStatus::Running)
     };
     while !(worker.is_finished() && attached(&h)) && Instant::now() < until {
         if let Ok(input) = h.rx.recv_timeout(Duration::from_millis(10)) {
@@ -212,25 +212,8 @@ fn a_finished_subagents_workspace_keeps_its_name_without_a_check_mark() {
         "the spawn answer names no group: {answer}"
     );
     // a313: the reply gives the real ws_ id and how to move or pin it.
-    assert!(
-        answer.contains("ws_cbd7f86ef04cb1b8d1f2f7a235d6538e"),
-        "the spawn answer gives the workspace's ws_ id: {answer}"
-    );
-    assert!(
-        answer.contains("cmux workspace ws_cbd7f86ef04cb1b8d1f2f7a235d6538e move --index 0"),
-        "the spawn answer says how to move it: {answer}"
-    );
-    // a423: it is an ordinary workspace in the user's session, so no `--session` or
-    // `cmux-chief-…` session name sets it apart.
-    assert!(
-        !answer.contains("--session") && !answer.contains("cmux-chief-"),
-        "the spawn answer names no separate session: {answer}"
-    );
-    assert_eq!(
-        *recorder.opened.lock().unwrap(),
-        vec![("Sidebar group drag".to_owned(), String::new())],
-        "a task with no `Group: Chief agents` line asks for no group"
-    );
+    assert!(answer.contains("no cmux workspace yet"), "{answer}");
+    assert!(recorder.opened.lock().unwrap().is_empty(), "{answer}");
     let renamed = recorder.renamed.lock().unwrap().clone();
     assert!(
         renamed.iter().all(|n| !n.contains('✓')),
