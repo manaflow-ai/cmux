@@ -159,7 +159,18 @@ Every tier runs on:
   newest waits (a newer push replaces a waiting one), so a base compile break
   turns the base red within one compile of its commit. When a push job fails,
   `cmux-next push attribution` comments on each PR merged since that job last
-  passed on a push. The owning lane fixes forward;
+  passed on a push. The owning lane fixes forward. The base Mac tier (daemon
+  tests, generated files, the Debug app scheme compile) is not on the push: it
+  runs at most once every 15 minutes, on the tip, in a `cmux-next base tier · <sha>`
+  dispatch that `cmux-next-base-tier-kick.yml` starts
+  (`scripts/ci/cmux_next_base_tier.py`, cmuxterm-hq#5424). Its tip holds every
+  landing since the last one, so each landing gets that verdict within about
+  15 minutes plus the run. When it fails, push attribution comments on the PRs
+  merged since it last passed (about ten in a busy window). To name one, push a
+  branch at a commit in that range and dispatch cmux-next.yml on it
+  (`gh workflow run cmux-next.yml --ref <branch>`), which runs every tier there;
+  halve the range until one PR is left. `vars.CMUX_NEXT_BASE_TIER_COALESCE = 0` puts the tier back on
+  every push;
 - a change to the manifest, the target graph, the router, the workflow or the
   test runner scripts, or to a file in the CmuxNext package that no target owns.
 
