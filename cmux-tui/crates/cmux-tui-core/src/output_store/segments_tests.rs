@@ -300,3 +300,52 @@ fn one_read_returns_the_stored_bytes_and_the_unflushed_ones_after_them() {
     assert!(!window.truncated, "nothing after the stream end");
     fs::remove_dir_all(&registry).unwrap();
 }
+
+#[cfg(unix)]
+#[test]
+fn an_unusable_newest_file_at_the_frame_start_is_left_and_the_frame_goes_beside_it() {
+    let directory = store_directory("unusable-same-start");
+    let terminal_directory = terminal_directory(&directory, &terminal());
+    fs::create_dir_all(&terminal_directory).unwrap();
+    // The newest file is named with the very offset the next frame starts at.
+    let broken = terminal_directory.join(format!("{}-{:020}.{SUFFIX}", generation_key("g1"), 3));
+    std::os::unix::fs::symlink(directory.join("missing"), &broken).unwrap();
+    append_frame(&Segments::default(), &terminal_directory, "g1", 3, b"def")
+        .expect("the frame goes to a new file");
+    assert!(fs::symlink_metadata(&broken).unwrap().file_type().is_symlink(), "left as it is");
+    assert!(!directory.join("missing").exists(), "nothing written through the broken link");
+    // The next frame goes on in the new file, not in yet another one.
+    append_frame(&Segments::default(), &terminal_directory, "g1", 6, b"ghi").unwrap();
+    assert_eq!(generation_files(&terminal_directory, "g1").len(), 2);
+    let window = read_after(&directory, &terminal(), "g1", 3, 1024).unwrap();
+    assert_eq!(window.bytes, b"defghi");
+    assert!(!window.truncated);
+    let ends = all_stream_ends(&directory);
+    assert_eq!(ends.get(&(terminal(), generation_key("g1"))), Some(&9));
+    fs::remove_dir_all(&directory).unwrap();
+}
+
+#[test]
+fn a_frame_that_does_not_decode_ends_the_window_as_truncated() {
+    let directory = store_directory("corrupt-body");
+    let terminal_directory = terminal_directory(&directory, &terminal());
+    fs::create_dir_all(&terminal_directory).unwrap();
+    write_frame_file(&terminal_directory, 0, b"abc");
+    // A whole frame header for 3..6 whose body is not gzip.
+    let path = terminal_directory.join(format!("{}-{:020}.{SUFFIX}", generation_key("g1"), 0));
+    let mut handle = fs::OpenOptions::new().append(true).open(&path).unwrap();
+    handle.write_all(&3_u64.to_le_bytes()).unwrap();
+    handle.write_all(&4_u32.to_le_bytes()).unwrap();
+    handle.write_all(&3_u32.to_le_bytes()).unwrap();
+    handle.write_all(&[0xde, 0xad, 0xbe, 0xef]).unwrap();
+    drop(handle);
+    let window = read_after(&directory, &terminal(), "g1", 0, 1024).unwrap();
+    assert_eq!(window.bytes, b"abc");
+    assert!(window.truncated, "bytes 3..6 are stored but unreadable: the read is not complete");
+    // Another file that holds 3..6 fills the hole.
+    write_frame_file(&terminal_directory, 3, b"def");
+    let window = read_after(&directory, &terminal(), "g1", 0, 1024).unwrap();
+    assert_eq!(window.bytes, b"abcdef");
+    assert!(!window.truncated);
+    fs::remove_dir_all(&directory).unwrap();
+}
