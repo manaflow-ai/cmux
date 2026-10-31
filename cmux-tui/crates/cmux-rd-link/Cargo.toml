@@ -10,5 +10,15 @@ description = "cmux remote desktop secure link: Noise_XX handshake bound to the 
 [lints]
 workspace = true
 
+[features]
+# The UDP driver (a thread, one socket, STUN candidates) for the host and the viewer.
+net = ["dep:libc"]
+
 [dependencies]
+libc = { version = "0.2", optional = true }
 snow.workspace = true
+cmux-transport = { path = "../cmux-transport" }
+
+[[test]]
+name = "net"
+required-features = ["net"]
