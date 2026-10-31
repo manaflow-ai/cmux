@@ -201,6 +201,11 @@
   pointer-events: none;
   container: codex-look-row / inline-size;
 }
+/* The floating dock gives every part of the composer the pointer (bottomStack.css); this host lies
+   over the row's controls, so it keeps passing presses through there too. */
+.acpmux-main[data-dock="float"] > .acpmux-dock > .acpmux-composer[data-composer-look="codex"] > .acpmux-composer-under {
+  pointer-events: none;
+}
 .acpmux-composer[data-composer-look="codex"] > .acpmux-composer-under .acpmux-look-slot {
   top: 50%;
   bottom: auto;

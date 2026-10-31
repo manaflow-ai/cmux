@@ -1404,7 +1404,13 @@ export function NewTabScreen(props: Props) {
   // this page draws no context ring.
   const pickers = (
     <ChromeArea className="acpmux-chrome-area" items={[chrome.dictation]}>
-      <div className="nt-pickers" data-footer-look={plainFooter ? "plain" : undefined} onPointerDownCapture={touch}>
+      {/* Codex's look keeps the chips in this row (no quiet row), so its labels step down here. */}
+      <div
+        ref={chatBox && !split ? foot : undefined}
+        className="nt-pickers"
+        data-footer-look={plainFooter ? "plain" : undefined}
+        onPointerDownCapture={touch}
+      >
         {!split && attachmentPicker}
         {/* The folder Enter asks in (screenActions: the picked project, else the tab's), so a pick's
         switch is the one Enter reuses. */}

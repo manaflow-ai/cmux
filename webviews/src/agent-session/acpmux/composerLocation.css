@@ -674,18 +674,20 @@
 .acpmux-fit-mic { display: inline-flex; }
 /* A mic hidden from the row by its menu leaves no empty slot (and no gap) before Send. */
 .acpmux-fit-mic:empty { display: none; }
-.acpmux-composer-bar[data-fit-model="family"] [data-fit-part="model"][data-fit-forms~="family"],
-.acpmux-composer-bar[data-fit-effort="short"] [data-fit-part="effort"][data-fit-forms~="short"] {
+:is(.acpmux-composer-bar, .nt-pickers)[data-fit-model="family"] [data-fit-part="model"][data-fit-forms~="family"],
+:is(.acpmux-composer-bar, .nt-pickers)[data-fit-effort="short"] [data-fit-part="effort"][data-fit-forms~="short"] {
   position: static;
   visibility: visible;
   pointer-events: auto;
 }
 .acpmux-composer-bar [data-fit-part]:not([data-fit-forms~="full"]),
-.nt-pickers [data-fit-part="effort"]:not([data-fit-forms~="full"]),
-.acpmux-composer-bar[data-fit-access="icon"] [data-fit-part="access"]:not([data-fit-forms~="icon"]),
-.acpmux-composer-bar[data-fit-effort="short"] [data-fit-part="effort"]:not([data-fit-forms~="short"]),
-.acpmux-composer-bar[data-fit-model="family"] [data-fit-part="model"]:not([data-fit-forms~="family"]),
-.acpmux-composer-bar[data-fit-model="icon"] [data-fit-part="model"]:not([data-fit-forms~="icon"]) {
+/* New Tab's row: the effort always, and with Codex's look the model's and mode's other forms too
+   (its chips sit in this row, NewTabScreen.tsx), as the chat's box row does. */
+.nt-pickers [data-fit-part]:not([data-fit-forms~="full"]),
+:is(.acpmux-composer-bar, .nt-pickers)[data-fit-access="icon"] [data-fit-part="access"]:not([data-fit-forms~="icon"]),
+:is(.acpmux-composer-bar, .nt-pickers)[data-fit-effort="short"] [data-fit-part="effort"]:not([data-fit-forms~="short"]),
+:is(.acpmux-composer-bar, .nt-pickers)[data-fit-model="family"] [data-fit-part="model"]:not([data-fit-forms~="family"]),
+:is(.acpmux-composer-bar, .nt-pickers)[data-fit-model="icon"] [data-fit-part="model"]:not([data-fit-forms~="icon"]) {
   position: absolute;
   top: 0;
   inset-inline-start: 0;
