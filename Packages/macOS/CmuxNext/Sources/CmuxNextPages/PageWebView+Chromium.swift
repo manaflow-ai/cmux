@@ -215,8 +215,6 @@ extension PageWebView {
         scriptTarget.bridge = bridge
         engineDecision = .webKit(reason)
         webView.isHidden = false
-        // The WebKit view takes the keys from the Chromium page that had them.
-        _ = chromiumFocusHost?.focusViewChanged(self)
         router.reset()
         loaded = false
         if ended, !reloadsAfterCrash {

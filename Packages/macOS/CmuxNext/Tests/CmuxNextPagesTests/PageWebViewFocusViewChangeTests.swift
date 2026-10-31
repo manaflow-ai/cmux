@@ -66,25 +66,6 @@ struct PageWebViewFocusViewChangeTests {
         window.close()
         view.close()
     }
-
-    @Test func aFallBackToWebKitTellsTheHostThatWebKitTakesTheKeys() async throws {
-        defer { try? FileManager.default.removeItem(at: root) }
-        let hosting = FakeChromiumHosting()
-        let (view, window) = try shownAndFocused(hosting)
-        view.chromiumClock = PageTestClock.never
-        let focusViews = FocusViewRecord()
-        hosting.focusModel = { page in
-            focusViews.views.append(page.focusView)
-            return true
-        }
-        await view.chromiumStart?.value
-
-        view.fallBackToWebKit(.chromiumFailed, detail: "test")
-        #expect(focusViews.views.count == 2)
-        #expect((focusViews.views.last ?? nil) === view.webKitView)
-        window.close()
-        view.close()
-    }
 }
 
 /// The focus view at each ``PageChromiumHosting/focusViewChanged(_:)`` call.

@@ -26,10 +26,10 @@ public protocol PageChromiumHosting: AnyObject {
     /// - Returns: The live page.
     /// - Throws: When Chromium cannot start or the browser is not created.
     func makePage(_ page: PageDescriptor) async throws -> any PageChromiumPage
-    /// The view that takes `page`'s keyboard (``PageWebView/focusView``) changed under it: its
-    /// Chromium page arrived after the page showed (a cold New Tab page at the first Cmd-N of a
-    /// launch), or it fell back to WebKit. The app applies the focus model of the pane that shows
-    /// `page` again, which hands the keys to the new view in one key change.
+    /// `page`'s Chromium page attached after the page showed (a cold New Tab page at the first Cmd-N
+    /// of a launch), so the view that takes its keyboard (``PageWebView/focusView``) changed under it.
+    /// The app applies the focus model of the pane whose own page `page` is again, which hands the
+    /// keys to the Chromium page in one key change.
     ///
     /// - Parameter page: The page whose keyboard view changed.
     /// - Returns: Whether a focus model owns `page`'s keys; if not, the page takes the keyboard itself
