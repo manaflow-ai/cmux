@@ -88,6 +88,7 @@ final class SectionHeaderRowView: SidebarRowView {
         case .authFailed: Strings.statusAuthFailed
         case .unreachable: Strings.statusUnreachable
         case .failed: Strings.statusFailed
+        case .disconnected: Strings.statusDisconnected
         case .paused: Strings.statusPaused
         case .pausedIdle: Strings.statusPausedIdle
         }
@@ -118,6 +119,7 @@ final class SectionHeaderRowView: SidebarRowView {
         case .authFailed: Strings.statusAuthFailed
         case .unreachable: Strings.statusUnreachable
         case .failed: Strings.statusFailed
+        case .disconnected: Strings.statusDisconnected
         case .paused: Strings.statusPaused
         case .pausedIdle: Strings.statusPausedIdle
         }

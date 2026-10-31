@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextPages
 public import Foundation
@@ -167,14 +168,15 @@ extension AgentPaneView {
     func receiveContextMenuReport(_ body: Any?) {
         if let anchor = AgentPaneContextMenu.popUpAnchor(report: body) {
             let popupID = (body as? [String: Any])?["popupId"] as? String
+            // After the page's message returns, from a run-loop callout, never a main-actor Task: a
+            // menu that tracks inside a main-queue job holds the main queue until it closes, and the
+            // click that closes it then waits for everything queued meanwhile (Leo, 2026-10-29).
             if let seq = (body as? [String: Any])?["forkDestinations"] as? Int {
-                // task-owner: one destination menu per Option-click; ends when the menu closes
-                Task { @MainActor [weak self] in self?.popUpForkMenu(through: seq, anchor: anchor, popupID: popupID) }
+                MainRunLoopBlock.perform { [weak self] in self?.popUpForkMenu(through: seq, anchor: anchor, popupID: popupID) }
                 return
             }
             let target = AgentPaneMessageTarget(report: body)
-            // task-owner: one menu per More press, after the page's message returns; it ends when the menu closes
-            Task { @MainActor [weak self] in self?.popUpMessageMenu(target: target, anchor: anchor, popupID: popupID) }
+            MainRunLoopBlock.perform { [weak self] in self?.popUpMessageMenu(target: target, anchor: anchor, popupID: popupID) }
             return
         }
         messageMenuTarget = AgentPaneMessageTarget(report: body)
