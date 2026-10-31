@@ -534,6 +534,8 @@ pub fn place(candidates: &[Candidate], registry: Option<&Value>, work: Work) -> 
             "live": w.live,
             "why": w.why,
             "refused": w.refused,
+            // Refused only for room, load or swap: it may still take work (`overloaded`).
+            "load": w.load,
         })).collect::<Vec<_>>(),
     })
 }

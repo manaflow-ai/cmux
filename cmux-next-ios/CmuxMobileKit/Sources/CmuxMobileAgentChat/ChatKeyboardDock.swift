@@ -358,6 +358,7 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         }
         let top = headerBottom
         if openAreaTop?.constant != top { openAreaTop?.constant = top }
+        updateStackCeiling(headerBottom: top)
         scrollView.edgeTopInset = top
         if placement == .external {
             let chromeFrame = CGRect(x: 0, y: 0, width: view.bounds.width, height: top)
@@ -390,6 +391,18 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
             top = max(top, view.convert(bar.bounds, from: bar).maxY)
         }
         return max(0, top)
+    }
+
+    /// The bottom stack's ceiling (window y) for the composer's slash-command list: under
+    /// the header, and for the pushed chat inside the dock's host, which draws nothing and
+    /// takes no touch past its top. The dock measures its stack at its ideal height and
+    /// proposes no height, so the list bounds itself by this.
+    private func updateStackCeiling(headerBottom: CGFloat) {
+        guard view.window != nil else { return }
+        var top = headerBottom + Self.contentGap
+        if let dock = dockContainer { top = max(top, dock.frame.minY) }
+        let ceiling = view.convert(CGPoint(x: 0, y: top), to: nil).y
+        if surface.stackCeiling.map({ abs($0 - ceiling) > 0.5 }) ?? true { surface.stackCeiling = ceiling }
     }
 
     /// The stack's top is its bottom (which only the keyboard or the
@@ -655,8 +668,12 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         scroll(to: target, animated: animated)
     }
 
+    /// Reduce Motion: a jump lands at once, with the transcript shown
+    /// throughout. Tests set it.
+    var reducesMotion: () -> Bool = { UIAccessibility.isReduceMotionEnabled }
+
     private func scroll(to target: CGPoint, animated: Bool) {
-        if animated {
+        if animated, !reducesMotion() {
             // A long jump animated the offset across pages SwiftUI had not drawn yet (a
             // blank band and stale fragments for ~300 ms). Cut to one screen short of the
             // target, then animate only that last screen.

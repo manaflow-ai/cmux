@@ -34,6 +34,9 @@ test("the plus registry exposes the Add and Files sections in command order", ()
   expect(css).toMatch(
     /\.acpmux-composer-plus \.acpmux-menu-header\s*\{[^}]*background-image:linear-gradient\(var\(--surface-popup\),var\(--surface-popup\)\)/,
   );
+  // The + menu is not held to half the window like other menus: in a short pane its Search rows
+  // stay whole (composer-chip-press.test.ts presses every row at 760x600).
+  expect(css).toMatch(/\.acpmux-composer-plus \.acpmux-menu\s*\{[^}]*max-height:min\(520px,calc\(100vh - 16px\)\)/);
 });
 
 test("capture and optional goal rows are omitted when the host lacks those capabilities", () => {

@@ -73,6 +73,11 @@ enum SidebarStyle {
     static var wellGlyphSize: CGFloat { Swift.max(.iconFloor, iconBox - Metrics.space2) }
     static var controlSize: CGFloat { Metrics.iconSize + Metrics.space2 }
     static var toolbarButtonSize: CGFloat { Metrics.sidebarHeaderHeight }
+    /// The width of the +'s menu segment (the workspace chooser chevron): a narrow indicator
+    /// joined to the + as one split button, not a third square button beside Back and Forward.
+    static var toolbarMenuSegmentWidth: CGFloat { (toolbarButtonSize * 0.55).rounded() }
+    /// The chooser chevron's glyph size: smaller than the +, as a menu indicator, at the +'s weight.
+    static var toolbarMenuChevronPointSize: CGFloat { (Metrics.smallIconSize * 0.75).rounded() }
     static var indicatorSize: CGFloat { Metrics.statusMarkSize }
     /// A workspace row's status mark (the shared indicator, or the agent mark in its place): as
     /// tall as the unread badge beside it (Leo 2026-10-13); both read `Metrics.statusMarkSize`.
@@ -151,11 +156,13 @@ enum SidebarStyle {
     static let groupHeaderCountInkAlpha: CGFloat = 0.7
     /// An archived row's ink, icon and group bar (plans/cmux-next/archiving-DESIGN.md): dimmed, still legible.
     static let archivedAlpha: CGFloat = 0.45
-    /// The members' line: 2 pt, as Chrome's (Leo 2026-10-19), at every density.
-    static var groupBarWidth: CGFloat { Metrics.space1 }
+    /// The connected-shape prototype applies only to band headers; quiet looks keep their geometry.
+    static var groupChromeShape: Bool { SidebarTunables.groupChromeShape.value && SidebarGroupHeaderStyle.tunable.value == .band }
+    /// The members' line: 2 pt normally, 4 pt in the connected-shape prototype.
+    static var groupBarWidth: CGFloat { groupChromeShape ? Metrics.space2 : Metrics.space1 }
     static var groupBarX: CGFloat { (Metrics.sidebarRowHeight * 0.12).rounded() }
     /// One nesting step: a nested group's rows move in this far per level below the top.
-    static var groupGutter: CGFloat { groupBarX + groupBarWidth + Metrics.space1 }
+    static var groupGutter: CGFloat { groupBarX + 2 * Metrics.space1 }
     /// How far a row at group level `depth` (`SidebarRow.depth`) moves in from the list's inset.
     /// A top-level group's header and members line up with ungrouped rows: same leading x, same
     /// pill width (Leo 2026-10-21: "THE STUPID INDENT, IS THAT CHROME???? WHY IS THERE INDENT ON
@@ -173,12 +180,12 @@ enum SidebarStyle {
     /// The least room a group header's bar and rail keep from the list's left edge (Lawrence 2026-10-25: "groups
     /// headers and rails need more left padding"): they sat flush at 0 and 2 pt. One inset less than the
     /// rows' (4 pt compact, 6 pt comfortable), at every level and in Minimal Mode.
-    static var groupEdgePadding: CGFloat { max(0, horizontalInset - Metrics.space1) }
+    static var groupEdgePadding: CGFloat { max(0, horizontalInset - groupBarWidth) }
     /// The cut between a header's bar and its members' line: Chrome's (Leo 2026-10-19: "chrome has a neat little
     /// cut line"). A `joined` line has none.
     static var groupLineCut: CGFloat { Metrics.space3 }
     /// The Debug `sidebar.groupLineLayout` choice.
-    static var groupLineLayout: SidebarGroupLineLayout { SidebarGroupLineLayout.tunable.value }
+    static var groupLineLayout: SidebarGroupLineLayout { groupChromeShape ? .joined : SidebarGroupLineLayout.tunable.value }
     /// How far inside a header's left edge Chrome sets its line (Leo 2026-10-19: about 4 to 5 pt): the line's right
     /// edge meets the end of the bar's corner arc.
     static var groupLineCornerInset: CGFloat { max(0, rowCornerRadius - groupBarWidth) }
