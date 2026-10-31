@@ -32,6 +32,7 @@ import type { MockOptions } from "../pages/settings/mockProvider";
 import type {
   AccountsState,
   AgentsState,
+  CloudEnvironmentsState,
   DevicesState,
   HarnessesState,
   HostLists,
@@ -53,6 +54,8 @@ export type SettingsPageVariant = VariantBase & {
   options?: MockOptions;
   host?: Partial<HostLists>;
   accounts?: AccountsState;
+  /** Settings > Accounts > Cloud Environments fixture state. */
+  environments?: CloudEnvironmentsState;
   /** Settings > Agents over the mock's harness list (`manages: false`: an older acpmux). */
   agents?: Partial<AgentsState>;
   /** Settings > Agents > Harnesses; default the mock's four. */
@@ -265,7 +268,7 @@ export type AppsPageVariant = VariantBase & {
 /** The Cloud page on an in-page cmuxPage host serving the Cloud app server's projection. */
 export type CloudPageVariant = VariantBase & {
   mode?: "normal" | "loading" | "error";
-  action?: "select-machine" | "create" | "get";
+  action?: "select-machine" | "create" | "get" | "ports-pending";
   error?: { code: string; message: string };
   signedIn?: boolean;
   layout?: "rows" | "cards";
@@ -273,6 +276,10 @@ export type CloudPageVariant = VariantBase & {
   hash?: string;
   /** The plan's active machine limit, when the variant needs another than the sample plan's. */
   maxActive?: number;
+  /** Sample forwards shown by Ports variants (gallery-only). */
+  ports?: import("../pages/cloud/ops").PortForward[];
+  /** Hold one port action after its control is activated to show the busy boundary. */
+  pendingAction?: "forward" | "close" | "browser";
   machines: CloudMachine[];
   snapshots: CloudSnapshot[];
 };
