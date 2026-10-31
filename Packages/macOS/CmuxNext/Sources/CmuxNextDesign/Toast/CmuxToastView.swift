@@ -17,6 +17,11 @@ public final class CmuxToastView: NSView {
     /// The toast's `detail` in full under the message, shown while Details is on; nil without a
     /// Details action or a detail.
     public private(set) var detailLabel: ChromeLabel?
+    /// Holds ``detailLabel``: as tall as the detail up to ``detailCap(windowHeight:)``, then it
+    /// scrolls, so a long reason never pushes the row with Details and close out of the window.
+    public private(set) var detailScroll: NSScrollView?
+    /// The detail's height cap, set from the toast's window when the details show.
+    private var detailCapConstraint: NSLayoutConstraint?
     /// Whether Details is on: the whole message and ``detailLabel`` show.
     public private(set) var showsDetails = false
     var onAction: (() -> Void)?
@@ -134,8 +139,20 @@ public final class CmuxToastView: NSView {
     /// free above it. Empty without a detail.
     private var expanded: [NSLayoutConstraint] = []
 
+    /// The tallest the shown detail gets before it scrolls: 240 pt, or 40% of the window's height
+    /// in a shorter window (no window: 240 pt).
+    static func detailCap(windowHeight: CGFloat?) -> CGFloat {
+        guard let windowHeight, windowHeight > 0 else { return 240 }
+        return min(240, (windowHeight * 0.4).rounded(.down))
+    }
+
+    /// The most lines the message takes while Details shows (three while off); past them its
+    /// tooltip has it in full.
+    static let expandedMessageLines = 6
+
     /// The detail under the row, inset like the message, as wide as the toast and wrapping in it,
-    /// selectable (a reason to copy into a bug), shown only while Details is on.
+    /// selectable (a reason to copy into a bug), shown only while Details is on. It sits in a
+    /// scroll view as tall as the detail up to ``detailCap(windowHeight:)``.
     private func addDetailLabel(_ detail: String, in content: NSView, below row: NSView) {
         let label = ChromeLabel(wrappingLabelWithString: detail)
         label.font = Typography.body
@@ -148,15 +165,41 @@ public final class CmuxToastView: NSView {
         label.setContentCompressionResistancePriority(.fittingSizeCompression, for: .horizontal)
         label.setContentHuggingPriority(.fittingSizeCompression, for: .horizontal)
         performWithTheme { label.textColor = Palette.textSecondary }
-        content.addSubview(label)
+        let document = FlippedDocumentView()
+        document.translatesAutoresizingMaskIntoConstraints = false
+        document.addSubview(label)
+        let scroll = NSScrollView()
+        scroll.translatesAutoresizingMaskIntoConstraints = false
+        scroll.drawsBackground = false
+        scroll.hasVerticalScroller = true
+        scroll.hasHorizontalScroller = false
+        scroll.autohidesScrollers = true
+        SystemScrollers.follow(scroll)
+        scroll.documentView = document
+        scroll.isHidden = true
+        content.addSubview(scroll)
         detailLabel = label
+        detailScroll = scroll
+        // As tall as the detail (below required), never past the cap (required).
+        let cap = scroll.heightAnchor.constraint(lessThanOrEqualToConstant: Self.detailCap(windowHeight: nil))
+        let fit = scroll.heightAnchor.constraint(equalTo: label.heightAnchor)
+        fit.priority = .defaultHigh
+        detailCapConstraint = cap
         NSLayoutConstraint.activate([
             // The row's bottom inset is the gap above the detail.
-            label.topAnchor.constraint(equalTo: row.bottomAnchor, constant: -Metrics.space2),
-            label.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: Metrics.space5),
-            label.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -Metrics.space5),
+            scroll.topAnchor.constraint(equalTo: row.bottomAnchor, constant: -Metrics.space2),
+            scroll.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: Metrics.space5),
+            scroll.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -Metrics.space5),
+            document.topAnchor.constraint(equalTo: scroll.contentView.topAnchor),
+            document.leadingAnchor.constraint(equalTo: scroll.contentView.leadingAnchor),
+            document.widthAnchor.constraint(equalTo: scroll.contentView.widthAnchor),
+            label.topAnchor.constraint(equalTo: document.topAnchor),
+            label.leadingAnchor.constraint(equalTo: document.leadingAnchor),
+            label.trailingAnchor.constraint(equalTo: document.trailingAnchor),
+            label.bottomAnchor.constraint(equalTo: document.bottomAnchor),
+            cap, fit,
         ])
-        expanded = [content.bottomAnchor.constraint(equalTo: label.bottomAnchor, constant: Metrics.space4)]
+        expanded = [content.bottomAnchor.constraint(equalTo: scroll.bottomAnchor, constant: Metrics.space4)]
     }
 
     /// Details on or off: on, the message has no line limit and the detail shows under it (its
@@ -166,11 +209,15 @@ public final class CmuxToastView: NSView {
         showsDetails = shows
         // The message and the detail wrap at the toast's width now (the row sets it).
         let width = max(bounds.width, fittingSize.width)
-        messageLabel?.maximumNumberOfLines = shows ? 0 : 3
-        messageLabel?.themedToolTip = shows ? nil : toast.detail
+        messageLabel?.maximumNumberOfLines = shows ? Self.expandedMessageLines : 3
+        // Shown, the detail is there; a message past its lines keeps the whole of it in the tooltip.
+        messageLabel?.themedToolTip = shows ? toast.message : toast.detail
         if let detailLabel {
-            detailLabel.preferredMaxLayoutWidth = max(0, width - 2 * Metrics.space5)
+            // Inside the scroll view, short of its scroller's width.
+            detailLabel.preferredMaxLayoutWidth = max(0, width - 2 * Metrics.space5 - Metrics.space4)
             detailLabel.isHidden = !shows
+            detailScroll?.isHidden = !shows
+            detailCapConstraint?.constant = Self.detailCap(windowHeight: window?.contentLayoutRect.height)
             // Off before on, so the two sets never hold at once.
             NSLayoutConstraint.deactivate(shows ? collapsed : expanded)
             NSLayoutConstraint.activate(shows ? expanded : collapsed)
@@ -220,4 +267,9 @@ public final class CmuxToastView: NSView {
         onAction?()
     }
     @objc private func close() { onClose?() }
+}
+
+/// The detail's document view: its text from the top.
+private final class FlippedDocumentView: NSView {
+    nonisolated override var isFlipped: Bool { true }
 }

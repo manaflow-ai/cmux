@@ -33,7 +33,7 @@ struct CmuxToastDetailsTests {
         #expect(view.showsDetails)
         #expect(!detail.isHidden)
         #expect(button.isOn && button.shownFill != nil, "the Details button is not lit while the details show")
-        #expect(view.messageLabel?.maximumNumberOfLines == 0, "the message is still cut at three lines")
+        #expect(view.messageLabel?.maximumNumberOfLines == CmuxToastView.expandedMessageLines, "the message is still cut at three lines")
         #expect(view.fittingSize.height > closed.height + 8, "the toast did not grow to show the detail")
         #expect(abs(view.fittingSize.width - closed.width) < 1, "showing the detail changed the toast's width")
 
@@ -66,6 +66,43 @@ struct CmuxToastDetailsTests {
         #expect(detailFrame.minY >= Metrics.space4 - 0.5 && detailFrame.maxY <= view.bounds.maxY + 0.5, "\(detailFrame) in \(view.bounds)")
         #expect(messageFrame.minY > detailFrame.maxY - 0.5, "the message is not above the detail: \(messageFrame) \(detailFrame)")
         #expect(view.bounds.maxY - messageFrame.maxY < closedHeight, "the message left the top of the toast")
+    }
+
+    /// A long detail (a daemon's or SSH's whole failure output) scrolls inside the toast at the
+    /// cap: the toast never grows past it, and the row with Details and close stays inside it.
+    @Test func aLongDetailScrollsAtTheCapAndKeepsTheButtonsInTheToast() throws {
+        let long = (1...200).map { "line \($0): launchctl bootstrap gui/501 failed with 125" }.joined(separator: "\n")
+        let view = CmuxToastView(toast: CmuxToast(id: "daemon-update.failures", message: String(repeating: "Couldn't update lab-mini. ", count: 30),
+                                                  detail: long, action: .details("Details"), duration: CmuxToast.untilClosed))
+        view.layoutSubtreeIfNeeded()
+        view.translatesAutoresizingMaskIntoConstraints = true
+        view.frame = NSRect(origin: .zero, size: view.fittingSize)
+        let closedHeight = view.frame.height
+        view.setShowsDetails(true)
+        view.layoutSubtreeIfNeeded()
+        view.setFrameSize(view.fittingSize)
+        view.layoutSubtreeIfNeeded()
+        let cap = CmuxToastView.detailCap(windowHeight: nil)
+        let scroll = try #require(view.detailScroll)
+        #expect(scroll.frame.height <= cap + 0.5, "the detail grew past its cap: \(scroll.frame.height)")
+        #expect(scroll.documentView!.frame.height > scroll.frame.height, "the long detail does not scroll")
+        // The message's six lines, the row's insets and the capped detail: nothing more.
+        let message = try #require(view.messageLabel)
+        #expect(view.fittingSize.height <= cap + closedHeight + message.frame.height + 2 * Metrics.space4 + 0.5,
+                "the toast grew past the cap: \(view.fittingSize.height)")
+        let button = try #require(view.actionButton)
+        let close = view.closeButton
+        for control in [button, close as NSView] {
+            let frame = control.convert(control.bounds, to: view)
+            #expect(view.bounds.contains(frame), "\(frame) outside \(view.bounds)")
+        }
+    }
+
+    /// The cap is 240 pt, or 40% of a shorter window's height.
+    @Test func theDetailCapFollowsTheWindow() {
+        #expect(CmuxToastView.detailCap(windowHeight: nil) == 240)
+        #expect(CmuxToastView.detailCap(windowHeight: 1000) == 240)
+        #expect(CmuxToastView.detailCap(windowHeight: 400) == 160)
     }
 
     /// A lit control keeps its fill with no pointer on it, and never takes the selection fill;
