@@ -761,6 +761,14 @@ export default componentEntry<Props>({
         await ctx.hover({ selector: ".acpmux-chat-inspector-pr" });
       },
     },
+    "sources-hover": {
+      note: "The pointer on a Sources link's row: one faint tint over the row, the link inside it never tinting a second time. An MCP tool's row takes no click, so it never lights.",
+      props: full,
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector("a.acpmux-chat-inspector-source__link") !== null);
+        await ctx.hover({ selector: "a.acpmux-chat-inspector-source__link" });
+      },
+    },
     "subagents-open": {
       note: "A click on the ended row (40 done · 1 failed) opens their lines, the failed one first; each opens its subagent or chat.",
       props: full,
