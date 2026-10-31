@@ -607,8 +607,9 @@ fn lock_holder_other_than(home: &Path, pid: u32) -> bool {
     }
     // SAFETY: signal 0 sends nothing; it only asks whether the process
     // exists. EPERM: it does, as another user's.
-    unsafe { libc::kill(holder, 0) == 0 }
-    || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
+    // (Parenthesized: a tail starting with `unsafe {` would be a statement.)
+    (unsafe { libc::kill(holder, 0) } == 0)
+        || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
 }
 
 /// One `$ACPMUX_BIN daemon run`, waited for until its socket answers, for
