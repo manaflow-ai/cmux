@@ -93,9 +93,9 @@
   /* What a reply keeps under its action row over a status row (none: the gap is the action row's). */
   --cv-status-reply-tail: 0px;
   --cv-tool-gap: var(--ds-space-2, 8px);
-  /* Where a tool row's words start: the glyph slot, less the glyph's 1.5px overlap, and the gap. A
+  /* Where a tool row's words start: the glyph slot and the gap (design/grid.md 5.5: col-left + 24). A
      line under a row (a failure's cause, an opened message, a step's thought) starts here too. */
-  --cv-tool-text-inset: calc(var(--cv-glyph-slot) - 1.5px + var(--cv-tool-gap));
+  --cv-tool-text-inset: calc(var(--cv-glyph-slot) + var(--cv-tool-gap));
   --cv-disclosure-gap: var(--ds-space-1, 4px);
   /* A message's hover row fades as Claude Code desktop's (--cds-message-actions-reveal-*): in after
      100ms over 120ms, out at once (Claude's 60ms is off the motion scale: its quick 80ms), both on
@@ -2514,7 +2514,7 @@ pre.cv-math-source {
   color: var(--agent-status-failure);
 }
 /* A failed call's cause (ToolFailureCause.tsx, the `tool-error-look` experiment): one quiet line
-   under the row, starting under its words (the 16px glyph, less its 1.5px overlap, and the 8px
+   under the row, starting under its words (the 16px glyph and the 8px
    gap), cut to the width; the opened call has the rest. The error tone stays on the row's word. */
 .cv-tool-error {
   margin: -3px 0 3px;
