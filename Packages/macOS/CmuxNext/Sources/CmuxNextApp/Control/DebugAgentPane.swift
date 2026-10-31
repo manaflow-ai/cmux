@@ -211,9 +211,8 @@ enum DebugAgentPane {
         }
         if action == "set_files" {
             return .object(["pane": .string(pane), "error": await view.debugSetFiles(selector: params["selector"]?.stringValue ?? ".acpmux-attach-input", paths: params["paths"]?.arrayValue?.compactMap(\.stringValue) ?? []).map(JSONValue.string) ?? .null]) }
-        if action == "hover" {
-            return await DebugAgentPaneClick.hover(params, pane: pane, view: view)
-        }
+        if action == "hover" { return await DebugAgentPaneClick.hover(params, pane: pane, view: view) }
+        if action == "pacer" { return .object(["pane": .string(pane), "pacer": JSONValue(foundation: view.debugPacerState) ?? .null]) }
         if action == "inspector" {
             return await toggleInspector(view, open: params["open"]?.boolValue, pane: pane)
         }
