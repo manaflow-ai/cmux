@@ -79,7 +79,8 @@ class NoHostedMacInNightlies(unittest.TestCase):
 
     def test_no_runner_picker_returns_a_hosted_mac(self) -> None:
         scripts = picker_scripts()
-        self.assertIn(ROOT / "scripts/ci/nightly_sign_runner.py", scripts)
+        # The owned pickers the nightly jobs read (nightlies never use Blacksmith, so nightly_sign_runner.py is gone).
+        self.assertIn(ROOT / "scripts/ci/nightly_build_runner.py", scripts)
         hits = []
         for script in sorted(scripts):
             hits += hosted_mentions(script, comment="#")

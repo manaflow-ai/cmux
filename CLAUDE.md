@@ -252,8 +252,10 @@ label, fallbacks, re-runs and rescue attempts, twin/backup signing jobs, the
 cloud overflow switch, and any input or repository variable a nightly
 `runs-on` reads. Never add a Blacksmith label (or a variable that may hold one,
 such as `LINUX_RUNNER` or `MACOS_RUNNER_*`) to a nightly job; when owned
-capacity is short, fix the owned pool. `tests/test_ci_nightly_off_blacksmith.py`
-enforces this.
+capacity is short, add owned capacity (the `cmux-nightly-ops` runners,
+`scripts/ci/nightly-ops-install.sh`). `tests/test_ci_nightly_off_blacksmith.py`
+enforces the workflows and `scripts/ci/check_repo_variables.py` the live
+variables; [docs/ci-runners.md](docs/ci-runners.md) has the routing.
 
 - Commit the failing behavioral regression before its fix; record the same
   focused command's red and green results ([testing policy](skills/cmux-testing/SKILL.md#reproduce-and-repair)).

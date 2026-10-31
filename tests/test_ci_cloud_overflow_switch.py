@@ -449,7 +449,11 @@ class WorkflowTests(unittest.TestCase):
 
 class RepoVariableCheckTests(unittest.TestCase):
     def env(self, **extra: str) -> dict[str, str]:
-        return {"CMUX_CI_RUNNER_VARIABLES": "MACOS_RUNNER_PR=glaeda-std-xcode-26.6\nLINUX_RUNNER=ubuntu-24.04\n",
+        # The nightly variables are owned glaeda- labels (check_repo_variables.NIGHTLY_RUNNER_VARIABLES).
+        return {"CMUX_CI_RUNNER_VARIABLES": "MACOS_RUNNER_PR=glaeda-std-xcode-26.6\nLINUX_RUNNER=ubuntu-24.04\n"
+                                            "CI_NIGHTLY_NEXT_BUILD_RUNNER=glaeda-nightly-std-xcode-26.6\n"
+                                            "CI_SIDE_LANE_RUNNER=glaeda-side-std-xcode-26.6\n"
+                                            "CI_SEED_TRUSTED_POOL=glaeda-trusted-std-xcode-26.6\n",
                 "CI_OWNED_POOL_SLOTS": "", "CMUX_CI_XCODE_APP_PR": PIN, **extra}
 
     def test_an_owned_label_is_drift_without_the_record(self) -> None:

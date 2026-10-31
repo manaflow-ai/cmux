@@ -46,6 +46,9 @@ statically, so a reordered step fails in review and not on a release day:
    picker output from scripts/ci/signing_runner.py (Leo, 2026-10-28: the
    release signing jobs may run on our own Macs), on a mini held whole for the
    job; tests/test_ci_signing_owned_mac.py checks those jobs.
+   Nightly workflows have no ephemeral runner at all (Lawrence, 2026-10-30:
+   nightlies never use Blacksmith): their signing jobs take the owned nightly
+   slot behind the claim gate as their first step (NIGHTLY_SIGNING_VARIABLES).
 8. A job that signs with the release signer (RELEASE_POOL_SIGNERS) makes no
    keychain: it runs on a literal ubuntu label and hands the certificate only
    to its signer script, which keeps the key in its own temporary directory.
@@ -160,6 +163,13 @@ RUNNER_VARIABLE = re.compile(
     re.IGNORECASE,
 )
 ANY_VARS = re.compile(r"\bvars\b", re.IGNORECASE)
+# Nightlies never use Blacksmith, ever (Lawrence, 2026-10-30), so a nightly signing job cannot take an
+# ephemeral runner: it takes the owned nightly slot (or side lane) that glaeda drains whole for it, and its first
+# step is the claim gate (tests/test_ci_signing_owned_mac.py CLAIM_GATE), which stops it before any credential
+# unless glaeda gave it the whole mini. scripts/ci/check_repo_variables.py keeps these variables on owned labels.
+NIGHTLY_WORKFLOW = re.compile(r"^[\w.-]*(?:nightly|notarization)[\w.-]*\.ya?ml ")
+NIGHTLY_SIGNING_VARIABLES = ("CI_NIGHTLY_NEXT_BUILD_RUNNER", "CI_SIDE_LANE_RUNNER")
+NIGHTLY_SIGNING_FALLBACK = "cmux-nightly-ops"
 RUNS_ON_END = re.compile(r"\s*\}\}\s*$")
 LIVE_VALUE_CHECK = (".github/workflows/cmux-next-guards.yml", "signing-runner-variables")
 LIVE_VALUE_RUNNER = "blacksmith-2vcpu-ubuntu-2404"
@@ -265,9 +275,16 @@ def check_job(name: str, job: dict, failures: list[str]) -> None:
                 f"{name}: holds a signing secret and reads a repository variable in runs-on in a form this "
                 "guard cannot check; write vars.NAME"
             )
+        first = (steps[0] if steps and isinstance(steps[0], dict) else {})
+        nightly_owned = bool(NIGHTLY_WORKFLOW.match(name)) and first.get("id") == "claim-gate"
         for match in RUNNER_VARIABLE.finditer(runs_on):
             dotted, bracketed, fallback = match.groups()
             variable = (dotted or bracketed).upper()
+            if nightly_owned and variable in NIGHTLY_SIGNING_VARIABLES:
+                if not runs_on.rstrip().endswith(f"|| '{NIGHTLY_SIGNING_FALLBACK}' }}}}"):
+                    failures.append(f"{name}: an owned nightly signing job ends its runs-on with "
+                                    f"`|| '{NIGHTLY_SIGNING_FALLBACK}' }}}}`")
+                continue
             if variable not in EPHEMERAL_RUNNER_VARIABLES:
                 failures.append(
                     f"{name}: holds a signing secret but picks its runner from vars.{variable}; use a literal "

@@ -451,7 +451,9 @@ def role_label_problems(path: str, text: str, rescued: set[str]) -> list[str]:
 # Such a job takes an idle owned Mac, else a free Blacksmith macOS slot, and never waits on one busy side
 # label: on 2026-10-29 the NEXT post-publish launch smoke waited 45 minutes to 2 hours on
 # glaeda-side-std-xcode-26.6 (build 4086860262501 published 12:18Z, smoked from 13:14Z).
-CASCADE_PLACED = {("nightly-next-launch-smoke.yml", "smoke"): ("pick", "launch-smoke")}
+# The NEXT launch smoke was the one member; nightlies never use Blacksmith (Lawrence, 2026-10-30), so it now reads
+# only the placement's owned pick (tests/test_ci_nightly_off_blacksmith.py). A nightly never joins this table.
+CASCADE_PLACED: dict[tuple[str, str], tuple[str, str]] = {}
 
 
 def cascade_placed_failures(name: str, job_id: str, jobs: dict, placer: str, key: str) -> list[str]:
@@ -494,6 +496,7 @@ def smoke_tooling():
 
 class CascadePlacedSideJobs(unittest.TestCase):
     def test_a_placed_side_job_takes_the_cascade_before_the_side_label(self) -> None:
+        self.assertFalse([name for name, _ in CASCADE_PLACED if "nightly" in name or "notarization" in name])
         failures = []
         for (name, job_id), (placer, key) in CASCADE_PLACED.items():
             failures += cascade_placed_failures(name, job_id, load(WORKFLOWS / name)["jobs"], placer, key)
@@ -585,24 +588,14 @@ class RunsOnFallbackTests(unittest.TestCase):
                         failures.append(f"{path.name} {job_id}: vars.{match.group(1)} is the last alternative")
         self.assertEqual(failures, [], "a single-host runner variable needs a later `||` pool fallback")
 
-    def test_a_picked_signing_label_has_a_rerun_alternative(self) -> None:
-        # A Blacksmith macOS label picked once can stall after the pick, and GitHub never
-        # re-routes a queued job: only a re-run leaves it. nightly.yml's signing jobs read the
-        # picker's other macOS 26 size on attempt 2 on, so a re-run never queues on the label
-        # that stalled (run 40489472569, 2026-10-27, waited on blacksmith-6vcpu-macos-26).
+    def test_no_nightly_signing_job_reads_a_blacksmith_pick(self) -> None:
+        # Until 2026-10-30 nightly.yml's signing jobs read a Blacksmith macOS label picked by
+        # nightly_sign_runner.py, with the other size on a re-run. Nightlies never use Blacksmith now.
         jobs = load(WORKFLOWS / "nightly.yml")["jobs"]
-        picked = re.compile(r"\|\| (needs\.(?:pick-nightly-sign-runner|find-nightly-next-recovery|legacy-identity-target)"
-                            r"\.outputs\.)(runner|sign_runner) \|\|")
-        failures, seen = [], set()
         for job_id, job in jobs.items():
             text = runs_on_text(job)
-            for match in picked.finditer(text):
-                seen.add(job_id)
-                alternate = match.group(1) + ("alternate" if match.group(2) == "runner" else "sign_alternate")
-                if f"|| github.run_attempt > 1 && {alternate} {match.group(0)}" not in text:
-                    failures.append(f"nightly.yml {job_id}: {match.group(1)}{match.group(2)} has no re-run alternative")
-        self.assertTrue({"build-sign-notarize-nightly", "sign-nightly-identity-legacy"} <= seen, seen)
-        self.assertEqual(failures, [], "a picked signing label needs `github.run_attempt > 1 && <alternate>` before it")
+            with self.subTest(job=job_id):
+                self.assertNotRegex(text, r"outputs\.(?:sign_)?(?:runner|alternate)\b|blacksmith")
 
     def test_a_reserved_slot_always_has_a_fallback(self) -> None:
         failures, seen = [], 0

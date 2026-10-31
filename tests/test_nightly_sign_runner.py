@@ -30,27 +30,13 @@ NOW = dt.datetime(2026, 10, 26, 9, 30, tzinfo=dt.timezone.utc)
 LARGE, SMALL = "blacksmith-12vcpu-macos-26", "blacksmith-6vcpu-macos-26"
 WORKFLOW = yaml.safe_load((ROOT / ".github/workflows/nightly.yml").read_text(encoding="utf-8"))
 
-# The jobs that sign, notarize, verify a signed build or publish it, and the job whose
-# output names their label. Each reads it first, then the variable, then 6 vCPU.
-SIGNING_JOBS = {
-    "build-sign-notarize-nightly": "needs.pick-nightly-sign-runner.outputs.runner",
-    "verify-signed-nightly": "needs.pick-nightly-sign-runner.outputs.runner",
-    "verify-final-dmg-nightly": "needs.pick-nightly-sign-runner.outputs.runner",
-    "recover-nightly-next-notarization": "needs.find-nightly-next-recovery.outputs.sign_runner",
-    "verify-recovered-nightly-next": "needs.find-nightly-next-recovery.outputs.sign_runner",
-    # The release-pool path's one Mac job: Apple's checks and the DMG image, no secrets.
-    "signer-dmg-image": "needs.pick-nightly-sign-runner.outputs.runner",
-}
-# Jobs that never take Blacksmith (Lawrence, 2026-10-30: nightlies never use Blacksmith): an owned
-# pick where one exists, then the owned nightly slot variable, then the owned side lane.
-OWNED_ONLY_JOBS = ("sign-nightly-identity-legacy", "verify-nightly-identity-legacy", "generate-nightly-deltas")
-OWNED_FALLBACK = "|| vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.CI_SIDE_LANE_RUNNER }}"
-# Each picker's re-run label, the other Blacksmith macOS 26 size.
-ALTERNATES = {
-    "needs.pick-nightly-sign-runner.outputs.runner": "needs.pick-nightly-sign-runner.outputs.alternate",
-    "needs.find-nightly-next-recovery.outputs.sign_runner": "needs.find-nightly-next-recovery.outputs.sign_alternate",
-    "needs.legacy-identity-target.outputs.sign_runner": "needs.legacy-identity-target.outputs.sign_alternate",
-}
+# Nightlies never use Blacksmith (Lawrence, 2026-10-30): the jobs that sign, notarize, verify a signed build or
+# publish it take an owned pick where one exists, then the owned nightly slot, the owned side lane and the owned
+# nightly-ops runners. nightly_sign_runner.py (the Blacksmith label picker) is no longer run by any nightly.
+OWNED_FALLBACK = "|| vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.CI_SIDE_LANE_RUNNER || 'cmux-nightly-ops' }}"
+SIGNING_JOBS = ("build-sign-notarize-nightly", "verify-signed-nightly", "verify-final-dmg-nightly",
+                "recover-nightly-next-notarization", "verify-recovered-nightly-next", "sign-nightly-identity-legacy",
+                "verify-nightly-identity-legacy", "generate-nightly-deltas", "signer-dmg-image")
 # macOS jobs that still read vars.MACOS_RUNNER_26 directly: they build (no signing material)
 # and have owned-pool routes of their own.
 BUILD_JOBS = {"build-nightly-app", "prepare-nightly-variant-primary"}
@@ -295,29 +281,19 @@ class DeadLabel(unittest.TestCase):
 
 
 class Workflow(unittest.TestCase):
-    def test_signing_jobs_read_the_picked_label_first(self) -> None:
+    def test_signing_jobs_stay_on_owned_macs(self) -> None:
         jobs = WORKFLOW["jobs"]
-        for name, picked in SIGNING_JOBS.items():
-            with self.subTest(job=name):
-                runs_on = str(jobs[name]["runs-on"])
-                self.assertIn(f"|| {picked} || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26'", runs_on)
-                # A re-run (attempt 2 on) takes the other size: GitHub never re-routes a queued job,
-                # so a label that stalls after the pick is left only by a re-run, which must not
-                # queue on it again (run 40489472569, 2026-10-27).
-                self.assertIn(f"|| github.run_attempt > 1 && {ALTERNATES[picked]} || {picked} ||", runs_on)
-                needs = jobs[name]["needs"]
-                self.assertIn(picked.split(".")[1], [needs] if isinstance(needs, str) else needs)
-
-    def test_owned_only_jobs_never_name_blacksmith(self) -> None:
-        jobs = WORKFLOW["jobs"]
-        for name in OWNED_ONLY_JOBS:
+        for name in SIGNING_JOBS:
             with self.subTest(job=name):
                 runs_on = str(jobs[name]["runs-on"])
                 self.assertTrue(runs_on.endswith(OWNED_FALLBACK), runs_on)
-                self.assertNotIn("blacksmith", runs_on)
-                self.assertNotIn("MACOS_RUNNER", runs_on)
-                self.assertNotIn("sign_runner", runs_on)
-                self.assertNotIn("sign_alternate", runs_on)
+                for word in ("blacksmith", "MACOS_RUNNER", "sign_runner", "alternate", "outputs.runner"):
+                    self.assertNotIn(word, runs_on)
+
+    def test_no_nightly_runs_the_blacksmith_picker(self) -> None:
+        for path in sorted((ROOT / ".github/workflows").glob("*nightly*.yml")):
+            with self.subTest(workflow=path.name):
+                self.assertNotIn("nightly_sign_runner.py", path.read_text(encoding="utf-8"))
 
     def test_no_other_macos_job_resolves_to_the_variable_alone(self) -> None:
         reads = {name for name, job in WORKFLOW["jobs"].items() if "vars.MACOS_RUNNER_26" in str(job.get("runs-on", ""))}
@@ -328,42 +304,16 @@ class Workflow(unittest.TestCase):
             with self.subTest(job=name):
                 self.assertNotIn("environment", WORKFLOW["jobs"][name].get("environment", "") or "")
 
-    def test_the_pickers_run_the_step_and_publish_its_output(self) -> None:
-        jobs = WORKFLOW["jobs"]
-        for job, output in (("pick-nightly-sign-runner", "runner"), ("find-nightly-next-recovery", "sign_runner"),
-                            ("legacy-identity-target", "sign_runner")):
-            with self.subTest(job=job):
-                step = next(s for s in jobs[job]["steps"] if s.get("id") == "sign-runner")
-                self.assertTrue(step["continue-on-error"])
-                # The picker job checks out only the publication tooling (tests/test_nightly_cmux_tui_resolve.py).
-                tooling = ".publish-tooling/" if job == "pick-nightly-sign-runner" else ""
-                self.assertEqual(step["run"].strip(), f"python3 {tooling}scripts/ci/nightly_sign_runner.py")
-                self.assertEqual(step["env"]["CANDIDATE"], "${{ vars.MACOS_RUNNER_26 }}")
-                self.assertEqual(jobs[job]["outputs"][output], "${{ steps.sign-runner.outputs.runner }}")
-                alternate = "alternate" if output == "runner" else "sign_alternate"
-                self.assertEqual(jobs[job]["outputs"][alternate], "${{ steps.sign-runner.outputs.alternate }}")
-                # legacy-identity-target takes release-next only for the release App credentials of its
-                # gh calls (tests/test_gh_app_token.py); that environment has no reviewers, so nothing waits.
-                # pick-nightly-sign-runner mints the routing token, so it reads GLAEDA_ROUTE_APP_KEY in
-                # ci-routing-agent, as pick-nightly-build-runner does (tests/test_supplychain_security.py).
-                expected = {"legacy-identity-target": "release-next", "pick-nightly-sign-runner": "ci-routing-agent"}
-                self.assertEqual(jobs[job].get("environment"), expected.get(job))
-        self.assertEqual(jobs["pick-nightly-sign-runner"]["permissions"], {"actions": "read", "contents": "read"})
-        # A failed pick never blocks signing: the jobs fall back to the variable.
-        self.assertTrue(jobs["pick-nightly-sign-runner"]["continue-on-error"])
 
 
 class OwnedVerify(unittest.TestCase):
-    """The secret-free verify jobs take a free owned Mac first, Blacksmith last (2026-10-26).
+    """The secret-free verify jobs take a free owned Mac first, then the owned nightly slot (never Blacksmith).
 
     nightly-next runs 40396929672 and 40403525126 waited over an hour on blacksmith-6vcpu-macos-26
-    behind pull request compiles. The routing order is Linux, owned Macs, then Blacksmith last
-    (Leo, 2026-10-24); the signing jobs, which hold the keys, stay on Blacksmith.
+    behind pull request compiles; since 2026-10-30 nightlies never use Blacksmith at all (Lawrence).
     """
 
     OWNED_JOBS = ("verify-signed-nightly", "verify-final-dmg-nightly", "signer-dmg-image")
-    # The cmux NIGHTLY-identity verify, also secret-free, keeps its own picker's Blacksmith labels after
-    # the owned pick: on 2026-10-28 it queued 20+ min on blacksmith-6vcpu-macos-26 while 12 vCPU was stalled.
     LEGACY_OWNED_JOBS = ("verify-nightly-identity-legacy",)
     OWNED = "needs.pick-nightly-sign-runner.outputs.owned"
 
@@ -377,9 +327,7 @@ class OwnedVerify(unittest.TestCase):
                 self.assertNotIn("environment", job)
                 self.assertNotIn("secrets.", yaml.safe_dump(job))
                 self.assertIn(f"|| needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && {self.OWNED} "
-                              "|| github.run_attempt > 1 && "
-                              "needs.pick-nightly-sign-runner.outputs.alternate || needs.pick-nightly-sign-runner.outputs.runner "
-                              "|| vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26'", str(job["runs-on"]))
+                              + OWNED_FALLBACK, str(job["runs-on"]))
                 xcode = job["env"]["CMUX_CI_XCODE_APP"]
                 self.assertIn(f"needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && {self.OWNED} != '' "
                               "&& vars.CMUX_CI_XCODE_APP_PR", xcode)
@@ -443,12 +391,11 @@ class OwnedVerify(unittest.TestCase):
         self.assertNotIn("e2e_runner_pool.py", yaml.safe_dump(job))
         self.assertEqual(step["env"]["OWNED_LABELS"],
                          "${{ format('{0} {1}', vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, vars.CI_SIDE_LANE_RUNNER) }}")
-        self.assertEqual(step["env"]["CANDIDATE"], "${{ vars.MACOS_RUNNER_26 }}")
         self.assertNotIn("DEDICATED_LABEL", step["env"])
-        # The job outlives its step budgets, and the Blacksmith pick comes first: a slow App API
-        # never cancels the job before `runner` is written (a cancelled pick skips signing).
+        # The job outlives its step budgets. There is no Blacksmith pick any more (nightlies never use
+        # Blacksmith, Lawrence 2026-10-30).
         ids = [s.get("id") for s in job["steps"]]
-        self.assertLess(ids.index("sign-runner"), ids.index("route-token"))
+        self.assertNotIn("sign-runner", ids)
         budget = sum(int(s.get("timeout-minutes", 0)) for s in job["steps"])
         self.assertTrue(all("timeout-minutes" in s for s in job["steps"] if s.get("id")))
         self.assertGreaterEqual(int(job["timeout-minutes"]), budget + 2)

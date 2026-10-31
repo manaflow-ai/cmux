@@ -50,7 +50,7 @@ jobs:
   pick-archive-runner:
     name: Pick the archive runner
     if: github.repository == 'manaflow-ai/cmux' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/rc/cnx-ios-builder'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-2vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-nightly-ops' }}
     timeout-minutes: 10
     # The routing App key, as every other runner picker reads it.
     environment: ci-routing-agent
@@ -79,7 +79,7 @@ jobs:
           private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
           permission-administration: read
 
-      - name: Pick the dedicated mini while it can take the job, else Blacksmith
+      - name: Pick the dedicated mini while it can take the job
         id: pick
         continue-on-error: true
         timeout-minutes: 8
@@ -95,7 +95,7 @@ jobs:
     if: "!cancelled() && github.repository == 'manaflow-ai/cmux' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/rc/cnx-ios-builder'"
     # The pick counts only on the attempt it was made for, so a re-run of failed
     # jobs that keeps the picker's outputs takes Blacksmith.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.pick-archive-runner.outputs.attempt == format('{0}', github.run_attempt) && needs.pick-archive-runner.outputs.dedicated != '' && needs.pick-archive-runner.outputs.dedicated || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.pick-archive-runner.outputs.attempt == format('{0}', github.run_attempt) && needs.pick-archive-runner.outputs.dedicated != '' && needs.pick-archive-runner.outputs.dedicated || vars.CI_SIDE_LANE_RUNNER || 'cmux-nightly-ops' }}
     timeout-minutes: 90
     outputs:
       marketing: ${{ steps.stamp.outputs.marketing }}
@@ -188,7 +188,7 @@ jobs:
   previous-build:
     name: Last build in App Store Connect (read only)
     if: github.repository == 'manaflow-ai/cmux' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/rc/cnx-ios-builder' && inputs.base == ''
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-nightly-ops' }}
     timeout-minutes: 10
     # Never fails the run: the trigger reads run conclusions as "uploaded or not".
     continue-on-error: true
@@ -228,7 +228,7 @@ jobs:
     name: What to Test (no secrets)
     needs: previous-build
     if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/rc/cnx-ios-builder' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-nightly-ops' }}
     timeout-minutes: 15
     continue-on-error: true
     permissions:
@@ -276,7 +276,7 @@ jobs:
     name: Sign, validate, upload to cmux INTERNAL
     needs: [archive, notes]
     if: ${{ !cancelled() && needs.archive.result == 'success' && github.repository == 'manaflow-ai/cmux' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/rc/cnx-ios-builder' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }} # ephemeral signer (Blacksmith is trusted like hosted); the signing key stays off owned machines
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'cmux-nightly-ops' }} # Nightlies never use Blacksmith (Lawrence, 2026-10-30): owned nightly-ops runners
     timeout-minutes: 75
     environment: release
     env:

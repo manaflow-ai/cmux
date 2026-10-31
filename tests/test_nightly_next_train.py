@@ -534,7 +534,7 @@ class OwnedRefusal(unittest.TestCase):
         self.assertEqual(results, {commit: False})
         self.assertFalse([c for c in calls if c[:2] == ("run", "rerun")])
 
-    def test_the_compile_picks_an_idle_owned_mac_then_blacksmith(self) -> None:
+    def test_the_compile_picks_an_idle_owned_mac_then_the_owned_side_lane(self) -> None:
         import yaml
         jobs = yaml.safe_load((ROOT / ".github/workflows/nightly-next-train.yml").read_text(encoding="utf-8"))["jobs"]
         pick = jobs["pick-train-runner"]
@@ -553,9 +553,9 @@ class OwnedRefusal(unittest.TestCase):
         self.assertIn("ubuntu", pick["runs-on"])
         runs_on = jobs["build"]["runs-on"]
         self.assertEqual(jobs["build"]["needs"], "pick-train-runner")
+        # Nightlies never use Blacksmith (Lawrence, 2026-10-30): the owned side lane, then the owned ops runners.
         self.assertIn("needs.pick-train-runner.outputs.attempt == format('{0}', github.run_attempt) && "
-                      "needs.pick-train-runner.outputs.owned || needs.pick-train-runner.outputs.blacksmith || "
-                      "vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}", runs_on)
+                      "needs.pick-train-runner.outputs.owned || vars.CI_SIDE_LANE_RUNNER || 'cmux-nightly-ops' }}", runs_on)
 
 
 class Wiring(unittest.TestCase):

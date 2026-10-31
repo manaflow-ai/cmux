@@ -41,6 +41,12 @@ RUNNER_VARIABLES_ENV = "CMUX_CI_RUNNER_VARIABLES"
 # only where a picker already skips a stalled label. tests/test_ci_runs_on_fallback.py keeps literals off it.
 LARGE_MAC = "blacksmith-12vcpu-macos-26"
 LAST_RESORT_VARIABLES = ("MACOS_RUNNER_PR", "MACOS_RUNNER_26", "MACOS_RUNNER_IOS")
+# Nightlies never use Blacksmith, ever (Lawrence, 2026-10-30). These are the only repository variables a
+# nightly job's runs-on reads (tests/test_ci_nightly_off_blacksmith.py NIGHTLY_RUNNER_VARIABLES), and each is a
+# nightly job's last owned fallback, so each must be set and name an owned glaeda- label: an empty one leaves a
+# job with no runner, a Blacksmith or hosted one sends a nightly off our Mac minis.
+NIGHTLY_RUNNER_VARIABLES = ("CI_NIGHTLY_NEXT_BUILD_RUNNER", "CI_SIDE_LANE_RUNNER", "CI_SEED_TRUSTED_POOL")
+OWNED_PREFIX = "glaeda-"
 
 
 def parse_runner_variables(raw: str) -> dict[str, str]:
@@ -79,6 +85,11 @@ def problems(env: dict[str, str]) -> list[str]:
                     # jobs read is never excused for naming a reused machine, record or not.
                     continue
                 found.append(f"{name}={value!r}: {reason}")
+            for name in NIGHTLY_RUNNER_VARIABLES:
+                value = variables.get(name, "").strip()
+                if not value.startswith(OWNED_PREFIX):
+                    found.append(f"{name}={value!r}: nightly jobs fall back to it, and nightlies run only on our own "
+                                 f"Mac minis. Fix: gh variable set {name} --body <an owned {OWNED_PREFIX}* label>")
             for name in LAST_RESORT_VARIABLES:
                 if variables.get(name, "").strip() == LARGE_MAC and switched.get(name) != LARGE_MAC:
                     found.append(f"{name}={LARGE_MAC!r}: a job's last resort on the 12 vCPU Blacksmith label, which "

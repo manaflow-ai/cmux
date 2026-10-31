@@ -4,12 +4,24 @@
 
 ## Rules that must never be broken
 
-- Nightlies use the same pooled capacity as dev builds. Native work goes to an
-  owned controller-managed Mac pool first, then the trusted Blacksmith macOS
-  pool. Control, verification and publication steps use the Linux pool. No
-  nightly may name a runner-specific label or reserve one host; the routing
-  fallback is explicit in the workflow and enforced by
-  `tests/test_ci_nightly_off_blacksmith.py`.
+- **Nightlies never use Blacksmith, ever** (Lawrence, 2026-10-30), for
+  cmux-next and classic. Every job of every nightly workflow
+  (`*nightly*.yml`, `*notarization*.yml`, and the reusable workflows they
+  call) runs only on our own Mac minis, on every path: the primary label,
+  fallbacks, re-runs and owned-pool rescue attempts, signing twins, the cloud
+  overflow switch, inputs and repository variables. Native and signing work
+  takes the owned pickers, then the owned nightly slot
+  (`vars.CI_NIGHTLY_NEXT_BUILD_RUNNER`), then the owned side lane
+  (`vars.CI_SIDE_LANE_RUNNER`). Everything else (decide, pickers, feed reads
+  and writes, publishers, notarization polls) takes the owned nightly-ops
+  runners, label `cmux-nightly-ops`: 4 repository runners each on cmux15 and
+  cmux7s, outside glaeda's ledger, installed by
+  `scripts/ci/nightly-ops-install.sh HOST`, admitting only nightly workflows
+  on main, nightly-next and feat-cmux-next (`scripts/ci/nightly_ops_runner.py`).
+  When owned capacity is short, add owned capacity; never a Blacksmith
+  fallback. `tests/test_ci_nightly_off_blacksmith.py` enforces the workflow
+  text and `scripts/ci/check_repo_variables.py` the live variable values. No
+  nightly may name a runner-specific label or reserve one host.
 - CI is minis first. Blacksmith is overflow; do not disable an owned lane to
   make room for a dev build.
 - Every mini must have every pinned Xcode from

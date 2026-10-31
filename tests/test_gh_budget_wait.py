@@ -401,10 +401,10 @@ class WorkflowTests(unittest.TestCase):
 
     def test_the_attestation_reserves_budget_and_its_retry_shares_the_ledger(self) -> None:
         job = self.jobs["attest-nightly-remote-daemon"]
-        # A quota wait never holds a Mac: the Linux runner set, as every Linux nightly job
+        # A quota wait never holds a build Mac: the owned nightly-ops runners, as every light nightly job
         # (test_nightly_trusted_routing).
         self.assertNotIn("macos", job["runs-on"])
-        self.assertIn("blacksmith-32vcpu-ubuntu-2404", job["runs-on"])
+        self.assertIn("'cmux-nightly-ops'", job["runs-on"])
         self.assertEqual(job["needs"], ["build-nightly-remote-daemon"])
         self.assertGreaterEqual(int(job["timeout-minutes"]), 65)
         # No consumer can put this advisory job back on the publication path,

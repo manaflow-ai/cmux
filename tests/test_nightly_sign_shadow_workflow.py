@@ -46,7 +46,8 @@ ADMIT_COMMAND = (
     '--out "$RUNNER_TEMP/nightly-sign-source"'
 )
 # Literal labels only (no variable moves the job): Blacksmith Linux, a fork the hosted image.
-LINUX_RUNNER = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}"
+# Nightlies never use Blacksmith (Lawrence, 2026-10-30): the owned nightly-ops runners.
+LINUX_RUNNER = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-nightly-ops' }}"
 JOB_KEYS = {"name", "if", "runs-on", "timeout-minutes", "permissions", "steps"}
 STEP_KEYS = {"name", "id", "uses", "with", "env", "run"}
 WORKFLOW_KEYS = {"name", "on", True, "permissions", "env", "concurrency", "jobs"}

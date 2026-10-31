@@ -21,7 +21,7 @@ concurrency:
 jobs:
   version:
     name: derive nightly versions
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-nightly-ops' }}
     permissions:
       contents: read
     outputs:
@@ -108,7 +108,7 @@ jobs:
       # benchmark mini cmux11s, which nightlies must never reach (a153,
       # 2026-10-20). See docs/ci-runners.md.
       macos_runner: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'glaeda-side-light-xcode-26.6' }}
-      macos_retry_runner: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-15' }}
+      macos_retry_runner: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'cmux-nightly-ops' }}
       linux_runner: ''
       linux_arm64_runner: ''
       # Windows legs (include_windows) take the builder's Blacksmith default

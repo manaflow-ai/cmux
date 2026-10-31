@@ -32,7 +32,7 @@ jobs:
     environment: ci-routing-agent
     permissions:
       contents: write
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-nightly-ops' }}
     timeout-minutes: 10
     steps:
       - name: Check out the probe target

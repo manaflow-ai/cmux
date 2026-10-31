@@ -380,14 +380,14 @@ class Workflow(unittest.TestCase):
         for job in GUARDED:
             with self.subTest(job=job):
                 runs_on = DOC["jobs"][job]["runs-on"]
-                self.assertNotIn("CI_NIGHTLY_NEXT_BUILD_RUNNER", runs_on)
                 self.assertIn(f"needs.{GUARDED[job]}.outputs.owned", runs_on)
-                self.assertIn(f"needs.{GUARDED[job]}.outputs.blacksmith", runs_on)
+                # Nightlies never use Blacksmith (Lawrence, 2026-10-30): the owned nightly slot is the fallback.
+                self.assertNotIn("blacksmith", runs_on)
 
-    def test_every_nightly_next_route_has_a_blacksmith_fallback(self) -> None:
-        # Owned only when the picker saw it idle for this very attempt; anything else (a re-run of
-        # failed jobs that kept an earlier attempt's pick included) is Blacksmith, whatever
-        # vars.MACOS_RUNNER_26 holds (a hosted or owned value never routes around the pick).
+    def test_every_nightly_next_route_falls_back_to_the_owned_nightly_slot(self) -> None:
+        # The picked owned Mac only when the picker saw it idle for this very attempt; anything else (a re-run
+        # of failed jobs that kept an earlier attempt's pick included) is the owned nightly slot, whatever
+        # vars.MACOS_RUNNER_26 holds. Never Blacksmith (Lawrence, 2026-10-30).
         for job, pick in GUARDED.items():
             source = DOC["jobs"][job]["runs-on"].removeprefix("${{").removesuffix("}}")
             for event, attempt, picked_for, owned, blacksmith, owned_on, variable in itertools.product(
@@ -406,9 +406,9 @@ class Workflow(unittest.TestCase):
                     if picked_for == str(attempt) and owned:
                         self.assertEqual(label, owned)
                     else:
-                        self.assertTrue(str(label).startswith("blacksmith-"), label)
+                        self.assertEqual(label, DEV)
 
-    def test_the_ghostty_helper_takes_the_owned_or_blacksmith_pick_never_the_dedicated_builder(self) -> None:
+    def test_the_ghostty_helper_takes_the_owned_pick_or_the_nightly_slot_never_the_dedicated_builder(self) -> None:
         # Starved on Blacksmith macos-26 behind the bare label (run 40500413442). The dedicated
         # builder's hook admits only build-nightly-app, so the helper never takes it.
         job = DOC["jobs"]["build-nightly-ghostty-cli-helper"]
@@ -423,7 +423,7 @@ class Workflow(unittest.TestCase):
                        "github.event_name": event, "github.ref": "refs/heads/nightly-next",
                        "github.run_attempt": attempt, "vars.CI_PR_POOL_OWNED": "1",
                        "vars.CI_SIDE_LANE_RUNNER": SIDE, "vars.CI_SEED_TRUSTED_POOL": "glaeda-trusted-std-xcode-26.6",
-                       "vars.LINUX_RUNNER": "", "inputs.nightly_next_unsigned_run": "",
+                       "vars.CI_NIGHTLY_NEXT_BUILD_RUNNER": DEV, "inputs.nightly_next_unsigned_run": "",
                        f"needs.{pick}.outputs.attempt": picked_for,
                        "needs.resolve-nightly-ghostty-cli-helper.outputs.hit": "false",
                        f"needs.{pick}.outputs.owned": dedicated or helper,
@@ -437,8 +437,8 @@ class Workflow(unittest.TestCase):
                 if picked_for == str(attempt) and helper == SIDE:
                     self.assertEqual(label, SIDE)
                 else:
-                    # The picker's moving label, else the default; never a dropped pick.
-                    self.assertEqual(label, blacksmith or SMALL)
+                    # The owned nightly slot; never a dropped pick, never Blacksmith.
+                    self.assertEqual(label, DEV)
 
     def test_the_pickers_never_block_their_job(self) -> None:
         for job, pick in GUARDED.items():
@@ -458,7 +458,7 @@ class Workflow(unittest.TestCase):
                 self.assertGreaterEqual(step["timeout-minutes"] * 60, picker.DEDICATED_WAIT_SECONDS + 120)
                 self.assertGreater(definition["timeout-minutes"], step["timeout-minutes"] + 2)
                 self.assertIn("steps.pick.outputs.owned", definition["outputs"]["owned"])
-                self.assertEqual(definition["outputs"]["blacksmith"], "${{ steps.pick.outputs.blacksmith }}")
+                self.assertNotIn("blacksmith", definition["outputs"])
                 # The helper's pick stands on the same terms as `owned`.
                 self.assertEqual(definition["outputs"]["helper"],
                                  definition["outputs"]["owned"].replace("steps.pick.outputs.owned",
@@ -509,13 +509,13 @@ class Workflow(unittest.TestCase):
                     context = {"github.repository_owner": "manaflow-ai", "github.repository": "manaflow-ai/cmux",
                                "github.event_name": event, "github.ref": "refs/heads/nightly-next",
                                "github.run_attempt": attempt, "vars.CI_PR_POOL_OWNED": "1",
+                               "vars.CI_NIGHTLY_NEXT_BUILD_RUNNER": DEV,
                                **{f"needs.{pick}.outputs.{key}": value for key, value in out.items()}}
                     source = DOC["jobs"][job]["runs-on"].removeprefix("${{").removesuffix("}}")
                     self.assertEqual(evaluate(parse_expression(source), context), SIDE)
-                    # A re-run of failed jobs that kept the previous attempt's pick takes the moving
-                    # Blacksmith label, so a refused owned label is never taken again.
+                    # A re-run of failed jobs that kept the previous attempt's pick takes the owned nightly slot.
                     stale = {**context, "github.run_attempt": attempt + 1}
-                    self.assertEqual(evaluate(parse_expression(source), stale), LARGE)
+                    self.assertEqual(evaluate(parse_expression(source), stale), DEV)
 
     def test_an_owned_pick_outside_the_workflow_run_watch_leaves_a_marker(self) -> None:
         for pick in GUARDED.values():

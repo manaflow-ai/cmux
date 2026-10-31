@@ -21,7 +21,9 @@ sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 import check_repo_variables as check  # noqa: E402
 
 WORKFLOWS = ROOT / ".github" / "workflows"
-GOOD_RUNNERS = "LINUX_RUNNER=blacksmith-4vcpu-ubuntu-2404\nMACOS_RUNNER_PR=blacksmith-6vcpu-macos-26\nWINDOWS_RUNNER=\n"
+GOOD_RUNNERS = ("LINUX_RUNNER=blacksmith-4vcpu-ubuntu-2404\nMACOS_RUNNER_PR=blacksmith-6vcpu-macos-26\nWINDOWS_RUNNER=\n"
+                "CI_NIGHTLY_NEXT_BUILD_RUNNER=glaeda-nightly-std-xcode-26.6\nCI_SIDE_LANE_RUNNER=glaeda-side-std-xcode-26.6\nCI_SEED_TRUSTED_POOL=glaeda-trusted-std-xcode-26.6\n")
+NIGHTLY_OK = "CI_NIGHTLY_NEXT_BUILD_RUNNER=glaeda-nightly-std-xcode-26.6\nCI_SIDE_LANE_RUNNER=glaeda-side-std-xcode-26.6\nCI_SEED_TRUSTED_POOL=glaeda-trusted-std-xcode-26.6\n"
 GOOD_SLOTS = '{"glaeda-std-xcode-26.6": 42, "glaeda-light-xcode-26.6": 4, "glaeda-root-std-xcode-26.6": 10}'
 
 
@@ -41,6 +43,17 @@ def runner_block(workflow: str) -> list[str]:
 
 
 class Values(unittest.TestCase):
+    def test_nightly_fallback_variables_must_name_an_owned_label(self) -> None:
+        """Nightlies never use Blacksmith (Lawrence, 2026-10-30): no variable may route a nightly job there."""
+        good = GOOD_RUNNERS
+        for name in check.NIGHTLY_RUNNER_VARIABLES:
+            for value in ("blacksmith-6vcpu-macos-26", "blacksmith-4vcpu-ubuntu-2404", "macos-26", ""):
+                with self.subTest(name=name, value=value):
+                    runners = "".join(line + "\n" for line in good.splitlines() if not line.startswith(name + "="))
+                    found = check.problems(env(CMUX_CI_RUNNER_VARIABLES=runners + f"{name}={value}\n"))
+                    self.assertTrue(any(problem.startswith(f"{name}=") and "own Mac minis" in problem
+                                        for problem in found), found)
+
     def test_good_values_pass(self) -> None:
         self.assertEqual(check.problems(env()), [])
         self.assertEqual(check.problems(env(CI_OWNED_POOL_SLOTS="")), [])
@@ -55,7 +68,7 @@ class Values(unittest.TestCase):
     def test_runner_labels_the_guard_refuses_fail(self) -> None:
         for label in ("warp-macos-26-arm64-12x", "glaeda-std-xcode-26.6"):
             with self.subTest(label=label):
-                found = check.problems(env(CMUX_CI_RUNNER_VARIABLES=f"MACOS_RUNNER_PR={label}\n"))
+                found = check.problems(env(CMUX_CI_RUNNER_VARIABLES=NIGHTLY_OK + f"MACOS_RUNNER_PR={label}\n"))
                 self.assertEqual(len(found), 1)
                 self.assertIn("MACOS_RUNNER_PR", found[0])
 
@@ -63,10 +76,10 @@ class Values(unittest.TestCase):
         # 2026-10-28: MACOS_RUNNER_PR named blacksmith-12vcpu-macos-26, which started nothing from about 02:11Z.
         for name in check.LAST_RESORT_VARIABLES:
             with self.subTest(name=name):
-                found = check.problems(env(CMUX_CI_RUNNER_VARIABLES=f"{name}=blacksmith-12vcpu-macos-26\n"))
+                found = check.problems(env(CMUX_CI_RUNNER_VARIABLES=NIGHTLY_OK + f"{name}=blacksmith-12vcpu-macos-26\n"))
                 self.assertEqual(len(found), 1)
                 self.assertIn(f"gh variable set {name}", found[0])
-        self.assertEqual(check.problems(env(CMUX_CI_RUNNER_VARIABLES="MACOS_RUNNER_26_LARGE=blacksmith-12vcpu-macos-26\n")), [])
+        self.assertEqual(check.problems(env(CMUX_CI_RUNNER_VARIABLES=NIGHTLY_OK + "MACOS_RUNNER_26_LARGE=blacksmith-12vcpu-macos-26\n")), [])
 
     def test_nothing_to_check_is_a_failure_not_a_pass(self) -> None:
         self.assertTrue(check.problems(env(CMUX_CI_RUNNER_VARIABLES="")))

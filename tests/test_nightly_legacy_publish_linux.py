@@ -59,11 +59,13 @@ RFC_SIGNATURE = bytes.fromhex(
 
 
 class Workflow(unittest.TestCase):
-    def test_publish_runs_on_blacksmith_linux(self) -> None:
+    def test_publish_runs_on_the_owned_nightly_ops_runners(self) -> None:
         body = job("publish-nightly-identity-legacy")
         runs_on = re.search(r"^    runs-on: (.+)$", body, re.MULTILINE).group(1)
-        self.assertEqual(runs_on, "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-32vcpu-ubuntu-2404' }}")
-        # It holds the Sparkle and R2 keys: never an owned host, never a Mac.
+        # Nightlies never use Blacksmith (Lawrence, 2026-10-30). It holds the Sparkle and R2 keys, so it takes only
+        # the owned nightly-ops runners, whose hook admits nightly workflows on trusted refs only
+        # (scripts/ci/nightly_ops_runner.py), never a PR pool runner.
+        self.assertEqual(runs_on, "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-nightly-ops' }}")
         self.assertNotIn("LINUX_RUNNER", runs_on)
 
     def test_publish_uses_no_apple_tool(self) -> None:

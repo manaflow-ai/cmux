@@ -1703,7 +1703,7 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_unsigned_resume.py
 
-      - name: Validate the nightly signing jobs take a Blacksmith label with a moving queue
+      - name: Validate the nightly signing jobs stay on owned Macs
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_sign_runner.py
 
@@ -1711,7 +1711,7 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_ci_signing_owned_mac.py
 
-      - name: Validate the nightly-next build takes an idle owned Mac or a moving Blacksmith label
+      - name: Validate the nightly-next build takes an idle owned Mac or the owned nightly slot
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_build_runner.py
 

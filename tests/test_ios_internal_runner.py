@@ -99,7 +99,8 @@ class Workflow(unittest.TestCase):
         self.assertIn("needs.pick-archive-runner.outputs.attempt == format('{0}', github.run_attempt) && "
                       "needs.pick-archive-runner.outputs.dedicated != '' && "
                       "needs.pick-archive-runner.outputs.dedicated || ", archive["runs-on"])
-        self.assertTrue(archive["runs-on"].rstrip("} ").endswith("|| 'blacksmith-6vcpu-macos-26'"))
+        # Nightlies never use Blacksmith (Lawrence, 2026-10-30): the owned side lane, then the owned ops runners.
+        self.assertTrue(archive["runs-on"].rstrip("} ").endswith("|| vars.CI_SIDE_LANE_RUNNER || 'cmux-nightly-ops'"))
         self.assertEqual(archive["needs"], "pick-archive-runner")
         self.assertIn("!cancelled()", archive["if"])
         self.assertIn("vars.CI_IOS_INTERNAL_RUNNER", jobs["pick-archive-runner"]["steps"][-1]["env"]["DEDICATED_LABEL"])
