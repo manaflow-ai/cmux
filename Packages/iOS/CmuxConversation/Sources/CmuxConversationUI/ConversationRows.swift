@@ -42,7 +42,7 @@ struct ReplyQuote: Hashable {
     var isOutgoing: Bool
     var hasImage: Bool
     /// The quoted message's own reply count: Messages labels the quote
-    /// "N Replies" when the reply sits on the quote's side.
+    /// "N Replies" once it has two or more.
     var replyCount: Int = 0
 }
 

@@ -444,7 +444,7 @@ extension MessageCellLayout {
             quoteTextFrame = CGRect(x: bodyMinX + inset, y: y + (h - textHeight) / 2, width: bodyWidth - 2 * inset, height: textHeight)
             y += h
             // "N Replies" belongs to the quoted message: Messages shows it under
-            // the quote when the reply sits on the quote's own side.
+            // the quote once that message has two or more replies.
             let sameSide = quote.isOutgoing == model.isOutgoing
             if quote.replyCount >= 2 {
                 let h = t.footerHeight
@@ -659,6 +659,9 @@ extension MessageCellLayout {
             var quoteBody = quoteFrame
             quoteBody.size.width -= t.tailWidth
             if !quote.isOutgoing { quoteBody.origin.x += t.tailWidth }
+            // Under a quote of theirs the line drops from the leading edge,
+            // where "N Replies" sits: it starts under the label instead.
+            if !quote.isOutgoing, let labels = quoteRepliesFrame { quoteBody.size.height = labels.maxY - quoteBody.minY }
             threadPath = ConversationReplyThread.row(
                 quote: quoteBody,
                 quoteSide: quote.isOutgoing ? .trailing : .leading,
