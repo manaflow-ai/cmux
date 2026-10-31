@@ -3686,6 +3686,13 @@ export function VirtualTranscript({
           };
           animation.onfinish = finished;
           animation.oncancel = finished;
+        } else {
+          // With motion disabled the fold has already settled in this layout pass; release the
+          // virtualizer's held row immediately so a programmatic scroll can unmount it.
+          if (stack.cleanupTimer !== undefined) clearTimeout(stack.cleanupTimer);
+          stack.rowObserver?.disconnect();
+          bottomStackFold.current = undefined;
+          foldAnchor.current = undefined;
         }
       }
     } else if (folding && node) {
