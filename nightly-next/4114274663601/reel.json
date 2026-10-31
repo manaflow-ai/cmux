@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "build": "4114274663601",
+  "notes": "notes/4114274663601.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 27617,
+      "title": "cmux-rd: stream a Mac's own display (ScreenCaptureKit, VideoToolbox, CGEvent)",
+      "author": "Abdulaziz Albahar",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28547,
+      "title": "cmux-next: pin CCmuxAppFFI to cmux-app-ffi-c0331557f5438d4c7e32f1af3e142dcf8c918b06",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28537,
+      "title": "refactor(webviews): migrate clock consumers to page clock",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28096,
+      "title": "fix(sidebar): a Cloud shell's tab lists as Terminal, not its raw home path",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28538,
+      "title": "refactor(webviews): pause ChangesStatus timers when hidden",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
