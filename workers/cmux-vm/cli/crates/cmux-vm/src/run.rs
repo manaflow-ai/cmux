@@ -523,15 +523,19 @@ async fn prepare(client: &Client, vm_id: &str, archive: Option<&[u8]>) -> Result
 }
 
 /// The script that ends a timed-out command's process group. It exits 0
-/// once the group is gone (or the command already ended) and non-zero when
-/// there is no usable pid or the group outlives SIGKILL.
+/// once no live process is left in the group (or the command already ended)
+/// and non-zero when there is no usable pid or the group outlives SIGKILL.
+/// The members come from /proc and are signalled one by one: the VM's shell
+/// may be dash, whose `kill` cannot signal a group (`kill -- -PGID`).
 fn kill_script(run_dir: &str) -> String {
     format!(
         "d={run_dir}; [ -f $d/rc ] && exit 0; p=$(cat $d/pid 2>/dev/null); \
          case \"$p\" in ''|*[!0-9]*|0|1) echo 'no process id for the command' >&2; exit 1;; esac; \
-         gone() {{ ! kill -0 -- -$p 2>/dev/null; }}; \
-         kill -TERM -- -$p 2>/dev/null; i=0; while [ $i -lt 20 ] && ! gone; do sleep 0.1; i=$((i+1)); done; \
-         gone && exit 0; kill -KILL -- -$p 2>/dev/null; sleep 0.2; gone || [ -f $d/rc ]"
+         members() {{ for s in /proc/[0-9]*/stat; do read -r l 2>/dev/null < $s || continue; \
+         set -- ${{l##*) }}; [ \"$3\" = \"$p\" ] && [ \"$1\" != Z ] && {{ s=${{s#/proc/}}; echo ${{s%/stat}}; }}; done; }}; \
+         m=$(members); [ -z \"$m\" ] && exit 0; kill -s TERM $m 2>/dev/null; \
+         i=0; while [ $i -lt 20 ]; do m=$(members); [ -z \"$m\" ] && exit 0; sleep 0.1; i=$((i+1)); done; \
+         kill -s KILL $m 2>/dev/null; sleep 0.2; [ -z \"$(members)\" ] || [ -f $d/rc ]"
     )
 }
 
