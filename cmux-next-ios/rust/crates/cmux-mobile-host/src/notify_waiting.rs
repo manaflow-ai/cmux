@@ -4,7 +4,7 @@
 //! pending requests once per input transition, then use the live-event classifier
 //! so recovery preserves actions and shares its permission-ID deduplication.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::{Duration, Instant};
 
 use cmux_mobile_link::api::NotifyEvent;
@@ -25,6 +25,8 @@ pub(crate) struct Waiting {
     active: Option<u64>,
     /// The `_acpmux/sessions` reading the watch list's next page; none once it is whole.
     page: Option<u64>,
+    /// The page cursors this watch list gave: one given twice would page it forever.
+    cursors: HashSet<String>,
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -55,6 +57,12 @@ impl Waiting {
         if id == Some(2) || (id.is_some() && id == self.page) {
             let mut queries = Vec::new();
             if let Some(result) = message.get("result") {
+                if id == Some(2) {
+                    self.cursors.clear();
+                } else if !result.get("sessions").is_some_and(Value::is_array) {
+                    // A page that lists nothing would pass the rest of the list for read.
+                    return Err("acpmux session page lists no sessions".into());
+                }
                 classifier.load(result);
                 for session in result.get("sessions").and_then(Value::as_array).into_iter().flatten() {
                     self.observe(session)?;
@@ -144,7 +152,14 @@ impl Waiting {
     /// cursor until a page has none (acpmux `Client::whole_list`).
     fn next_page(&mut self, result: &Value) -> Result<Option<Value>, String> {
         self.page = None;
-        let Some(cursor) = result.get("nextCursor").and_then(Value::as_str) else { return Ok(None) };
+        let cursor = match result.get("nextCursor") {
+            None | Some(Value::Null) => return Ok(None),
+            Some(Value::String(cursor)) => cursor,
+            Some(other) => return Err(format!("acpmux gave the page cursor {other}")),
+        };
+        if !self.cursors.insert(cursor.clone()) {
+            return Err(format!("acpmux gave the page cursor {cursor:?} twice"));
+        }
         self.next_id = self.next_id.checked_add(1).ok_or("pending-input request IDs exhausted")?.max(10);
         self.page = Some(self.next_id);
         Ok(Some(json!({"jsonrpc":"2.0","id":self.next_id,"method":"_acpmux/sessions",
@@ -262,6 +277,31 @@ mod tests {
         assert_eq!(queries.len(), 1);
         assert_eq!(queries[0]["method"], "_acpmux/info");
         assert_eq!(queries[0]["params"]["sessionId"], "s1");
+    }
+
+    #[test]
+    fn a_watch_list_page_it_cannot_trust_fails_the_watch() {
+        let mut classifier = Classifier::default();
+        let first = json!({"id":2,"result":{"sessions":[],"nextCursor":"c1"}});
+        let page = |waiting: &mut Waiting, classifier: &mut Classifier, result: Value| {
+            let (queries, _) = receive(waiting, &first, classifier);
+            let reply = json!({"id":queries[0]["id"],"result":result});
+            waiting.receive(&reply, classifier).map(|(queries, _)| queries)
+        };
+        let mut waiting = Waiting::default();
+        let twice = page(&mut waiting, &mut classifier, json!({"sessions":[],"nextCursor":"c1"}));
+        assert!(twice.is_err_and(|why| why.contains("twice")));
+        let mut waiting = Waiting::default();
+        let number = page(&mut waiting, &mut classifier, json!({"sessions":[],"nextCursor":7}));
+        assert!(number.is_err_and(|why| why.contains("page cursor 7")));
+        let mut waiting = Waiting::default();
+        let nothing = page(&mut waiting, &mut classifier, json!({"nextCursor":null}));
+        assert!(nothing.is_err_and(|why| why.contains("lists no sessions")));
+        let mut waiting = Waiting::default();
+        let empty = page(&mut waiting, &mut classifier, json!({"sessions":[],"nextCursor":"c2"})).unwrap();
+        assert_eq!(empty[0]["params"], json!({"cursor":"c2"}), "an empty page's cursor is followed");
+        // A new watch reads the list again from its start, and may give the same cursors.
+        assert_eq!(receive(&mut waiting, &first, &mut classifier).0[0]["params"], json!({"cursor":"c1"}));
     }
 
     #[test]

@@ -24,6 +24,10 @@ use serde_json::{Value, json};
 #[path = "agent_message_acpmux.rs"]
 mod agent_message_acpmux;
 
+#[cfg(test)]
+#[path = "agent_session_link_tests.rs"]
+mod tests;
+
 /// Largest acpmux line the daemon reads: an attach or events page of
 /// records with big tool outputs stays under it (the daemon then trims the
 /// page to `MAX_PAGE_BYTES` for its client); a longer line ends the link.
@@ -47,6 +51,26 @@ pub(crate) enum LinkError {
     /// acpmux does not know the method (JSON-RPC -32601, an acpmux from
     /// before it): its message.
     MethodNotFound(String),
+}
+
+/// acpmux's session list order (`hub::session_pages::sort_session_summaries`): newest
+/// `updatedAt` first, ties by `sessionId`, then this machine's row before a peer's copy.
+fn sort_newest_first(rows: &mut [Value]) {
+    fn updated(row: &Value) -> u64 {
+        row.get("updatedAt").and_then(Value::as_u64).unwrap_or(0)
+    }
+    fn id(row: &Value) -> &str {
+        row.get("sessionId").and_then(Value::as_str).unwrap_or("")
+    }
+    fn peer(row: &Value) -> Option<&str> {
+        row.get("peer").and_then(Value::as_str)
+    }
+    rows.sort_by(|a, b| {
+        updated(b)
+            .cmp(&updated(a))
+            .then_with(|| id(a).cmp(id(b)))
+            .then_with(|| peer(a).cmp(&peer(b)))
+    });
 }
 
 /// JSON-RPC's method-not-found code (acpmux `RpcError::method_not_found`).
@@ -128,7 +152,10 @@ impl AcpmuxLink {
     /// by `_acpmux/sessions` with the same params (no `enabled`) from that cursor
     /// (acpmux `Client::whole_list`). With a `limit` it is one plain call: the caller
     /// pages itself. A list that fits one reply has no cursor, so an older acpmux
-    /// answers as before. `timeout` bounds each reply.
+    /// answers as before. `timeout` bounds each reply. The pages come in acpmux's
+    /// byte-page order, so the joined rows are sorted newest first again; a cursor given
+    /// twice or not a string, or a page with no `sessions`, fails the list instead of
+    /// looping or passing for whole.
     pub(crate) fn call_whole_list(
         &self,
         method: &str,
@@ -143,20 +170,41 @@ impl AcpmuxLink {
         if let Some(p) = rest.as_object_mut() {
             p.remove("enabled");
         }
-        while let Some(Value::String(cursor)) =
-            reply.as_object_mut().and_then(|r| r.remove("nextCursor"))
-        {
-            rest["cursor"] = Value::String(cursor);
+        let bad = |why: String| LinkError::Rpc(format!("{method}: {why}"), Value::Null);
+        let mut seen = std::collections::HashSet::new();
+        while let Some(cursor) = reply.as_object_mut().and_then(|r| r.remove("nextCursor")) {
+            let cursor = match cursor {
+                Value::String(cursor) => cursor,
+                Value::Null => break,
+                other => return Err(bad(format!("acpmux gave the page cursor {other}"))),
+            };
+            if !seen.insert(cursor.clone()) {
+                return Err(bad(format!("acpmux gave the page cursor {cursor:?} twice")));
+            }
+            let Some(p) = rest.as_object_mut() else {
+                return Err(bad(format!(
+                    "the params are not an object, so no page after {cursor:?}"
+                )));
+            };
+            p.insert("cursor".into(), Value::String(cursor.clone()));
             let mut page = self.call("_acpmux/sessions", rest.clone(), timeout)?;
-            let rows = page.get_mut("sessions").map(Value::take).unwrap_or_default();
-            if let (Some(all), Value::Array(rows)) =
-                (reply.get_mut("sessions").and_then(Value::as_array_mut), rows)
+            let (Some(Value::Array(rows)), Some(all)) = (
+                page.get_mut("sessions").map(Value::take),
+                reply.get_mut("sessions").and_then(Value::as_array_mut),
+            ) else {
+                return Err(bad(format!("the page after cursor {cursor:?} lists no sessions")));
+            };
+            all.extend(rows);
+            if let Some((next, r)) =
+                page.get_mut("nextCursor").map(Value::take).zip(reply.as_object_mut())
             {
-                all.extend(rows);
+                r.insert("nextCursor".into(), next);
             }
-            if let Some(next) = page.get_mut("nextCursor").map(Value::take) {
-                reply["nextCursor"] = next;
-            }
+        }
+        if !seen.is_empty()
+            && let Some(rows) = reply.get_mut("sessions").and_then(Value::as_array_mut)
+        {
+            sort_newest_first(rows);
         }
         Ok(reply)
     }
