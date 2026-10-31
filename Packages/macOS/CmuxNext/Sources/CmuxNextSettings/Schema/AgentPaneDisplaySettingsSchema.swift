@@ -128,6 +128,19 @@ nonisolated enum AgentPaneDisplaySettingsSchema {
                     SettingChoice("right", SettingsText.keyed("settings.choice.right", "Right")),
                 ]),
                 .string("left"), ["rail", "minimap", "prompts", "ticks", "scroll", "side", "left", "right"]),
+            // How much of each turn a chat shows (webviews conversation/transcriptView.ts), Claude Code
+            // desktop's Transcript view: a chat's ··· menu changes its own, and its "Make … the default"
+            // writes this row.
+            row(["transcriptView"], SettingsText.keyed("settings.agentPane.display.transcriptView", "Transcript View"),
+                help: SettingsText.keyed("settings.agentPane.display.transcriptView.help",
+                                         "How much of each turn a chat shows. Normal folds thinking and tool output; Thinking opens thinking; Verbose also opens tool output. A chat's ··· menu changes its own view."),
+                .choice([
+                    SettingChoice("normal", SettingsText.keyed("settings.choice.transcriptViewNormal", "Normal")),
+                    SettingChoice("thinking", SettingsText.keyed("settings.choice.transcriptViewThinking", "Thinking")),
+                    SettingChoice("verbose", SettingsText.keyed("settings.choice.transcriptViewVerbose", "Verbose")),
+                ]),
+                .string("normal"), ["transcript", "view", "verbose", "thinking", "thoughts", "reasoning", "tool output",
+                                    "expand", "collapse", "fold", "details"]),
         ]
     }
 }

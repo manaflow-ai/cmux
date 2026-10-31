@@ -289,7 +289,7 @@ public nonisolated struct SettingsPageLayout: Sendable {
             card("settings.pageGroup.chatLayout", "Chat Layout", [
                 "agentPane.display.width", "agentPane.display.fullWidth", "agentPane.zoom", "agentPane.display.minimap",
                 "agentPane.display.vscodeMinimap", "agentPane.display.rail.side", "agentPane.display.inspector.placement",
-                "agentPane.display.environment.placement",
+                "agentPane.display.environment.placement", "agentPane.display.transcriptView",
             ]),
             card("settings.pageGroup.chatText", "Chat Text", [
                 "agentPane.display.font.preset", "agentPane.display.font.size", "agentPane.display.font.lineHeight",

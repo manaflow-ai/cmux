@@ -407,6 +407,7 @@ import {
   WORKED,
   messageRevealTarget,
   toggleTurnFold,
+  turnFoldKeys,
   turnFoldFor,
   turnFooterFrom,
   WORKING,
@@ -492,6 +493,7 @@ import { configureQuickActions, quickActions, type QuickActionMode } from "./hea
 import { chatColumnOf, configureChatWidth, useChatSizing } from "./chatWidth";
 import { registerChatDisplayHost, useChatDisplay } from "./chatDisplay";
 import { ChatDisplaySettings } from "./ChatDisplaySettings";
+import { transcriptViewRow } from "./header/transcriptViewRow";
 import { configureCodexToolRuns, useCodexToolRuns } from "./codexToolRuns";
 import { configureLiveLineBelow, useLiveLineBelow } from "./liveLineBelow";
 import { configureToolRunLook } from "./toolRunLook";
@@ -518,6 +520,8 @@ import { Thinking } from "./conversation/Thinking";
 import { type WorkingCounts, WorkingCountsContext, WorkingFor } from "./conversation/WorkingFor";
 import { chatWaitsOn, WaitingOnContext } from "./conversation/waitingOn";
 import { TranscriptDisclosureProvider } from "./conversation/transcriptDisclosure";
+import { useTranscriptView, type TranscriptView } from "./conversation/transcriptView";
+import { isWorkedFold, NO_FOLD_TOGGLES, viewFolds, type Folds } from "./conversation/viewFolds";
 import { type HarnessHealth, HarnessHealthNotice, type UpdateOffer, UpdateOfferContext } from "./HarnessHealthNotice";
 import { Notice, NoticeSlot } from "./NoticeSlot";
 import { type ForumRule, forumRules, RulesNotice } from "./RulesNotice";
@@ -2406,7 +2410,7 @@ export function VirtualTranscript({
   focusComposer?: () => void;
   onToggleActivity: (id: string) => void;
   onOpenDiff?: OpenDiff;
-  expanded: Set<string>;
+  expanded: Folds;
   registry?: NativeRegistry;
   canLoadOlder?: boolean;
   /// The oldest event seq held (AcpmuxSnapshot.historyFrom): a read that drew no row still moves it.
@@ -5462,6 +5466,9 @@ function AcpmuxPane() {
   }, [snapshot.missingSession, snapshot.missingReason]);
   const stopContinuing = useCallback(() => setContinuing(false), []);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  /// The "Worked for" folds the reader toggled in Thinking or Verbose, per view: those views open
+  /// every finished turn's fold (conversation/viewFolds.ts), so a toggle there closes one.
+  const [viewToggles, setViewToggles] = useState<ReadonlyMap<TranscriptView, ReadonlySet<string>>>(() => new Map());
   /// The subagent whose own view the transcript shows (its line in a group opens it), or none.
   const [subagentView, setSubagentView] = useState<string>();
   /// The subagent this pane was opened on (a `subagent:` reveal, subagents/subagentPanes.ts), shown
@@ -5963,6 +5970,14 @@ function AcpmuxPane() {
   const doneLines = useRef<DoneLineCache>(new Map());
   const childDoneLines = useRef<DoneLineCache>(new Map());
   const shownSessionId = snapshot.sessionId ?? snapshot.summary?.sessionId;
+  // The open folds as the shown chat's transcript view draws them: Normal is `expanded` itself;
+  // Thinking and Verbose also open each finished turn's "Worked for" (conversation/viewFolds.ts).
+  // One object per view, set or toggle change, so the turns are not reshaped per event.
+  const chatView = useTranscriptView(shownSessionId);
+  const chatViewRef = useRef(chatView);
+  chatViewRef.current = chatView;
+  const viewToggled = viewToggles.get(chatView) ?? NO_FOLD_TOGGLES;
+  const folds = useMemo(() => viewFolds(chatView, expanded, viewToggled), [chatView, expanded, viewToggled]);
   const freshAgents = useMemo(
     () => [...subagentsIn(snapshot.rows, snapshot.subagentViews).values()],
     [snapshot.rows, snapshot.subagentViews],
@@ -6008,14 +6023,14 @@ function AcpmuxPane() {
   const childRows = useMemo(() => {
     if (workflowTranscript.rows) return workflowTranscript.rows;
     if (!subagentView) return undefined;
-    if (!subagentTray) return childView(subagentView, snapshot.rows, snapshot.subagentViews, expanded, chatName);
+    if (!subagentTray) return childView(subagentView, snapshot.rows, snapshot.subagentViews, folds, chatName);
     const view = childView(subagentView, snapshot.rows, snapshot.subagentViews, NO_EXPANDED, chatName);
     return view && (withSubagentLines(view, childDoneLines.current, workflowLabsEnabled) as AcpmuxRow[]);
   }, [
     subagentView,
     snapshot.rows,
     snapshot.subagentViews,
-    expanded,
+    folds,
     chatName,
     subagentTray,
     workflowLabsEnabled,
@@ -6168,7 +6183,7 @@ function AcpmuxPane() {
       const last = lastTurns.current;
       const turns = turnViewFrom(
         rows,
-        expanded,
+        folds,
         {
           working: snapshot.isWorking,
           clockOffset: snapshot.clockOffsetMs,
@@ -6181,7 +6196,7 @@ function AcpmuxPane() {
         },
         last?.turns,
       );
-      const subagents = subagentRowsFrom(turns.rows, expanded, last?.subagents);
+      const subagents = subagentRowsFrom(turns.rows, folds, last?.subagents);
       lastTurns.current = { turns, subagents };
       // After the turns: a live turn's status reads its last row, the call's included.
       return withoutAskedCalls(withShellRows(subagents.rows, chatShellRuns), panelAsks);
@@ -6190,7 +6205,7 @@ function AcpmuxPane() {
     childRows,
     sourceRows,
     started,
-    expanded,
+    folds,
     snapshot.isWorking,
     snapshot.clockOffsetMs,
     codexRuns,
@@ -6356,15 +6371,23 @@ function AcpmuxPane() {
   // The open folds are each chat's own (row ids such as `subagents-<seq>` repeat across chats):
   // the chats shown before keep theirs here for a switch back.
   const [chatFolds, setChatFolds] = useState<
-    ReadonlyMap<string, { expanded: Set<string>; opened: ReadonlySet<string> }>
+    ReadonlyMap<
+      string,
+      {
+        expanded: Set<string>;
+        opened: ReadonlySet<string>;
+        viewToggles: ReadonlyMap<TranscriptView, ReadonlySet<string>>;
+      }
+    >
   >(() => new Map());
   if (subagentChat !== shownSessionId) {
     setSubagentChat(shownSessionId);
     setSubagentView(undefined);
     const kept = shownSessionId === undefined ? undefined : chatFolds.get(shownSessionId);
     if (subagentChat !== undefined)
-      setChatFolds(new Map(chatFolds).set(subagentChat, { expanded, opened: openedGroups }));
+      setChatFolds(new Map(chatFolds).set(subagentChat, { expanded, opened: openedGroups, viewToggles }));
     setExpanded(kept?.expanded ?? new Set());
+    setViewToggles(kept?.viewToggles ?? new Map());
     setOpenedGroups(kept?.opened ?? new Set());
   }
   // A group of subagents starts open while its agents run in the working turn, in the render that
@@ -6394,10 +6417,19 @@ function AcpmuxPane() {
   // through `findRef`.
   const findRef = useRef<ChatFind | undefined>(undefined);
   const diffFindRef = useRef<DiffFindHandle | undefined>(undefined);
-  const openFold = useCallback(
-    (fold: string) => setExpanded((current) => (current.has(fold) ? current : new Set(current).add(fold))),
-    [],
-  );
+  const openFold = useCallback((fold: string) => {
+    const view = chatViewRef.current;
+    // Thinking and Verbose open a turn's fold unless the reader closed it there: forget that close.
+    if (view !== "normal" && isWorkedFold(fold))
+      setViewToggles((current) => {
+        const toggled = current.get(view);
+        if (!toggled?.has(fold)) return current;
+        const next = new Set(toggled);
+        next.delete(fold);
+        return new Map(current).set(view, next);
+      });
+    else setExpanded((current) => (current.has(fold) ? current : new Set(current).add(fold)));
+  }, []);
   const [inspectorOpen, setInspectorOpen] = useState(false);
   // The ··· menu's Text & Width popover (ChatDisplaySettings.tsx), anchored to the menu button.
   const [displayAnchor, setDisplayAnchor] = useState<HTMLElement | null>(null);
@@ -10588,7 +10620,10 @@ function AcpmuxPane() {
       : projectFilesRow({ cwd: localCwd, family: summary?.family || summary?.harness }, (cwd, name) =>
           ignoreFailure(callNative("project.addFiles", { cwd, name })),
         );
+    // Normal, Thinking or Verbose for this chat (header/transcriptViewRow.ts).
+    const transcriptView = transcriptViewRow(snapshot.sessionId, t);
     const tools: ChatMenuItem[] = [
+      ...(transcriptView ? [transcriptView] : []),
       {
         key: "display",
         label: t("chatDisplay.menu"),
@@ -10650,6 +10685,7 @@ function AcpmuxPane() {
           label: t("chatMenu.rename"),
           icon: "action.edit",
           shortcutAction: HEADER_ACTIONS.rename,
+          mnemonic: "R",
           onSelect: () => runHeaderAction(HEADER_ACTIONS.rename),
         },
         {
@@ -11134,10 +11170,25 @@ function AcpmuxPane() {
     chooseFolder,
   ]);
   // Stable: memoized transcript rows compare it.
-  const toggleActivity = useCallback(
-    (id: string) => setExpanded((current) => toggleTurnFold(turnRowsRef.current, current, id)),
-    [],
-  );
+  const toggleActivity = useCallback((id: string) => {
+    const view = chatViewRef.current;
+    // In Thinking and Verbose a turn's "Worked for" is open unless toggled there (viewFolds.ts):
+    // the reader's open or close overrides the view, for the whole turn (its prompt and steers, as
+    // toggleTurnFold), and Normal's own folds stay as they were.
+    if (view !== "normal" && isWorkedFold(id)) {
+      const { keys } = turnFoldKeys(turnRowsRef.current, id);
+      setViewToggles((current) => {
+        const toggled = current.get(view) ?? NO_FOLD_TOGGLES;
+        const open = keys.some((key) => !toggled.has(key));
+        const next = new Set(toggled);
+        for (const key of keys) {
+          if (open) next.add(key);
+          else next.delete(key);
+        }
+        return new Map(current).set(view, next);
+      });
+    } else setExpanded((current) => toggleTurnFold(turnRowsRef.current, current, id));
+  }, []);
   const loadReplay = useCallback(
     // l10n-allow: never shown; the replay says replay.failed.
     () => directClient.current?.recordedEvents(replaying ?? "") ?? Promise.reject(new Error("no connection")),
@@ -11253,7 +11304,7 @@ function AcpmuxPane() {
                                                       ? undefined
                                                       : (anchor) => postScrollAnchor(shownSessionId, anchor)
                                                   }
-                                                  expanded={expanded}
+                                                  expanded={folds}
                                                   showMinimap={minimapVisible}
                                                   reveal={childRows ? undefined : revealRow}
                                                   coldOpen={!childRows && opened.cold ? opened.open : undefined}
@@ -12551,7 +12602,8 @@ function AcpmuxPane() {
                 <VirtualTranscript
                   rows={rows}
                   sessionId={`replay:${replaying}`}
-                  expanded={expanded}
+                  // A replay draws under its chat's view too (conversation/viewFolds.ts), as the live transcript.
+                  expanded={folds}
                   showMinimap={minimapVisible}
                   registry={registry}
                   onToggleActivity={toggleActivity}

@@ -8,6 +8,7 @@ import { cloudMachineRows } from "../cloudMachineMenu";
 import { translate } from "../i18n";
 import type { ChatMenuItem } from "./ChatHeaderTools";
 import { PanelToggle } from "./PanelToggle";
+import { transcriptViewRow } from "./transcriptViewRow";
 import type { QuickAction } from "./quickActions";
 import type { NativeRowToolsHost } from "./useNativeRowTools";
 import { NeedsYouButton } from "../needsYou/NeedsYou";
@@ -620,6 +621,24 @@ export default componentEntry<HeaderToolsProps>({
       note: "The chat menu starts with the quick actions not shown as buttons (New tab, Files, Split Down), then the tab's own rows, ending with Close.",
       props: base,
       play: openMenu,
+    },
+    "menu-transcript-view": {
+      note: "The chat menu's Transcript view submenu, as Claude Code desktop's chat menu has it: Normal, Thinking and Verbose with a check on this chat's view, then Make … the default (header/transcriptViewRow.ts).",
+      props: {
+        ...base,
+        menu: () => {
+          const rows = menuRows();
+          const copy = rows.findIndex((row) => row !== "separator" && row.key === "copy");
+          const view = transcriptViewRow("gallery-transcript-view", translate)!;
+          return [...rows.slice(0, copy + 1), view, ...rows.slice(copy + 1)];
+        },
+      },
+      play: async (ctx) => {
+        await openMenu(ctx);
+        await ctx.focus({ role: "menuitem", name: "Transcript view" });
+        await ctx.press("ArrowRight");
+        await ctx.waitFor(() => ctx.document.querySelectorAll('[role="menu"]').length > 1);
+      },
     },
     "menu-avatar": {
       height: 860,

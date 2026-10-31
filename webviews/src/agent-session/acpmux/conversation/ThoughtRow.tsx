@@ -4,6 +4,7 @@ import { useT } from "../i18n";
 import { useFindReveal } from "./chatFind";
 import { ChevronRight } from "./icons";
 import { useAnchoredCollapse } from "./useAnchoredCollapse";
+import { useTranscriptViewContext } from "./transcriptDisclosure";
 import { formatDuration } from "./turns";
 import { isQuietThought, thoughtDuration, thoughtParts } from "./thoughts";
 
@@ -108,7 +109,16 @@ export const ThoughtRow = memo(function ThoughtRow({
   const text = item.text.trim();
   const enabled = thoughtLayout.enabled();
   const [long, setLong] = useState(false);
-  const [choice, setChoice] = useState<boolean | undefined>(() => (id ? choices.get(id) : undefined));
+  // The chat's transcript view (transcriptView.ts): Thinking and Verbose open every thought. The
+  // reader's toggles are kept per view, as the transcript's disclosures are.
+  const view = useTranscriptViewContext();
+  const choiceKey = id === undefined ? undefined : view === "normal" ? id : `${view}:${id}`;
+  const [choice, setChoice] = useState<boolean | undefined>(() => (choiceKey ? choices.get(choiceKey) : undefined));
+  const [choiceView, setChoiceView] = useState(view);
+  if (choiceView !== view) {
+    setChoiceView(view);
+    setChoice(choiceKey ? choices.get(choiceKey) : undefined);
+  }
   const full = useRef<HTMLSpanElement>(null);
   const toggled = useRef(false);
   const bodyId = useId();
@@ -116,11 +126,11 @@ export const ThoughtRow = memo(function ThoughtRow({
   const liveViewport = enabled && streaming && thoughtLayout.liveViewport();
   const [tall, setTall] = useState(false);
   const clipped = liveViewport && tall;
-  const open = choice ?? !folds;
+  const open = choice ?? (!folds || view !== "normal");
   // Only the reader's toggle plays the fold; the automatic fold, and Find opening it, snap.
   const choose = (next: boolean) => {
     setChoice(next);
-    if (id) choices.set(id, next);
+    if (choiceKey) choices.set(choiceKey, next);
   };
   const fold = useAnchoredCollapse({
     open,
@@ -223,12 +233,17 @@ export function StepThought({ item, id, lead = false }: { item: AcpmuxActivity; 
   // The reader's choice for this `id` is state, so a click draws again under the React Compiler
   // (a render that only read the kept choices was memoized on `id` and never changed); a row React
   // reuses for another `id` reads that one's kept choice.
+  // The chat's transcript view (transcriptView.ts): Thinking and Verbose open every thought, and the
+  // reader's toggles are kept per view, under ThoughtRow's keys, so a thought keeps its choice when a
+  // call joins it to a group.
+  const view = useTranscriptViewContext();
+  const key = view === "normal" ? id : `${view}:${id}`;
   const [chosen, setChosen] = useState<{ id: string; open: boolean } | undefined>(undefined);
-  const open = chosen?.id === id ? chosen.open : (choices.get(id) ?? lead);
+  const open = chosen?.id === key ? chosen.open : (choices.get(key) ?? (lead || view !== "normal"));
   const bodyId = useId();
   const choose = (next: boolean) => {
-    choices.set(id, next);
-    setChosen({ id, open: next });
+    choices.set(key, next);
+    setChosen({ id: key, open: next });
   };
   useFindReveal(
     useMemo(() => [item], [item]),

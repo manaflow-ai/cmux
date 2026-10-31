@@ -8,6 +8,7 @@
 // acpmux serves turn-structured rows (`acp.view.subscribe`, `_acpmux/view`), `turnView` becomes
 // a field-for-field mapping of them and nothing else in the pane changes.
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
+import type { Folds } from "./viewFolds";
 import { continuesTurn, opensTurn } from "../turnStart";
 import { findRowIndex } from "./chatFind";
 import { turnPreviewCardsOn, turnPreviewUrl } from "./previewUrl";
@@ -119,7 +120,7 @@ const isEdit = (row: AcpmuxRow) => row.kind === "activity" && (row.items ?? []).
 /// activity line under it.
 export function turnView(
   rows: readonly AcpmuxRow[],
-  expanded: ReadonlySet<string>,
+  expanded: Folds,
   options: {
     now?: number;
     working?: boolean;
@@ -135,7 +136,7 @@ export function turnView(
 /// A turn view (``turnViewFrom``) with what it was drawn from, for the next snapshot to build on.
 export type TurnView = {
   source: readonly AcpmuxRow[];
-  expanded: ReadonlySet<string>;
+  expanded: Folds;
   clockOffset: number;
   liveRuns: boolean;
   lineBelow: boolean;
@@ -167,7 +168,7 @@ const NO_PENDING: readonly AcpmuxRow[] = [];
 
 export function turnViewFrom(
   rows: readonly AcpmuxRow[],
-  expanded: ReadonlySet<string>,
+  expanded: Folds,
   {
     now = Date.now(),
     working = false,
@@ -353,7 +354,7 @@ const shapedTurns = new WeakMap<AcpmuxRow, ShapedTurn>();
 /// so a remembered open state never changes the transcript while the next turn is running. A
 /// history page can begin at a landed steer; accept that provisional key until the older prompt
 /// arrives, so loading history does not erase an explicit open choice.
-function openFolds(rows: readonly AcpmuxRow[], start: number, end: number, expanded: ReadonlySet<string>): string {
+function openFolds(rows: readonly AcpmuxRow[], start: number, end: number, expanded: Folds): string {
   if (expanded.size === 0) return "";
   if (expanded.has(`${WORKED}-${rows[start]!.id}`)) return "1";
   for (let index = start + 1; index < end; index += 1) {
@@ -368,7 +369,7 @@ function shapedTurn(
   rows: readonly AcpmuxRow[],
   start: number,
   end: number,
-  expanded: ReadonlySet<string>,
+  expanded: Folds,
   live: boolean,
   last: boolean,
   clockOffset: number,
@@ -378,8 +379,9 @@ function shapedTurn(
   lineBelow = false,
 ): AcpmuxRow[] {
   const user = rows[start]!;
+  // A running turn changes with every event: it is neither read from nor kept in the cache, so its
+  // open-fold key is never needed, and a streamed token does no work over its rows for it.
   const open = live ? "" : openFolds(rows, start, end, expanded);
-  // A running turn changes with every event.
   const cached = live ? undefined : shapedTurns.get(user);
   if (
     cached &&
@@ -530,7 +532,7 @@ function repliesIn(body: readonly AcpmuxRow[]): Set<string> {
 function shapeTurn(
   user: AcpmuxRow,
   turn: AcpmuxRow[],
-  expanded: ReadonlySet<string>,
+  expanded: Folds,
   foldOpen: boolean,
   live: boolean,
   last: boolean,
@@ -1252,6 +1254,16 @@ export function turnFoldFor(rows: readonly AcpmuxRow[], index: number): string |
 /// keeps a fold opened at a history page's edge closable after the original prompt arrives.
 export function toggleTurnFold(rows: readonly AcpmuxRow[], expanded: ReadonlySet<string>, id: string): Set<string> {
   const next = new Set(expanded);
+  const { keys, key } = turnFoldKeys(rows, id);
+  const open = keys.some((key) => expanded.has(key));
+  for (const key of keys) next.delete(key);
+  if (!open) next.add(key ?? id);
+  return next;
+}
+
+/// The keys one turn's fold answers to (``toggleTurnFold``): `id`, and for a "Worked for" its
+/// turn's prompt and steers; `key` is the one an open records (the turn's first).
+export function turnFoldKeys(rows: readonly AcpmuxRow[], id: string): { keys: string[]; key?: string } {
   const keys = [id];
   const index = id.startsWith(`${WORKED}-`) ? rows.findIndex((row) => `${WORKED}-${row.id}` === id) : -1;
   const key = index >= 0 ? turnFoldFor(rows, index) : undefined;
@@ -1263,10 +1275,7 @@ export function toggleTurnFold(rows: readonly AcpmuxRow[], expanded: ReadonlySet
       if (at === start || continuesTurn(row)) keys.push(`${WORKED}-${row.id}`);
     }
   }
-  const open = keys.some((key) => expanded.has(key));
-  for (const key of keys) next.delete(key);
-  if (!open) next.add(key ?? id);
-  return next;
+  return { keys, key };
 }
 
 /// Where to bring one message of the chat into view (a link's `message=<id>`, links.ts): the first
