@@ -209,7 +209,10 @@
       "class": "apple-gui",
       "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
     },
-    "cmux-next-perf-budgets.yml#blacksmith-mac": "apple-gui",
+    "cmux-next-perf-budgets.yml#blacksmith-mac": {
+      "class": "apple-gui",
+      "picker_followup": "runs-on compares inputs.runner_class but always names a Blacksmith label; a measurement pinned to one hardware class needs a picker over that class's pools"
+    },
     "cmux-next-perf-budgets.yml#measure": {
       "class": "apple-gui",
       "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"

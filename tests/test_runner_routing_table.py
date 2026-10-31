@@ -244,6 +244,35 @@ class RoutingTableTests(unittest.TestCase):
         self.assertEqual(self.run_fixture({"w.yml": self.pinned_job("${{ matrix.runner }}", picked)},
                                           {"w.yml#test": "apple-app-build"}), [])
 
+    def test_a_picker_output_used_only_as_a_condition_is_no_picker(self) -> None:
+        # Review round 2: an output must be able to be the value, not just gate a literal.
+        for runs_on in (
+            "${{ needs.p.outputs.ok == 'true' && 'blacksmith-6vcpu-macos-26' || 'blacksmith-6vcpu-macos-15' }}",
+            "${{ inputs.runner_class == 'blacksmith-12vcpu-macos-26' && 'blacksmith-12vcpu-macos-26' || "
+            "'blacksmith-6vcpu-macos-26' }}",
+            "${{ contains(needs.p.outputs.list, 'x') && vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}",
+        ):
+            problems = self.run_fixture({"w.yml": self.pinned_job(runs_on)}, {"w.yml#test": "apple-app-build"})
+            self.assertEqual(len(problems), 1, runs_on)
+            self.assertIn("from a fixed label", problems[0])
+
+    def test_only_the_matrix_key_runs_on_reads_counts(self) -> None:
+        # Review round 2: an unrelated matrix field that reads an output picks no runner.
+        unrelated = ("    strategy:\n      matrix:\n        runner: [blacksmith-6vcpu-macos-26]\n"
+                     "        metadata: ${{ needs.other.outputs.status }}\n")
+        problems = self.run_fixture({"w.yml": self.pinned_job("${{ matrix.runner }}", unrelated)},
+                                    {"w.yml#test": "apple-app-build"})
+        self.assertIn("from a fixed label", problems[0])
+        included = ("    strategy:\n      matrix:\n        include:\n          - runner: ${{ needs.pick.outputs.label }}\n")
+        self.assertEqual(self.run_fixture({"w.yml": self.pinned_job("${{ matrix.runner }}", included)},
+                                          {"w.yml#test": "apple-app-build"}), [])
+
+    def test_value_terms_cross_groups_and_fromjson(self) -> None:
+        terms = table.value_terms(
+            "a != 'm' && 'macos-26' || (b && (c && inputs.x || 'y') || d && fromJSON(needs.p.outputs.r) || vars.V)"
+            " || 'last'")
+        self.assertEqual(terms, ["'macos-26'", "inputs.x", "'y'", "needs.p.outputs.r", "vars.V", "'last'"])
+
     def test_a_picked_label_or_a_callers_input_passes(self) -> None:
         for runs_on in (
             "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || "

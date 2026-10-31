@@ -84,13 +84,117 @@ def bypasses_placement(runs_on: str) -> bool:
 # What a picker gives a runs-on: a picker or placement job's output, or a label the caller of a reusable
 # workflow (or a dispatcher) chose. The capability map (`fromJSON(needs.runners.outputs.map).<key>`) is
 # not one: it names one fixed label per key, whatever that label's queue holds.
-PICKER_OUTPUT = re.compile(r"needs\.[\w-]+\.outputs\.(?!map\b)[\w-]+|inputs\.[\w-]+")
+PICKER_OUTPUT = re.compile(r"^(?:needs\.[\w-]+\.outputs\.(?!map\b)[\w-]+|inputs\.[\w-]+)$")
+MATRIX_VALUE = re.compile(r"^matrix\.([\w-]+)$")
+EXPRESSION = re.compile(r"\$\{\{(.*?)\}\}", re.DOTALL)
+CALL = re.compile(r"^([A-Za-z]\w*)\((.*)\)$", re.DOTALL)
 
 
-def pinned(route: str) -> bool:
-    """The job's runs-on (with its matrix, when it reads one) reads no picker output, so it always waits on
-    the same label: a literal, a repository variable or a capability-map key."""
-    return not PICKER_OUTPUT.search(route)
+def _split_top(text: str, operator: str) -> list[str]:
+    """`text` split on `operator` outside parentheses, brackets and quotes."""
+    parts, depth, quoted, start, index = [], 0, False, 0, 0
+    while index < len(text):
+        char = text[index]
+        if char == "'":
+            quoted = not quoted
+        elif not quoted and char in "([":
+            depth += 1
+        elif not quoted and char in ")]":
+            depth -= 1
+        elif not quoted and depth == 0 and text.startswith(operator, index):
+            parts.append(text[start:index])
+            index += len(operator)
+            start = index
+            continue
+        index += 1
+    parts.append(text[start:])
+    return parts
+
+
+def _unwrap(text: str) -> str:
+    text = text.strip()
+    while text.startswith("(") and text.endswith(")") and len(_split_top(text[1:-1], ")")) == 1 \
+            and _balanced(text[1:-1]):
+        text = text[1:-1].strip()
+    return text
+
+
+def _balanced(text: str) -> bool:
+    depth, quoted = 0, False
+    for char in text:
+        if char == "'":
+            quoted = not quoted
+        elif not quoted and char == "(":
+            depth += 1
+        elif not quoted and char == ")":
+            depth -= 1
+            if depth < 0:
+                return False
+    return depth == 0
+
+
+def value_terms(expression: str) -> list[str]:
+    """The terms of one GitHub expression that can become its value: the last `&&` operand of each `||`
+    alternative, with groups opened and `fromJSON(...)` read through. A term used only as a condition
+    (`needs.x.outputs.ok == 'true' && 'label'`) is not one."""
+    terms = []
+    for alternative in _split_top(_unwrap(expression), "||"):
+        alternative = _unwrap(alternative)
+        if len(_split_top(alternative, "||")) > 1:
+            terms += value_terms(alternative)
+            continue
+        value = _unwrap(_split_top(alternative, "&&")[-1])
+        if len(_split_top(value, "||")) > 1 or len(_split_top(value, "&&")) > 1:
+            terms += value_terms(value)
+            continue
+        call = CALL.match(value)
+        if call and call.group(1).lower() == "fromjson":
+            terms += value_terms(call.group(2))
+        else:
+            terms.append(value)
+    return terms
+
+
+def _picked_value(value: object, strategy: dict[str, Any], seen: frozenset[str] = frozenset()) -> bool:
+    """Whether a runs-on value (a string, or a list of labels) takes any label from a picker."""
+    if isinstance(value, list):
+        return any(_picked_value(item, strategy, seen) for item in value)
+    text = str(value if value is not None else "")
+    expressions = EXPRESSION.findall(text)
+    if not expressions:
+        return False
+    for expression in expressions:
+        for term in value_terms(expression):
+            if PICKER_OUTPUT.match(term):
+                return True
+            matrix = MATRIX_VALUE.match(term)
+            if matrix and matrix.group(1) not in seen and \
+                    _picked_matrix_key(matrix.group(1), strategy, seen | {matrix.group(1)}):
+                return True
+    return False
+
+
+def _picked_matrix_key(key: str, strategy: dict[str, Any], seen: frozenset[str]) -> bool:
+    """Whether the matrix value `key` the runs-on reads can come from a picker: the whole matrix is an
+    expression that does, or that key's values (the axis, or an `include` row's) are."""
+    matrix = strategy.get("matrix") if isinstance(strategy, dict) else None
+    if not isinstance(matrix, dict):
+        return _picked_value(matrix, strategy, seen)
+    values = [matrix.get(key)]
+    include = matrix.get("include")
+    if isinstance(include, list):
+        values += [row.get(key) for row in include if isinstance(row, dict)]
+    elif include is not None:
+        values.append(include)
+    return any(_picked_value(value, strategy, seen) for value in values if value is not None)
+
+
+def picked(job: dict[str, Any]) -> bool:
+    """Whether the job's runs-on takes its label from a picker output in a value position (directly, or
+    through the matrix key it reads). Otherwise every run waits on the same label: a literal, a
+    repository variable or a capability-map key."""
+    strategy = job.get("strategy") if isinstance(job.get("strategy"), dict) else {}
+    return _picked_value(job.get("runs-on", ""), strategy)
 
 
 class RoutingTableError(RuntimeError):
@@ -102,8 +206,8 @@ class Job:
     workflow: str
     job_id: str
     runs_on: str
-    # runs-on, plus the strategy when runs-on reads the matrix: where the label comes from.
-    route: str = ""
+    # Whether runs-on takes its label from a picker output (picked()).
+    from_picker: bool = True
 
     @property
     def key(self) -> str:
@@ -162,9 +266,7 @@ def iter_jobs(workflows: Path = WORKFLOWS) -> Iterable[tuple[Job, bool]]:
             # visits in the callee's own file.
             if not isinstance(job, dict) or "uses" in job:
                 continue
-            runs_on = json.dumps(job.get("runs-on", ""))
-            route = runs_on + (json.dumps(job.get("strategy", {})) if "matrix" in runs_on else "")
-            yield Job(path.name, str(job_id), runs_on, route), routes_to_macos(job)
+            yield Job(path.name, str(job_id), json.dumps(job.get("runs-on", "")), picked(job)), routes_to_macos(job)
 
 
 def check(map_path: Path = MAP_PATH, workflows: Path = WORKFLOWS) -> list[str]:
@@ -197,10 +299,10 @@ def check(map_path: Path = MAP_PATH, workflows: Path = WORKFLOWS) -> list[str]:
         elif entry.get("placement_followup") and not bypass:
             problems.append(f"{job.key} no longer bypasses placement; remove its placement_followup")
         # A bypass is already one pin, recorded by its placement_followup.
-        pin = not bypass and pinned(job.route or job.runs_on)
+        pin = not bypass and not job.from_picker
         if pin and not entry.get("picker_followup"):
             problems.append(
-                f"{job.key} runs on macOS from a fixed label (its runs-on reads no picker output), so "
+                f"{job.key} runs on macOS from a fixed label (no picker output can be its runs-on value), so "
                 f"it waits on that one label however long it starts nothing. Take runs-on from a picker "
                 f"job's output (scripts/ci/ios_runner_pool.py, simple_pool_picker.py or "
                 f"side_lane_placement.py): an idle owned Mac first, Blacksmith macOS last, with "

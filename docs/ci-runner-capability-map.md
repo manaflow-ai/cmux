@@ -156,11 +156,15 @@ on feat-cmux-next pull requests and pushes) fails when:
   or `vars.CI_LIGHT_LANE_RUNNER`, with no placement output in its `runs-on:`,
   so it bypasses placement (`scripts/ci/side_lane_placement.py` spills a
   starved pool to an idle compatible one; a variable never does);
-- its `runs-on:` reads no picker output at all (`needs.<job>.outputs.<x>`
+- no picker output can be its `runs-on:` value (`needs.<job>.outputs.<x>`
   other than the capability map, or a caller's `inputs.*`), so it always
   waits on one fixed label: a Blacksmith macOS literal, a runner variable or a
   capability-map key. A picker job offers an idle owned Mac first and
-  Blacksmith macOS last, with stall-aware failover; a fixed label does not;
+  Blacksmith macOS last, with stall-aware failover; a fixed label does not.
+  Only a value position counts: the last `&&` operand of each `||`
+  alternative, read through groups and `fromJSON(...)`, and for
+  `matrix.<key>` only that key's values. An output used only in a condition
+  picks nothing;
 - an entry names a job that is gone or no longer on macOS.
 
 `linux_followup`, `placement_followup` and `picker_followup` mark existing jobs
