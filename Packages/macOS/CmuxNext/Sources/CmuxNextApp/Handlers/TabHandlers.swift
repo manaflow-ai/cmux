@@ -291,7 +291,7 @@ enum TabHandlers {
         }
         // The tab menu reads Pin Tab or Unpin Tab for the right-clicked tab.
         ActionTargetTitles.set("palette.toggleTabPin", in: registry) { invocation in
-            guard let id = invocation.target?.id, let (tab, _) = ctx.services.locateTab(id) else { return nil }
+            guard let id = invocation.target?.id, let (tab, _) = ctx.targetTab(id, invocation) else { return nil }
             return tab.pinned ? PinStrings.unpinTab : PinStrings.pinTab
         }
         PinnedPage.bind(registry, ctx: ctx)

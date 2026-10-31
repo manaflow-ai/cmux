@@ -172,17 +172,17 @@ extension AppActionContext {
         return actingTabs(invocation, pane, StripTabID(tab.id)).compactMap { pane.tab($0) }.filter { $0.id == tab.id || TabPromotion.refusal(tab: $0.id, services: services) == nil }
     }
 
+    /// The tab `id` names: on the invocation's machine when it names one (a forked or SSH machine keeps
+    /// this Mac's tab ids), else on the one machine that holds it (cmuxterm-hq#5338). Callers refuse.
+    func targetTab(_ id: String, _ invocation: ActionInvocation) -> (TabModel, PaneModel)? {
+        if let machine = invocation.targetMachineID { return services.locateTab(id, onMachine: machine) }
+        return services.locateTab(id)
+    }
+
     /// The targeted daemon tab, found in any workspace (shown or not).
     func daemonTab(_ invocation: ActionInvocation) -> (tab: TabModel, pane: PaneModel)? {
         if let target = explicitTarget(invocation, kinds: [.tab]) {
-            if let machine = invocation.targetMachineID {
-                guard let store = services.machines.daemon(machine: machine)?.store,
-                      let tab = store.tab(idOrResource: target.id), let pane = store.pane(holding: tab) else {
-                    return notFound(RefusalStrings.noTab(target.id))
-                }
-                return (tab, pane)
-            }
-            return services.locateTab(target.id) ?? notFound(RefusalStrings.noTab(target.id))
+            return targetTab(target.id, invocation) ?? notFound(RefusalStrings.noTab(target.id))
         }
         guard let (pane, id) = tab(invocation) else { return nil }
         guard let tab = pane.tab(id) else { return refuseQuietly(RefusalStrings.noTab(id.rawValue)) }

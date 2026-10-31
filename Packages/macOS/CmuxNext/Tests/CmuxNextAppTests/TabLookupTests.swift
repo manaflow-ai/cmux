@@ -135,6 +135,13 @@ struct TabLookupTests {
         let remoteTab = try #require(fixture.remote.daemon.store.workspaces.first?.screens.first?.panes.first?.tabs.first)
         try #require(remoteTab.id == fixture.localTab.id && remoteTab.pinned && !fixture.localTab.pinned)
         AppActions.bind(fixture.services)
+        let context = AppActionContext(services: fixture.services)
+        var invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: remoteTab.id))
+        #expect(context.targetTab(remoteTab.id, invocation) == nil, "an unscoped id two machines share stays ambiguous")
+        invocation.targetMachineID = fixture.remote.machineID
+        #expect(context.targetTab(remoteTab.id, invocation)?.0 === remoteTab)
+        invocation.targetMachineID = MachineRegistry.localID
+        #expect(context.targetTab(remoteTab.id, invocation)?.0 === fixture.localTab)
 
         let menu = PaneController.tabMenu(remoteTab.id, tab: remoteTab, keepsTab: false,
                                           sameKind: NewTabKind.of(remoteTab.id, tab: remoteTab, services: fixture.services),
