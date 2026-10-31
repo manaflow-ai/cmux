@@ -1,6 +1,7 @@
 import CmuxNextActions
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextDesign
 import CmuxNextWakeups
 import Foundation
@@ -13,45 +14,6 @@ import Foundation
 /// No daemon holding it is the gone refusal; nothing else opens in its place.
 @MainActor
 enum DurableTabLink {
-    /// One daemon's answer to "reopen this tab".
-    enum Answer: Equatable {
-        /// It held the tab and reopened it.
-        case reopened
-        /// No closed group of it holds the tab.
-        case notInHistory
-    }
-
-    /// What the walk over the daemons came to.
-    enum Outcome<Daemon: Equatable>: Equatable {
-        /// `on` reopened the tab.
-        case reopened(on: Daemon)
-        /// No daemon holds it.
-        case gone
-        /// `on` failed for another reason; the walk stopped there.
-        case failed(on: Daemon)
-    }
-
-    /// Asks each daemon in order (local first) until one reopens the tab.
-    ///
-    /// - Parameters:
-    ///   - daemons: The connected daemons, local first.
-    ///   - ask: Reopens the tab on one daemon; throws on a failure other than
-    ///     "not in its history".
-    /// - Returns: The daemon that reopened it, else gone, else the failing one.
-    static func reopen<Daemon: Equatable>(
-        on daemons: [Daemon],
-        _ ask: (Daemon) async throws -> Answer
-    ) async -> Outcome<Daemon> {
-        for daemon in daemons {
-            do {
-                if try await ask(daemon) == .reopened { return .reopened(on: daemon) }
-            } catch {
-                return .failed(on: daemon)
-            }
-        }
-        return .gone
-    }
-
     /// How long the reveal waits for the store to list the reopened tab.
     static let listLimit: Duration = .seconds(30)
 
@@ -64,7 +26,7 @@ enum DurableTabLink {
         let daemons = services.machines.daemons.filter { $0.connection != nil }
         services.registry.track(Task { @MainActor () -> ActionWorkFailure? in
             var failure: String?
-            let outcome = await reopen(on: daemons.indices.map { $0 }) { index in
+            let outcome = await ClosedLinkSearch(daemons: daemons.indices.map { $0 }).reopen { index in
                 let daemon = daemons[index]
                 guard let connection = daemon.connection else { return .notInHistory }
                 do {
