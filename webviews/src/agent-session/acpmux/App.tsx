@@ -220,7 +220,7 @@ import { SummaryCard } from "./summary/SummaryCard";
 import { transcriptBackgroundTasks } from "./summary/sessionSummary";
 import { openSourceFile } from "./inspector/SourcesSection";
 import { useChatInspector } from "./inspector/ChatInspector";
-import { toggleRemoteControl, useRemoteControl } from "./remoteControl";
+import { setRemoteControl, toggleRemoteControl, useRemoteControl } from "./remoteControl";
 import {
   type BackgroundCommand,
   backgroundCommands,
@@ -661,6 +661,8 @@ declare global {
       /// toggle `agent.suggestedTasks` forcing them on): an agent's offers draw as the suggested tasks
       /// card (offer/offersShown.ts).
       applySuggestedTasks?(on: boolean): void;
+      /// Session Info's Remote Control switch, `{on}` or null (remoteControl.ts), on the legacy host.
+      applyRemoteControl?(value: unknown): void;
       applyHeaderState?(state: unknown): void;
       /// The pane's tab row the header's tools may sit in (header/tabRow.ts).
       applyTabRow?(row: unknown): void;
@@ -8258,6 +8260,9 @@ function AcpmuxPane() {
       },
       applySuggestedTasks(on) {
         if (setSuggestedTasks(on === true)) directClient.current?.suggestedTasksChanged();
+      },
+      applyRemoteControl(value) {
+        setRemoteControl(value);
       },
       applyHeaderState(state) {
         setHeaderState(state);

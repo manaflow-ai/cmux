@@ -30,6 +30,9 @@ struct AgentPaneRemoteControlTests {
         #expect(AgentPaneRemoteControl.event(.init(on: true)) == AgentPageEvent(kind: "remoteControl", value: ["on": .bool(true)]))
         #expect(AgentPaneRemoteControl.event(.init(on: false)) == AgentPageEvent(kind: "remoteControl", value: ["on": .bool(false)]))
         #expect(AgentPaneRemoteControl.event(nil) == AgentPageEvent(kind: "remoteControl", value: .null))
+        // The legacy host has no event stream: it gets the same value through the page's bridge.
+        #expect(AgentPaneRemoteControl.script(.init(on: true)) == "window.cmuxAcpmuxBridge?.applyRemoteControl?.({\"on\":true});")
+        #expect(AgentPaneRemoteControl.script(nil) == "window.cmuxAcpmuxBridge?.applyRemoteControl?.(null);")
     }
 
     @Test func onlyThePersonsClickWritesIt() async {

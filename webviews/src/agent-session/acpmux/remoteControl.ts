@@ -7,6 +7,10 @@ import { useSyncExternalStore } from "react";
 export type RemoteControl = { on: boolean };
 
 let current: RemoteControl | null = null;
+/// The App's last pushed value, and the newest click: a refused write puts back the App's value
+/// only while no later click or push replaced it.
+let confirmed: RemoteControl | null = null;
+let clicks = 0;
 const listeners = new Set<() => void>();
 
 function publish(next: RemoteControl | null): void {
@@ -16,7 +20,8 @@ function publish(next: RemoteControl | null): void {
 }
 
 export function setRemoteControl(value: unknown): void {
-  publish(readRemoteControl(value));
+  confirmed = readRemoteControl(value);
+  publish(confirmed);
 }
 
 export function readRemoteControl(value: unknown): RemoteControl | null {
@@ -45,13 +50,13 @@ export async function toggleRemoteControl(
   on: boolean,
   call: (method: string, params: Record<string, unknown>) => Promise<unknown>,
 ): Promise<void> {
-  const before = current;
-  if (!before) return;
+  if (!current) return;
+  const click = ++clicks;
   publish({ on });
   try {
     await call("pane.setRemoteControl", { on });
   } catch {
-    // Only undo our own change: a push that came in meanwhile is the App's truth.
-    if (current?.on === on) publish(before);
+    // Only the newest click undoes, and to the App's last pushed value, never another click's.
+    if (click === clicks) publish(confirmed);
   }
 }

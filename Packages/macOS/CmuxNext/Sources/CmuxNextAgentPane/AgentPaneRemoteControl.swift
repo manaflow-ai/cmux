@@ -42,8 +42,22 @@ public final class AgentPaneRemoteControl {
         AgentPageEvent(kind: "remoteControl", value: state.map { ["on": .bool($0.on)] } ?? .null)
     }
 
+    /// Pushes the switch, read now, to `view`'s page (the legacy host's handshake); `view` then also
+    /// gets every change.
+    func push(to view: AgentPaneView) {
+        views.add(view)
+        follow()
+        send(to: view)
+    }
+
+    /// The script that gives a legacy-host page the switch (`applyRemoteControl`, App.tsx).
+    static func script(_ state: State?) -> String {
+        "window.cmuxAcpmuxBridge?.applyRemoteControl?.(\(event(state).value.compactText));"
+    }
+
     private func send(to view: AgentPaneView) {
-        view.deliver([Self.event(state())], scripts: [])
+        let state = state()
+        view.deliver([Self.event(state)], scripts: [Self.script(state)])
     }
 
     // Same shape as AgentPaneSuggestedTasks's: not an isolated deinit.

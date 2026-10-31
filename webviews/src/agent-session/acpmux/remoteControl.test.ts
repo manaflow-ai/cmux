@@ -39,3 +39,14 @@ test("no switch means a click calls nothing (never a dead write)", async () => {
   expect(called).toBe(false);
   expect(remoteControl()).toBeNull();
 });
+
+test("overlapping clicks that both fail end on the App's value, not an earlier click's", async () => {
+  setRemoteControl({ on: false });
+  let rejectFirst: (error: Error) => void = () => undefined;
+  const first = toggleRemoteControl(true, () => new Promise((_, reject) => (rejectFirst = reject)));
+  const second = toggleRemoteControl(false, () => Promise.reject(new Error("refused")));
+  await second;
+  rejectFirst(new Error("refused"));
+  await first;
+  expect(remoteControl()).toEqual({ on: false });
+});
