@@ -16,6 +16,10 @@
 # stops every process of the slot by exact PID. A lease lasts at most 10 minutes; the journey
 # takes about 4. Results land in OUT_DIR (default /tmp/restore-journey-<JOB>-<time>).
 # Pin a host with CAPTURE_HOST_SLOT_HOSTS (one with free disk; see `capture-host status`).
+# The lease is exclusive (`capture-host acquire --slot --exclusive`): the fleet controller places no
+# step on the mini and no other capture shares it, so its timings are evidence. A run beside other
+# agents' steps (a 1-minute load of 14-24, 2026-10-29) is not. Acquire first waits up to
+# CAPTURE_HOST_EXCLUSIVE_DRAIN_SECONDS (300) for the steps already running there.
 set -euo pipefail
 job=${1:?usage: restore-journey-slot.sh JOB [OUT_DIR] [-- args]}
 shift
@@ -44,21 +48,37 @@ mkdir -p "$out"
 stage=/Users/Shared/cmux-capture/restore-journey/$job
 run=$stage/run-$(date +%H%M%S)
 
-acquired=$(date +%s)
-capture-host acquire --slot >"$out/lease.txt" 2>"$out/lease.err" &
+# Room for the exclusive drain: acquire's deadline bounds it (120 s by default; a step on the mini may run 5).
+export CAPTURE_HOST_ACQUIRE_TIMEOUT_SECONDS="${CAPTURE_HOST_ACQUIRE_TIMEOUT_SECONDS:-600}"
+capture-host acquire --slot --exclusive >"$out/lease.txt" 2>"$out/lease.err" &
 lease_pid=$!
 release() {
   if [ -n "${host:-}" ]; then ssh -o BatchMode=yes "$host" "rm -rf '$run'" >/dev/null 2>&1 || true; fi
-  if [ -n "${lease:-}" ]; then capture-host release "$lease" >/dev/null 2>&1 || true; fi
+  # Stop acquire (it ends the reservation of a lease it has not granted), then release a lease it printed
+  # that this script had not read yet: a stop between the print and the read held the mini for the lease.
   kill "$lease_pid" 2>/dev/null || true
+  for _ in $(seq 1 50); do kill -0 "$lease_pid" 2>/dev/null || break; sleep 0.2; done
+  [ -n "${lease:-}" ] || lease=$(grep -o 'slot-[A-Za-z0-9._-]*' "$out/lease.txt" 2>/dev/null | head -1 || true)
+  if [ -n "${lease:-}" ]; then capture-host release "$lease" >/dev/null 2>&1 || true; fi
 }
 trap release EXIT
-for _ in $(seq 1 120); do
+# Until acquire prints a lease or exits: it bounds itself (its timeout, plus an exclusive drain of up to
+# CAPTURE_HOST_EXCLUSIVE_DRAIN_SECONDS per busy host), so a fixed wait here would stop it mid-drain.
+lease=
+while :; do
   lease=$(grep -o 'slot-[A-Za-z0-9._-]*' "$out/lease.txt" 2>/dev/null | head -1 || true)
   [ -n "$lease" ] && capture-host slot-info "$lease" >/dev/null 2>&1 && break
-  kill -0 "$lease_pid" 2>/dev/null || { cat "$out/lease.err" >&2; exit 1; }
+  if ! kill -0 "$lease_pid" 2>/dev/null; then
+    # It may have printed the lease just before it exited.
+    lease=$(grep -o 'slot-[A-Za-z0-9._-]*' "$out/lease.txt" 2>/dev/null | head -1 || true)
+    [ -n "$lease" ] && break
+    echo "no exclusive capture slot: $(tail -3 "$out/lease.err" 2>/dev/null)" >&2
+    exit 1
+  fi
   sleep 2
 done
+# The lease's 10 minutes start when it is granted, after the exclusive drain.
+acquired=$(date +%s)
 info=$(capture-host slot-info "$lease")
 host=$(sed -n 's/.*host=\([^ ]*\).*/\1/p' <<<"$info")
 slot=$(sed -n 's/.*slot=\([^ ]*\).*/\1/p' <<<"$info")

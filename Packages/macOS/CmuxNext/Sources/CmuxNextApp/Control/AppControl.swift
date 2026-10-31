@@ -289,7 +289,7 @@ final class AppControl {
             },
             .mainActor("debug.window_record") { [weak services] call in
                 guard let services else { return .value(.null) }
-                return .value(DebugWindowRecord.start(call.params, services: services))
+                return .value(services.windowRecord.start(call.params, services: services))
             },
             .async("debug.shortcut_hints") { [weak services] call in
                 await DebugShortcutHintControl().handle(call.params, services: services)
@@ -575,6 +575,18 @@ final class AppControl {
             .mainActor("debug.daemon_update") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugSidebarNestedFixture.daemonUpdate(call.params, services: services))
+            },
+            // Captures of an update handoff: `debug.terminal_state {state, surface?}` sets live terminal tabs'
+            // `terminal_state` (adopting, reconnecting, running, ...) as the daemon's push does; no daemon restart.
+            .mainActor("debug.terminal_state") { [weak services] call in
+                guard let services else { return .value(.null) }
+                let name = call.params["state"]?.stringValue ?? "adopting"
+                guard let state = TerminalTabState(rawValue: name) else {
+                    return .value(["error": .string("unknown state"), "state": .string(name)])
+                }
+                let surface = call.params["surface"]?.intValue.map { SurfaceID(rawValue: UInt64($0)) }
+                let set = services.daemon.store.debugSetTerminalState(state, surface: surface)
+                return .value(["state": .string(name), "surfaces": .array(set.map { .number(Double($0.rawValue)) })])
             },
             // Captures of a Cloud machine's menu: a fixture header and `cloudWorkspace`, with no machine, sign-in or network.
             .mainActor("debug.cloud_machine_fixture") { [weak services] call in

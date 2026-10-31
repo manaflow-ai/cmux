@@ -460,7 +460,7 @@ nonisolated enum BrowserActionCatalog: ActionCatalogGroup {
                 category: .browser, symbol: "desktopcomputer", surfaces: [.palette, .contextMenu], requires: [.browserFocused],
                 targets: [.pane], cliName: "browser fit-desktop-1280"
             ),
-        ] + vscodeServerDescriptors() + agentGuardDescriptors() + importFilesDescriptors() + importCookiesDescriptors() + pinnedPageDescriptors()
+        ] + vscodeServerDescriptors() + agentGuardDescriptors() + importFilesDescriptors() + importCookiesDescriptors() + cookieBannerDescriptors() + pinnedPageDescriptors() + editSourceDescriptors()
             + devToolsDescriptors()
     }
 }
