@@ -50,8 +50,15 @@ struct SplitOfPendingSplitTests {
                 "the window's first responder is \(String(describing: window.firstResponder)), not in the second split's pane"
             })
             let surface = try #require(second.pane.tabs.first { $0.kind == .pty }?.surface)
-            let nonce = String(UInt32.random(in: 100_000...999_999))
+            // #28436: a key typed while the window's creation hold still waits is replayed later through `NSApp.sendEvent`,
+            // which reaches only the key window, and a test window is never key (as in NewTerminalOnPendingSplitTests and
+            // the journeys' `outwait_hold`). In 6 of 8 runs at 9adddb31f2f the hold was still open here and took all 24
+            // keys; its replay reached no window. Type once the hold of both splits ended, because the focus landed.
             let coordinator = services.keyRouter.creationInputCoordinator
+            try await PinnedPageTests.until({ !coordinator.isHolding(in: window) }, report: { "the window's creation hold never ended" })
+            #expect(coordinator.lastHoldEnd(in: window) == .focusLanded,
+                    "the creation hold ended by \(String(describing: coordinator.lastHoldEnd(in: window))), not because the focus landed")
+            let nonce = String(UInt32.random(in: 100_000...999_999))
             var keyPath: [String] = ["typing: hold open \(coordinator.isHolding(in: window)), window key \(window.isKeyWindow), app \(type(of: NSApp!))"
                                      + ", second view surface \(services.cache.existingTerminal(second.pane.tabs.first { $0.kind == .pty }?.id ?? "")?.session.diagnostics.hasSurface == true)"]
             for character in "echo p0x\(nonce)x$((6*7))\r" {
