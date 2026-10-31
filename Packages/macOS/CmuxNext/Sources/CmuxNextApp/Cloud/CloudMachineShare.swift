@@ -24,6 +24,8 @@ enum CloudMachineShare {
     /// machine's link so its attach answer says `owner` before the page retries the start.
     static func shareWithMe(_ session: CloudMachineSession, cloud: CloudService) async -> AgentPaneMachineShare {
         guard let user = cloud.auth.user?.id else { return .refused(code: "not_signed_in", message: CloudStrings.signInFirst) }
+        // Grants live on the classic Cloud API; a machine on the Cloud app server link has none yet.
+        guard session.link != nil else { return .refused(code: "unavailable", message: CloudShareStrings.notCloudMachine) }
         do {
             try await cloud.api.grantChat(session.machineID, to: user)
         } catch {
