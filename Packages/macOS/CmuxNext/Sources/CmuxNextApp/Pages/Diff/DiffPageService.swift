@@ -5,6 +5,7 @@ import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextDesign
 import typealias CmuxNextDaemon.SurfaceID
+import class CmuxNextDaemon.TabModel
 import CmuxNextDaemonService
 import CmuxNextDiff
 import CmuxNextIcons
