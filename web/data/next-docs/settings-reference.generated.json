@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 533,
+  "count": 534,
   "sections": [
     {
       "id": "general",
@@ -3449,6 +3449,14 @@
           "key": "sidebar.showLocalMachine",
           "title": "Mark This Mac's Workspaces",
           "help": "With workspaces on more than one computer, a workspace on another computer shows that computer's icon in its color. On, this Mac's workspaces show its icon too.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Sidebar"
+        },
+        {
+          "key": "sidebar.showNewWorkspaceChooser",
+          "title": "Show New Workspace Menu Button",
+          "help": "A chevron beside the + in the sidebar's titlebar opens the New Workspace menu. Off, right-click the + for the same menu.",
           "kind": "toggle",
           "default": false,
           "group": "Sidebar"
