@@ -232,7 +232,7 @@ export class AppsStore {
         if (lifetime !== this.lifetime) return;
         this.set(failure(error));
       }
-      if (lifetime === this.lifetime) await Promise.all([this.reload(), this.loadRegistry()]);
+      if (lifetime === this.lifetime) await Promise.all([this.reload(), this.loadRegistry(lifetime)]);
     } finally {
       if (lifetime === this.lifetime) this.starting = false;
     }
@@ -240,12 +240,14 @@ export class AppsStore {
 
   /** The host reports the owner link: down shows the disconnected state; back up re-reads. */
   private onConnection(connected: boolean): void {
+    const lifetime = this.lifetime;
     if (!connected) {
       this.set({ connection: "disconnected", loading: false });
     } else if (this.snapshot.connection === "disconnected") {
       this.set({ connection: "connecting" });
+      if (lifetime !== this.lifetime) return;
       void this.reload();
-      void this.loadRegistry();
+      void this.loadRegistry(lifetime);
     }
   }
 
@@ -622,10 +624,9 @@ export class AppsStore {
   // from `reload` (a catalog change does not reread it) and one failing never hides the catalog.
 
   /** Reads who the person is, the approved listings, their submissions and, for a reviewer, the queue. */
-  async loadRegistry(): Promise<void> {
+  async loadRegistry(lifetime = this.lifetime): Promise<void> {
     const client = this.client;
-    if (!client) return;
-    const lifetime = this.lifetime;
+    if (!client || lifetime !== this.lifetime) return;
     const [me, listings] = await Promise.all([
       client.call<RegistryMe>(RegistryOps.me, {}).then(
         (value) => ({ value, error: undefined as unknown }),
