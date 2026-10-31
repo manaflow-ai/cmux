@@ -63,8 +63,10 @@ fn insert(anchor: PaneId, before: bool) -> LayoutOpKind {
 }
 
 fn applied(state: &LayoutState, kind: LayoutOpKind) -> LayoutState {
+    let anchor = kind.column_anchor().expect("a create");
     let (next, _) = apply(state, &LayoutOp { key: "k".into(), kind }).unwrap();
-    assert!(resized_columns(state, &next).is_empty(), "{:?}", resized_columns(state, &next));
+    let resized = resized_columns(state, &next, anchor);
+    assert!(resized.is_empty(), "{resized:?}");
     next
 }
 
@@ -159,7 +161,7 @@ fn the_check_reports_each_resized_column() {
     after.workspaces[0].screens[0].columns[0].width_permille = 333;
     after.workspaces[0].screens[0].columns[1].width_permille = 500;
     assert_eq!(
-        resized_columns(&before, &after),
+        resized_columns(&before, &after, 21),
         BTreeSet::from([
             Violation::ColumnResized { column: 10, screen: 2, before: 500, after: 333 },
             Violation::ColumnResized { column: 11, screen: 2, before: 750, after: 500 },
@@ -216,4 +218,31 @@ fn new_column_after_a_new_workspace_and_a_terminal_keeps_the_first_column_full_w
     });
     let next = applied(&state, insert(3, false));
     assert_eq!(widths(&next), vec![(102, 1000), (101, NEW)]);
+}
+
+/// Only the screen that gets the new column is checked: a tab moved out of
+/// another screen may close its column there, and that screen's close
+/// sizing is not a create resizing a column (review of #29176).
+#[test]
+fn a_column_resized_on_another_screen_is_not_a_create_resize() {
+    let mut state = screen(&[500, 750]);
+    // A second workspace (7), screen 8, with one strip column 30 of pane 31.
+    state.tabs.insert(32, tab(32));
+    state.panes.insert(31, vec![32]);
+    state.workspaces.push(Workspace {
+        id: 7,
+        screens: vec![Screen {
+            id: 8,
+            columns: vec![Column::sized(30, vec![31], 600), Column::sized(33, vec![34], 400)],
+            columns_active: true,
+        }],
+    });
+    state.tabs.insert(35, tab(35));
+    state.panes.insert(34, vec![35]);
+    let mut after = applied(&state, insert(21, false));
+    // The other screen's column changed width (its close sizing in the store).
+    after.workspaces[1].screens[0].columns[0].width_permille = 1000;
+    assert!(resized_columns(&state, &after, 21).is_empty());
+    // The same change on the anchor's screen is a create resize.
+    assert!(!resized_columns(&state, &after, 31).is_empty());
 }

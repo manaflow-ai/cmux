@@ -291,8 +291,18 @@ impl LayoutOpKind {
     /// that existed before keeps its width ([`resized_columns`]). Every op
     /// is listed, so a new op decides.
     pub fn creates_column(&self) -> bool {
+        self.column_anchor().is_some()
+    }
+
+    /// The pane beside which this op creates a column: the new column opens
+    /// on that pane's screen, the one screen R3b is about. A move that
+    /// empties a column elsewhere may resize that screen's columns (its
+    /// close sizing), which is not a create resizing a column.
+    pub fn column_anchor(&self) -> Option<PaneId> {
         match self {
-            Self::MoveTabToColumn { .. } | Self::InsertColumn { .. } => true,
+            Self::MoveTabToColumn { anchor, .. } | Self::InsertColumn { anchor, .. } => {
+                Some(*anchor)
+            }
             Self::MoveTab { .. }
             | Self::MoveTabToSplit { .. }
             | Self::MoveTabToNewWorkspace { .. }
@@ -302,7 +312,7 @@ impl LayoutOpKind {
             | Self::SetRowHeights { .. }
             | Self::FlattenRows { .. }
             | Self::CloseTab { .. }
-            | Self::RuntimeExited { .. } => false,
+            | Self::RuntimeExited { .. } => None,
         }
     }
 }
@@ -597,25 +607,30 @@ pub fn introduced_violations_creating(
     violations
 }
 
-/// R3b from `before` to `after`: every column of `before` still on its
-/// screen in `after` has the same width. A strip column is found by its id;
-/// a screen's split tree (no strip columns) by its panes, since it becomes a
-/// strip column under a new id when the first column opens beside it. A
-/// column that is gone (its last pane moved out) is not a resize.
-pub fn resized_columns(before: &LayoutState, after: &LayoutState) -> BTreeSet<Violation> {
-    let after_screens = after
-        .workspaces
-        .iter()
-        .flat_map(|workspace| &workspace.screens)
-        .map(|screen| (screen.id, screen))
-        .collect::<BTreeMap<_, _>>();
-    let mut violations = BTreeSet::new();
-    for screen in before.workspaces.iter().flat_map(|workspace| &workspace.screens) {
-        if let Some(next) = after_screens.get(&screen.id) {
-            violations.extend(resized_screen_columns(screen, next));
+/// R3b from `before` to `after` for an op that creates a column beside
+/// `anchor`: every column of the anchor's screen in `before` that is still
+/// there in `after` has the same width ([`resized_screen_columns`]). Other
+/// screens are not checked: a tab moved out of one may close its column,
+/// and that screen's close sizing is not a create resizing a column.
+pub fn resized_columns(
+    before: &LayoutState,
+    after: &LayoutState,
+    anchor: PaneId,
+) -> BTreeSet<Violation> {
+    let screen_of = |layout: &LayoutState| {
+        layout
+            .workspaces
+            .iter()
+            .flat_map(|workspace| &workspace.screens)
+            .find(|screen| screen.columns.iter().any(|column| column.panes.contains(&anchor)))
+            .cloned()
+    };
+    match (screen_of(before), screen_of(after)) {
+        (Some(old), Some(new)) if old.id == new.id => {
+            resized_screen_columns(&old, &new).into_iter().collect()
         }
+        _ => BTreeSet::new(),
     }
-    violations
 }
 
 /// [`resized_columns`] for one screen, `before` and `after` the change: the
@@ -743,8 +758,8 @@ pub fn apply(
         &op.kind.closed_tabs(),
         &op.kind.created_tabs(),
     );
-    if op.kind.creates_column() {
-        violations.extend(resized_columns(state, &next));
+    if let Some(anchor) = op.kind.column_anchor() {
+        violations.extend(resized_columns(state, &next, anchor));
     }
     if !violations.is_empty() {
         return Err(Reject::Invariant(violations.into_iter().collect()));

@@ -609,8 +609,8 @@ proptest! {
                     }
                     // R3b: a new column takes new space; every column that
                     // was there keeps its width.
-                    if op.kind.creates_column() {
-                        let resized = resized_columns(&state, &next);
+                    if let Some(anchor) = op.kind.column_anchor() {
+                        let resized = resized_columns(&state, &next, anchor);
                         prop_assert!(resized.is_empty(), "{resized:?}");
                     }
                     // I5: a replay changes nothing and reports nothing.

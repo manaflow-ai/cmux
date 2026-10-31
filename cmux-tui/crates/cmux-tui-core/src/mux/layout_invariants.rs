@@ -188,7 +188,8 @@ fn model_transition_problems(
 
 /// Reject a tab-conserving `operation` whose live result `after` breaks a
 /// layout invariant or differs from the reducer's result `model`, and, when
-/// its op `kind` creates a column, one that resized a column (R3b).
+/// its op `kind` creates a column, one that resized a column of the screen
+/// that gets it (R3b; another screen's close sizing is not a create resize).
 pub(crate) fn validate_layout_transition(
     operation: &str,
     before: &LayoutState,
@@ -198,8 +199,8 @@ pub(crate) fn validate_layout_transition(
 ) -> anyhow::Result<()> {
     let after = project(after);
     let mut problems = model_transition_problems(before, model, &after);
-    if kind.is_some_and(LayoutOpKind::creates_column) {
-        problems.extend(resized_columns(before, &after).iter().map(ToString::to_string));
+    if let Some(anchor) = kind.and_then(LayoutOpKind::column_anchor) {
+        problems.extend(resized_columns(before, &after, anchor).iter().map(ToString::to_string));
     }
     if problems.is_empty() { Ok(()) } else { Err(rejection(operation, problems)) }
 }
