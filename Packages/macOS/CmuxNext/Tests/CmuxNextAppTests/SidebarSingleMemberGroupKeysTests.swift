@@ -8,7 +8,8 @@ import Testing
 /// focused the group (a header the list does not draw, so Return opened nothing); the group editor, which Rename in
 /// the row's Group options submenu opens, needed the header's view and opened nothing; and a drop into the group (it
 /// opens no gap) lit the header's fill, which nothing drew, so an accepted drop showed no destination; and a drag of the
-/// row moved only the workspace, so the group could no longer be reordered.
+/// row moved only the workspace, so the group could no longer be reordered; and a drop into a nested such group took its
+/// step-in from a header the list does not draw, so the gap and card sat at the list's inset.
 @MainActor @Suite(.serialized, .closesItsWindows) struct SidebarSingleMemberGroupKeysTests {
     static let group = GroupID("g-coord")
     static let coord = WorkspaceID("w-coord")
@@ -83,6 +84,48 @@ import Testing
         #expect(one.isDropTarget, "the row-state sync cleared the one row's drop mark")
         list.cancelDrag()
         #expect((list.rowViews[.workspace(Self.coord)] as? WorkspaceRowView)?.isDropTarget != true, "the drop mark outlived the drag")
+    }
+
+    /// A drop into a nested group drawn as its one row: the gap and the lifted card step in to that row's level (its
+    /// header's level plus one), as they did under its header, never back to the list's inset.
+    @Test func aDropIntoANestedOneRowGroupStepsInToItsMembers() throws {
+        let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
+        let parent = SidebarGroup(id: GroupID("g-design"), name: "Design review", workspaces: [SidebarWorkspace(id: WorkspaceID("w-sketch"), title: "Sketches")])
+        var child = SidebarGroup(id: GroupID("g-visual"), name: "visual-check", workspaces: [SidebarWorkspace(id: WorkspaceID("w-visual"), title: "visual-check")])
+        child.parent = parent.id
+        child.depth = 1
+        let nodes: [CmuxNextSidebar.SidebarNode] = [.workspace(SidebarWorkspace(id: WorkspaceID("w-loose"), title: "loose")), .group(parent), .group(child)]
+        let sidebar = SidebarView(model: SidebarModel(sections: [CmuxNextSidebar.SidebarSection(kind: .machine(machine), nodes: nodes)]),
+                                  design: DesignSettings())
+        let window = NSWindow(contentRect: NSRect(x: 100, y: 200, width: 260, height: 600), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        sidebar.frame = NSRect(x: 0, y: 0, width: 260, height: 600)
+        window.contentView?.addSubview(sidebar)
+        defer { window.close() }
+        window.orderFrontRegardless()
+        let list = sidebar.list
+        list.reload(animated: false)
+        sidebar.layoutSubtreeIfNeeded()
+        let one = try #require(list.displayed.row(for: .workspace(WorkspaceID("w-visual"))))
+        #expect(one.standsForGroup && one.depth == 2, "the nested group draws as its one row, two levels in")
+        let loose = try #require(list.displayed.row(for: .workspace(WorkspaceID("w-loose"))))
+        let start = NSPoint(x: 80, y: loose.y + loose.height / 2)
+        func event(_ type: NSEvent.EventType, _ point: NSPoint) throws -> NSEvent {
+            try #require(NSEvent.mouseEvent(with: type, location: list.convert(point, to: nil), modifierFlags: [],
+                                            timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                                            context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
+        }
+        list.mouseDown(with: try event(.leftMouseDown, start))
+        for dy: CGFloat in [4, 12] { list.mouseDragged(with: try event(.leftMouseDragged, NSPoint(x: start.x, y: start.y + dy))) }
+        let drag = try #require(list.drag, "the row did not lift")
+        defer { list.cancelDrag() }
+        drag.target = .position(DropPosition(section: one.section, group: child.id, index: 1))
+        list.showDragLayout()
+        let stepIn = list.indent.offset(level: one.depth, width: list.indentWidth)
+        #expect(stepIn > 0, "a second-level member steps in")
+        #expect(list.dropStepIn(list.displayed) == stepIn, "the gap into the nested one-row group sat at another level")
+        list.morphLift(drag, point: NSPoint(x: start.x, y: one.maxY))
+        #expect(abs(drag.lift.frame.minX - (list.inset + stepIn)) < 0.5, "the card into the nested one-row group sat at \(drag.lift.frame.minX)")
     }
 
     @Test func leftOnTheOneRowFocusesNoHeaderlessGroup() throws {
