@@ -6,7 +6,13 @@ import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { normalizeCatalog } from "../acpmux/direct";
 import { AgentMark, hasAgentMark } from "./AgentMark";
-import { harnessIcon, harnessSymbolsSnapshot, loadHarnessSymbol, parseHarnessIconSpec, setHarnessSymbolHost } from "./harnessIcons";
+import {
+  harnessIcon,
+  harnessSymbolsSnapshot,
+  loadHarnessSymbol,
+  parseHarnessIconSpec,
+  setHarnessSymbolHost,
+} from "./harnessIcons";
 
 const draw = (agent: string, fallback?: string) =>
   renderToStaticMarkup(<AgentMark agent={agent} size={16} {...(fallback ? { fallback } : {})} />);
@@ -65,9 +71,7 @@ test("replacing the native symbol host ignores stale replies and retains the new
   let oldReply: (url: string | null) => void = () => {};
   let newReply: (url: string | null) => void = () => {};
   let newRequests = 0;
-  const releaseOld = setHarnessSymbolHost(
-    () => new Promise<string | null>((resolve) => (oldReply = resolve)),
-  );
+  const releaseOld = setHarnessSymbolHost(() => new Promise<string | null>((resolve) => (oldReply = resolve)));
   loadHarnessSymbol(name);
   const releaseNew = setHarnessSymbolHost(
     () =>
