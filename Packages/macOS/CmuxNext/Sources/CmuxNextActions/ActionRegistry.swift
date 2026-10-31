@@ -130,6 +130,9 @@ public final class ActionRegistry {
     /// Old IDs folded into canonical IDs on register and lookup.
     @ObservationIgnored public private(set) var aliases: [ActionID: ActionID] = [:]
 
+    /// Ways past an unavailable reason that a person's own gesture may take (``ActionRecovery``),
+    /// asked in order with the action and its current reason; the first non-nil answer wins.
+    @ObservationIgnored public var unavailableRecoveries: [@MainActor (_ action: ActionID, _ reason: String) -> ActionRecovery?] = []
     /// Sees every `refuse(_:quiet:)` reason and whether it is quiet (the App logs it; a loud one shows the HUD).
     @ObservationIgnored public var refusalObserver: (@MainActor (_ reason: String, _ quiet: Bool) -> Void)?
     /// Sees the remote half of an ``ActionEffect`` fail after its local change was rolled back, with
