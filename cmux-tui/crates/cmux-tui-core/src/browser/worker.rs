@@ -246,6 +246,7 @@ pub(super) fn start_browser_worker(
                 }
                 batch.extend(order.retained_releases.drain(..));
                 batch.extend(order.registry_work.drain(..));
+                batch.extend(order.registry_exit.take());
                 if let Some(command) = take_latest_worker_commands(&latest_nav) {
                     batch.push(command);
                 }

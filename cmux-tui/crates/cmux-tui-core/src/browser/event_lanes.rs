@@ -149,12 +149,7 @@ impl SurfaceRoute {
     fn schedule_locked(self: &Arc<Self>, state: &mut SurfaceRouteState) {
         #[cfg(test)]
         self.changed.notify_all();
-        if !state.has_handler
-            || state.scheduled
-            || state.paused
-            || state.ended
-            || state.events.is_empty()
-        {
+        if !state.has_handler || state.scheduled || state.ended || !state.has_runnable_event() {
             return;
         }
         // `has_handler` is set only after the pool started.
@@ -178,16 +173,28 @@ impl SurfaceRoute {
         for _ in 0..EVENTS_PER_TURN {
             let event = {
                 let mut state = self.state.lock().recover_poison();
-                if state.paused {
-                    *self.handler.lock().recover_poison() = Some(handler);
-                    state.scheduled = false;
-                    return false;
-                }
-                match self.pop_event(&mut state) {
+                let next = if state.paused {
+                    // A command-worker CDP call can wait for a dialog answer.
+                    // Let that detached control acknowledgment bypass the
+                    // registry pause, without reordering page changes.
+                    state
+                        .events
+                        .iter()
+                        .position(|queued| is_dialog(&queued.event))
+                        .and_then(|index| state.events.remove(index))
+                        .map(|queued| {
+                            state.retained_bytes =
+                                state.retained_bytes.saturating_sub(queued.retained_bytes);
+                            queued.event
+                        })
+                } else {
+                    self.pop_event(&mut state)
+                };
+                match next {
                     Some(event) => event,
                     None => {
                         state.scheduled = false;
-                        if state.closed {
+                        if state.closed && state.events.is_empty() {
                             self.end_locked(&mut state);
                             drop(state);
                             drop_handler(handler);
@@ -214,7 +221,7 @@ impl SurfaceRoute {
         }
         let mut state = self.state.lock().recover_poison();
         *self.handler.lock().recover_poison() = Some(handler);
-        if state.paused || state.events.is_empty() {
+        if !state.has_runnable_event() {
             state.scheduled = false;
             false
         } else {
@@ -288,6 +295,20 @@ impl Drop for ResumeEventLane {
     fn drop(&mut self) {
         self.0.resume();
     }
+}
+
+impl SurfaceRouteState {
+    fn has_runnable_event(&self) -> bool {
+        if self.paused {
+            self.events.iter().any(|queued| is_dialog(&queued.event))
+        } else {
+            !self.events.is_empty()
+        }
+    }
+}
+
+fn is_dialog(event: &CdpEvent) -> bool {
+    matches!(event, CdpEvent::Other { method, .. } if method == "Page.javascriptDialogOpening")
 }
 
 /// Drops an ended lane's handler (often the last owner of its surface) so a

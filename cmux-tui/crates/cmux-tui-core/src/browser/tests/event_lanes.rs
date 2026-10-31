@@ -308,35 +308,32 @@ fn paused_lane_still_answers_dialogs_needed_by_its_command_worker() {
         let weak = Arc::downgrade(&route);
         let (paused_tx, paused_rx) = mpsc::channel();
         let (dialog_tx, dialog_rx) = mpsc::channel();
-        route
-            .attach_handler(Box::new(move |event| {
-                match event {
-                    cmux_tui_cdp::CdpEvent::FrameNavigated { .. } => {
-                        paused_tx.send(weak.upgrade().unwrap().pause()).unwrap();
-                    }
-                    cmux_tui_cdp::CdpEvent::Other { method, .. }
-                        if method == "Page.javascriptDialogOpening" =>
-                    {
-                        dialog_tx.send(()).unwrap();
-                    }
-                    _ => {}
+        let handler: crate::browser::event_lanes::LaneHandler = Box::new(move |event| {
+            match event {
+                cmux_tui_cdp::CdpEvent::FrameNavigated { .. } => {
+                    paused_tx.send(weak.upgrade().unwrap().pause()).unwrap();
                 }
-                LaneFlow::Continue
-            }))
-            .unwrap();
+                cmux_tui_cdp::CdpEvent::Other { method, .. }
+                    if method == "Page.javascriptDialogOpening" =>
+                {
+                    dialog_tx.send(()).unwrap();
+                }
+                _ => {}
+            }
+            LaneFlow::Continue
+        });
         let dialog = cmux_tui_cdp::CdpEvent::Other {
             method: "Page.javascriptDialogOpening".into(),
             session_id: Some("session-1".into()),
             params: serde_json::json!({"type": "beforeunload"}),
         };
         if prequeued {
-            let initial_pause = route.pause();
             assert!(!route.deliver(navigated(1)));
             assert!(!route.deliver(dialog));
-            drop(initial_pause);
         } else {
             assert!(!route.deliver(navigated(1)));
         }
+        route.attach_handler(handler).unwrap();
         let resume = paused_rx.recv_timeout(BROWSER_TEST_SAFETY_BOUND).unwrap();
         if !prequeued {
             assert!(!route.deliver(cmux_tui_cdp::CdpEvent::Other {
@@ -352,4 +349,51 @@ fn paused_lane_still_answers_dialogs_needed_by_its_command_worker() {
         route.close("test complete".into());
         assert!(answered.is_ok(), "dialog waited behind its own blocked command worker");
     }
+}
+
+#[test]
+fn deferred_registry_overflow_closes_surface_without_losing_exit() {
+    let surface = test_surface();
+    let browser = surface.as_browser().unwrap();
+    let done = browser.take_worker_done_for_test();
+    let (entered_tx, entered_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel();
+    assert!(
+        browser.enqueue_test_command(BrowserCommand::Hold {
+            entered: entered_tx,
+            release: release_rx,
+        })
+    );
+    entered_rx.recv_timeout(BROWSER_TEST_SAFETY_BOUND).unwrap();
+    // Saturate ordinary admission too: the exit has its own retained slot.
+    for _ in 0..BROWSER_COMMAND_QUEUE_CAPACITY {
+        assert!(browser.enqueue_test_command(BrowserCommand::WakeLatest));
+    }
+    let mut retained = Vec::new();
+    for _ in 0..BROWSER_COMMAND_QUEUE_CAPACITY {
+        let route = Arc::new(SurfaceRoute::new());
+        retained.push(Arc::downgrade(&route));
+        browser
+            .defer_registry_work(
+                &Arc::downgrade(&route),
+                crate::browser::event_registry::RegistryWork::ClearAttention(
+                    "https://a.test".into(),
+                ),
+            )
+            .unwrap();
+    }
+    let route = Arc::new(SurfaceRoute::new());
+    let rejected = browser.defer_registry_work(
+        &Arc::downgrade(&route),
+        crate::browser::event_registry::RegistryWork::ClearAttention("https://b.test".into()),
+    );
+    let closed = browser.is_dead();
+    drop(release_tx);
+    done.recv_timeout(BROWSER_TEST_SAFETY_BOUND).unwrap();
+    assert!(rejected.is_err());
+    assert!(closed, "unbounded provider churn must end the surface");
+    assert!(
+        retained.iter().all(|route| route.upgrade().is_none()),
+        "worker released every paused route"
+    );
 }

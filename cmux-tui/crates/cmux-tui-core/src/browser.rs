@@ -501,6 +501,7 @@ struct BrowserCommandOrder {
     // Each route pauses until its work completes, retaining at most one.
     // Distinct old/new provider routes must not overwrite each other's work.
     registry_work: VecDeque<SequencedBrowserCommand>,
+    registry_exit: Option<SequencedBrowserCommand>,
 }
 
 impl BrowserCommandOrder {
