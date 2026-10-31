@@ -108,15 +108,17 @@ import Testing
             controller.window?.close()
         }
         let window = try #require(controller.window)
-        let home = HomeSidebarView(frame: NSRect(x: 260, y: 0, width: 300, height: 640))
+        controller.root.layoutSubtreeIfNeeded()
+        let home = HomeSidebarView(frame: NSRect(x: 260, y: 0, width: 300, height: controller.root.bounds.height))
         controller.root.addSubview(home)
         home.layoutSubtreeIfNeeded()
         #expect(home.header == HomeSidebarHeaderLayout(width: 300, searchOpen: false))
 
         home.setFrameOrigin(.zero)
+        let lights = try lights(window)
+        try #require(inWindow(home.searchCapsule).intersects(lights), "the fixture must put the stale Search field under the traffic lights before the callback")
         try #require(controller.root.onMainPaneMove, "the window controller did not wire the main pane card's move")()
         home.layoutSubtreeIfNeeded()
-        let lights = try lights(window)
         #expect(!inWindow(home.searchCapsule).intersects(lights), "the main pane card moved and Home's Search field stayed under the lights")
     }
 
