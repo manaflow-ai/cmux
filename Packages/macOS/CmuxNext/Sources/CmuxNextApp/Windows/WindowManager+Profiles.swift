@@ -15,7 +15,7 @@ extension WindowManager {
     /// in it (the last one shown there is selected), else the profile's
     /// workspaces no open window showing that profile holds, else a new
     /// workspace created in it.
-    func switchProfile(_ profile: ProfileID, in state: WindowState) {
+    func switchProfile(_ profile: ProfileID, in state: WindowState, keepingHomes: Bool = false) {
         guard profile != state.profileID else { return }
         // An incognito space lives in its incognito window (spaces-overhaul-DESIGN.md rule 2): switching another
         // window to it shows that window instead, and an incognito space's window never shows a normal space.
@@ -28,7 +28,7 @@ extension WindowManager {
         let members = registry.members(of: state.id)
         var visible = WindowProfiles.visible(members, profile: profile, machines: machines)
         if visible.isEmpty {
-            let adoptable = adoptableWorkspaces(in: profile, for: state.id)
+            let adoptable = adoptableWorkspaces(in: profile, for: state.id).filter { !keepingHomes || !isWindowHome($0) }
             if !adoptable.isEmpty {
                 transition { $0.move(adoptable, to: state.id) }
                 visible = adoptable
@@ -114,7 +114,7 @@ extension WindowManager {
         // A CLI or MCP run without focus permission leaves this window's view alone (as `RoomHandlers.startNewSpace`).
         let mayShow = ActionRunScope.viewChangeAllowed()
         guard !moving.isEmpty else {
-            if mayShow { switchProfile(profile, in: state) }
+            if mayShow { switchProfile(profile, in: state, keepingHomes: true) } // another window's Home stays there
             return
         }
         try refuseLocalTabs([state.id] + sources.filter { !Set($0.workspaceIDs).isDisjoint(with: moving) }.map(\.id))
