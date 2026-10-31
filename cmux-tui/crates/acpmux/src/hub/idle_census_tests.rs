@@ -241,6 +241,105 @@ fn a_relay_or_helper_is_its_executable_not_its_argv() {
     let _ = std::fs::remove_dir_all(root);
 }
 
+/// A native wrapper harness (`sr2 claude ARGS`, `sr codex ARGS`) runs the agent as its child with
+/// the same args plus its own, before them (`claude --settings S ARGS`) or after them
+/// (`cmux-codex ARGS -c model_provider=...`), and that agent starts the MCP servers. The census
+/// took the agent itself for work the harness left running, so no idle wrapped chat ever ended:
+/// 54 `sr2 -> claude` and 40 `sr -> cmux-codex` harnesses on one Mac (2026-10-30), about 180 MB
+/// and 12 processes each.
+#[test]
+fn a_native_wrappers_relayed_agent_and_its_servers_let_it_end() {
+    let servers = from_json(Some(&json!({
+        "cmux": {"command": "/home/u/cmux", "args": ["mcp", "serve"]},
+        "forum": {"command": "/home/u/acpmux", "args": ["forum-mcp"]},
+    })));
+    let args = "-p --session-id S --mcp-config /home/u/.acpmux/run/mcp/S.json";
+    let sr2 = &format!("/home/u/.local/bin/sr2 claude {args}");
+    let claude =
+        format!("/opt/homebrew/bin/claude --autocompact 402663 --settings /tmp/s.json {args}");
+    let idle = vec![
+        under(11, 10, &claude),
+        under(12, 11, "/home/u/cmux mcp serve"),
+        under(13, 12, "/home/u/acpmux secret-mcp"),
+        under(14, 11, "/home/u/acpmux forum-mcp"),
+    ];
+    assert!(matches!(census_of(&idle, sr2, &servers), Census::Clear));
+
+    // `sr codex ARGS` runs `cmux-codex ARGS EXTRA` and its helper beside it.
+    let sr = "/home/u/bin/sr codex -c agents.max_depth=16 app-server";
+    let codex = "/home/u/libexec/cmux-codex/cmux-codex -c agents.max_depth=16 app-server -c x=y";
+    let found = [
+        under(11, 10, codex),
+        under(12, 11, "/home/u/cmux mcp serve"),
+        under(13, 11, "/home/u/libexec/cmux-codex/codex-code-mode-host"),
+    ];
+    assert!(matches!(census_of(&found, sr, &servers), Census::Clear));
+
+    // What the agent left running still keeps it up, as does a child of the wrapper that is not
+    // the agent it names with its args: other args, another program, an interpreter, or the
+    // agent run again under the relayed one.
+    for extra in [
+        under(16, 11, "/usr/bin/python3 -m http.server 8000"),
+        under(16, 10, "/opt/homebrew/bin/claude -p --session-id OTHER"),
+        under(16, 10, &format!("/tmp/devserver {args}")),
+        under(16, 10, &format!("/usr/bin/python3 {args}")),
+        under(16, 10, &format!("claude {args}")),
+        under(16, 11, &claude),
+        under(16, 10, "/home/u/.local/bin/sr2-helper"),
+        // An agent under its own name has no helpers: its folder is often a shared `bin`.
+        under(16, 11, "/opt/homebrew/bin/claude-code-router start"),
+    ] {
+        let mut found = idle.clone();
+        found.push(extra);
+        assert!(
+            matches!(census_of(&found, sr2, &servers), Census::Busy { pid: 16, .. }),
+            "{:?}",
+            found.last()
+        );
+    }
+
+    // A leader that is no wrapper relays nothing: the agent run directly (its first arg is a
+    // flag), a wrapper with no args to pass on, or an interpreter running a script.
+    for leader in [
+        format!("/opt/homebrew/bin/claude {args}"),
+        "/home/u/.local/bin/sr2 claude".to_owned(),
+        format!("/usr/bin/python3 /tmp/wrap.py claude {args}"),
+    ] {
+        let census = census_of(&idle, &leader, &servers);
+        assert!(matches!(census, Census::Busy { pid: 11, .. }), "{leader}");
+    }
+}
+
+/// A wrapper and its relayed agent are told by the executable the kernel says each runs, not by
+/// argv alone: `exec -a` makes neither.
+#[test]
+fn a_native_wrapper_or_its_agent_is_its_executable_not_its_argv() {
+    let servers = from_json(Some(&json!({"cmux": {"command": "/home/u/cmux", "args": ["mcp"]}})));
+    let who = |exe: &str, argv: &[&str]| Identity {
+        exe: exe.into(),
+        argv: argv.iter().map(|w| w.to_string()).collect(),
+        cwd: None,
+    };
+    let (sr2, claude) = ("/home/u/.local/bin/sr2", "/opt/homebrew/bin/claude");
+    let leader = who(sr2, &[sr2, "claude", "-p", "--session-id", "S"]);
+    let agent = who(claude, &[claude, "--settings", "x", "-p", "--session-id", "S"]);
+    let server = who("/home/u/cmux", &["/home/u/cmux", "mcp"]);
+    let found = [under(11, 10, "claude"), under(12, 11, "cmux")];
+    let census = |leader: &Identity, agent: &Identity| {
+        classify(&found, 10, &servers, None, |pid| match pid {
+            10 => Some(leader.clone()),
+            11 => Some(agent.clone()),
+            12 => Some(server.clone()),
+            _ => None,
+        })
+    };
+    assert!(matches!(census(&leader, &agent), Census::Clear));
+    let spoofed = who("/usr/bin/python3", &[claude, "--settings", "x", "-p", "--session-id", "S"]);
+    assert!(matches!(census(&leader, &spoofed), Census::Busy { pid: 11, .. }));
+    let spoofed = who("/usr/bin/python3", &[sr2, "claude", "-p", "--session-id", "S"]);
+    assert!(matches!(census(&spoofed, &agent), Census::Busy { pid: 11, .. }));
+}
+
 #[test]
 fn the_configs_are_the_ones_the_harness_was_started_with() {
     let root = std::env::temp_dir().join(format!("idle-census-{}", uuid::Uuid::now_v7()));

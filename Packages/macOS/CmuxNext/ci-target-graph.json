@@ -524,6 +524,7 @@
         "CmuxNextDaemon",
         "CmuxNextIcons",
         "CmuxNextLayout",
+        "CmuxNextRemote",
         "CmuxNextSidebar",
         "CmuxNextTabs"
       ],
@@ -914,6 +915,7 @@
         "CmuxNextAgentPane",
         "CmuxNextApps",
         "CmuxNextBridge",
+        "CmuxNextCloud",
         "CmuxNextCompat",
         "CmuxNextControl",
         "CmuxNextDaemon",
