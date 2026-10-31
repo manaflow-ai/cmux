@@ -146,6 +146,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_runs_on_values.py
 
+      - name: Validate every compile job declares its warm source
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_warm_sources.py
+
       - name: Validate the cloud overflow switch
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_cloud_overflow_switch.py
@@ -154,9 +158,13 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_runner_pools.py
 
-      - name: Validate fast checks fail over with the overflow switch
+      - name: Validate fast checks take their size from the linux runner pool
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_fast_checks_failover.py
+
+      - name: Validate no job names its runner only as literal labels
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_runner_set.py
 
       - name: Validate fast checks name the commit they test
         if: ${{ matrix.group == 'ci' }}
@@ -169,6 +177,10 @@ jobs:
       - name: Validate fast checks pin and launch their Playwright browsers
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_fast_checks_browsers.py
+
+      - name: Validate fast checks prefetch SwiftPM binary artifacts
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_fast_checks_swiftpm_artifacts.py
 
       - name: Validate guard failure attribution
         if: ${{ matrix.group == 'ci' }}
@@ -648,6 +660,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_preflight_trust.py
 
+      - name: Validate the UI test GUI activation preflight
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_preflight_gui_activation.py
+
       - name: Validate hook installation leaves existing hooks alone
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_install_git_hooks.py
@@ -861,6 +877,10 @@ jobs:
       - name: Validate CI health report
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_health_report.py
+
+      - name: Validate the CI health report's Actions cache section
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_actions_cache_report.py
 
       - name: Validate runner label policy
         if: ${{ matrix.group == 'ci' }}

@@ -5020,6 +5020,15 @@
     "download": "Mac版 NIGHTLYをダウンロード",
     "warning": "ナイトリービルドにはバグや未完成の機能が含まれる場合があります。問題が発生した場合は<githubLink>GitHub</githubLink>または<discordLink>Discordの#nightly-bugs</discordLink>で報告し、安定版に切り替えてください。"
   },
+  "next": {
+    "title": "cmux NEXT NIGHTLY",
+    "subtitle": "次期cmuxアプリのプレビュービルド",
+    "metaTitle": "cmux NEXT NIGHTLY — プレビュービルド",
+    "metaDescription": "cmux NEXT NIGHTLYをダウンロード。次期cmuxアプリの最新コミットから自動ビルドされるプレビュー版。cmuxと並行して動作し、独自の自動アップデート機能付き。",
+    "description": "cmux NEXT NIGHTLYは次期バージョンのcmuxのプレビュー版で、最新コミットから自動ビルドされます。独自のバンドルIDを持つため、cmuxやcmux NIGHTLYと競合せず並行して動作します。Appleシリコン搭載のMacが必要です。",
+    "download": "Mac版 NEXT NIGHTLYをダウンロード",
+    "warning": "NEXT NIGHTLYビルドにはバグや未完成の機能が含まれる場合があります。問題が発生した場合は<githubLink>GitHub</githubLink>または<discordLink>Discordの#nightly-bugs</discordLink>で報告し、安定版に切り替えてください。"
+  },
   "languageSwitcher": {
     "label": "言語"
   },

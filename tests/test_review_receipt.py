@@ -30,8 +30,9 @@ def review(state="COMMENTED", body="", at="2026-10-21T05:00:00Z", oid=HEAD, auth
             "commit": {"oid": oid}}
 
 
-def pr(comments=(), reviews=(), head=HEAD):
-    return {"headRefOid": head, "comments": {"nodes": list(comments)}, "reviews": {"nodes": list(reviews)}}
+def pr(comments=(), reviews=(), head=HEAD, labels=()):
+    return {"headRefOid": head, "comments": {"nodes": list(comments)}, "reviews": {"nodes": list(reviews)},
+            "labels": {"nodes": [{"name": name} for name in labels]}}
 
 
 SHIP = f"Review (subagent, correctness first): SHIP at {HEAD}"
@@ -362,6 +363,36 @@ class NewestIndependentVerdictWins(unittest.TestCase):
         self.assertIn("the newest independent verdict is a BLOCK (autoreview BLOCK by teamleaderleo)", err.getvalue())
 
 
+class RiskHighExactHead(unittest.TestCase):
+    """cmux-ad, 2026-10-30, decision 788: a risk:high pull request needs a receipt on the exact head; no carried SHIP
+    (a lane's or next-review's carry across a base merge) counts for it. risk:normal and risk:low keep the carry."""
+    REVIEWED = "ab" * 20
+
+    def carried(self, line):
+        return pr([comment(f"Review (subagent, correctness first): SHIP at {self.REVIEWED}", at="2026-10-21T05:00:00Z"),
+                   comment(line, at="2026-10-21T06:00:00Z")], labels=self.labels)
+
+    def test_a_carried_ship_never_clears_risk_high(self):
+        for line in (f"Review (next-review patch-id; carried): SHIP at {HEAD}",
+                     f"Review (subagent): SHIP at {HEAD} (carried from {self.REVIEWED[:12]})"):
+            for labels, passes in ((("risk:high",), False), (("RISK:HIGH", "ready-to-land"), False),
+                                   (("risk:normal",), True), (("risk:low",), True), ((), True)):
+                with self.subTest(line=line, labels=labels):
+                    self.labels = labels
+                    who, why = receipt.decide(self.carried(line), HEAD)
+                    self.assertEqual(bool(who), passes, why)
+                    if not passes:
+                        self.assertIn("risk:high needs an independent review of this exact head", why)
+
+    def test_an_own_ship_on_the_exact_head_clears_risk_high(self):
+        who, why = receipt.decide(pr([comment(SHIP)], labels=("risk:high",)), HEAD)
+        self.assertIn("SHIP", who, why)
+        self.assertIn("approved", receipt.decide(pr(reviews=[review("APPROVED")], labels=("risk:high",)), HEAD)[0])
+        # A newer BLOCK on another head still takes it back.
+        block = comment(f"Review (subagent): BLOCK at {OTHER}", at="2026-10-21T07:00:00Z")
+        self.assertEqual(receipt.decide(pr([comment(SHIP), block], labels=("risk:high",)), HEAD)[0], "")
+
+
 class Command(unittest.TestCase):
     def run_main(self, payload, sha=HEAD):
         with tempfile.NamedTemporaryFile("w", suffix=".json") as handle:
@@ -406,7 +437,8 @@ class Command(unittest.TestCase):
         self.assertEqual(len(calls), 1)
         query = " ".join(calls[0])
         # next-autoland's windows, so the two tools judge the same reviews and comments.
-        for field in ("__typename", "authorAssociation", "commit{oid}", "reviews(last:30)", "comments(last:40)"):
+        for field in ("__typename", "authorAssociation", "commit{oid}", "reviews(last:30)", "comments(last:40)",
+                      "labels(first:100){nodes{name}}"):
             self.assertIn(field, query)
 
     def test_a_rate_limited_read_exits_3(self):
