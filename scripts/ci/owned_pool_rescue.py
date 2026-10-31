@@ -739,10 +739,17 @@ def parse_time(value: object) -> dt.datetime | None:
         return None
 
 
+def nightly_control_label(label: object) -> bool:
+    """Whether a nightly decide label is a configured fleet control runner."""
+    value = str(label or "")
+    return bool(value) and not value.startswith(("blacksmith-", "ubuntu-", "macos-", "windows-"))
+
+
 def job_pool(job: Mapping[str, Any]) -> str | None:
     """The owned pool a job asked for, if any: a pull request pool or the trusted one."""
     for label in job.get("labels") or []:
         if (persistent(str(label)) or TRUSTED_LABEL.fullmatch(str(label)) or LANE_LABEL.fullmatch(str(label))
+                or job.get("name") == "decide" and nightly_control_label(label)
                 or nightly_dedicated(str(label))):
             return str(label)
     return None

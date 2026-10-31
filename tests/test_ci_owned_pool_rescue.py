@@ -3340,6 +3340,11 @@ class Nightly(unittest.TestCase):
         for why, payload in cases.items():
             self.assertIsInstance(rescue.target_from_event(payload, "manaflow-ai/cmux"), str, why)
 
+    def test_nightly_decide_fleet_control_label_is_a_rescuable_pool(self):
+        control = {"name": "decide", "labels": ["gcp-linux-control"], "status": "queued"}
+        self.assertEqual(rescue.job_pool(control), "gcp-linux-control")
+        self.assertIsNone(rescue.job_pool({**control, "labels": ["ubuntu-24.04"]}))
+
     def test_a_next_dispatch_and_a_next_rerun_are_watched_through_the_picker_s_marker(self):
         # nightly-next's pick-nightly-build-runner gives a dispatch, and a re-run that picks again, an idle
         # owned Mac and uploads the owned-pool-watch marker; the sweeper adopts the run at its attempt.
