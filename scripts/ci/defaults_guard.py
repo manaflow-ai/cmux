@@ -743,8 +743,8 @@ query($owner: String!, $name: String!, $number: Int!) {
   repository(owner: $owner, name: $name) {
     pullRequest(number: $number) {
       author { login } headRefOid merged mergeCommit { oid }
-      reviews(last: 100) { nodes { author { login __typename id } authorAssociation state body submittedAt commit { oid } } }
-      comments(last: 100) { nodes { databaseId body createdAt authorAssociation author { login __typename id } } }
+      reviews(last: 100) { nodes { author { login __typename ... on Bot { id } } authorAssociation state body submittedAt commit { oid } } }
+      comments(last: 100) { nodes { databaseId body createdAt authorAssociation author { login __typename ... on Bot { id } } } }
     }
   }
 }
