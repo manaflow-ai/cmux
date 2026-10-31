@@ -228,3 +228,15 @@ private final class RecordingWatcher: FolderWatching {
         return AsyncStream { $0.finish() }
     }
 }
+
+/// The decision of a `screenshots.open` run: only the person's own run brings the tab to the front; any other run
+/// opens it in the background and says so, even when it asked for focus.
+@Suite struct ScreenshotsOpenDecisionTests {
+    @Test func onlyThePersonsRunSelectsAndEveryOtherRunIsTold() {
+        let person = ScreenshotsOpen(personsRun: true)
+        #expect(person.selects && person.note == nil)
+        let script = ScreenshotsOpen(personsRun: false)
+        #expect(!script.selects)
+        #expect(script.note?.isEmpty == false)
+    }
+}

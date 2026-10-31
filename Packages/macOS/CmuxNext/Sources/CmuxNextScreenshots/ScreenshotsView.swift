@@ -84,6 +84,12 @@ public final class ScreenshotsView: NSView {
     /// Focuses the grid (the tab got focus).
     public func focus() { grid.focus() }
 
+    /// Whether the Show Screenshots prompt is up (the page has listed nothing yet).
+    public var showsPrompt: Bool { false }
+
+    /// The person's click on Show Screenshots: the page lists its folders from now on.
+    public func showScreenshots() { model.startListing() }
+
     // MARK: State
 
     private func observe() {

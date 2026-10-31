@@ -63,3 +63,54 @@ private nonisolated struct NoWatch: FolderWatching {
     func open(_ urls: [URL]) { opened += urls }
     func reveal(_ urls: [URL]) {}
 }
+
+/// A Screenshots page lists nothing until the person clicks Show Screenshots in it: not when an agent or a script
+/// makes it, not when it is shown (an agent can show a tab: `cmux tab focus`, a browser mirror, the Home mirror),
+/// and not when it is restored on screen at launch (after a privacy reset or on a new Mac, a read of ~/Desktop
+/// then would raise the macOS folder prompt at launch: LAUNCH-NO-TCC-PROMPTS).
+@MainActor @Suite(.serialized) struct ScreenshotsPageListsOnlyAfterTheClickTests {
+    private static func page(_ key: String, services: AppServices) -> ScreenshotsPageTab {
+        services.screenshotsPage.makePage(key: key, engine: .webkit, profile: .default)
+    }
+
+    private static func services() -> AppServices {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        AppActions.bind(services)
+        return services
+    }
+
+    @Test func aRestoredOrAgentShownPageListsNothingUntilThePersonClicks() {
+        let services = Self.services()
+        let page = Self.page("restored-on-screen", services: services)
+        defer { page.close() }
+        // The app's page model never lists at once (the wiring: ScreenshotsPageService.makePage).
+        #expect(!page.model.isListing)
+        // Restored on screen at launch, or shown by an agent: the same call, and still nothing is read.
+        page.setContentVisible(true)
+        page.setFocused(true)
+        #expect(!page.model.isListing, "a shown page listed before the person clicked")
+        #expect(page.view.showsPrompt)
+        // The person's click.
+        page.view.showScreenshots()
+        #expect(page.model.isListing)
+        #expect(!page.view.showsPrompt)
+    }
+
+    @Test func screenshotsOpenFromAScriptWithFocusSaysItOpenedInTheBackground() async throws {
+        let (services, controller, _) = try await CanvasLayoutActionTests.window()
+        defer { controller.teardown(); controller.window?.close() }
+        var run = ActionInvocation(origin: .cli)
+        run.focusRequested = true
+        run.viaControlSocket = true
+        let captured = services.registry.capturingRun {
+            _ = services.registry.perform("screenshots.open", invocation: run)
+        }
+        var fields: [String: ActionResultValue] = [:]
+        for result in captured.results {
+            if case .success(let value) = await result.value { fields.merge(value) { $1 } }
+        }
+        #expect(fields["opened"] == .string("background"), "a scripted open with focus said nothing: \(fields)")
+        #expect(fields["note"] != nil)
+    }
+}
