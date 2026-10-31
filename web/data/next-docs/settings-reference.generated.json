@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 528,
+  "count": 530,
   "sections": [
     {
       "id": "general",
@@ -1599,6 +1599,18 @@
             "compact",
             "full",
             "off"
+          ]
+        },
+        {
+          "key": "agentPane.display.rail.side",
+          "title": "Prompt Rail Side",
+          "help": "The edge of the chat the prompt rail sits on, one tick per prompt. Right-click the rail to move it.",
+          "kind": "choice",
+          "default": "left",
+          "group": "Agent Chat",
+          "values": [
+            "left",
+            "right"
           ]
         },
         {
@@ -3894,6 +3906,19 @@
             "max": 160,
             "unit": "points"
           }
+        },
+        {
+          "key": "workspaceColors.indicatorStyle",
+          "title": "Workspace Color Style",
+          "help": "How a workspace's color shows in the sidebar: a dot before its name, a bar down the row's edge, or the whole row filled with the color.",
+          "kind": "choice",
+          "default": "dot",
+          "group": "Sidebar",
+          "values": [
+            "dot",
+            "leftRail",
+            "fill"
+          ]
         }
       ]
     },

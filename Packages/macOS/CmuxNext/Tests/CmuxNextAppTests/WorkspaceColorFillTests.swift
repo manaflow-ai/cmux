@@ -177,7 +177,7 @@ struct WorkspaceColorFillTests {
                              content: options.rowContent(ws, machine: nil))
         let (view, window) = Self.rowView(ws, style: "leftRail")
         defer { window.close() }
-        #expect(WorkspaceRowView.titleColumn(workspace: ws, row: row) == view.title.frame.minX,
+        #expect(WorkspaceRowView.titleColumn(workspace: ws, row: row) == view.titleFrame.minX,
                 "tab rows keep their parent title column when its rail row scrolls offscreen")
     }
 
