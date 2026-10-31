@@ -1,0 +1,144 @@
+{
+ "id": "focus-corner-drag",
+ "priority": "P0",
+ "title": "Focus: a window corner drag leaves the focus where it was (no workspace switch)",
+ "why": "STATUS 981/r3-after-switch: after a window drag the typed line went to the other pane. This journey has no workspace switch: left pane focused, drag the window's bottom-right corner (which is over the right pane), type.",
+ "source": "cmux-ad P0 2026-10-31 08:15Z (typed text goes to the wrong pane)",
+ "budget_seconds": 120,
+ "steps": [
+  {
+   "do": "new_terminal",
+   "name": "jr-focus-drag"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "type",
+   "text": "echo base-${nonce}",
+   "enter": true
+  },
+  {
+   "do": "smoke_adopt_line",
+   "line": "base-${nonce}",
+   "as": "main"
+  },
+  {
+   "do": "window_place",
+   "title": "set-up: the window at 70% x 70% of the screen",
+   "fraction": [
+    0.05,
+    0.05,
+    0.7,
+    0.7
+   ]
+  },
+  {
+   "do": "key",
+   "title": "Cmd-D: a split; the new right pane has the focus",
+   "key": "d",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "split"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "right"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "type",
+   "text": "echo right-${nonce}",
+   "enter": true
+  },
+  {
+   "do": "smoke_adopt_line",
+   "line": "right-${nonce}",
+   "as": "right"
+  },
+  {
+   "do": "use_pane",
+   "pane": "main",
+   "click": true,
+   "title": "click into the left pane"
+  },
+  {
+   "do": "expect",
+   "title": "the left pane has the focus before the drag",
+   "timeout": 5,
+   "all": [
+    {
+     "pane_state": {
+      "pane": "main",
+      "fields": {
+       "focused": true
+      }
+     }
+    }
+   ]
+  },
+  {
+   "do": "window_drag",
+   "title": "drag the bottom-right corner 260 right, 160 down",
+   "by": [
+    260,
+    160
+   ],
+   "events": 30,
+   "mark": "grow"
+  },
+  {
+   "do": "use_pane",
+   "pane": "main"
+  },
+  {
+   "do": "type",
+   "text": "echo fdc-${nonce}",
+   "enter": true,
+   "mark": "fdc-typed"
+  },
+  {
+   "do": "expect",
+   "title": "after the corner drag: the left pane still has the focus, and the typed line is in it",
+   "since": "grow",
+   "timeout": 10,
+   "settle": 1,
+   "all": [
+    {
+     "pane_state": {
+      "pane": "main",
+      "fields": {
+       "focused": true
+      }
+     }
+    },
+    {
+     "pane_state": {
+      "pane": "right",
+      "fields": {
+       "focused": false
+      }
+     }
+    },
+    {
+     "daemon_line": "fdc-${nonce}"
+    },
+    {
+     "pane_frame_text": {
+      "text": "fdc-${nonce}",
+      "pane": "main"
+     }
+    }
+   ]
+  }
+ ],
+ "finally": [
+  {
+   "do": "restore_window",
+   "from": "before-place"
+  }
+ ]
+}

@@ -1,0 +1,196 @@
+{
+ "id": "focus-probe-hit",
+ "priority": "P1",
+ "title": "Probe: what AppKit's hit test gives at the window's bottom-right corner (no judgment)",
+ "why": "Whether AppKit's in-frame resize area is visible to the frame view's hitTest decides how the layout's focus-on-mouse-down monitor can tell a window resize from a click.",
+ "source": "cmux-ad P0 2026-10-31 08:15Z",
+ "budget_seconds": 90,
+ "steps": [
+  {
+   "do": "new_terminal",
+   "name": "jr-focus-drag"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "type",
+   "text": "echo base-${nonce}",
+   "enter": true
+  },
+  {
+   "do": "smoke_adopt_line",
+   "line": "base-${nonce}",
+   "as": "main"
+  },
+  {
+   "do": "window_place",
+   "title": "set-up: the window at 70% x 70% of the screen",
+   "fraction": [
+    0.05,
+    0.05,
+    0.7,
+    0.7
+   ]
+  },
+  {
+   "do": "key",
+   "title": "Cmd-D: a split; the new right pane has the focus",
+   "key": "d",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "split"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "right"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "type",
+   "text": "echo right-${nonce}",
+   "enter": true
+  },
+  {
+   "do": "smoke_adopt_line",
+   "line": "right-${nonce}",
+   "as": "right"
+  },
+  {
+   "do": "use_pane",
+   "pane": "main",
+   "click": true,
+   "title": "click into the left pane"
+  },
+  {
+   "do": "rpc",
+   "title": "hit at 1343,675",
+   "method": "debug.update_surfaces",
+   "params": {
+    "action": "hit",
+    "x": 1343,
+    "y": 675
+   }
+  },
+  {
+   "do": "rpc",
+   "title": "hit at 1342,674",
+   "method": "debug.update_surfaces",
+   "params": {
+    "action": "hit",
+    "x": 1342,
+    "y": 674
+   }
+  },
+  {
+   "do": "rpc",
+   "title": "hit at 1340,672",
+   "method": "debug.update_surfaces",
+   "params": {
+    "action": "hit",
+    "x": 1340,
+    "y": 672
+   }
+  },
+  {
+   "do": "rpc",
+   "title": "hit at 1337,669",
+   "method": "debug.update_surfaces",
+   "params": {
+    "action": "hit",
+    "x": 1337,
+    "y": 669
+   }
+  },
+  {
+   "do": "rpc",
+   "title": "hit at 1333,665",
+   "method": "debug.update_surfaces",
+   "params": {
+    "action": "hit",
+    "x": 1333,
+    "y": 665
+   }
+  },
+  {
+   "do": "rpc",
+   "title": "hit at 1343,338",
+   "method": "debug.update_surfaces",
+   "params": {
+    "action": "hit",
+    "x": 1343,
+    "y": 338
+   }
+  },
+  {
+   "do": "rpc",
+   "title": "hit at 1341,338",
+   "method": "debug.update_surfaces",
+   "params": {
+    "action": "hit",
+    "x": 1341,
+    "y": 338
+   }
+  },
+  {
+   "do": "rpc",
+   "title": "hit at 672,675",
+   "method": "debug.update_surfaces",
+   "params": {
+    "action": "hit",
+    "x": 672,
+    "y": 675
+   }
+  },
+  {
+   "do": "rpc",
+   "title": "hit at 672,673",
+   "method": "debug.update_surfaces",
+   "params": {
+    "action": "hit",
+    "x": 672,
+    "y": 673
+   }
+  },
+  {
+   "do": "rpc",
+   "title": "hit at 1335,300",
+   "method": "debug.update_surfaces",
+   "params": {
+    "action": "hit",
+    "x": 1335,
+    "y": 300
+   }
+  },
+  {
+   "do": "expect",
+   "title": "the left pane still has the focus",
+   "timeout": 5,
+   "all": [
+    {
+     "pane_state": {
+      "pane": "main",
+      "fields": {
+       "focused": true
+      }
+     }
+    },
+    {
+     "daemon_line": "base-${nonce}"
+    },
+    {
+     "frame_text": "base-${nonce}"
+    }
+   ]
+  }
+ ],
+ "finally": [
+  {
+   "do": "restore_window",
+   "from": "before-place"
+  }
+ ]
+}

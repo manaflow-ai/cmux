@@ -1,0 +1,170 @@
+{
+ "id": "focus-after-switch",
+ "priority": "P0",
+ "title": "Focus: leave the workspace and come back (no window drag): the focused pane keeps the keys",
+ "why": "STATUS 981/r3-after-switch splits the switch from the drag: this journey has the switch only, no click after it and no drag.",
+ "source": "cmux-ad P0 2026-10-31 08:15Z (typed text goes to the wrong pane)",
+ "budget_seconds": 120,
+ "steps": [
+  {
+   "do": "new_terminal",
+   "name": "jr-focus-drag"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "type",
+   "text": "echo base-${nonce}",
+   "enter": true
+  },
+  {
+   "do": "smoke_adopt_line",
+   "line": "base-${nonce}",
+   "as": "main"
+  },
+  {
+   "do": "window_place",
+   "title": "set-up: the window at 70% x 70% of the screen",
+   "fraction": [
+    0.05,
+    0.05,
+    0.7,
+    0.7
+   ]
+  },
+  {
+   "do": "key",
+   "title": "Cmd-D: a split; the new right pane has the focus",
+   "key": "d",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "split"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "right"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "type",
+   "text": "echo right-${nonce}",
+   "enter": true
+  },
+  {
+   "do": "smoke_adopt_line",
+   "line": "right-${nonce}",
+   "as": "right"
+  },
+  {
+   "do": "use_pane",
+   "pane": "main",
+   "click": true,
+   "title": "click into the left pane"
+  },
+  {
+   "do": "smoke_remember_workspaces"
+  },
+  {
+   "do": "key",
+   "title": "Cmd-N: a new workspace (this one parks)",
+   "key": "n",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "away"
+  },
+  {
+   "do": "expect",
+   "title": "the new workspace shows",
+   "since": "away",
+   "timeout": 20,
+   "all": [
+    {
+     "smoke_workspaces": {
+      "new": 1
+     }
+    }
+   ]
+  },
+  {
+   "do": "key",
+   "title": "Ctrl-Cmd-` back to the first workspace",
+   "key": "`",
+   "modifiers": [
+    "control",
+    "cmd"
+   ],
+   "mark": "back"
+  },
+  {
+   "do": "expect",
+   "title": "back: the first workspace's pane shows again",
+   "since": "back",
+   "timeout": 15,
+   "all": [
+    {
+     "pane_state": {
+      "pane": "main",
+      "fields": {
+       "visible": true
+      }
+     }
+    }
+   ]
+  },
+  {
+   "do": "use_pane",
+   "pane": "main"
+  },
+  {
+   "do": "type",
+   "text": "echo fas-${nonce}",
+   "enter": true,
+   "mark": "fas-typed"
+  },
+  {
+   "do": "expect",
+   "title": "after the switch back: the left pane has the focus, and the typed line is in it",
+   "since": "back",
+   "timeout": 10,
+   "settle": 1,
+   "all": [
+    {
+     "pane_state": {
+      "pane": "main",
+      "fields": {
+       "focused": true
+      }
+     }
+    },
+    {
+     "pane_state": {
+      "pane": "right",
+      "fields": {
+       "focused": false
+      }
+     }
+    },
+    {
+     "daemon_line": "fas-${nonce}"
+    },
+    {
+     "pane_frame_text": {
+      "text": "fas-${nonce}",
+      "pane": "main"
+     }
+    }
+   ]
+  }
+ ],
+ "finally": [
+  {
+   "do": "restore_window",
+   "from": "before-place"
+  }
+ ]
+}
