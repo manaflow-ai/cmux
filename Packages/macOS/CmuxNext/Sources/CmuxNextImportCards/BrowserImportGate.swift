@@ -27,7 +27,7 @@ public struct BrowserImportGate {
     /// The actions that bring data over from another browser or app.
     public static let actionIDs: Set<ActionID> = [
         "importFromBrowser", "bookmark.importFromBrowser", "browser.importFromFiles", "browser.importCookies",
-        "import.list", "import.card", "import.suggest", "import.open",
+        "import.list", "import.card", "import.suggest", "import.open", "browser.showCookieImportBanner",
     ]
 
     private weak var host: (any BrowserImportGateHost)?

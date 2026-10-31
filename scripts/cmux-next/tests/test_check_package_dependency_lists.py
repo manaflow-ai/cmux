@@ -133,6 +133,20 @@ class ImportTests(unittest.TestCase):
         self.assertEqual(self.problems('"CmuxNextCompat", "CmuxNextDaemon"',
                                        "import Foundation\nimport CmuxNextCompat\n@testable import CmuxNextDaemon\n"), [])
 
+    def test_an_import_in_a_string_or_comment_is_no_import(self):
+        # A generator test's golden source says `import CmuxNextCompat` inside a string literal.
+        source = ('@testable import CmuxNextDaemon\n'
+                  '// import CmuxNextCompat\n'
+                  'let golden = """\n'
+                  '    public import CmuxNextCompat\n'
+                  '    """\n')
+        self.assertEqual(self.problems('"CmuxNextDaemon"', source), [])
+
+    def test_a_target_named_with_target_name_is_declared(self):
+        # `.target(name: "X")` tells a target from a product of the same name.
+        self.assertEqual(self.problems('.target(name: "CmuxNextCompat"), "CmuxNextDaemon"',
+                                       "import CmuxNextCompat\n@testable import CmuxNextDaemon\n"), [])
+
     def test_a_baseline_line_that_is_fixed_must_go(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -458,6 +472,205 @@ class FixImportsTests(unittest.TestCase):
             self.assertEqual(declared["CmuxNextRemoteLayer"][1], {"CmuxNextCompat"})
             self.assertEqual(declared["CmuxNextRemoteLayerTests"][1], {"CmuxNextRemoteLayer", "CmuxNextCompat"})
             self.assertIn('linkerSettings: [.linkedFramework("QuartzCore")]', text)
+
+
+HEAL_SPEC = importlib.util.spec_from_file_location("package_deps_heal", HERE.parent / "package_deps_heal.py")
+heal = importlib.util.module_from_spec(HEAL_SPEC)
+sys.modules["package_deps_heal"] = heal
+HEAL_SPEC.loader.exec_module(heal)
+
+
+class HealTests(unittest.TestCase):
+    """package_deps_heal.py: a direct push that adds an undeclared import becomes a fix pull request on its own
+    branch, never a push to feat-cmux-next."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(prefix="package-deps-heal-")
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        self.repo = self.root / "repo"
+        self.origin = self.root / "origin.git"
+        self.env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+        self.env.update(GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@e", GIT_COMMITTER_NAME="t",
+                        GIT_COMMITTER_EMAIL="t@e", GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1")
+        subprocess.run(["git", "init", "-q", "--bare", "-b", "feat-cmux-next", str(self.origin)], check=True,
+                       env=self.env)
+        self.git("init", "-q", "-b", "feat-cmux-next", cwd=self.root, target=str(self.repo))
+        self.git("remote", "add", "origin", str(self.origin))
+        package = self.repo / heal.MANIFEST
+        package.parent.mkdir(parents=True)
+        package.write_text(FIX_MANIFEST.replace("MARKER_PLACEHOLDER", lint.MARKER), encoding="utf-8")
+        self.write("Tests/CmuxNextHomeEngineTests/Old.swift", "import CmuxNextHomeEngine\n")
+        self.write("Sources/CmuxNextCompat/A.swift", "import Foundation\n")
+        self.git("add", "-A")
+        self.git("commit", "-qm", "base")
+        self.git("push", "-q", "origin", "feat-cmux-next")
+
+    def git(self, *args, cwd=None, target=None):
+        command = ["git", *([] if target else ["-C", str(self.repo)]), *args, *([target] if target else [])]
+        return subprocess.run(command, cwd=cwd, env=self.env, text=True, capture_output=True, check=True).stdout
+
+    def write(self, relative, text):
+        path = self.repo / heal.MANIFEST
+        path = path.parent / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+
+    def bad_push(self):
+        """The a63986a4 shape: a test file gains `import CmuxNextHome`, pushed straight to the branch."""
+        self.write("Tests/CmuxNextHomeEngineTests/Unanswered.swift", "import CmuxNextHome\nimport CmuxNextHomeEngine\n")
+        self.git("add", "-A")
+        self.git("commit", "-qm", "test(home): an unanswered group start says the cloud did not answer")
+        self.git("push", "-q", "origin", "feat-cmux-next")
+        return self.git("rev-parse", "HEAD").strip()
+
+    def test_a_green_tree_plans_nothing(self):
+        out = self.root / "plan"
+        with unittest.mock.patch.object(lint, "IMPORT_BASELINE", frozenset()), \
+                unittest.mock.patch.object(heal, "load_check", lambda: lint):
+            result = heal.plan(self.repo, "HEAD", out)
+        self.assertEqual(result, {"red": "false"})
+        self.assertFalse(out.exists())
+        self.assertEqual(self.git("status", "--porcelain"), "")
+
+    def plan(self):
+        out = self.root / "plan"
+        with unittest.mock.patch.object(lint, "IMPORT_BASELINE", frozenset()), \
+                unittest.mock.patch.object(heal, "load_check", lambda: lint):
+            return heal.plan(self.repo, "HEAD", out, "manaflow-ai/cmux", "https://ci/run/1"), out
+
+    def test_a_simulated_bad_push_plans_the_fix_pull_request(self):
+        offending = self.bad_push()
+
+        result, out = self.plan()
+
+        self.assertEqual(result["red"], "true")
+        self.assertEqual(result["fixable"], "true")
+        self.assertTrue(result["branch"].startswith("autofix/package-deps-"), result)
+        self.assertEqual((out / "branch").read_text().strip(), result["branch"])
+        self.assertEqual((out / "title").read_text().strip(),
+                         "fix(cmux-next): CmuxNextHomeEngineTests declares CmuxNextHome, which it imports")
+        body = (out / "body.md").read_text()
+        self.assertIn(f"https://github.com/manaflow-ai/cmux/commit/{offending}", body, "names the offending commit")
+        self.assertIn("test(home): an unanswered group start", body)
+        self.assertIn("| `CmuxNextHomeEngineTests` | `CmuxNextHome` |", body)
+        self.assertIn("Opened by https://ci/run/1.", body)
+        self.assertIn(offending[:10], (out / "commit-message").read_text())
+        self.assertEqual((out / "labels").read_text().strip(), "risk:low")
+        manifest = (self.repo / heal.MANIFEST).read_text()
+        self.assertIn('"CmuxNextHome",', manifest)
+        changed = self.git("diff", "--name-only").split()
+        self.assertEqual(changed, [heal.MANIFEST], "only Package.swift changes")
+        self.assertEqual(lint.missing_imports(manifest, (self.repo / heal.MANIFEST).parent), [])
+
+    def test_a_stale_baseline_line_beside_a_fixable_import_opens_nothing(self):
+        # Review of 8e00c8ba: the check after the repair counted only "does not declare" problems, so a stale
+        # IMPORT_BASELINE line passed it and the planned fix pull request was itself red on the dependency check.
+        self.bad_push()
+        out = self.root / "plan"
+        with unittest.mock.patch.object(lint, "IMPORT_BASELINE", frozenset({"CmuxNextCompat: CmuxNextHome"})), \
+                unittest.mock.patch.object(heal, "load_check", lambda: lint):
+            result = heal.plan(self.repo, "HEAD", out)
+        self.assertEqual(result, {"red": "true", "fixable": "false"})
+        self.assertFalse(out.exists())
+        self.assertEqual(self.git("status", "--porcelain"), "")
+
+    def test_the_same_gap_plans_the_same_branch(self):
+        self.bad_push()
+        first, _ = self.plan()
+        self.git("checkout", "-q", "--", heal.MANIFEST)
+        self.write("Sources/CmuxNextCompat/B.swift", "import Foundation\n")  # an unrelated later push
+        second, _ = self.plan()
+        self.assertEqual(first["branch"], second["branch"])
+
+    def fake_gh(self, listed="[]", closed="[]"):
+        tools = self.root / "bin"
+        tools.mkdir(exist_ok=True)
+        log = self.root / "gh.log"
+        (tools / "gh").write_text(
+            "#!/bin/sh\n"
+            f'printf "%s\\n" "$*" >> "{log}"\n'
+            f'case "$*" in *"--state open"*) echo \'{listed}\' ;; *"--state all"*) echo \'{closed}\' ;; '
+            '"pr create"*) echo https://github.com/x/y/pull/9 ;; esac\n')
+        (tools / "gh").chmod(0o755)
+        return tools, log
+
+    def test_open_pushes_only_the_autofix_branch_and_opens_its_pull_request(self):
+        self.bad_push()
+        result, out = self.plan()
+        before = subprocess.run(["git", "-C", str(self.origin), "rev-parse", "feat-cmux-next"], env=self.env,
+                                text=True, capture_output=True).stdout.strip()
+        tools, log = self.fake_gh()
+
+        with unittest.mock.patch.dict(os.environ, {**self.env, "PATH": f"{tools}{os.pathsep}{os.environ['PATH']}"}):
+            url = heal.open_pr(self.repo, out)
+
+        self.assertEqual(url, "https://github.com/x/y/pull/9")
+        heads = subprocess.run(["git", "-C", str(self.origin), "for-each-ref", "--format=%(refname:short) %(objectname)",
+                                "refs/heads"], env=self.env, text=True, capture_output=True).stdout.split("\n")
+        self.assertIn(f"feat-cmux-next {before}", heads, "feat-cmux-next must not move")
+        self.assertTrue(any(h.startswith(result["branch"] + " ") for h in heads), heads)
+        create = [line for line in log.read_text().splitlines() if line.startswith("pr create")]
+        self.assertEqual(len(create), 1, log.read_text())
+        self.assertIn("--base feat-cmux-next", create[0])
+        self.assertIn(f"--head {result['branch']}", create[0])
+        self.assertIn("--label risk:low", create[0])
+
+    def test_open_does_nothing_when_the_branch_already_has_an_open_pull_request(self):
+        self.bad_push()
+        _, out = self.plan()
+        tools, log = self.fake_gh(listed='[{"url": "https://github.com/x/y/pull/8"}]')
+        with unittest.mock.patch.dict(os.environ, {**self.env, "PATH": f"{tools}{os.pathsep}{os.environ['PATH']}"}):
+            self.assertEqual(heal.open_pr(self.repo, out), "already open: https://github.com/x/y/pull/8")
+        self.assertNotIn("pr create", log.read_text())
+
+    def earlier_run_pushed(self, branch):
+        """BRANCH on the remote as an earlier run left it: its own commit, which this run's commit does not extend."""
+        commit = self.git("commit-tree", "HEAD^{tree}", "-m", "an earlier run's fix").strip()
+        self.git("push", "-q", "origin", f"{commit}:refs/heads/{branch}")
+
+    def test_a_pushed_branch_whose_pull_request_was_never_opened_gets_one(self):
+        # Review of 1f94c38c: a run whose push succeeded but whose `gh pr create` failed left the branch on the remote,
+        # and every later run stopped at "not pushed", so the repair was stranded for good.
+        self.bad_push()
+        result, out = self.plan()
+        self.earlier_run_pushed(result["branch"])
+        tools, log = self.fake_gh()
+        with unittest.mock.patch.dict(os.environ, {**self.env, "PATH": f"{tools}{os.pathsep}{os.environ['PATH']}"}):
+            self.assertEqual(heal.open_pr(self.repo, out), "https://github.com/x/y/pull/9")
+        create = [line for line in log.read_text().splitlines() if line.startswith("pr create")]
+        self.assertEqual(len(create), 1, log.read_text())
+        self.assertIn(f"--head {result['branch']}", create[0])
+
+    def test_a_branch_with_a_closed_pull_request_is_left_alone(self):
+        self.bad_push()
+        result, out = self.plan()
+        self.earlier_run_pushed(result["branch"])
+        tools, log = self.fake_gh(closed='[{"url": "https://github.com/x/y/pull/7"}]')
+        with unittest.mock.patch.dict(os.environ, {**self.env, "PATH": f"{tools}{os.pathsep}{os.environ['PATH']}"}):
+            self.assertIn("pull/7", heal.open_pr(self.repo, out))
+        self.assertNotIn("pr create", log.read_text())
+
+    def test_the_branch_names_only_the_missing_imports_when_there_are_any(self):
+        # Review of 1f94c38c (P3): the digest also took the sorting problems, so a later push that only sorted the
+        # lists gave the same import gap a second branch and a second pull request.
+        self.assertEqual(heal.branch_for([("T", "M")], ["a list out of order"]), heal.branch_for([("T", "M")], []))
+        self.assertNotEqual(heal.branch_for([], ["a"]), heal.branch_for([], ["b"]))
+
+    def test_the_workflow_runs_only_on_feat_cmux_next(self):
+        # Review of 1f94c38c: a workflow_dispatch from another branch would open a fix pull request carrying that
+        # branch's own commits.
+        workflow = (HERE.parents[2] / ".github/workflows/cmux-next-package-deps-heal.yml").read_text()
+        self.assertIn("if: github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next'",
+                      workflow)
+
+    def test_open_refuses_any_branch_but_an_autofix_one(self):
+        self.bad_push()
+        _, out = self.plan()
+        (out / "branch").write_text("feat-cmux-next\n")
+        with self.assertRaises(SystemExit):
+            heal.open_pr(self.repo, out)
+
 
 if __name__ == "__main__":
     unittest.main()
