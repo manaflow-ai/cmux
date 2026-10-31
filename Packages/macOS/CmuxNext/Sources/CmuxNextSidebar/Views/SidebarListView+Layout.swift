@@ -15,7 +15,6 @@ extension SidebarListViewComponents {
         // No drag holds the rows: this reload shows every held patch (the model has them).
         if !holdsRowPatches { rowHold = SidebarRowHold() }
         workspaces = [:]
-        tabs = [:]
         groups = [:]
         groupSubtrees = [:]
         sections = [:]
@@ -40,7 +39,6 @@ extension SidebarListViewComponents {
                 }
             }
         }
-        for workspace in workspaces.values { for tab in workspace.tabs { tabs[tab.id] = tab } }
         if let drag, !drag.isValid(in: model) { cancelDrag() }
         // The rows changed under a held drag (a batch, an adopt, a close): its hit geometry is rebuilt at the next move.
         if let drag, drag.geometryRevision != model.sectionsRevision { drag.docGeometry = nil }
@@ -239,9 +237,6 @@ extension SidebarListViewComponents {
             view.targetSize = target.size
             // A recycled view (a block's region from another time) takes its content at once, not on a spring.
             configure(view, row: row, animated: animate || (adopting && existing != nil))
-            // Reload may move an offscreen parent's title column without changing this
-            // tab's Content or frame size. Re-resolve the model-derived anchor on apply.
-            if case .tab = row.key { view.needsLayout = true }
             let opens = animate && ((existing == nil && old.row(for: row.key) == nil) || reopened.contains(row.key))
             if existing == nil || opens {
                 // The start state never animates: a recycled view shows no
@@ -380,9 +375,6 @@ extension SidebarListViewComponents {
             view.region.activeItem = activeTopItem
             view.region.selectedWorkspaces = selectedWorkspaces
             if springsRows, animated { view.springShow(content, width: bounds.width) } else { view.show(content, width: bounds.width, animated: animated) }
-        case let (.tab(workspaceID, tabID), view as SidebarTabRowView):
-            guard let tab = tabs[tabID] else { return }
-            view.configure(tab, row: row, focused: workspaces[workspaceID]?.focusedTab == tabID)
         case let (.group(id), view as GroupHeaderRowView):
             // The model's own group when the cache (rebuilt on reload) lags it: a held drag shows the live sections.
             guard var group = groups[id] ?? model.group(id) else { return }
