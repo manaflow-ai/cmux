@@ -813,17 +813,47 @@ impl WorkspaceRegistry {
         &self,
         terminal_id: &TerminalPublicId,
     ) -> anyhow::Result<Vec<PendingAgentHookProjection>> {
+        self.pending_agent_hooks_for_terminal(terminal_id, None)
+    }
+
+    /// Child records committed before a lifecycle projection, including records whose
+    /// caller timed out after commit admission. Reading the retry queue avoids scanning
+    /// terminal history and includes children whose first projection has not run yet.
+    pub(crate) fn pending_agent_child_projections_before(
+        &self,
+        terminal_id: &TerminalPublicId,
+        sequence: u64,
+    ) -> anyhow::Result<Vec<PendingAgentHookProjection>> {
+        self.pending_agent_hooks_for_terminal(terminal_id, Some(sequence))
+    }
+
+    fn pending_agent_hooks_for_terminal(
+        &self,
+        terminal_id: &TerminalPublicId,
+        children_before: Option<u64>,
+    ) -> anyhow::Result<Vec<PendingAgentHookProjection>> {
+        let children_before = children_before
+            .map(i64::try_from)
+            .transpose()
+            .context("pending child hook sequence is too large")?;
         let db = self.connection.get();
         let mut statement = db.prepare(
             "SELECT producer_id, origin, idempotency_key, event_sequence, ingress_json
              FROM resource_agent_hook_pending
-             WHERE terminal_id = ?1 AND attempt < ?2
+             WHERE terminal_id = ?1 AND (?4 IS NOT NULL OR attempt < ?2)
+               AND (?4 IS NULL OR (event_sequence < ?4 AND json_extract(ingress_json, '$.kind')
+                    IN ('agent.child.spawned', 'agent.child.completed', 'agent.child.failed')))
              ORDER BY event_sequence ASC, idempotency_key ASC
              LIMIT ?3",
         )?;
         let rows = statement
             .query_map(
-                params![terminal_id.as_str(), AGENT_HOOK_MAX_ATTEMPTS, AGENT_HOOK_RETRY_PAGE_SIZE],
+                params![
+                    terminal_id.as_str(),
+                    AGENT_HOOK_MAX_ATTEMPTS,
+                    AGENT_HOOK_RETRY_PAGE_SIZE,
+                    children_before
+                ],
                 |row| {
                     Ok((
                         row.get::<_, String>(0)?,
