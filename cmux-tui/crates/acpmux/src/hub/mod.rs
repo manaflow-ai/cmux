@@ -40,6 +40,8 @@ pub use file_uploads::FEATURE as FILE_PUT_FEATURE;
 mod first_work_tests;
 mod fork;
 #[cfg(test)]
+mod prompt_accept_tests;
+#[cfg(test)]
 mod shutdown_tests;
 pub(crate) use fork::offers_fork;
 mod fork_at;
@@ -97,6 +99,8 @@ mod pool;
 pub(crate) mod prompt_images;
 mod prompt_ledger;
 mod prompt_line;
+#[cfg(test)]
+mod prompt_line_tests;
 mod protected_hold;
 mod queue;
 mod queue_edit;
@@ -110,6 +114,8 @@ pub(crate) use route_switch::route_error;
 pub(crate) use turn_errors::is_limit_error;
 mod git_watch;
 mod github_owner;
+mod lane_report_reads;
+mod lane_report_text;
 mod lane_reports;
 mod meta_save;
 mod offer_results;
@@ -147,7 +153,7 @@ mod watch;
 pub use new_request::{
     NewRequest, declared_model_json, profile_takes_model_at_spawn, terminal_harness_refusal,
 };
-pub use paging::{EventFilter, EventPage, MAX_PAGE_BYTES, page_bytes};
+pub use paging::{EventFilter, EventPage, MAX_PAGE_BYTES, fit_reply, page_bytes};
 pub use spawn::expand_env_value;
 pub mod approvers;
 pub(crate) mod key_route;
@@ -324,8 +330,10 @@ pub struct TurnInfo {
     pub started_at: u64,
     pub client: String,
     pub prompt_preview: String,
-    /// `prompt_preview` masked before its cut, for the sub-session tools
-    /// (`subsession_row`): a secret across the cut leaves no head there.
+    /// The line its prompt leaves on the session summary (`turn.prompt`: the sidebar's step, the
+    /// hover card's task, the sub-session tools): another agent's message as "name: first line",
+    /// never its envelope (`prompt_line.rs`), masked before its cut, so a secret across the cut
+    /// leaves no head. `prompt_preview` stays the prompt as sent, for the turn's records.
     pub masked_preview: String,
     /// Stable turn identifier, assigned when the prompt is accepted and
     /// carried by `queued`, `user_message`, `turn_started` and `turn_result`.
@@ -652,6 +660,8 @@ pub struct Hub {
     pub(super) offers: offers::Offers,
     /// Which session each lane reports its turns to (`lane_reports.rs`).
     pub(super) lane_reports: lane_reports::LaneReports,
+    /// Authenticated parents already receiving a lane result through wait/history.
+    lane_report_reads: lane_report_reads::LaneReportReads,
     /// Open sub-sessions per parent and starts in flight (`subsessions.rs`).
     pub(super) subsessions: subsessions::Index,
     /// Creates admitted and still starting (`admission.rs`).
@@ -846,6 +856,7 @@ impl Hub {
             background_timeout: StdMutex::new(processes::STOP_TIMEOUT),
             offers: Default::default(),
             lane_reports: Default::default(),
+            lane_report_reads: Default::default(),
             subsessions: Default::default(),
             admitting: Default::default(),
             subsession_runs: Default::default(),
@@ -1140,6 +1151,8 @@ impl Hub {
             protected_hold: AtomicBool::new(false),
             auto_resume: Default::default(),
             turn_lock: Mutex::new(()),
+            turn_claimed: AtomicBool::new(false),
+            admit: StdMutex::new(()),
             input_handoff: std::sync::Arc::new(Mutex::new(())),
             turn: StdMutex::new(None),
             queued: AtomicU64::new(0),
@@ -1155,6 +1168,7 @@ impl Hub {
             permission_epoch: AtomicU64::new(0),
             input_since: AtomicU64::new(0),
             work_below_since: StdMutex::new(0),
+            unread_after_work: AtomicBool::new(false),
             asks_in_flight: std::sync::atomic::AtomicUsize::new(0),
             asks_landed: Notify::new(),
             rehydrate: AtomicBool::new(false),
@@ -1817,6 +1831,9 @@ impl Hub {
                 }
                 "turn_result" => {
                     if let Some(t) = cur.as_mut() {
+                        if let Some(id) = e.msg.get("turnId") {
+                            t.insert("turnId".into(), id.clone());
+                        }
                         t.insert(
                             "status".into(),
                             e.msg.get("status").cloned().unwrap_or(json!("completed")),

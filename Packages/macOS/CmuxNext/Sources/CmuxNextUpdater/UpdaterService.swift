@@ -1,5 +1,6 @@
 public import CmuxUpdater
 public import CmuxNextWakeups
+import CmuxNextSettings
 import Network
 public import Foundation
 import Observation
@@ -113,10 +114,11 @@ public final class UpdaterService {
     /// The running bundle's keep for rollback (``keepRunningBuildForRollback()``).
     @ObservationIgnored var keptRunningBuild: KeepState?
     @ObservationIgnored var keepTask: Task<Void, Never>?
-    /// The click that installs, before Sparkle takes over (set by the App:
-    /// the windows go at once). ``installAbandoned`` undoes it when the
-    /// install ends without a relaunch.
-    @ObservationIgnored public var willInstallStaged: (() -> Void)?
+    /// Takes the windows off the screen as Sparkle commits to a relaunch the
+    /// person asked for (set by the App: ``UpdateWindowHandoff/hide()``), not
+    /// at the click. ``installAbandoned`` undoes it when the install ends
+    /// without a relaunch.
+    @ObservationIgnored public var hidesForRelaunch: (() -> Void)?
     @ObservationIgnored public var installAbandoned: (() -> Void)?
     /// Reads a build's verified notes (``releaseNotes`` in the app; replaced by tests).
     @ObservationIgnored var notesLoader: (@Sendable (String) async -> ReleaseNotes?)?
@@ -325,6 +327,9 @@ public final class UpdaterService {
         restoreRollbackSkip()
         releasePush.onNewerBuild = { [weak self] in self?.releasePushed($0) }
         tipState = TipState(defaults: defaults)
+        // The app settled the install before making the updater (AppServices): an install that ran
+        // before tips counts as having used the catalog's basics.
+        storeTipState(TipChooser.settleInstall(tipState, catalog: TipCatalog.all, install: tipBudget.install))
         updateSnooze = UpdateSnooze(defaults: defaults)
     }
 

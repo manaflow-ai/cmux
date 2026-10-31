@@ -40,6 +40,7 @@ export function AgentRunCard({ agent }: { agent: Subagent }) {
     <AgentCard
       name={agent.name}
       harness={agent.harness}
+      identity={agent.id}
       sessionId={chat}
       // The model and the machine on the line under the name, which keeps the head's room for the
       // name at a narrow width.

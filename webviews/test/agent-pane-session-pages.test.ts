@@ -93,12 +93,13 @@ await requireBrowserLane("agent-pane-session-pages.test.ts", async () => {
     attachHeld = new Promise((resolve) => (releaseAttach = resolve));
   };
   /// A daemon that misbehaves: a cursor that never moves, later pages that fail, and whole-list
-  /// reads (watch without `limit`) that fail this many more times.
-  const faults = { repeatCursor: false, failPages: false, failWhole: 0 };
+  /// reads (watch without `limit`) that fail this many more times. `boundedWhole`: a whole-list read
+  /// answers this many rows and a cursor, as acpmux does past its largest reply.
+  const faults = { repeatCursor: false, failPages: false, failWhole: 0, boundedWhole: 0 };
   /// The socket of the page this test opened: an earlier test's page still closing never meets the faults.
   let faultSocket: unknown;
   beforeEach(() => {
-    Object.assign(faults, { repeatCursor: false, failPages: false, failWhole: 0 });
+    Object.assign(faults, { repeatCursor: false, failPages: false, failWhole: 0, boundedWhole: 0 });
     faultSocket = undefined;
     attachHeld = Promise.resolve();
   });
@@ -190,6 +191,12 @@ await requireBrowserLane("agent-pane-session-pages.test.ts", async () => {
           let result = answer(message.method, params);
           if (ws === faultSocket && message.method === "_acpmux/sessions" && faults.repeatCursor)
             result = { ...(result as object), nextCursor: params.cursor };
+          if (ws === faultSocket && params.limit === undefined && faults.boundedWhole > 0) {
+            const start = typeof params.cursor === "string" ? Number(params.cursor.slice(1)) : 0;
+            const end = Math.min(start + faults.boundedWhole, COUNT);
+            if (message.method === "_acpmux/watch" || message.method === "_acpmux/sessions")
+              result = { sessions: sessions.slice(start, end), ...(end < COUNT ? { nextCursor: `o${end}` } : {}) };
+          }
           if (message.method === "_acpmux/sessions") await held;
           if (message.method === "_acpmux/attach") await attachHeld;
           const text = JSON.stringify({ jsonrpc: "2.0", id: message.id, result });
@@ -199,7 +206,9 @@ await requireBrowserLane("agent-pane-session-pages.test.ts", async () => {
           request.answered = true;
           request.ended =
             (message.method === "_acpmux/sessions" && !(result as { nextCursor?: string | null }).nextCursor) ||
-            (message.method === "_acpmux/watch" && params.limit === undefined);
+            (message.method === "_acpmux/watch" &&
+              params.limit === undefined &&
+              !(result as { nextCursor?: string | null }).nextCursor);
           recheck();
         },
       },
@@ -457,6 +466,20 @@ await requireBrowserLane("agent-pane-session-pages.test.ts", async () => {
     const ids: string[] = (await state(page)).sessions.map((session: { sessionId: string }) => session.sessionId);
     expect(ids[0]).toBe(MOVED);
     expect(ids.length).toBe(COUNT);
+    await page.close();
+  });
+
+  test("a whole list too large for one reply is read on from its cursor before a linked chat is judged", async () => {
+    faults.boundedWhole = 500;
+    const page = await open(LATE);
+    await page.getByText(`Open ${LATE}`, { exact: true }).waitFor({ timeout: 60_000 });
+    const opened = await state(page);
+    expect(opened.sessionId).toBe(LATE);
+    expect(opened.missingSession).toBeNull();
+    await listed(page, COUNT);
+    // The rest of the whole list came by `_acpmux/sessions` from its cursor, with no `limit`.
+    const rest = requests.filter((r) => r.method === "_acpmux/sessions" && r.params.limit === undefined);
+    expect(rest.map((r) => r.params.cursor)).toEqual(["o500", "o1000"]);
     await page.close();
   });
 

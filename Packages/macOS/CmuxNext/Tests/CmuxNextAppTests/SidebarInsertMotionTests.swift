@@ -40,7 +40,7 @@ struct SidebarInsertMotionTests {
         #expect(open.maxY == start.minY)
     }
 
-    /// A run of new rows (a workspace and its tab row) opens as one slot: each row's start ends where the next starts.
+    /// A run of new rows (a workspace and the row under it) opens as one slot: each row's start ends where the next starts.
     @Test func aRunOfNewRowsOpensAsOneSlot() {
         let nudge: CGFloat = 6
         let workspace = CGRect(x: 8, y: 8, width: 220, height: 28), tab = CGRect(x: 20, y: 36, width: 208, height: 22)
@@ -77,7 +77,7 @@ struct SidebarInsertMotionTests {
         #expect(SidebarInsertMotion.travel(6, within: 28) == 6)
     }
 
-    /// The shortest run of new rows: a workspace with its tab row is one run (50 pt), a lone row another (28 pt).
+    /// The shortest run of new rows: two adjacent rows are one run (50 pt), a lone row another (28 pt).
     @Test func theShortestRunBoundsTheTravel() {
         let tops: [String: CGFloat] = ["ws": 8, "tab": 8, "lone": 100]
         let bottoms: [String: CGFloat] = ["ws": 36, "tab": 58, "lone": 128]
