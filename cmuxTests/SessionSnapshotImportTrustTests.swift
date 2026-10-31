@@ -159,6 +159,27 @@ struct SessionSnapshotImportTrustTests {
         #expect(!argv.contains("--dangerously-skip-permissions"))
     }
 
+    @Test("untrusted imports clamp structural fan-out before restore")
+    func fileImportClampsStructuralFanOut() throws {
+        var snapshot = Self.snapshot(terminal: SessionTerminalPanelSnapshot())
+        var workspace = try #require(snapshot.windows[0].tabManager.workspaces.first)
+        let panelCount = SessionPersistencePolicy.maxPanelsPerWorkspace + 17
+        workspace.panels = (0..<panelCount).map { _ in
+            Self.panel(terminal: SessionTerminalPanelSnapshot())
+        }
+        workspace.focusedPanelId = workspace.panels[0].id
+        snapshot.windows[0].tabManager.workspaces[0] = workspace
+
+        let (restored, _) = SessionSnapshotImportTrust.snapshotForRestore(
+            snapshot,
+            source: Self.fileImport
+        )
+        let restoredWorkspace = try #require(
+            restored.windows.first?.tabManager.workspaces.first
+        )
+        #expect(restoredWorkspace.panels.count == SessionPersistencePolicy.maxPanelsPerWorkspace)
+    }
+
     @Test("a built-in Vault registration from the file is replaced by cmux's own definition")
     func builtInRegistrationIsReplaced() throws {
         var forgedAmp = CmuxVaultAgentRegistration.builtInAmp
@@ -355,6 +376,192 @@ struct SessionSnapshotImportTrustTests {
         #expect(report.sanitizedScrollbackCount == 1)
     }
 
+    @Test("imported scrollback is bounded before replay")
+    func importedScrollbackIsTruncated() throws {
+        let original = String(repeating: "x", count: SessionPersistencePolicy.maxScrollbackCharactersPerTerminal + 10)
+        let terminal = SessionTerminalPanelSnapshot(scrollback: original)
+
+        let (restored, report) = SessionSnapshotImportTrust.snapshotForRestore(
+            Self.snapshot(terminal: terminal),
+            source: Self.fileImport
+        )
+
+        let scrollback = try #require(
+            restored.windows.first?.tabManager.workspaces.first?.panels.first?.terminal?.scrollback
+        )
+        #expect(scrollback.count == SessionPersistencePolicy.maxScrollbackCharactersPerTerminal)
+        #expect(report.truncatedScrollbackCount == 1)
+    }
+
+    @Test("imported scrollback is bounded by Unicode scalars, not just characters")
+    func importedScrollbackOfCombiningMarksIsBoundedByScalars() throws {
+        // One grapheme cluster: a base character followed by a run of
+        // combining marks. It counts as a single Character, so a character
+        // bound alone lets every scalar through to the control-string
+        // stripper, which copies the scalars into an array.
+        let marks = String(repeating: "\u{0301}", count: SessionPersistencePolicy.maxScrollbackCharactersPerTerminal * 4 + 10)
+        let original = "e" + marks
+        #expect(original.count == 1)
+        let terminal = SessionTerminalPanelSnapshot(scrollback: original)
+
+        let (restored, report) = SessionSnapshotImportTrust.snapshotForRestore(
+            Self.snapshot(terminal: terminal),
+            source: Self.fileImport
+        )
+
+        let scrollback = try #require(
+            restored.windows.first?.tabManager.workspaces.first?.panels.first?.terminal?.scrollback
+        )
+        #expect(scrollback.unicodeScalars.count <= SessionPersistencePolicy.maxScrollbackCharactersPerTerminal * 4)
+        #expect(report.truncatedScrollbackCount == 1)
+    }
+
+    @Test("imported panel fan-out has a global budget")
+    func importedPanelFanOutIsBoundedGlobally() throws {
+        let panel = Self.panel(terminal: SessionTerminalPanelSnapshot())
+        var workspace = SessionWorkspaceSnapshot(
+            processTitle: "Terminal",
+            customTitle: "Imported",
+            customColor: nil,
+            isPinned: false,
+            currentDirectory: "/tmp/project",
+            focusedPanelId: panel.id,
+            layout: .pane(SessionPaneLayoutSnapshot(panelIds: [panel.id], selectedPanelId: panel.id)),
+            panels: Array(repeating: panel, count: SessionPersistencePolicy.maxPanelsPerSnapshot + 1),
+            statusEntries: [],
+            logEntries: [],
+            progress: nil,
+            gitBranch: nil
+        )
+        var original = Self.finish(workspace: &workspace, workspaceHasRemote: false)
+        original.windows[0].tabManager.workspaces = Array(repeating: workspace, count: 9)
+
+        let (restored, report) = SessionSnapshotImportTrust.snapshotForRestore(
+            original,
+            source: Self.fileImport
+        )
+
+        #expect(
+            restored.windows.first?.tabManager.workspaces.reduce(0) { $0 + $1.panels.count }
+                == SessionPersistencePolicy.maxPanelsPerSnapshot
+        )
+        // Every panel that won't restore is counted, including the ones the
+        // per-workspace cap cut: 9 x 4,097 offered, 4,096 kept.
+        #expect(report.droppedPanelCount == 9 * (SessionPersistencePolicy.maxPanelsPerSnapshot + 1)
+            - SessionPersistencePolicy.maxPanelsPerSnapshot)
+    }
+
+    @Test("panels the per-workspace cap cuts are reported as dropped")
+    func perWorkspaceCapCountsDroppedPanels() throws {
+        let panels = (0..<(SessionPersistencePolicy.maxPanelsPerWorkspace + 88)).map { _ in
+            Self.panel(terminal: SessionTerminalPanelSnapshot())
+        }
+        var workspace = Self.workspace(panels: panels, layout: Self.balancedLayout(panels.map(\.id)))
+        let original = Self.finish(workspace: &workspace, workspaceHasRemote: false)
+
+        let (restored, report) = SessionSnapshotImportTrust.snapshotForRestore(
+            original,
+            source: Self.channelImport
+        )
+
+        #expect(restored.windows.first?.tabManager.workspaces.first?.panels.count
+            == SessionPersistencePolicy.maxPanelsPerWorkspace)
+        // Without this count no session.restore.bounded breadcrumb is written.
+        #expect(report.droppedPanelCount == 88)
+    }
+
+    @Test("crash and phantom windows are pruned before the window cap is spent")
+    func importPrunesPhantomWindowsBeforeBounding() throws {
+        var workspace = Self.workspace(
+            panels: [Self.panel(terminal: SessionTerminalPanelSnapshot())],
+            layout: nil
+        )
+        var original = Self.finish(workspace: &workspace, workspaceHasRemote: false)
+        let realWindow = try #require(original.windows.first)
+        let phantom = SessionWindowSnapshot(
+            frame: nil,
+            display: nil,
+            tabManager: SessionTabManagerSnapshot(selectedWorkspaceIndex: nil, workspaces: []),
+            sidebar: SessionSidebarSnapshot(isVisible: true, selection: .tabs, width: 240)
+        )
+        original.windows = Array(repeating: phantom, count: SessionPersistencePolicy.maxWindowsPerSnapshot)
+            + [realWindow]
+
+        let (restored, report) = SessionSnapshotImportTrust.snapshotForRestore(
+            original,
+            source: Self.fileImport
+        )
+
+        #expect(restored.windows.count == 1)
+        #expect(restored.windows.first?.tabManager.workspaces.count == 1)
+        #expect(report.droppedWindowCount == 0)
+    }
+
+    @Test("a layout over the node cap with distinct leaves is cut, and its panels still restore")
+    func nodeCapWithDistinctLeavesKeepsPanels() throws {
+        let panels = (0..<SessionPersistencePolicy.maxPanelsPerWorkspace).map { _ in
+            Self.panel(terminal: SessionTerminalPanelSnapshot())
+        }
+        // Leaves that name no panel still cost nodes. The real panels sit
+        // after the cap, so only the fallback can keep them.
+        let unknownLeaves = (0..<SessionPersistencePolicy.maxLayoutNodes).map { _ in UUID() }
+        var workspace = Self.workspace(
+            panels: panels,
+            layout: Self.balancedLayout(unknownLeaves + panels.map(\.id))
+        )
+        let original = Self.finish(workspace: &workspace, workspaceHasRemote: false)
+
+        let (restored, report) = SessionSnapshotImportTrust.snapshotForRestore(
+            original,
+            source: Self.channelImport
+        )
+
+        let layout = try #require(restored.windows.first?.tabManager.workspaces.first?.layout)
+        #expect(Self.layoutNodeCount(layout) == 1)
+        #expect(Set(Self.layoutPanelIDs(layout)) == Set(panels.map(\.id)))
+        #expect(Self.layoutPanelIDs(layout).count == panels.count)
+        #expect(report.droppedPanelCount == 0)
+    }
+
+    @Test("the layout node budget is shared across workspaces")
+    func layoutNodeBudgetIsGlobal() throws {
+        // Each workspace's layout is 5,999 nodes, well under the cap alone;
+        // three of them are not. The third must fall back.
+        func workspace() -> SessionWorkspaceSnapshot {
+            let panels = (0..<400).map { _ in Self.panel(terminal: SessionTerminalPanelSnapshot()) }
+            let unknownLeaves = (0..<2_600).map { _ in UUID() }
+            return Self.workspace(panels: panels, layout: Self.balancedLayout(unknownLeaves + panels.map(\.id)))
+        }
+        var first = workspace()
+        var original = Self.finish(workspace: &first, workspaceHasRemote: false)
+        original.windows[0].tabManager.workspaces = [first, workspace(), workspace()]
+
+        let (restored, _) = SessionSnapshotImportTrust.snapshotForRestore(
+            original,
+            source: Self.channelImport
+        )
+
+        let workspaces = try #require(restored.windows.first?.tabManager.workspaces)
+        #expect(workspaces.count == 3)
+        #expect(Self.layoutNodeCount(workspaces[0].layout) > 1)
+        #expect(Self.layoutPanelIDs(workspaces[0].layout).count == 400)
+        #expect(Self.layoutNodeCount(workspaces[2].layout) == 1)
+        #expect(Self.layoutPanelIDs(workspaces[2].layout).count == 400)
+    }
+
+    @Test("scrollback emptied by stripping is not counted as truncated")
+    func strippedEmptyScrollbackIsNotTruncated() throws {
+        let terminal = SessionTerminalPanelSnapshot(scrollback: "\u{1b}]0;title\u{07}")
+
+        let (_, report) = SessionSnapshotImportTrust.snapshotForRestore(
+            Self.snapshot(terminal: terminal),
+            source: Self.fileImport
+        )
+
+        #expect(report.sanitizedScrollbackCount == 1)
+        #expect(report.truncatedScrollbackCount == 0)
+    }
+
     @Test("plain scrollback with SGR color is unchanged")
     func plainScrollbackIsUnchanged() {
         let text = "$ ls\n\u{1B}[34mdir\u{1B}[0m\tfile\r\n"
@@ -453,6 +660,313 @@ struct SessionSnapshotImportTrustTests {
         #expect(report.droppedRemoteWorkspaceCount == 1)
     }
 
+    @Test("trusted restore applies the global panel budget without stripping commands")
+    func trustedRestoreBoundsTopology() throws {
+        let panel = Self.panel(terminal: Self.untrustedTerminal())
+        var workspace = SessionWorkspaceSnapshot(
+            processTitle: "Terminal",
+            customTitle: "Trusted",
+            customColor: nil,
+            isPinned: false,
+            currentDirectory: "/tmp/project",
+            focusedPanelId: panel.id,
+            layout: .pane(SessionPaneLayoutSnapshot(panelIds: [panel.id], selectedPanelId: panel.id)),
+            panels: Array(repeating: panel, count: SessionPersistencePolicy.maxPanelsPerSnapshot + 1),
+            statusEntries: [],
+            logEntries: [],
+            progress: nil,
+            gitBranch: nil
+        )
+        var original = Self.finish(workspace: &workspace, workspaceHasRemote: false)
+        original.windows[0].tabManager.workspaces = Array(repeating: workspace, count: 9)
+
+        let (restored, report) = SessionSnapshotImportTrust.snapshotForRestore(
+            original,
+            source: Self.channelImport
+        )
+
+        let restoredWorkspaces = try #require(restored.windows.first?.tabManager.workspaces)
+        #expect(restoredWorkspaces.reduce(0) { $0 + $1.panels.count } ==
+            SessionPersistencePolicy.maxPanelsPerSnapshot)
+        #expect(report.droppedPanelCount == 9 * (SessionPersistencePolicy.maxPanelsPerSnapshot + 1)
+            - SessionPersistencePolicy.maxPanelsPerSnapshot)
+        #expect(restoredWorkspaces.first?.panels.first?.terminal?.resumeBinding?.command ==
+            workspace.panels.first?.terminal?.resumeBinding?.command)
+    }
+
+    @Test("trusted restore deduplicates repeated panel IDs in a wide split layout")
+    func trustedRestoreDeduplicatesWideLayout() throws {
+        let panel = Self.panel(terminal: SessionTerminalPanelSnapshot())
+        var workspace = SessionWorkspaceSnapshot(
+            processTitle: "Terminal",
+            customTitle: "Deep",
+            customColor: nil,
+            isPinned: false,
+            currentDirectory: "/tmp/project",
+            focusedPanelId: panel.id,
+            // N leaves need 2N - 1 nodes, so this crosses the node cap.
+            layout: Self.repeatedLayout(SessionPersistencePolicy.maxLayoutNodes, panelID: panel.id),
+            panels: [panel],
+            statusEntries: [],
+            logEntries: [],
+            progress: nil,
+            gitBranch: nil
+        )
+        let original = Self.finish(workspace: &workspace, workspaceHasRemote: false)
+
+        let (restored, _) = SessionSnapshotImportTrust.snapshotForRestore(
+            original,
+            source: Self.channelImport
+        )
+        let layout = try #require(restored.windows.first?.tabManager.workspaces.first?.layout)
+        #expect(Self.layoutNodeCount(layout) <= SessionPersistencePolicy.maxLayoutNodes)
+        #expect(Self.layoutPanelIDs(layout) == [panel.id])
+    }
+
+    @Test("trusted restore deduplicates fallback panel IDs before layout construction")
+    func trustedRestoreDeduplicatesFallbackPanelIDs() throws {
+        let panel = Self.panel(terminal: SessionTerminalPanelSnapshot())
+        var workspace = SessionWorkspaceSnapshot(
+            processTitle: "Terminal",
+            customTitle: "Fallback duplicates",
+            customColor: nil,
+            isPinned: false,
+            currentDirectory: "/tmp/project",
+            focusedPanelId: panel.id,
+            layout: .split(SessionSplitLayoutSnapshot(
+                orientation: .horizontal,
+                dividerPosition: 0.5,
+                first: .pane(SessionPaneLayoutSnapshot(panelIds: [], selectedPanelId: nil)),
+                second: .pane(SessionPaneLayoutSnapshot(panelIds: [], selectedPanelId: nil))
+            )),
+            panels: Array(repeating: panel, count: 64),
+            statusEntries: [],
+            logEntries: [],
+            progress: nil,
+            gitBranch: nil
+        )
+        let original = Self.finish(workspace: &workspace, workspaceHasRemote: false)
+
+        let (restored, _) = SessionSnapshotImportTrust.snapshotForRestore(
+            original,
+            source: Self.channelImport
+        )
+        let layout = try #require(restored.windows.first?.tabManager.workspaces.first?.layout)
+        #expect(Self.layoutPanelIDs(layout) == [panel.id])
+    }
+
+    @Test("trusted restore bounds a skewed deep layout without overflowing the stack")
+    func trustedRestoreBoundsSkewedDeepLayout() throws {
+        let panel = Self.panel(terminal: SessionTerminalPanelSnapshot())
+        let empty = SessionWorkspaceLayoutSnapshot.pane(
+            SessionPaneLayoutSnapshot(panelIds: [], selectedPanelId: nil)
+        )
+        var layout = SessionWorkspaceLayoutSnapshot.pane(
+            SessionPaneLayoutSnapshot(panelIds: [panel.id], selectedPanelId: panel.id)
+        )
+        // A skewed tree is the shape that defeats a depth guard implemented
+        // with recursive descent: it reaches the guard only after consuming
+        // one native stack frame per level. Keep this above the restore depth
+        // cap while below Swift's recursive enum-destruction limit; production
+        // file imports also reject deeper JSON before Codable materialization.
+        for _ in 0..<600 {
+            layout = .split(SessionSplitLayoutSnapshot(
+                orientation: .horizontal,
+                dividerPosition: 0.5,
+                first: layout,
+                second: empty
+            ))
+        }
+        var workspace = SessionWorkspaceSnapshot(
+            processTitle: "Terminal",
+            customTitle: "Deep skew",
+            customColor: nil,
+            isPinned: false,
+            currentDirectory: "/tmp/project",
+            focusedPanelId: panel.id,
+            layout: layout,
+            panels: [panel],
+            statusEntries: [],
+            logEntries: [],
+            progress: nil,
+            gitBranch: nil
+        )
+        let original = Self.finish(workspace: &workspace, workspaceHasRemote: false)
+
+        let (restored, _) = SessionSnapshotImportTrust.snapshotForRestore(
+            original,
+            source: Self.channelImport
+        )
+        let restoredLayout = try #require(
+            restored.windows.first?.tabManager.workspaces.first?.layout
+        )
+        #expect(Self.layoutNodeCount(restoredLayout) <= SessionPersistencePolicy.maxLayoutNodes)
+        #expect(Self.layoutPanelIDs(restoredLayout) == [panel.id])
+    }
+
+    @Test("a panel cut off below the depth cap is reported as dropped")
+    func depthCapReportsCutPanels() throws {
+        let kept = Self.panel(terminal: SessionTerminalPanelSnapshot())
+        let cut = Self.panel(terminal: SessionTerminalPanelSnapshot())
+        var layout = SessionWorkspaceLayoutSnapshot.pane(
+            SessionPaneLayoutSnapshot(panelIds: [cut.id], selectedPanelId: cut.id)
+        )
+        for _ in 0..<(SessionPersistencePolicy.maxLayoutDepth + 8) {
+            layout = .split(SessionSplitLayoutSnapshot(
+                orientation: .horizontal,
+                dividerPosition: 0.5,
+                first: layout,
+                second: .pane(SessionPaneLayoutSnapshot(panelIds: [], selectedPanelId: nil))
+            ))
+        }
+        layout = .split(SessionSplitLayoutSnapshot(
+            orientation: .vertical,
+            dividerPosition: 0.5,
+            first: .pane(SessionPaneLayoutSnapshot(panelIds: [kept.id], selectedPanelId: kept.id)),
+            second: layout
+        ))
+        var workspace = SessionWorkspaceSnapshot(
+            processTitle: "Terminal",
+            customTitle: "Cut subtree",
+            customColor: nil,
+            isPinned: false,
+            currentDirectory: "/tmp/project",
+            focusedPanelId: kept.id,
+            layout: layout,
+            panels: [kept, cut],
+            statusEntries: [],
+            logEntries: [],
+            progress: nil,
+            gitBranch: nil
+        )
+        let original = Self.finish(workspace: &workspace, workspaceHasRemote: false)
+
+        let (restored, report) = SessionSnapshotImportTrust.snapshotForRestore(
+            original,
+            source: Self.channelImport
+        )
+        let restoredLayout = try #require(restored.windows.first?.tabManager.workspaces.first?.layout)
+        #expect(Self.layoutPanelIDs(restoredLayout) == [kept.id])
+        #expect(report.droppedPanelCount == 1)
+    }
+
+    @Test("trusted restore returns an ordinary split layout and dock unchanged")
+    func trustedRestoreKeepsOrdinaryLayoutUnchanged() throws {
+        let panels = (0..<6).map { _ in Self.panel(terminal: SessionTerminalPanelSnapshot()) }
+        let dockPanels = (0..<2).map { _ in Self.panel(terminal: SessionTerminalPanelSnapshot()) }
+        func pane(_ indices: [Int], selected: Int) -> SessionWorkspaceLayoutSnapshot {
+            .pane(SessionPaneLayoutSnapshot(
+                panelIds: indices.map { panels[$0].id },
+                selectedPanelId: panels[selected].id
+            ))
+        }
+        // Mixed orientations, uneven ratios, multi-tab panes with a
+        // non-first selection: the shapes a real session saves.
+        let layout = SessionWorkspaceLayoutSnapshot.split(SessionSplitLayoutSnapshot(
+            orientation: .horizontal,
+            dividerPosition: 0.3,
+            first: pane([0, 1], selected: 1),
+            second: .split(SessionSplitLayoutSnapshot(
+                orientation: .vertical,
+                dividerPosition: 0.65,
+                first: pane([2], selected: 2),
+                second: .split(SessionSplitLayoutSnapshot(
+                    orientation: .horizontal,
+                    dividerPosition: 0.5,
+                    first: pane([3, 4], selected: 4),
+                    second: pane([5], selected: 5)
+                ))
+            ))
+        ))
+        var workspace = SessionWorkspaceSnapshot(
+            processTitle: "Terminal",
+            customTitle: "Ordinary",
+            customColor: nil,
+            isPinned: false,
+            currentDirectory: "/tmp/project",
+            focusedPanelId: panels[4].id,
+            layout: layout,
+            panels: panels,
+            statusEntries: [],
+            logEntries: [],
+            progress: nil,
+            gitBranch: nil
+        )
+        workspace.dock = SessionSplitContainerSnapshot(
+            focusedPanelId: dockPanels[1].id,
+            layout: .split(SessionSplitLayoutSnapshot(
+                orientation: .vertical,
+                dividerPosition: 0.4,
+                first: .pane(SessionPaneLayoutSnapshot(panelIds: [dockPanels[0].id], selectedPanelId: dockPanels[0].id)),
+                second: .pane(SessionPaneLayoutSnapshot(panelIds: [dockPanels[1].id], selectedPanelId: dockPanels[1].id))
+            )),
+            panels: dockPanels
+        )
+        let original = Self.finish(workspace: &workspace, workspaceHasRemote: false)
+
+        let (restored, report) = SessionSnapshotImportTrust.snapshotForRestore(
+            original,
+            source: Self.channelImport
+        )
+
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        #expect(try encoder.encode(restored) == encoder.encode(original))
+        #expect(report.droppedPanelCount == 0)
+        #expect(report.droppedWorkspaceCount == 0)
+        #expect(report.droppedWindowCount == 0)
+    }
+
+    @Test("trusted restore keeps a valid sibling after a capped empty subtree")
+    func trustedRestoreKeepsSiblingAfterCappedEmptySubtree() throws {
+        let panel = Self.panel(terminal: SessionTerminalPanelSnapshot())
+        var empty = SessionWorkspaceLayoutSnapshot.pane(
+            SessionPaneLayoutSnapshot(panelIds: [], selectedPanelId: nil)
+        )
+        for _ in 0..<600 {
+            empty = .split(SessionSplitLayoutSnapshot(
+                orientation: .horizontal,
+                dividerPosition: 0.5,
+                first: empty,
+                second: .pane(SessionPaneLayoutSnapshot(panelIds: [], selectedPanelId: nil))
+            ))
+        }
+        var workspace = SessionWorkspaceSnapshot(
+            processTitle: "Terminal",
+            customTitle: "Capped empty subtree",
+            customColor: nil,
+            isPinned: false,
+            currentDirectory: "/tmp/project",
+            focusedPanelId: panel.id,
+            layout: .split(SessionSplitLayoutSnapshot(
+                orientation: .horizontal,
+                dividerPosition: 0.5,
+                first: empty,
+                second: .pane(SessionPaneLayoutSnapshot(panelIds: [panel.id], selectedPanelId: panel.id))
+            )),
+            panels: [panel],
+            statusEntries: [],
+            logEntries: [],
+            progress: nil,
+            gitBranch: nil
+        )
+        let original = Self.finish(workspace: &workspace, workspaceHasRemote: false)
+
+        let (restored, _) = SessionSnapshotImportTrust.snapshotForRestore(
+            original,
+            source: Self.channelImport
+        )
+        let restoredLayout = try #require(
+            restored.windows.first?.tabManager.workspaces.first?.layout
+        )
+        #expect(Self.layoutPanelIDs(restoredLayout) == [panel.id])
+        guard case .pane(let pane) = restoredLayout else {
+            Issue.record("capped empty subtree should collapse to the valid sibling pane")
+            return
+        }
+        #expect(pane.panelIds == [panel.id])
+    }
+
     // MARK: - Fixtures
 
     private static func makeTempDirectory() throws -> URL {
@@ -460,6 +974,71 @@ struct SessionSnapshotImportTrustTests {
             .appendingPathComponent("cmux-import-trust-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
+    }
+
+    private static func repeatedLayout(_ leaves: Int, panelID: UUID) -> SessionWorkspaceLayoutSnapshot {
+        guard leaves > 1 else {
+            return .pane(SessionPaneLayoutSnapshot(panelIds: [panelID], selectedPanelId: panelID))
+        }
+        let firstCount = leaves / 2
+        return .split(SessionSplitLayoutSnapshot(
+            orientation: .horizontal,
+            dividerPosition: 0.5,
+            first: repeatedLayout(firstCount, panelID: panelID),
+            second: repeatedLayout(leaves - firstCount, panelID: panelID)
+        ))
+    }
+
+    private static func balancedLayout(_ leafIDs: [UUID]) -> SessionWorkspaceLayoutSnapshot {
+        guard leafIDs.count > 1 else {
+            let id = leafIDs.first ?? UUID()
+            return .pane(SessionPaneLayoutSnapshot(panelIds: [id], selectedPanelId: id))
+        }
+        let middle = leafIDs.count / 2
+        return .split(SessionSplitLayoutSnapshot(
+            orientation: .horizontal,
+            dividerPosition: 0.5,
+            first: balancedLayout(Array(leafIDs[..<middle])),
+            second: balancedLayout(Array(leafIDs[middle...]))
+        ))
+    }
+
+    private static func workspace(
+        panels: [SessionPanelSnapshot],
+        layout: SessionWorkspaceLayoutSnapshot?
+    ) -> SessionWorkspaceSnapshot {
+        let firstID = panels.first?.id
+        return SessionWorkspaceSnapshot(
+            processTitle: "Terminal",
+            customTitle: "Bounded",
+            customColor: nil,
+            isPinned: false,
+            currentDirectory: "/tmp/project",
+            focusedPanelId: firstID,
+            layout: layout ?? .pane(SessionPaneLayoutSnapshot(
+                panelIds: panels.map(\.id),
+                selectedPanelId: firstID
+            )),
+            panels: panels,
+            statusEntries: [],
+            logEntries: [],
+            progress: nil,
+            gitBranch: nil
+        )
+    }
+
+    private static func layoutNodeCount(_ layout: SessionWorkspaceLayoutSnapshot) -> Int {
+        switch layout {
+        case .pane: return 1
+        case .split(let split): return 1 + layoutNodeCount(split.first) + layoutNodeCount(split.second)
+        }
+    }
+
+    private static func layoutPanelIDs(_ layout: SessionWorkspaceLayoutSnapshot) -> [UUID] {
+        switch layout {
+        case .pane(let pane): return pane.panelIds
+        case .split(let split): return layoutPanelIDs(split.first) + layoutPanelIDs(split.second)
+        }
     }
 
 
