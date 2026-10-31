@@ -334,10 +334,8 @@ enum Reducer {
         case let .setNotice(text):
             s.ui.notice = text
         case let .cmuxSetAttachments(updates):  // cmux
-            var first: [ID: Int] = [:]
-            if updates.count > 1 { for (i, m) in s.conversation.messages.enumerated() where first[m.id] == nil { first[m.id] = i } }
             for (id, a) in updates {
-                guard let i = updates.count > 1 ? first[id] : s.conversation.messages.firstIndex(where: { $0.id == id }),
+                guard let i = s.conversation.messages.firstIndex(where: { $0.id == id }),
                       let pi = s.conversation.messages[checked: i]?.parts.firstIndex(where: { if case let .attachment(x) = $0 { return x.id == a.id }; return false })
                 else { continue } // cmux: checked
                 s.conversation.messages.update(at: i) { $0.parts.update(at: pi) { $0 = .attachment(a) } }
