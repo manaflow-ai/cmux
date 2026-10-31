@@ -773,10 +773,12 @@ impl Hub {
             ..PromptOptions::default()
         };
         let blocks = vec![json!({"type": "text", "text": text})];
+        // Rebuild the projection from the removed prompt's id. The queued acceptance path may
+        // already have written this message; using the canonical prompt id here lets the journal
+        // index deduplicate the read archive instead of creating a second projection when the
+        // transcript page races the queue removal.
         let message =
-            super::message_events::message_context_from_provenance(provenance).or_else(|| {
-                super::message_events::message_context(self, session, &blocks, &opts, prompt_id)
-            });
+            super::message_events::message_context(self, session, &blocks, &opts, prompt_id);
         super::message_events::embed_message_context(&mut opts, message.as_ref(), &session.id);
         let msg = json!({
             "promptId": prompt_id, "threadId": thread, "from": from, "fromSession": lane,
