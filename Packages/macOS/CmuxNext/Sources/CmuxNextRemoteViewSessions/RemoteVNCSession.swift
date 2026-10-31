@@ -22,6 +22,8 @@ public final class RemoteVNCSession {
     private var demoStart: Task<Void, Never>?
     private var prompting = false
     private var closed = false
+    /// Stop (a hidden tab) until the next connect: a queued loss reconnects nothing meanwhile.
+    private var stopped = false
 
     /// `demoHost`: the reserved host name served by the loopback demo desktop.
     public init(record: RemoteViewTabRecord, port: UInt16, demoHost: String) {
@@ -52,7 +54,10 @@ public final class RemoteVNCSession {
     private var retry: Task<Void, Never>?
 
     private func reconnectAfterLoss() {
-        guard makeTransport != nil, !closed, retry == nil else { return }
+        guard makeTransport != nil, !closed, !stopped, retry == nil else { return }
+        // The loss is queued onto the main actor. A manual reconnect that ran first started a new
+        // session (its status is no longer this loss), so the queued loss schedules nothing.
+        guard case .ended(.connectionLost) = source.status.state else { return }
         let wait = Duration.seconds(min(10, 1 << min(lostTries, 3)))
         lostTries += 1
         scheduleRetry(after: wait)
@@ -73,8 +78,16 @@ public final class RemoteVNCSession {
     /// Test seam for the race where a manual reconnect supersedes an automatic retry.
     internal var hasPendingRetryForTesting: Bool { retry != nil }
 
+    /// The pending automatic retry, so a test can await its end instead of sleeping past it.
+    internal var pendingRetryForTesting: Task<Void, Never>? { retry }
+
     internal func scheduleAutomaticRetryForTesting(after wait: Duration) {
         scheduleRetry(after: wait)
+    }
+
+    /// Runs a lost-path callback that was queued before a manual reconnect.
+    internal func deliverQueuedLossForTesting() {
+        reconnectAfterLoss()
     }
 #endif
 
@@ -90,6 +103,7 @@ public final class RemoteVNCSession {
     /// Connects with the saved sign-in (or none; the host may not need one).
     public func connect() {
         guard !closed else { return }
+        stopped = false
         if let makeTransport {
             source.connect(to: endpoint, credentials: VNCCredentials(), transport: makeTransport()) { [weak self] in
                 Task { @MainActor in self?.lostTries = 0 }
@@ -121,6 +135,7 @@ public final class RemoteVNCSession {
 
     /// Stop, a hidden tab.
     public func stop() {
+        stopped = true
         cancelRetry()
         source.stop()
     }
