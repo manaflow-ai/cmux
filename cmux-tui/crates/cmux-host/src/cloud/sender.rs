@@ -279,6 +279,10 @@ pub enum EventOutcome {
     Dropped(String),
 }
 
+/// Events a backed-off queue holds before it refuses more (each is at most
+/// 4 KB of data, so about 1 MB).
+pub const EVENT_QUEUE_MAX: usize = 256;
+
 /// `cloud.vm.event.emit` in order: a rate limit waits `retry_after_ms`, a
 /// server error backs off, any other refusal drops the event.
 #[derive(Debug)]
@@ -301,9 +305,13 @@ impl EventQueue {
         }
     }
 
-    /// Queues one event; refuses an unknown kind or more than 4 KB of data.
+    /// Queues one event; refuses an unknown kind, more than 4 KB of data, or
+    /// a queue already holding `EVENT_QUEUE_MAX` events.
     pub fn emit(&mut self, kind: &str, at: u64, data: Value) -> Result<Option<OpRequest>, String> {
         check_event(kind, &data)?;
+        if self.queue.len() >= EVENT_QUEUE_MAX {
+            return Err(format!("event queue full ({EVENT_QUEUE_MAX} waiting)"));
+        }
         self.queue.push_back(QueuedEvent { kind: kind.to_owned(), at, data });
         Ok(self.pump())
     }
@@ -409,7 +417,7 @@ mod event_queue_tests {
                 refused += 1;
             }
         }
-        assert!(queue.len() <= 256, "queue grew to {}", queue.len());
+        assert_eq!(queue.len(), super::EVENT_QUEUE_MAX);
         assert!(refused > 0);
         let retry = queue.fire(u64::MAX).expect("the head retries");
         assert_eq!(retry.params["at"], 1);

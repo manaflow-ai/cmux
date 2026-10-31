@@ -147,3 +147,33 @@ fn identify_stops_reading_a_line_over_max_line() {
         started.elapsed()
     );
 }
+
+/// HQ#5351 item 3: the activity stream kept an unfinished line past `MAX_LINE`
+/// and rescanned it on every read. Over the cap the stream counts as dropped.
+#[test]
+fn a_line_over_max_line_ends_the_stream() {
+    let (mut ours, mut theirs) = UnixStream::pair().unwrap();
+    theirs.set_nonblocking(true).unwrap();
+    let mut buf = Vec::new();
+    ours.write_all(b"{\"ok\":true}\nxx").unwrap();
+    let (lines, open) = super::read_lines(&mut theirs, &mut buf).unwrap();
+    assert_eq!(lines, vec!["{\"ok\":true}".to_owned()]);
+    assert!(open);
+    let writer = std::thread::spawn(move || {
+        let _ = ours.write_all(&vec![b'x'; 2 * super::MAX_LINE]);
+        ours
+    });
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let (lines, open) = super::read_lines(&mut theirs, &mut buf).unwrap();
+        assert!(lines.is_empty());
+        if !open {
+            break;
+        }
+        assert!(Instant::now() < deadline, "the stream stayed open past MAX_LINE");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert!(buf.len() <= 2 * super::MAX_LINE + 4096);
+    drop(theirs);
+    let _ = writer.join();
+}
