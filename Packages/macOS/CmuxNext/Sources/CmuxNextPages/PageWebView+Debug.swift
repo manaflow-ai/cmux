@@ -249,6 +249,9 @@ extension PageWebView {
         return true
     }
 
+    /// The next file input this page opens in WebKit takes `files` instead of showing the panel.
+    public func debugQueueFiles(_ files: [URL]) { fileChooser?.debugAnswer = files }
+
     /// Gives the file input `selector` matches on a Chromium page the files at `paths`, as a person's pick in
     /// Chromium's own open panel does (DevTools `DOM.setFileInputFiles`: the page gets `input` and `change`).
     /// Nil when it took them, else why not; a WebKit page answers its file input with ``PageOpenPanel``.

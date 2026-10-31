@@ -1,5 +1,6 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 public import AppKit
+import CmuxNextPages
 public import WebKit
 
 /// `debug.agent_pane click` and `hover` (DEBUG builds), on whichever host shows the chat: the
@@ -77,9 +78,16 @@ extension AgentPaneView {
     }
 
     /// The chat's file input `selector` takes the files at `paths`, as a pick in Chromium's open panel
-    /// (``PageWebView/debugSetFiles(selector:paths:)``); nil when it did, else why not.
+    /// (``PageWebView/debugSetFiles(selector:paths:)``); nil when it did, else why not. On WebKit the next
+    /// file input the page opens (a click on + then Attach files) takes them instead of the panel.
     public func debugSetFiles(selector: String, paths: [String]) async -> String? {
-        await page?.debugSetFiles(selector: selector, paths: paths) ?? "the chat does not show in Chromium"
+        guard debugShowsChromium else {
+            let files = paths.map { URL(fileURLWithPath: $0) }
+            fileChooser?.debugAnswer = files
+            page?.debugQueueFiles(files)
+            return nil
+        }
+        return await page?.debugSetFiles(selector: selector, paths: paths) ?? "the chat does not show in Chromium"
     }
 
     /// The screen point of `x`,`y` (CSS pixels) on the chat's Chromium page, nil on WebKit. Chromium draws the
