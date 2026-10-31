@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { execFileSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -13,6 +13,7 @@ import {
   requireEnvKeys,
 } from "./projects.mjs";
 import { classifyCodexCanaryOutcome, edgeCanaryProblems } from "./canaryOutcome.mjs";
+import { CREATE_VM_RETRY_BUDGET_MS, createVmRequest, createVmWithRetry } from "./smokeCreate.mjs";
 
 const usage = "Usage: smoke-vm-api.mjs [web-dir] <staging|production> [--create] [--snapshot-check] [--provider freestyle|default] [--image <manifest image id or version>] [--url https://preview.example] [--vercel-curl] [--skip-attach] [--paid] [--edge-check] [--claude-check] [--zero-token] [--sweep-older-than-minutes <n>] [--sweep-this-run] [--result-file <path>]";
 const args = process.argv.slice(2);
@@ -141,18 +142,24 @@ async function timed(name, work) {
   }
 }
 
-async function fetchWithTimeout(url, init = {}, timeoutMs = REQUEST_TIMEOUT_MS) {
-  if (useVercelCurl) return vercelCurlFetch(url, init, timeoutMs);
+/** Fetch an API request with both a local timeout and caller cancellation. */
+async function fetchWithTimeout(url, init = {}, timeoutMs = REQUEST_TIMEOUT_MS, signal) {
+  if (useVercelCurl) return vercelCurlFetch(url, init, timeoutMs, signal);
   const controller = new AbortController();
+  const abort = () => controller.abort(signal?.reason);
+  if (signal?.aborted) abort();
+  else signal?.addEventListener("abort", abort, { once: true });
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     return await fetch(url, { ...init, signal: controller.signal });
   } finally {
     clearTimeout(timer);
+    signal?.removeEventListener("abort", abort);
   }
 }
 
-function vercelCurlFetch(url, init = {}, timeoutMs = REQUEST_TIMEOUT_MS) {
+/** Run the Vercel curl transport while preserving cancellation and cleanup. */
+async function vercelCurlFetch(url, init = {}, timeoutMs = REQUEST_TIMEOUT_MS, signal) {
   const parsed = new URL(url);
   const scratch = mkdtempSync(path.join(tmpdir(), "cmux-vercel-curl-"));
   const responsePath = path.join(scratch, "response.txt");
@@ -178,7 +185,7 @@ function vercelCurlFetch(url, init = {}, timeoutMs = REQUEST_TIMEOUT_MS) {
     }
     writeFileSync(configPath, `${lines.join("\n")}\n`, { mode: 0o600 });
 
-    const statusOutput = execFileSync("vercel", [
+    const statusOutput = await runVercelCurl([
       "curl",
       `${parsed.pathname}${parsed.search}`,
       "--deployment",
@@ -188,11 +195,7 @@ function vercelCurlFetch(url, init = {}, timeoutMs = REQUEST_TIMEOUT_MS) {
       "--",
       "--config",
       configPath,
-    ], {
-      encoding: "utf8",
-      timeout: timeoutMs + 10_000,
-      stdio: ["ignore", "pipe", "pipe"],
-    }).trim();
+    ], timeoutMs, signal);
     const statusMatch = statusOutput.match(/(\d{3})$/);
     if (!statusMatch) throw new Error(`vercel curl did not return an HTTP status: ${statusOutput}`);
     const status = Number(statusMatch[1]);
@@ -204,6 +207,46 @@ function vercelCurlFetch(url, init = {}, timeoutMs = REQUEST_TIMEOUT_MS) {
   } finally {
     rmSync(scratch, { recursive: true, force: true });
   }
+}
+
+/** Run the Vercel CLI in a cancellable child process for signal-safe teardown. */
+function runVercelCurl(args, timeoutMs, signal) {
+  return new Promise((resolve, reject) => {
+    const child = spawn("vercel", args, { stdio: ["ignore", "pipe", "pipe"] });
+    let stdout = "";
+    let stderr = "";
+    let settled = false;
+    let timer;
+    let abort = () => {};
+    const cleanup = () => {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", abort);
+    };
+    const fail = (error) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      child.kill("SIGTERM");
+      reject(error);
+    };
+    abort = () => fail(signal?.reason instanceof Error ? signal.reason : new Error("Vercel curl aborted"));
+    child.stdout.on("data", (chunk) => { stdout += chunk; });
+    child.stderr.on("data", (chunk) => { stderr += chunk; });
+    child.once("error", fail);
+    child.once("close", (code) => {
+      if (settled) return;
+      if (code !== 0) {
+        fail(new Error(`vercel curl exited with ${code}: ${stderr.trim()}`));
+        return;
+      }
+      settled = true;
+      cleanup();
+      resolve(stdout.trim());
+    });
+    timer = setTimeout(() => fail(new Error(`vercel curl exceeded ${timeoutMs + 10_000} ms`)), timeoutMs + 10_000);
+    if (signal?.aborted) abort();
+    else signal?.addEventListener("abort", abort, { once: true });
+  });
 }
 
 function writeResultFile(outcome) {
@@ -369,19 +412,24 @@ try {
     keepUserForSweep = true;
     stage = "create";
     const createStartedAt = performance.now();
-    const create = await fetchWithTimeout(`${targetUrl}/api/vm`, {
-      method: "POST",
-      headers: { ...authHeaders, "content-type": "application/json", "idempotency-key": `smoke-${suffix}` },
-      body: JSON.stringify({
-        ...(provider === "default" ? {} : { provider }),
-        ...(image ? { image } : {}),
-      }),
-    });
+    const createIdempotencyKey = `smoke-${suffix}`;
+    const createAbortController = new AbortController();
+    const abortCreate = () => createAbortController.abort(new Error("Cloud VM smoke create interrupted"));
+    process.once("SIGINT", abortCreate);
+    process.once("SIGTERM", abortCreate);
+    let created;
+    try {
+      created = await createVmWithRetry({
+        idempotencyKey: createIdempotencyKey,
+        send: createVmRequest({ targetUrl, authHeaders, provider, image, fetchWithTimeout }),
+        signal: createAbortController.signal,
+        budgetMs: CREATE_VM_RETRY_BUDGET_MS,
+      });
+    } finally {
+      process.off("SIGINT", abortCreate);
+      process.off("SIGTERM", abortCreate);
+    }
     const createDurationMs = Math.round(performance.now() - createStartedAt);
-    const createText = await create.text();
-    if (create.status !== 200) throw new Error(`POST /api/vm expected 200, got ${create.status}: ${createText}`);
-    const created = JSON.parse(createText);
-    if (!created.id) throw new Error("create response missing id");
     if (provider !== "default" && created.provider !== provider) {
       throw new Error(`POST /api/vm returned provider ${created.provider}, expected ${provider}`);
     }
