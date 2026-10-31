@@ -26,6 +26,7 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
     await server.listen();
     browser = await chromium.launch({ headless: true });
     await warmGalleryFrame(server, entry, { browser, params: { variant } });
+    await warmGalleryFrame(server, "agent-pane.subagent-row-anatomy", { browser, params: { variant: "done-one" } });
   });
 
   afterAll(async () => {
@@ -540,32 +541,131 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
           ["open", "stop"],
         );
 
-        const longState = await page.evaluate(() => {
-          const row = document.querySelector<HTMLElement>(".acpmux-running-tray__list .acpmux-agent-line");
-          const state = row?.querySelector<HTMLElement>(".acpmux-agent-line__status .acpmux-summary-agent__state");
-          const status = row?.querySelector<HTMLElement>(".acpmux-agent-line__status");
-          if (!state || !status) throw new Error("missing status state");
-          state.textContent = "A very long localized waiting state that must stay in its track";
-          const stateBox = state.getBoundingClientRect();
-          const statusBox = status.getBoundingClientRect();
-          const style = getComputedStyle(state);
-          return {
-            stateRight: stateBox.right,
-            statusRight: statusBox.right,
-            minWidth: style.minWidth,
-            overflow: style.overflow,
-            textOverflow: style.textOverflow,
-            whiteSpace: style.whiteSpace,
-          };
-        });
-        expect(longState.stateRight).toBeLessThanOrEqual(longState.statusRight + 0.5);
-        expect(longState.minWidth).toBe("0px");
-        expect(longState.overflow).toBe("hidden");
-        expect(longState.textOverflow).toBe("ellipsis");
-        expect(longState.whiteSpace).toBe("nowrap");
+        // Running lines say no Running: the spinner is their state (the next describe's anatomy).
+        expect(await page.locator(".acpmux-running-tray__list .acpmux-summary-agent__state").count()).toBe(0);
       } finally {
         await page.close();
       }
     });
+  }
+
+  // One tray line's anatomy (design/chat-transcript.md "Subagent row anatomy"; Leo, 2026-10-31:
+  // "why is this still so ass in latest nightly", and earlier "eg a lot of these subtitles are
+  // bad"): one leading glyph, the title at least --ds-space-2 after it, no agent-type subtitle, no
+  // Done or Running word, a state worth a word kept in its meta before the time, and no card around
+  // a tray with nothing running.
+  const anatomyEntry = "agent-pane.subagent-row-anatomy";
+  for (const theme of ["Apple System Colors", "Apple System Colors Light"]) {
+    for (const variant of ["done-one", "running-stats", "mixed"]) {
+      test(`row anatomy: ${variant} (${theme})`, async () => {
+        const port = (server.httpServer!.address() as { port: number }).port;
+        const page = await browser.newPage({
+          viewport: { width: 640, height: 360 },
+          deviceScaleFactor: 2,
+          reducedMotion: "reduce",
+        });
+        try {
+          await page.goto(`http://127.0.0.1:${port}${galleryFrame(anatomyEntry, { variant, theme })}`);
+          await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
+          await page.clock.setFixedTime(new Date(GALLERY_NOW));
+          const head = page.locator(".acpmux-running-tray__head");
+          if ((await head.count()) > 0 && (await head.getAttribute("aria-expanded")) !== "true") await head.click();
+          await page.locator(".acpmux-running-tray .acpmux-agent-line").first().waitFor();
+          const anatomy = await page.evaluate(() => {
+            const tray = document.querySelector<HTMLElement>(".acpmux-running-tray")!;
+            const probe = document.createElement("span");
+            probe.style.width = "var(--ds-space-2)";
+            probe.style.position = "absolute";
+            tray.append(probe);
+            const token = probe.getBoundingClientRect().width;
+            probe.remove();
+            const style = getComputedStyle(tray);
+            return {
+              token,
+              settled: tray.hasAttribute("data-settled"),
+              card: { shadow: style.boxShadow, background: style.backgroundColor },
+              rows: [...tray.querySelectorAll<HTMLElement>(".acpmux-agent-line")].map((row) => {
+                const button = row.querySelector<HTMLElement>(".acpmux-agent-line__button")!;
+                const name = row.querySelector<HTMLElement>(".acpmux-summary-agent__name")!.getBoundingClientRect();
+                const glyphs = [...button.querySelectorAll<SVGElement>("svg")].filter((svg) => {
+                  const box = svg.getBoundingClientRect();
+                  return box.width > 0 && box.right <= name.left + 0.5;
+                });
+                const time = row.querySelector<HTMLElement>(".acpmux-agent-line__time")!.getBoundingClientRect();
+                const meta = row.querySelector<HTMLElement>(".acpmux-agent-line__meta")?.getBoundingClientRect();
+                const visibleText = [...button.querySelectorAll<HTMLElement>("span")]
+                  .filter((node) => !node.classList.contains("acpmux-agent-line__sr") && node.children.length === 0)
+                  .map((node) => node.textContent?.trim() ?? "")
+                  .filter(Boolean);
+                return {
+                  glyphs: glyphs.length,
+                  gap: name.left - Math.max(...glyphs.map((svg) => svg.getBoundingClientRect().right)),
+                  subtitle: Boolean(row.querySelector(".acpmux-summary-agent__kind, .acpmux-agent-line__kind-icon")),
+                  words: visibleText,
+                  timeLeft: time.left,
+                  metaRight: meta?.right,
+                };
+              }),
+            };
+          });
+          expect(anatomy.token).toBeGreaterThanOrEqual(6);
+          expect(anatomy.rows.length).toBeGreaterThan(0);
+          for (const row of anatomy.rows) {
+            expect(row.glyphs).toBe(1);
+            expect(row.gap).toBeGreaterThanOrEqual(anatomy.token - 0.5);
+            expect(row.subtitle).toBe(false);
+            expect(row.words).not.toContain("general-purpose");
+            expect(row.words).not.toContain("Explore");
+            expect(row.words).not.toContain("Done");
+            expect(row.words).not.toContain("Running");
+            if (row.metaRight !== undefined) expect(row.metaRight).toBeLessThanOrEqual(row.timeLeft + 0.5);
+          }
+          expect(anatomy.settled).toBe(variant === "done-one");
+          if (anatomy.settled) {
+            expect(anatomy.card.shadow).toBe("none");
+            expect(anatomy.card.background).toBe("rgba(0, 0, 0, 0)");
+          }
+          if (variant === "mixed") {
+            // A long state word stays in its meta, cut, before the time.
+            const long = await page.evaluate(() => {
+              const state = document.querySelector<HTMLElement>(".acpmux-running-tray .acpmux-summary-agent__state");
+              if (!state) throw new Error("the failed line says Failed");
+              state.textContent = "A very long localized failure state that must stay in its track";
+              const row = state.closest(".acpmux-agent-line")!;
+              const style = getComputedStyle(state);
+              return {
+                right: state.getBoundingClientRect().right,
+                timeLeft: row.querySelector(".acpmux-agent-line__time")!.getBoundingClientRect().left,
+                overflow: style.overflow,
+                textOverflow: style.textOverflow,
+                whiteSpace: style.whiteSpace,
+              };
+            });
+            expect(long.right).toBeLessThanOrEqual(long.timeLeft + 0.5);
+            expect(long.overflow).toBe("hidden");
+            expect(long.textOverflow).toBe("ellipsis");
+            expect(long.whiteSpace).toBe("nowrap");
+          }
+          if (process.env.CMUX_TRAY_CAPTURE_DIR) {
+            await mkdir(process.env.CMUX_TRAY_CAPTURE_DIR, { recursive: true });
+            const clip = await page.evaluate(() => {
+              const tray = document.querySelector(".acpmux-running-tray")!.getBoundingClientRect();
+              const composer = document.querySelector(".acpmux-composer")!.getBoundingClientRect();
+              const top = Math.max(0, tray.top - 24);
+              return { x: 0, y: top, width: innerWidth, height: Math.min(innerHeight, composer.bottom + 12) - top };
+            });
+            await page.screenshot({
+              path: path.join(
+                process.env.CMUX_TRAY_CAPTURE_DIR,
+                `row-anatomy-${variant}-${theme.endsWith("Light") ? "light" : "dark"}.png`,
+              ),
+              clip,
+            });
+          }
+        } finally {
+          await page.close();
+        }
+      });
+    }
   }
 });

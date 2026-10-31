@@ -18,7 +18,7 @@ import { pausedMachineResume } from "../agent-session/acpmux/pausedMachine.exper
 import { codeRouterOffer } from "../agent-session/acpmux/conversation/codeRouterOffer.experiment";
 import { chromiumGlassUnderlay } from "../ui/glass/chromiumUnderlay.experiment";
 import { questionPreviewLayout } from "../agent-session/acpmux/question/previewLayout.experiment";
-import { trayPanelLook } from "../agent-session/acpmux/subagents/trayPanel.experiment";
+import { trayPanelLook, trayRowLook } from "../agent-session/acpmux/subagents/trayPanel.experiment";
 import { trayMotionLook } from "../agent-session/acpmux/subagents/trayMotion.experiment";
 import type { Experiment } from "./experiment";
 
@@ -42,6 +42,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   questionPreviewLayout,
   toolErrorLook,
   trayPanelLook,
+  trayRowLook,
   trayMotionLook,
 ];
 

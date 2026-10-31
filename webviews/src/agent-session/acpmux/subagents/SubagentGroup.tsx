@@ -146,7 +146,9 @@ export function SubagentGroupHeader({
 
 /// One subagent in an open group: its avatar, name (in the agent's color,
 /// agentTones.ts), state or current action with what it has spent (subagentProgress.ts), and time. `edge` rounds the list's first and last
-/// rows. A click opens its own view; a running one has a stop button beside it.
+/// rows. A click opens its own view; a running one has a stop button beside it. Its kind (Explore,
+/// general-purpose) is no subtitle beside the name (Leo, 2026-10-31: "a lot of these subtitles are
+/// bad"): the line's tooltip keeps it.
 export function SubagentListRow({ row }: { row: AcpmuxRow }) {
   const t = useT();
   const language = usePaneLanguage();
@@ -166,17 +168,22 @@ export function SubagentListRow({ row }: { row: AcpmuxRow }) {
     <>
       <Avatar agent={agent} />
       <span className="cv-subagent__text">
-        <span className="cv-subagent__name">
-          {agent.name}
-          {agent.kind && agent.kind !== agent.name && <span className="cv-subagent__kind">{agent.kind}</span>}
-        </span>
+        <span className="cv-subagent__name">{agent.name}</span>
         <span className="cv-subagent__state">{state}</span>
       </span>
       <span className="cv-subagent__time">{formatDuration(elapsed(agent, now))}</span>
     </>
   );
+  const kind = agent.kind && agent.kind !== agent.name ? agent.kind : undefined;
   const line = !open ? (
-    <div id={row.id} className="cv-subagent" data-edge={row.status} data-agent-tone={tones?.get(agent.id)}>
+    <div
+      id={row.id}
+      className="cv-subagent"
+      data-edge={row.status}
+      data-agent-tone={tones?.get(agent.id)}
+      // tooltip-allow: its kind, which the line no longer shows
+      title={kind}
+    >
       {content}
     </div>
   ) : (
@@ -187,6 +194,8 @@ export function SubagentListRow({ row }: { row: AcpmuxRow }) {
       data-edge={row.status}
       data-agent-tone={tones?.get(agent.id)}
       aria-label={t("subagents.open", { name: agent.name })}
+      // tooltip-allow: its kind, which the line no longer shows
+      title={kind}
       onClick={() => open(agent.id)}
     >
       {content}

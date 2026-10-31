@@ -50,23 +50,24 @@ import { experimentArm } from "../../../experiments/experiment";
 import { foldMotion, useFold } from "../conversation/fold";
 import { entranceAllowed } from "../../shared/pageReveal";
 import { formatDuration } from "../conversation/turns";
-import { usePaneLanguage, useT } from "../i18n";
+import { usePaneLanguage, useT, type Translate } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 import { arrivalKey, type BackgroundCommand, commandLabel, sendLabel } from "../inspector/processes";
 import { StopButton as ProcessStopButton } from "../inspector/TasksSection";
 import { STATUS_LABEL, type SubagentStatus, subagentStateText, subagentStatus } from "../summary/SubagentStatusList";
-import { retryLabel, sessionRetry } from "./retryState";
+import { retrying, retryLabel, sessionRetry } from "./retryState";
 import { AgentLine } from "./AgentLine";
 import { subagentProgress } from "./subagentProgress";
 import { BackgroundTaskTail } from "./BackgroundTaskTail";
 import { elapsed, StopButton, useNow } from "./SubagentGroup";
 import { itemStart, type TrayItem } from "./runningTray";
-import { doingDetail, toolDetail } from "./trayDetail";
-import { trayPanelLook } from "./trayPanel.experiment";
+import { toolDetail } from "./trayDetail";
+import { trayPanelLook, trayRowLook } from "./trayPanel.experiment";
 import { trayMotionLook } from "./trayMotion.experiment";
 import { Tick, useTrayMotion } from "./trayMotion";
 import type { StartedSession } from "../started/startedSessions";
+import type { Subagent } from "./subagentFold";
 import type { SubagentTrayPlacement } from "./subagentTrayPlacement";
 
 /// Lines the tray shows under its header without a click.
@@ -137,6 +138,7 @@ export const SubagentTray = memo(function SubagentTray({
   // Read once per tray: the arm is the gallery's override or a dogfood key, never a per-tick read.
   const [look] = useState(() => experimentArm(trayPanelLook));
   const [motion] = useState(() => experimentArm(trayMotionLook));
+  const [row] = useState(() => experimentArm(trayRowLook));
   // Only the bottom stack's tray leaves on a snapshot: one placed in the transcript moves with it.
   const motionRef = useTrayMotion(shown, enters, placement === "tray");
   const setTrayRef = useCallback(
@@ -301,6 +303,10 @@ export const SubagentTray = memo(function SubagentTray({
       data-open={open || undefined}
       data-placement={placement}
       data-look={look}
+      data-row={row}
+      // Nothing runs: the ended lines sit quietly over the composer, no card around them (Leo,
+      // 2026-10-31, on a finished one-line row in a bordered card: "why is this still so ass").
+      data-settled={items.length === 0 || undefined}
       data-motion={motion}
       data-narrow={narrow || undefined}
     >
@@ -347,26 +353,24 @@ export const SubagentTray = memo(function SubagentTray({
       return (
         <AgentLine
           name={item.agent.name}
-          detail={
-            item.agent.state !== "running"
-              ? item.agent.kind
-              : item.agent.actionShell
-                ? toolDetail(t, item.agent.action, true)
-                : (item.agent.action ?? item.agent.kind)
-          }
           progress={subagentProgress(t, language, item.agent).join(" · ")}
           mark={item.agent.harness}
+          icon={SUBAGENT_ICON}
           status={subagentStatus(item.agent, waiting)}
           working={subagentStatus(item.agent, waiting) === "running"}
           state={subagentStateText(t, item.agent, waiting)}
+          quiet={quietAgent(item.agent, waiting)}
           time={formatDuration(elapsed(item.agent, now))}
           depth={item.depth}
-          title={item.agent.task}
+          // Its kind and what it does now are off the line (Leo, 2026-10-31: "a lot of these
+          // subtitles are bad"); the tooltip keeps them under its task.
+          title={agentTooltip(t, item.agent)}
           label={t("subagents.open", { name: item.agent.name })}
           kind={t("tray.kind.subagent")}
-          kindIcon={SUBAGENT_ICON}
           chevron
           trayColumns
+          // A narrow tray's second line is its time and controls: the stats wrap under the title.
+          progressAt={row === "below" || narrow ? "below" : "meta"}
           onOpen={() => onOpen(item.agent.id)}
           after={
             stop &&
@@ -388,6 +392,7 @@ export const SubagentTray = memo(function SubagentTray({
             working
             status="running"
             state={t("subagents.state.running")}
+            quiet
             expanded={canOpenTerminal ? openCommands.has(key) : undefined}
             trayColumns
             time={
@@ -438,15 +443,14 @@ export const SubagentTray = memo(function SubagentTray({
     return (
       <AgentLine
         name={item.session.title}
-        detail={liveSession(item.session) ? doingDetail(t, item.session.doing, item.session.doingTool) : undefined}
         title={item.session.doing}
         kind={t("tray.kind.subagent")}
-        kindIcon={SUBAGENT_ICON}
         chevron
         icon="agent.chat"
         status={sessionRetrying ? "running" : SESSION_STATUS[item.session.state]}
         working={sessionRetrying !== undefined || item.session.state === "running"}
         state={sessionRetrying ? retryLabel(t, sessionRetrying) : t(STATUS_LABEL[SESSION_STATUS[item.session.state]])}
+        quiet={!sessionRetrying && (item.session.state === "running" || item.session.state === "idle")}
         trayColumns
         onOpen={onOpenSession && (() => onOpenSession(item.session.sessionId))}
       />
@@ -454,9 +458,31 @@ export const SubagentTray = memo(function SubagentTray({
   }
 });
 
-/// A subagent's mark before its name, in place of the word: a branch off this chat, never the
-/// chat bubble a session's own icon is (Leo, 2026-10-28: "Shouldn't the subagent icon be different?").
+/// A subagent's one leading glyph: a branch off this chat, never the chat bubble a session's own
+/// icon is (Leo, 2026-10-28: "Shouldn't the subagent icon be different?"), and never beside a
+/// second glyph (Leo, 2026-10-31: "why is this still so ass in latest nightly").
 const SUBAGENT_ICON = "agent.fork";
+
+/// A subagent's state needs no word on its line when its glyph says it: done, or running under the
+/// spinner. Waiting, failed, stopped and a retry keep theirs.
+const quietAgent = (agent: Subagent, waiting: ReadonlySet<string>) => {
+  if (retrying(agent)) return false;
+  const status = subagentStatus(agent, waiting);
+  return status === "done" || status === "running";
+};
+
+/// What the line no longer says, in its tooltip: its task, its kind (Explore, general-purpose) and,
+/// while it runs, what it does now.
+function agentTooltip(t: Translate, agent: Subagent): string | undefined {
+  const doing =
+    agent.state !== "running"
+      ? undefined
+      : agent.actionShell
+        ? toolDetail(t, agent.action, true)
+        : agent.action;
+  const lines = [agent.task, agent.kind && agent.kind !== agent.name ? agent.kind : undefined, doing];
+  return lines.filter((line): line is string => Boolean(line)).join("\n") || undefined;
+}
 const NO_ITEMS: readonly TrayItem[] = [];
 const NO_ARRIVALS: ReadonlySet<string> = new Set();
 /// The most lines that rise in from one update; a bigger burst is simply there.
@@ -464,9 +490,6 @@ const ARRIVALS_PER_UPDATE = 3;
 /// The shared gate on an entrance or a fold now: the page shows, its first frame back has passed, and
 /// the host's motion is on (shared/pageReveal.ts).
 const entranceMayRun = () => entranceAllowed();
-
-/// What a line says it does now is only for what still runs: an ended one never reads "Running …".
-const liveSession = (session: StartedSession) => session.state === "running" || session.state === "waiting";
 
 /// A started chat's line: its turn runs, it waits on the person, its turn failed, or it is done.
 const SESSION_STATUS: Record<StartedSession["state"], SubagentStatus> = {

@@ -291,9 +291,16 @@ describe("the tray", () => {
     expect(between.map((item) => item.id)).toEqual(["Watcher", "c1"]);
   });
 
-  test("one running subagent is its line alone: name, what it does now, its time and state", async () => {
+  // Leo, 2026-10-31: "why is this still so ass in latest nightly"; earlier "eg a lot of these
+  // subtitles are bad" (design/chat-transcript.md "Subagent row anatomy").
+  test("one running subagent is its line alone: one glyph, its name and its time, what it does in the tooltip", async () => {
     const now = Date.now();
-    const items = trayItems([agent("Explore the daemon", { startedAt: now - 80_000, action: "Bash" })], [], NONE, true);
+    const items = trayItems(
+      [agent("Explore the daemon", { startedAt: now - 80_000, action: "Bash", kind: "general-purpose" })],
+      [],
+      NONE,
+      true,
+    );
     const opened: string[] = [];
     const { root, done } = await render(
       createElement(SubagentTray, {
@@ -309,8 +316,13 @@ describe("the tray", () => {
       expect(lines.length).toBe(1);
       const text = (selector: string) => lines[0]!.querySelector(selector)?.textContent;
       expect(text(".acpmux-summary-agent__name")).toBe("Explore the daemon");
-      expect(text(".acpmux-summary-agent__kind")).toBe("Bash");
-      expect(text(".acpmux-summary-agent__state")).toBe("Running");
+      // No subtitle (its kind, what it does now) and no Running word: the spinner says it.
+      expect(lines[0]!.querySelector(".acpmux-summary-agent__kind")).toBeNull();
+      expect(lines[0]!.querySelector(".acpmux-summary-agent__state")).toBeNull();
+      expect(text(".acpmux-agent-line__sr")).toBe("Running");
+      const tooltip = lines[0]!.querySelector<HTMLElement>(".acpmux-agent-line__button")!.title;
+      expect(tooltip).toContain("general-purpose");
+      expect(tooltip).toContain("Bash");
       expect(text(".acpmux-agent-line__time")).toMatch(/^1m 2\ds$/);
       expect(lines[0]!.querySelector(".acpmux-lineage__icon")?.getAttribute("data-state")).toBe("running");
       await act(async () => lines[0]!.querySelector("button")!.click());
@@ -647,24 +659,69 @@ describe("a tray line says what it is and what a click does", () => {
 
   // Leo, 2026-10-29: "why are you saying sub-agent so many fucking times? Like, you can just add
   // the icon when it's in here."
-  test("a subagent leads with its icon, not the word, keeps its spinner and ends in a chevron", async () => {
-    const items = trayItems([agent("Reviewer", { startedAt: Date.now(), action: "Read src/app.ts" })], [], NONE, true);
+  // and 2026-10-31, on a line with a chat bubble and a fork glyph before its title: "why is this
+  // still so ass in latest nightly".
+  test("a subagent leads with one glyph: the spinner while it runs, the fork once it ended", async () => {
+    const now = Date.now();
+    const running = agent("Reviewer", { startedAt: now, action: "Read src/app.ts", tokens: 236_600, toolUses: 112 });
+    const ended = agent("Linter", { state: "completed", kind: "general-purpose", startedAt: now - 90_000, endedAt: now - 6000 });
     const { root, done } = await render(
-      createElement(SubagentTray, { items, working: true, waiting: new Set<string>(), onOpen: () => {} }),
+      createElement(SubagentTray, {
+        items: trayItems([running], [], NONE, true),
+        finished: finishedTrayItems([ended], NONE),
+        working: true,
+        waiting: new Set<string>(),
+        onOpen: () => {},
+      }),
     );
     try {
-      const line = root.querySelector<HTMLElement>(".acpmux-agent-line")!;
-      expect(line.querySelector(".acpmux-agent-line__kind")).toBeNull();
-      const kind = line.querySelector<HTMLElement>(".acpmux-agent-line__kind-icon");
-      // The kind is an accessible SVG title, with no repeated visible label beside the icon.
-      expect(kind?.querySelector('svg[role="img"]')?.getAttribute("aria-label")).toBe("Subagent");
-      expect(kind?.querySelector("title")?.textContent).toBe("Subagent");
-      // The working-state mark stays a spinner, before the subagent's icon.
+      const head = root.querySelector<HTMLButtonElement>(".acpmux-running-tray__head");
+      if (head && head.getAttribute("aria-expanded") !== "true") await act(async () => head.click());
+      const lines = [...root.querySelectorAll<HTMLElement>(".acpmux-running-tray__list .acpmux-agent-line")];
+      expect(lines).toHaveLength(2);
+      for (const line of lines) {
+        // One glyph: no word and no second icon before the name.
+        expect(line.querySelector(".acpmux-agent-line__kind")).toBeNull();
+        expect(line.querySelector(".acpmux-agent-line__kind-icon")).toBeNull();
+        const button = line.querySelector<HTMLElement>(".acpmux-agent-line__button")!;
+        const beforeName = [...button.querySelector(".acpmux-summary-text")!.children].findIndex((child) =>
+          child.classList.contains("acpmux-summary-agent__name"),
+        );
+        expect(beforeName).toBe(0);
+        expect(button.querySelectorAll(".acpmux-lineage__icon svg").length).toBe(1);
+        expect(line.querySelector(".acpmux-summary-agent__kind")).toBeNull();
+        expect(line.querySelector(".acpmux-agent-line__chevron")).not.toBeNull();
+      }
+      const [live, finished] = lines;
+      // The working-state mark stays a spinner, and is the glyph.
       expect(
-        line.querySelector(".acpmux-lineage__icon [data-spinner], .acpmux-lineage__icon .cv-spinner"),
+        live!.querySelector(".acpmux-lineage__icon [data-spinner], .acpmux-lineage__icon .cv-spinner"),
       ).not.toBeNull();
-      expect(line.querySelector(".acpmux-summary-agent__name")?.textContent).toBe("Reviewer");
-      expect(line.querySelector(".acpmux-agent-line__chevron")).not.toBeNull();
+      // Its stats stay on the line; the done line says no Done.
+      expect(live!.querySelector(".acpmux-agent-line__progress")?.textContent).toBe("236.6K tokens · 112 tool uses");
+      expect(finished!.querySelector(".acpmux-summary-agent__state")).toBeNull();
+      expect(finished!.querySelector(".acpmux-agent-line__sr")?.textContent).toBe("Done");
+      expect(finished!.querySelector<HTMLElement>(".acpmux-agent-line__button")!.title).toContain("general-purpose");
+      expect(root.querySelector(".acpmux-running-tray")!.hasAttribute("data-settled")).toBe(false);
+    } finally {
+      await done();
+    }
+  });
+
+  test("a tray with nothing running is settled: no card around what ended", async () => {
+    const now = Date.now();
+    const ended = agent("Linter", { state: "completed", startedAt: now - 90_000, endedAt: now - 6000 });
+    const { root, done } = await render(
+      createElement(SubagentTray, {
+        items: [],
+        finished: finishedTrayItems([ended], NONE),
+        working: false,
+        waiting: new Set<string>(),
+        onOpen: () => {},
+      }),
+    );
+    try {
+      expect(root.querySelector(".acpmux-running-tray")!.hasAttribute("data-settled")).toBe(true);
     } finally {
       await done();
     }
@@ -740,8 +797,9 @@ describe("the tray tells the truth", () => {
         "Port the history page",
         "Draft the notes",
       ]);
-      // A chat says what it does now; one waiting on the person says so.
-      expect(lines[3]!.querySelector(".acpmux-summary-agent__kind")?.textContent).toBe("Run the tests");
+      // A chat says what it does now in its tooltip, never as a subtitle; one waiting on the person says so.
+      expect(lines[3]!.querySelector(".acpmux-summary-agent__kind")).toBeNull();
+      expect(lines[3]!.querySelector<HTMLElement>(".acpmux-agent-line__button")!.title).toBe("Run the tests");
       expect(lines[4]!.querySelector(".acpmux-summary-agent__state")?.textContent).toBe("Waiting");
       // Finished work is visible as cards without changing the running count.
       const more = root.querySelector<HTMLButtonElement>(".acpmux-running-tray__finished")!;
@@ -755,7 +813,12 @@ describe("the tray tells the truth", () => {
       await act(async () => more.click());
       const ended = [...root.querySelectorAll<HTMLElement>("li[data-finished] .acpmux-agent-line")];
       expect(names(ended)).toEqual(["Fuzzer", "Linter", "Fix the dock", "Retry the upload"]);
-      expect(ended.map((line) => line.querySelector(".acpmux-summary-agent__state")?.textContent)).toEqual([
+      // Failed says so; Done is the quiet line's, read only by screen readers.
+      expect(
+        ended.map(
+          (line) => line.querySelector(".acpmux-summary-agent__state, .acpmux-agent-line__sr")?.textContent,
+        ),
+      ).toEqual([
         "Failed",
         "Done",
         "Done",
@@ -1068,7 +1131,7 @@ describe('the tray\'s header stays (Leo 2026-10-25: "sometimes it disappears")',
     expect(doingDetail(t as never, "Check the card · Read AgentCard.tsx", "Read AgentCard.tsx")).toBe(
       "Check the card · Read AgentCard.tsx",
     );
-    // An ended agent keeps its kind, never a "Running …" of its last call.
+    // An ended agent keeps its kind in its tooltip, never a "Running …" of its last call.
     const now = Date.now();
     const ended = agent("Linter", {
       state: "completed",
@@ -1087,7 +1150,10 @@ describe('the tray\'s header stays (Leo 2026-10-25: "sometimes it disappears")',
       }),
     );
     try {
-      expect(root.querySelector(".acpmux-summary-agent__kind")?.textContent).toBe("Explore");
+      const tooltip = root.querySelector<HTMLElement>(".acpmux-agent-line__button")!.title;
+      expect(tooltip).toContain("Explore");
+      expect(tooltip).not.toContain("git status");
+      expect(root.querySelector(".acpmux-summary-agent__kind")).toBeNull();
     } finally {
       await done();
     }
@@ -1155,13 +1221,12 @@ describe('the tray\'s header stays (Leo 2026-10-25: "sometimes it disappears")',
       expect(root.querySelector(".acpmux-running-tray__title")?.textContent).toBe("4 subagents running");
       // Four lines start folded: open them.
       await act(async () => root.querySelector<HTMLButtonElement>(".acpmux-running-tray__head")!.click());
-      const details = [...root.querySelectorAll(".acpmux-summary-agent__kind")].map((node) => node.textContent);
-      expect(details).toEqual([
-        "Running bun test test/subagent-tray.test.tsx",
-        "find the bug in the fold",
-        "Running sed -i '' 's/a/b/' broker.ts",
-        "Check the card · Read AgentCard.tsx",
-      ]);
+      // What it does is the tooltip's, in words; the line has no subtitle.
+      expect(root.querySelector(".acpmux-summary-agent__kind")).toBeNull();
+      const tips = [...root.querySelectorAll<HTMLElement>(".acpmux-agent-line__button")].map((node) => node.title);
+      expect(tips[0]).toContain("Running bun test test/subagent-tray.test.tsx");
+      expect(tips[0]).not.toContain("FOO=1");
+      expect(tips[1]).toContain("find the bug in the fold");
       // The whole doing line is still the chat line's tooltip.
       const chat = [...root.querySelectorAll<HTMLElement>(".acpmux-agent-line__button")][2]!;
       expect(chat.title).toContain("cd /Users/you/Projects/checkouts/ws/broker");

@@ -58,14 +58,6 @@
   font-size: 12px;
   color: var(--cv-text-muted);
 }
-/* The kind of agent beside its name (Explore, general-purpose): quiet, not a second title. */
-.cv-subagent__kind {
-  margin-left: 8px;
-  font-weight: 400;
-  font-size: var(--text-detail);
-  color: var(--cv-text-muted);
-  letter-spacing: var(--text-detail--letter-spacing);
-}
 .cv-subagents__time,
 .cv-subagent__time {
   flex: none;
@@ -431,7 +423,9 @@ button.cv-subagent > :last-child {
   container-type: inline-size;
   container-name: running-tray;
   --acpmux-tray-time-width: calc(80px * var(--cmux-interface-scale, 1));
-  --acpmux-tray-status-width: 96px;
+  /* The status track holds the chevron alone: a line's state words sit in its trailing meta, before
+     the time (design/chat-transcript.md "Subagent row anatomy"). */
+  --acpmux-tray-status-width: calc(16px * var(--cmux-interface-scale, 1));
   --acpmux-tray-stop-width: 24px;
   box-sizing: border-box;
   padding: 0;
@@ -512,13 +506,69 @@ button.cv-subagent > :last-child {
   justify-content: flex-end;
   gap: 8px;
 }
-.acpmux-running-tray .acpmux-summary-agent__state {
-  flex: 1 1 auto;
+/* One muted trailing meta before the time: what the line spent (tokens, tool uses) and a state worth
+   a word (Waiting, Failed, Retrying). It gives up its width before the title does and never wraps. */
+.acpmux-running-tray .acpmux-agent-line__meta {
+  flex: 0 1 auto;
   min-width: 0;
-  width: 0;
+  max-width: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--ds-space-1, 4px);
+  overflow: hidden;
+  white-space: nowrap;
+}
+.acpmux-running-tray .acpmux-agent-line__meta > .acpmux-agent-line__progress {
+  display: block;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.acpmux-running-tray .acpmux-agent-line__meta > .acpmux-agent-line__progress + .acpmux-summary-agent__state::before {
+  content: "·";
+  margin-inline-end: var(--ds-space-1, 4px);
+}
+.acpmux-running-tray .acpmux-summary-agent__state {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* A quiet line's state word, for screen readers only: the glyph says done or running. */
+.acpmux-agent-line__sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  pointer-events: none;
+}
+/* After the title (trayRowLook "inline"): the meta and the time follow the title, no trailing
+   column; the chevron keeps the line's end. */
+.acpmux-running-tray[data-row="inline"] .acpmux-agent-line > .acpmux-agent-line__button > .acpmux-summary-text {
+  flex: 0 1 auto;
+}
+.acpmux-running-tray[data-row="inline"] .acpmux-agent-line .acpmux-agent-line__meta {
+  justify-content: flex-start;
+}
+.acpmux-running-tray[data-row="inline"] .acpmux-agent-line .acpmux-agent-line__time {
+  flex: 0 0 auto;
+  min-width: 0;
+  text-align: start;
+}
+.acpmux-running-tray[data-row="inline"] .acpmux-agent-line .acpmux-agent-line__status {
+  margin-inline-start: auto;
+}
+/* Nothing runs: what ended sits over the composer as quiet lines, with no card around them (Leo,
+   2026-10-31, on one finished line in a bordered card: "why is this still so ass in latest
+   nightly"). */
+.acpmux-running-tray[data-settled] {
+  background: none;
+  box-shadow: none;
 }
 .acpmux-running-tray__stop-slot {
   box-sizing: border-box;
@@ -580,7 +630,7 @@ button.cv-subagent > :last-child {
 }
 /* Progress is a second line and may wrap for long counts or narrow panes. Keep the compact
    28px row when it fits, but let both the tray and Inspector row grow instead of clipping it. */
-.acpmux-agent-line:has(.acpmux-agent-line__progress) > .acpmux-agent-line__button {
+.acpmux-agent-line:has(.acpmux-summary-text > .acpmux-agent-line__progress) > .acpmux-agent-line__button {
   height: auto;
   min-height: 28px;
   align-items: flex-start;
@@ -607,7 +657,9 @@ button.cv-subagent > :last-child {
   .acpmux-running-tray .acpmux-agent-line > .acpmux-agent-line__button {
     position: relative;
     display: grid;
-    grid-template-columns: var(--acpmux-tray-time-width) minmax(0, 1fr) var(--acpmux-tray-stop-width);
+    grid-template-columns:
+      var(--acpmux-tray-time-width) minmax(0, 1fr) var(--acpmux-tray-status-width)
+      var(--acpmux-tray-stop-width);
     grid-template-rows: var(--ui-row-height, 28px) var(--ui-row-height, 28px);
     column-gap: 4px;
     row-gap: 0;
@@ -615,7 +667,7 @@ button.cv-subagent > :last-child {
     padding: 0 8px;
   }
   /* Progress can wrap above the controls without sharing their track. */
-  .acpmux-running-tray .acpmux-agent-line:has(.acpmux-agent-line__progress) > .acpmux-agent-line__button {
+  .acpmux-running-tray .acpmux-agent-line:has(.acpmux-summary-text > .acpmux-agent-line__progress) > .acpmux-agent-line__button {
     grid-template-rows: auto var(--ui-row-height, 28px);
     height: auto;
     align-items: center;
@@ -637,15 +689,22 @@ button.cv-subagent > :last-child {
     grid-column: 1;
     grid-row: 2;
   }
+  /* The meta (a state worth a word) takes the room between the time and the chevron. */
+  .acpmux-running-tray .acpmux-agent-line__meta {
+    grid-column: 2;
+    grid-row: 2;
+    max-width: none;
+    justify-content: flex-start;
+  }
   .acpmux-running-tray__status,
   .acpmux-running-tray .acpmux-agent-line__status {
-    grid-column: 2;
+    grid-column: 3;
     grid-row: 2;
     min-width: 0;
     gap: 4px;
   }
   .acpmux-running-tray__stop-slot {
-    grid-column: 3;
+    grid-column: 4;
     grid-row: 2;
   }
   .acpmux-running-tray .acpmux-agent-line__stop-slot {
