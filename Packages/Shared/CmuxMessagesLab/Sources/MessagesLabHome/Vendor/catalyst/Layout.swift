@@ -1000,6 +1000,8 @@ enum RowBuilder {
     /// min), more than 15 min on macOS 26 (the original
     /// recording, macOS 26: "Today 12:06 PM" over "hello world" 21 min after the message above) (cx-3cb row-gap).
     static var separatorGap: TimeInterval { ComposeMetrics.macOS26 ? 15 * 60 : 60 * 60 }
+    /// cmux: the typing row's gap under a bubble: its bubble top 8 pt under the bubble above (a new group's gap).
+    static var typingGapUnderBubble: CGFloat { 8 - (RowDraw.typingBubble.minY - RowDraw.margin) }
 
     /// `previousRow`: the kind of the row just above `range` (gaps depend on it).
     /// `width`: layout width (captured on main). `exact`: message indices to
@@ -1258,7 +1260,16 @@ enum RowBuilder {
             rows.append(RowSpec(key: "notice", kind: .notice(notice), gap: 8, height: HomeNoticeRows.height(notice)))
         }
         if !threadMode, span.upperBound == messages.count, s.atNewest, typists {
-            rows.append(RowSpec(key: "typing", kind: .typing, gap: 0, height: 35))
+            // cmux: right under a bubble the typing bubble keeps a separate message's gap, 8 pt body to body (the
+            // new-group gap above), so it does not touch the bubble above or its tail; it sat 4.3 pt under it (user,
+            // 2026-10-30, "more space in between typing bubble and the latest message"). Under the status line,
+            // a receipt or a label row it stays as it was.
+            var gap: CGFloat = 0
+            switch rows.last?.kind ?? previousRow {
+            case .part, .unsent: gap = Self.typingGapUnderBubble
+            default: break
+            }
+            rows.append(RowSpec(key: "typing", kind: .typing, gap: gap, height: 35))
         }
         rows = rows.map { var r = $0; r.width = width; return r } // no index writes
         return rows
