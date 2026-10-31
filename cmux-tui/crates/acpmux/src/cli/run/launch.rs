@@ -14,6 +14,7 @@ use serde_json::{Value, json};
 use tokio::time::Instant;
 
 use crate::cli::command::NewArgs;
+use crate::cli::errors;
 use crate::client::Client;
 use crate::rpc::method;
 
@@ -194,9 +195,11 @@ pub(crate) fn validate_group(group: &str) -> Result<()> {
         .any(|prefix| lower.starts_with(prefix));
     let uuid = uuid::Uuid::parse_str(label).is_ok();
     if label.is_empty() || id_prefix || uuid {
-        bail!(
-            "--group must be a non-empty human label, not a cmux id; use e.g. `--group \"GUI push\"`, or omit --group"
-        );
+        let message = "--group must be a non-empty human label, not a cmux id; use e.g. `--group \"GUI push\"`, or omit --group";
+        let data = json!({"reason": "usage.group_name", "group": group});
+        return Err(errors::AppError::new(errors::Code::Usage, "group_name", message)
+            .with_data(data)
+            .into());
     }
     Ok(())
 }

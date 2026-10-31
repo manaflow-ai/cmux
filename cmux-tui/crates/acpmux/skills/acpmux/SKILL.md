@@ -153,7 +153,9 @@ acpmux new -n NAME --worktree REPO[@BASE] --prompt-file BRIEF.md --report-to ME 
 `--group "GROUP"` is optional person-facing app state. It runs `cmux agent
 open`, creates a workspace and places it in the named cmux sidebar group (and
 may create that group); it does not move focus. Use a human label only, never a
-`grp_…`, `ws_…` or other object id. Omit it unless the person asked for this
+`grp_…`, `ws_…` or other object id (refused with exit 2, `usage.group_name`).
+The app matches the name ignoring case and outer spaces, so `"gui push"` joins
+an existing "GUI push" group. Omit it unless the person asked for this
 sidebar placement. To recover from an unwanted placement, inspect
 `cmux --json workspace group list`, then move/delete the affected workspace or
 group with the other `workspace group` commands; rerunning without `--group` is safe.

@@ -47,10 +47,12 @@ enum AgentSessionWorkspace {
         let cwd = invocation["cwd"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
         // The Chief host's own acpmux runs the session (`chief:<home id>`); absent: this Mac's.
         let host = invocation["host"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
-        let group = invocation["group"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
-        if let group, !validGroupName(group) {
+        let givenGroup = invocation["group"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
+        if let givenGroup, !SidebarEdits.validGroupName(givenGroup) {
             throw ActionFailure(message: "agent.openSessionWorkspace: group must be a non-empty human label, not a cmux id; omit group or use a label such as \"GUI push\"")
         }
+        // Outer spaces are not part of the label: a new group gets the trimmed name.
+        let group = givenGroup?.trimmingCharacters(in: .whitespacesAndNewlines)
         let parent = invocation.callerAgentSession.flatMap { caller in
             Self.callerIdentity(caller, in: context.services.agentTabs.listTabs().map {
                 AgentSessionRef(host: $0.record.host, session: $0.record.session)
@@ -91,7 +93,7 @@ enum AgentSessionWorkspace {
         let windows = services.windows
         // Every window's sidebar: each lists only its own workspaces, and the predecessor may be in any.
         if let group, let name,
-           let row = windows.controllers.lazy.compactMap({ predecessor(named: name, inGroup: group, in: $0.sidebar.model.sections) }).first {
+           let row = windows.controllers.lazy.compactMap({ SidebarEdits.predecessor(named: name, inGroup: group, in: $0.sidebar.model.sections) }).first {
             return reuse(row, session: session, key: key, host: host, focus: focus, parent: parent, services: services)
         }
         // Placed like Cmd-N (`workspaces.newPlacement`): in the group of the
@@ -182,52 +184,15 @@ enum AgentSessionWorkspace {
         }
     }
 
-    /// Moves workspace `id` into the sidebar group named `name` (`group(named:accepting:in:)`), or into a
+    /// Moves workspace `id` into the sidebar group named `name` (`SidebarEdits.group(named:accepting:in:)`), or into a
     /// new group of that name when none can hold it: the path of a row drag and of New Group, so it is one
     /// undoable sidebar edit.
     @MainActor static func join(_ id: String, group name: String, sidebar: SidebarBridge) {
         let ids = [SidebarWorkspaceID(id)]
-        if let target = group(named: name, accepting: SidebarWorkspaceID(id), in: sidebar.model.sections) {
+        if let target = SidebarEdits.group(named: name, accepting: SidebarWorkspaceID(id), in: sidebar.model.sections) {
             sidebar.handle(.move(ids, toGroup: target))
             return
         }
         sidebar.groupFlow.newGroup(of: ids, name: name, byUser: false)
-    }
-
-    /// Sidebar group arguments are labels. Object ids are rejected so an
-    /// automation retry cannot turn an id into a persistent visible title.
-    static func validGroupName(_ name: String) -> Bool {
-        let label = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !label.isEmpty else { return false }
-        let lower = label.lowercased()
-        if ["grp_", "ws_", "tab_", "pane_", "win_", "workspace_group:"].contains(where: lower.hasPrefix) {
-            return false
-        }
-        return UUID(uuidString: label) == nil
-    }
-
-    /// The first listed group named `name` that may hold workspace `id` (the drag's rule,
-    /// `SidebarEdits.canMove`: a machine row's group holds that machine's workspaces), in any section and
-    /// either organization; nil when none may. Only the first group of that name was tried before, so a
-    /// row it could not hold got a new group of that name each time (nine "GUI push · lanes", 2026-10-22).
-    static func group(named name: String, accepting id: SidebarWorkspaceID, in sections: [CmuxNextSidebar.SidebarSection]) -> CmuxNextSidebar.GroupID? {
-        for section in sections {
-            for case let .group(group) in section.nodes where group.name == name {
-                if SidebarEdits.canMove([id], toGroup: group.id, in: sections) { return group.id }
-            }
-        }
-        return nil
-    }
-
-    /// The row of this Mac titled `name` in a group named `group`: the workspace a lane of that name already
-    /// has there (the launcher titles it with the lane's name; a row renamed since gets a new row, as before).
-    /// Only this Mac's rows: the chat opens on this Mac's daemon, so another machine's row is never reused.
-    static func predecessor(named name: String, inGroup group: String, in sections: [CmuxNextSidebar.SidebarSection]) -> SidebarWorkspaceID? {
-        for section in sections {
-            for case let .group(listed) in section.nodes where listed.name == group {
-                if let row = listed.workspaces.first(where: { $0.title == name && $0.machineID == .local }) { return row.id }
-            }
-        }
-        return nil
     }
 }

@@ -22,7 +22,7 @@ import Testing
             .group(SidebarGroup(id: GroupID("g1"), name: Self.lanes, workspaces: [Self.row("a")])),
             .workspace(Self.row("n")),
         ])]
-        #expect(AgentSessionWorkspace.group(named: Self.lanes, accepting: WorkspaceID("n"), in: sections) == GroupID("g1"))
+        #expect(SidebarEdits.group(named: Self.lanes, accepting: WorkspaceID("n"), in: sections) == GroupID("g1"))
     }
 
     @Test func aSameNamedGroupThatCannotHoldItIsSkippedNotDuplicated() {
@@ -37,7 +37,7 @@ import Testing
                 .workspace(Self.row("n")),
             ]),
         ]
-        #expect(AgentSessionWorkspace.group(named: Self.lanes, accepting: WorkspaceID("n"), in: sections) == GroupID("g2"))
+        #expect(SidebarEdits.group(named: Self.lanes, accepting: WorkspaceID("n"), in: sections) == GroupID("g2"))
     }
 
     @Test func noGroupThatCanHoldItMeansANewOne() {
@@ -51,7 +51,7 @@ import Testing
                 .workspace(Self.row("n")),
             ]),
         ]
-        #expect(AgentSessionWorkspace.group(named: Self.lanes, accepting: WorkspaceID("n"), in: sections) == nil)
+        #expect(SidebarEdits.group(named: Self.lanes, accepting: WorkspaceID("n"), in: sections) == nil)
     }
 
     @Test func aReHomedLaneFindsItsPredecessorsRowInTheGroup() {
@@ -61,10 +61,10 @@ import Testing
             .group(SidebarGroup(id: GroupID("g2"), name: "elsewhere", workspaces: [Self.row("x", title: "deeplink-message")])),
             .workspace(Self.row("y", title: "pane-motion")),
         ])]
-        #expect(AgentSessionWorkspace.predecessor(named: "pane-motion", inGroup: Self.lanes, in: sections) == WorkspaceID("p"))
+        #expect(SidebarEdits.predecessor(named: "pane-motion", inGroup: Self.lanes, in: sections) == WorkspaceID("p"))
         // Only a row in that group: a loose row or another group's row of that name is someone else's.
-        #expect(AgentSessionWorkspace.predecessor(named: "deeplink-message", inGroup: Self.lanes, in: sections) == nil)
-        #expect(AgentSessionWorkspace.predecessor(named: "prompt-queue-edit", inGroup: Self.lanes, in: sections) == nil)
+        #expect(SidebarEdits.predecessor(named: "deeplink-message", inGroup: Self.lanes, in: sections) == nil)
+        #expect(SidebarEdits.predecessor(named: "prompt-queue-edit", inGroup: Self.lanes, in: sections) == nil)
     }
 
     @Test func anotherMachinesRowIsNeverAPredecessor() {
@@ -74,14 +74,14 @@ import Testing
             .group(SidebarGroup(id: GroupID("g1"), name: Self.lanes,
                                 workspaces: [Self.row("r", title: "pane-motion", on: MachineID("big-red"))])),
         ])]
-        #expect(AgentSessionWorkspace.predecessor(named: "pane-motion", inGroup: Self.lanes, in: sections) == nil)
+        #expect(SidebarEdits.predecessor(named: "pane-motion", inGroup: Self.lanes, in: sections) == nil)
     }
 
     @Test func groupNamesRejectObjectIdsAndBlankLabels() {
         for name in ["", "  ", "grp_012345", "ws_012345", "550e8400-e29b-41d4-a716-446655440000"] {
-            #expect(!AgentSessionWorkspace.validGroupName(name), "\(name)")
+            #expect(!SidebarEdits.validGroupName(name), "\(name)")
         }
-        #expect(AgentSessionWorkspace.validGroupName("GUI push"))
+        #expect(SidebarEdits.validGroupName("GUI push"))
     }
 
     /// cmuxterm-hq#4976: `--group "gui push"` or `"GUI push "` made a second "GUI push" group, since names
@@ -92,16 +92,16 @@ import Testing
             .workspace(Self.row("n")),
         ])]
         for asked in ["gui push", "GUI push ", "  Gui Push\n"] {
-            #expect(AgentSessionWorkspace.group(named: asked, accepting: WorkspaceID("n"), in: sections) == GroupID("g1"), "\(asked)")
-            #expect(AgentSessionWorkspace.predecessor(named: "pane-motion", inGroup: asked, in: sections) == WorkspaceID("p"), "\(asked)")
+            #expect(SidebarEdits.group(named: asked, accepting: WorkspaceID("n"), in: sections) == GroupID("g1"), "\(asked)")
+            #expect(SidebarEdits.predecessor(named: "pane-motion", inGroup: asked, in: sections) == WorkspaceID("p"), "\(asked)")
         }
-        #expect(AgentSessionWorkspace.group(named: "GUI pushes", accepting: WorkspaceID("n"), in: sections) == nil)
+        #expect(SidebarEdits.group(named: "GUI pushes", accepting: WorkspaceID("n"), in: sections) == nil)
 
         let both = [SidebarSection(kind: .machine(Self.local), nodes: [
             .group(SidebarGroup(id: GroupID("upper"), name: "GUI push", workspaces: [Self.row("a")])),
             .group(SidebarGroup(id: GroupID("lower"), name: "gui push", workspaces: [Self.row("b")])),
             .workspace(Self.row("n")),
         ])]
-        #expect(AgentSessionWorkspace.group(named: "gui push", accepting: WorkspaceID("n"), in: both) == GroupID("lower"))
+        #expect(SidebarEdits.group(named: "gui push", accepting: WorkspaceID("n"), in: both) == GroupID("lower"))
     }
 }

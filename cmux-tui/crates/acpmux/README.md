@@ -1075,7 +1075,8 @@ acpmux new --host HOST -m codex --group "Remote demo" -d "say hi"
 ```
 
 The local `cmux agent open` receives the session ID mirrored by the local
-daemon; the agent stays on HOST. The group is joined or created, and opening
+daemon; the agent stays on HOST. The group is joined (its name matched
+ignoring case and outer spaces) or created, and opening
 the workspace may move focus. Add
 `--name demo --reuse` when rerunning should reuse the same
 session and row; an unnamed launch creates a new session each time. The
