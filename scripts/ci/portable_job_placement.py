@@ -188,7 +188,7 @@ def read(env: Mapping[str, str], now: dt.datetime
         if not token:
             continue
         try:
-            runners = pool.GitHub(token, repo, retry_cap=5.0, retries=retries).runners()
+            runners = pool.GitHub(token, repo, retry_cap=side.SIDE_RETRY_CAP_SECONDS, retries=retries).runners()
             break
         except Exception as error:  # noqa: BLE001 - fail open: every job keeps Blacksmith
             print(f"::warning title=portable placement::could not list runners with {name} ({error})")
