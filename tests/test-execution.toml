@@ -1398,6 +1398,10 @@ path = "tests/test_ci_side_lane_placement.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_portable_job_placement.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_session_label_routing.py"
 lane = "linux-guard"
 
