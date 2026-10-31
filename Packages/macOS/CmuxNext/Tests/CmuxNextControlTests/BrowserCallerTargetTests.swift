@@ -161,20 +161,21 @@ import Testing
         #expect(error.code == "not_found")
     }
 
-    @Test(arguments: ["toggleBrowserDeveloperTools", "showBrowserJavaScriptConsole", "inspectBrowserElement"])
-    func inspectorActionsWithoutFocusRequirementsUseTheCallersBrowser(actionID: String) async throws {
+    @Test(arguments: ["toggleBrowserDeveloperTools", "showBrowserJavaScriptConsole", "inspectBrowserElement", "browser.editSource"])
+    func browserActionsWithoutFocusRequirementsUseTheCallersBrowser(actionID: String) async throws {
         var snapshot = Self.snapshot()
         snapshot.topology.workspaces[1].screens[0].panes[1].selectedTabID = "tab-own"
-        // Inspectors also support app web views, so the catalog has no browserFocused requirement.
+        // Inspectors and Edit Source have no browserFocused requirement in the catalog.
+        let targetKind = actionID == "browser.editSource" ? "tab" : "pane"
         snapshot.catalog = ControlCatalog(actions: [
             ControlActionInfo(id: actionID, title: actionID, category: "browser", categoryTitle: "Browser",
                               cliName: actionID, symbol: "hammer", keywords: [], shortcut: nil, shortcutConfig: nil,
-                              arguments: [], targets: ["pane"], requiresMask: 0, requires: [],
+                              arguments: [], targets: [targetKind], requiresMask: 0, requires: [],
                               isBound: true, isDebugOnly: false, mainMenu: nil),
         ], contextMask: 1 << 1, targetKinds: ["pane", "tab"], debugActionsAvailable: false)
         let (router, executor) = install(snapshot)
         _ = try await router.handle(ControlRequest(method: "action.run", params: ["action": .string(actionID), "caller": Self.agent])).get()
-        #expect(executor.last?.target == ControlTargetRef(kind: "pane", id: "pane-beside"))
+        #expect(executor.last?.target == ControlTargetRef(kind: targetKind, id: targetKind == "tab" ? "tab-own" : "pane-beside"))
 
         var alone = Self.snapshot(ownBrowser: false, neighbors: false)
         alone.catalog = snapshot.catalog
