@@ -114,6 +114,14 @@ jobs:
           NIGHT_START: ${{ steps.window.outputs.night_start }}
         run: |
           set -euo pipefail
+          # A run whose jobs still wait for a runner 90 minutes after it started (an owned pool or the
+          # Blacksmith macOS lane not taking jobs) is cancelled, so it never holds the night; the next
+          # hourly tick dispatches a fresh run once the cancel has landed.
+          for id in $(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/stable-next.yml/runs?branch=nightly-next&status=queued&per_page=20" \
+              --jq "[.workflow_runs[] | select((now - (.run_started_at | fromdateiso8601)) > 5400) | .id] | .[]"); do
+            echo "::warning title=cmux NEXT Stable::run $id still waits for runners after 90 min; cancelling it"
+            gh run cancel "$id" -R "$GITHUB_REPOSITORY" || true
+          done
           runs="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/stable-next.yml/runs?branch=nightly-next&event=workflow_dispatch&created=%3E%3D$NIGHT_START&per_page=50" \
             --jq '[.workflow_runs[] | .status + ":" + (.conclusion // "")]')"
           active="$(jq '[.[] | select(startswith("completed") | not)] | length' <<<"$runs")"
