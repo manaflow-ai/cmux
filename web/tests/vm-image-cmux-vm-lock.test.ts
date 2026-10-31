@@ -49,7 +49,7 @@ function problemsOf(raw: unknown): string[] {
 describe("images/cmux-vm/inputs.lock.json", () => {
   test("the checked-in lock is valid and lists every known program once", () => {
     const lock = readInputsLock();
-    expect(lock.programs.map((p) => p.name).sort()).toEqual([...KNOWN_PROGRAMS, "cmux-cua", "chrome-for-testing", "cmux-browser-host"].sort());
+    expect(lock.programs.map((p) => p.name).sort()).toEqual([...KNOWN_PROGRAMS, "cmux-cua", "chrome-for-testing", "cmux-browser-host", "agent-desktop"].sort());
     expect(lock.apt.ubuntu.uri).toContain(lock.apt.ubuntu.snapshot);
     expect(lock.apt.ubuntu.snapshot).toBe("20261022T000000Z");
     expect(profileLinks(lock).map((l) => l.command)).toContain("cr");
@@ -297,6 +297,32 @@ describe("roles: baked packages that stay off, first-use packages, optional prog
     expect(problemsOf(raw)).toEqual([]);
     raw.programs.find((p: { name: string }) => p.name === "cmux-cua").roles = ["cua", "nope"];
     expect(problemsOf(raw).some((p) => p.includes('roles: unknown role "nope"'))).toBe(true);
+  });
+});
+
+describe("agent-desktop (vercel-labs, Lawrence's ask 2026-10-30)", () => {
+  test("1.0.2 x86_64 is baked by release URL, sha256, size and checksums.txt, with its clipboard helper beside the binary", () => {
+    const lock = readInputsLock();
+    const pinned = lock.programs.find((p) => p.name === "agent-desktop")!;
+    expect(pinned).toMatchObject({
+      version: "1.0.2",
+      url: "https://github.com/vercel-labs/agent-desktop/releases/download/v1.0.2/agent-desktop-v1.0.2-x86_64-unknown-linux-gnu.tar.gz",
+      sha256: "ad661b7a3fd8f990a769243f4889a240ca0e2c8dab3ef5bddd6019086c71e0b4",
+      size: 3359127,
+      format: "tar.gz",
+      bin: { "agent-desktop": "agent-desktop" },
+      versionArgs: ["--version"],
+      expect: "agent-desktop 1.0.2",
+      checksumsUrl: "https://github.com/vercel-labs/agent-desktop/releases/download/v1.0.2/checksums.txt",
+      checksumsName: "agent-desktop-v1.0.2-x86_64-unknown-linux-gnu.tar.gz",
+    });
+    expect(pinned.firstUse).toBeUndefined();
+    expect(bakedPrograms(lock).map((p) => p.name)).toContain("agent-desktop");
+    expect(profileLinks(lock).map((l) => l.command)).toContain("agent-desktop");
+    expect(programChecksCommand(lock)).toContain("agent-desktop --version");
+    const install = programInstallCommand(pinned);
+    expect(install).toContain("agent-desktop-v1.0.2-x86_64-unknown-linux-gnu.tar.gz' ");
+    expect(install).toContain("ad661b7a3fd8f990a769243f4889a240ca0e2c8dab3ef5bddd6019086c71e0b4");
   });
 });
 
