@@ -301,7 +301,10 @@ def app_support_tag(tag):
 def state_directories(tag):
     """Where a tagged build keeps its sessions: daemon state and the sidebar
     snapshot, agent sessions (acpmux), Home's memory."""
-    home = os.path.expanduser("~")
+    # The app resolves every one of these from the password database's home (FileManager.homeDirectoryForCurrentUser:
+    # AcpmuxEnvironment+Resolve.swift for ~/.acpmux, HomeService+ChiefMigration.swift for ~/.cmux/mux), not from $HOME,
+    # which a fleet step points at its own folder.
+    home = account_home()
     return [app_support_tag(tag),
             os.path.join(home, ".acpmux/builds", "com.cmuxterm.app.debug." + re.sub(r"[^a-z0-9]+", ".", tag.lower()).strip(".")),
             # a copy of an untagged build named "cmux DEV <tag>.app" (its tag comes from the name)

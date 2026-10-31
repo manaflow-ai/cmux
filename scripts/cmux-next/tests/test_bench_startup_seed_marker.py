@@ -77,7 +77,9 @@ class SeedMarker(unittest.TestCase):
     def test_the_seed_marks_the_folder_the_app_uses(self):
         fake_storm = types.ModuleType("bench_cli_storm")
         fake_storm.Client = FakeDaemon
-        with mock.patch.dict(os.environ, {"HOME": self.home}), mock.patch.dict(sys.modules, {"bench_cli_storm": fake_storm}), \
+        env = {k: v for k, v in os.environ.items() if k != "BENCH_LAUNCH_STATE_BASE"}
+        env["HOME"] = self.home
+        with mock.patch.dict(os.environ, env, clear=True), mock.patch.dict(sys.modules, {"bench_cli_storm": fake_storm}), \
                 mock.patch.object(bench_startup, "account_home", lambda: self.account, create=True), \
                 mock.patch.object(bench_startup, "Launch", SeedLaunch), \
                 mock.patch.object(bench_startup, "reset_state", lambda tag: None), \
@@ -95,13 +97,20 @@ class SeedMarker(unittest.TestCase):
 
     def test_reset_state_empties_the_folder_the_app_uses(self):
         tag_dir = os.path.join(self.account, "Library/Application Support/cmux/tags", self.tag, "tui")
-        os.makedirs(tag_dir)
-        with mock.patch.dict(os.environ, {"HOME": self.home}), \
+        agents = os.path.join(self.account, ".acpmux/builds", "com.cmuxterm.app.debug." + self.tag)
+        mux = os.path.join(self.account, ".cmux/mux/tags", self.tag)
+        for d in (tag_dir, agents, mux):
+            os.makedirs(d)
+        env = {k: v for k, v in os.environ.items() if k != "BENCH_LAUNCH_STATE_BASE"}
+        env["HOME"] = self.home
+        with mock.patch.dict(os.environ, env, clear=True), \
                 mock.patch.object(bench_startup, "account_home", lambda: self.account, create=True), \
                 mock.patch.object(bench_startup, "stop", lambda *a, **k: None), \
                 mock.patch.object(bench_startup, "tag_pids", lambda tag: []):
             bench_startup.reset_state(self.tag)
         self.assertFalse(os.path.exists(tag_dir), "--profile empty must empty the app's own state")
+        self.assertFalse(os.path.exists(agents), "--profile empty must end the tag's agent sessions (acpmux)")
+        self.assertFalse(os.path.exists(mux), "--profile empty must clear the tag's mux state")
 
 
 if __name__ == "__main__":
