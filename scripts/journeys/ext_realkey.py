@@ -151,6 +151,127 @@ def step_daemon_pause(j, step):
     return {"daemon_pid": pid, "stopped_s": seconds, "background": bool(step.get("background"))}
 
 
+# -- one CuaDriver session for many keys (the smoke gate's real-key rounds, cmux-ad 13:10Z) --
+#
+# `cua-driver call` starts a process per key (about 0.3 s): a 24-key line would take seconds, not "at once". A round
+# keeps ONE `cua-driver mcp` session (JSON-RPC over stdio) open and sends each key as a `press_key` / `hotkey` call
+# with delivery_mode "foreground": a genuine HID key transition through the window server, AppKit, the menu's key
+# equivalents and the responder chain, the path a person's keyboard takes (debug.key enters the app's key router
+# directly and skips all of that: the palette's Ctrl-` P0, STATUS 1456).
+
+class _Session:
+    def __init__(self):
+        import select  # noqa: F401  (checked here: the mini's python has it)
+        if not os.path.exists(CUA):
+            raise D.NotRun(f"real keys: no CuaDriver at {CUA} on this mini")
+        self.proc = subprocess.Popen([CUA, "mcp"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                     stderr=subprocess.DEVNULL)
+        self.buf, self.n = b"", 0
+        self.request("initialize", {"protocolVersion": "2024-11-05", "capabilities": {},
+                                    "clientInfo": {"name": "cmux-journeys", "version": "1"}})
+        self.send({"jsonrpc": "2.0", "method": "notifications/initialized"})
+
+    def send(self, obj):
+        self.proc.stdin.write((json.dumps(obj) + "\n").encode())
+        self.proc.stdin.flush()
+
+    def request(self, method, params, timeout=20.0):
+        import select
+        self.n += 1
+        self.send({"jsonrpc": "2.0", "id": self.n, "method": method, "params": params})
+        end = time.monotonic() + timeout
+        while True:
+            while b"\n" in self.buf:
+                line, self.buf = self.buf.split(b"\n", 1)
+                try:
+                    msg = json.loads(line.decode(errors="replace"))
+                except ValueError:
+                    continue  # CuaDriver's own banner lines (an update notice)
+                if isinstance(msg, dict) and msg.get("id") == self.n:
+                    if msg.get("error"):
+                        raise D.NotRun(f"real keys: CuaDriver {method} error: {json.dumps(msg['error'])[:300]}")
+                    return msg.get("result") or {}
+            left = end - time.monotonic()
+            if left <= 0 or self.proc.poll() is not None:
+                raise D.NotRun(f"real keys: CuaDriver gave no answer to {method} within {timeout:.0f} s")
+            ready, _, _ = select.select([self.proc.stdout], [], [], left)
+            if ready:
+                chunk = os.read(self.proc.stdout.fileno(), 65536)
+                if not chunk:
+                    raise D.NotRun(f"real keys: CuaDriver's session ended during {method}")
+                self.buf += chunk
+
+    def call(self, tool, args):
+        result = self.request("tools/call", {"name": tool, "arguments": args})
+        data = result.get("structuredContent") if isinstance(result.get("structuredContent"), dict) else {}
+        return bool(result.get("isError")), data, result
+
+    def close(self):
+        try:
+            self.proc.stdin.close()
+            self.proc.wait(timeout=5)
+        except (OSError, subprocess.TimeoutExpired):
+            self.proc.kill()
+
+
+def _session(j):
+    s = getattr(j, "cua_session", None)
+    if s is None or s.proc.poll() is not None:
+        s = j.cua_session = _Session()
+    return s
+
+
+def _main_window(j):
+    """CuaDriver's id of the app's main (shell) window: its largest on-screen layer-0 window (a page's Chromium
+    window is a smaller one inside it). Cached per app process; read again after a relaunch."""
+    cached = getattr(j, "cua_window", None)
+    if cached and cached[0] == j.app.pid:
+        return cached[1]
+    bad, data, raw = _session(j).call("list_windows", {})
+    rows = data.get("windows") or []
+    mine = [w for w in rows if int(w.get("pid") or w.get("owner_pid") or -1) == j.app.pid
+            and w.get("layer", 0) == 0 and w.get("is_on_screen", w.get("on_screen", True))]
+    if not mine:
+        raise D.NotRun(f"real keys: CuaDriver lists no on-screen window of the app (pid {j.app.pid})")
+    area = lambda w: float((w.get("bounds") or {}).get("width") or 0) * float((w.get("bounds") or {}).get("height") or 0)
+    wid = int(max(mine, key=area).get("window_id"))
+    j.cua_window = (j.app.pid, wid)
+    return wid
+
+
+_SHIFTED = {"~": "`", "!": "1", "@": "2", "#": "3", "$": "4", "%": "5", "^": "6", "&": "7", "*": "8", "(": "9",
+            ")": "0", "_": "-", "+": "=", "{": "[", "}": "]", "|": "\\", ":": ";", '"': "'", "<": ",", ">": ".", "?": "/"}
+_NAMED = {" ": "space", "\r": "return", "\n": "return", "\t": "tab"}
+
+
+def press(j, key, modifiers=()):
+    """One real key (with MODIFIERS held) to the app's main window through CuaDriver's foreground HID path."""
+    mods = [MODIFIERS.get(m, m) for m in modifiers]
+    wid = _main_window(j)
+    j.last_key_at = D.now()
+    args = {"pid": j.app.pid, "window_id": wid, "delivery_mode": "foreground"}
+    if mods:
+        bad, data, raw = _session(j).call("hotkey", dict(args, keys=mods + [key]))
+    else:
+        bad, data, raw = _session(j).call("press_key", dict(args, key=key))
+    if bad or data.get("effect") in ("refused", "failed", "error"):
+        text = json.dumps(raw)[:400]
+        # A host or grant problem (not the app's answer to the key): never a red of the build.
+        raise D.NotRun(f"real keys: CuaDriver did not send {mods + [key]}: {text}")
+    return data.get("effect")
+
+
+def press_char(j, ch):
+    """The key (and Shift) a US keyboard types CH with."""
+    if ch in _NAMED:
+        return press(j, _NAMED[ch])
+    if ch in _SHIFTED:
+        return press(j, _SHIFTED[ch], ["shift"])
+    if ch.isalpha() and ch.isupper():
+        return press(j, ch.lower(), ["shift"])
+    return press(j, ch)
+
+
 def step_app_log(j, step):
     """The app process's unified log of the last `seconds` (default 15), lines that match `grep` (a regex) if
     given; kept in the result (at most 120 lines). Diagnostic only."""

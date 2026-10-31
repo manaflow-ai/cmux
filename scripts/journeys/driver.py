@@ -1504,6 +1504,14 @@ class Journey:
                 try:
                     record["result"] = handler(step)
                     record["ok"] = True
+                    # Which key path the step's keys took (cmux-ad 13:10Z): "real_hid" (CuaDriver's HID key events,
+                    # a person's keyboard path) or "debug.key" (into the app's key router); none for a step with no key.
+                    path = record["result"].get("key_path") if isinstance(record["result"], dict) else None
+                    if path is None and step["do"] in ("key", "type", "smoke_burst", "smoke_type_now") \
+                            or (step["do"] == "relaunch" and step.get("how", "quit") == "quit"):
+                        path = "debug.key"
+                    if path:
+                        record["key_path"] = path
                     if step.get("as"):
                         # Names the current terminal for later `use` steps and conditions.
                         self.aliases[step["as"]] = {"term": self.need_term(), "pane": self.pane, "host_pid": self.host_pid}

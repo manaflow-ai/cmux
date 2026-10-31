@@ -11,29 +11,29 @@
     {"do": "smoke_remember_workspaces"},
     {"do": "smoke_make_key"},
     {"do": "smoke_snapshot", "name": "before_workspaces"},
-    {"do": "key", "key": "n", "modifiers": ["cmd"], "mark": "ws1"},
+    {"do": "smoke_key", "key": "n", "modifiers": ["cmd"], "mark": "ws1"},
     {"do": "expect", "title": "Cmd-N (1 of 3) makes a workspace; Ctrl-` follows as soon as it shows, at a person's speed (the frame kept: not blank)", "since": "ws1", "timeout": 20,
      "all": [
        {"smoke_workspaces": {"new": 1}},
        {"smoke_frame": {}}
      ]},
-    {"do": "key", "key": "`", "modifiers": ["control"], "mark": "wsterm1"},
+    {"do": "smoke_key", "key": "`", "modifiers": ["control"], "mark": "wsterm1"},
     {"do": "smoke_type_now", "text": "echo w1-${nonce}-$((6*7))"},
-    {"do": "key", "key": "n", "modifiers": ["cmd"], "mark": "ws2"},
+    {"do": "smoke_key", "key": "n", "modifiers": ["cmd"], "mark": "ws2"},
     {"do": "expect", "title": "Cmd-N (2 of 3) makes a workspace; Ctrl-` follows as soon as it shows, at a person's speed (the frame kept: not blank)", "since": "ws2", "timeout": 20,
      "all": [
        {"smoke_workspaces": {"new": 2}},
        {"smoke_frame": {}}
      ]},
-    {"do": "key", "key": "`", "modifiers": ["control"], "mark": "wsterm2"},
+    {"do": "smoke_key", "key": "`", "modifiers": ["control"], "mark": "wsterm2"},
     {"do": "smoke_type_now", "text": "echo w2-${nonce}-$((6*7))"},
-    {"do": "key", "key": "n", "modifiers": ["cmd"], "mark": "ws3"},
+    {"do": "smoke_key", "key": "n", "modifiers": ["cmd"], "mark": "ws3"},
     {"do": "expect", "title": "Cmd-N (3 of 3) makes a workspace; Ctrl-` follows as soon as it shows, at a person's speed (the frame kept: not blank)", "since": "ws3", "timeout": 20,
      "all": [
        {"smoke_workspaces": {"new": 3}},
        {"smoke_frame": {}}
      ]},
-    {"do": "key", "key": "`", "modifiers": ["control"], "mark": "wsterm3"},
+    {"do": "smoke_key", "key": "`", "modifiers": ["control"], "mark": "wsterm3"},
     {"do": "smoke_type_now", "text": "echo w3-${nonce}-$((6*7))"},
     {"do": "expect", "title": "each new workspace's Ctrl-` terminal ran the line typed into it at once, and no other terminal got it", "since": "wsterm1", "timeout": 30,
      "all": [
@@ -42,9 +42,9 @@
        {"frame_screen": {"shows": ["w3-${nonce}-42"]}}
      ]},
     {"do": "smoke_snapshot", "name": "before_splits"},
-    {"do": "key", "key": "d", "modifiers": ["cmd"], "mark": "split1"},
+    {"do": "smoke_key", "key": "d", "modifiers": ["cmd"], "mark": "split1"},
     {"do": "smoke_type_now", "text": "echo d1-${nonce}-$((6*7))"},
-    {"do": "key", "key": "d", "modifiers": ["cmd"], "mark": "split2"},
+    {"do": "smoke_key", "key": "d", "modifiers": ["cmd"], "mark": "split2"},
     {"do": "smoke_type_now", "text": "echo d2-${nonce}-$((6*7))"},
     {"do": "expect", "title": "Cmd-D twice fast: two new panes, and the line typed into each at once ran there and nowhere else", "since": "split1", "timeout": 30,
      "all": [
@@ -59,7 +59,7 @@
     {"do": "remember", "as": "left0", "pane": "left"},
     {"do": "remember", "as": "right0", "pane": "right"},
     {"do": "divider_drag", "title": "R3a: drag the divider between the two new panes 120 points left", "between": ["left", "right"], "by": -120, "mark": "r3a-split"},
-    {"do": "type", "text": "echo r3as-${nonce} $(stty size)", "enter": true},
+    {"do": "smoke_type", "text": "echo r3as-${nonce} $(stty size)", "enter": true},
     {"do": "smoke_long_line", "tag": "r3asw${nonce}"},
     {"do": "expect", "title": "R3a split resize: the right pane is wider, the left narrower; in each, grid == fit(bounds) == PTY == daemon size, and a long line wraps at the new width", "since": "r3a-split", "timeout": 20, "settle": 1.5,
      "all": [
@@ -70,7 +70,7 @@
     {"do": "remember", "as": "left1", "pane": "left"},
     {"do": "remember", "as": "right1", "pane": "right"},
     {"do": "window_drag", "title": "R3a: drag the window's right edge 160 points left", "edge": "right", "by": [-160, 0], "mark": "r3a-window"},
-    {"do": "type", "text": "echo r3aw-${nonce} $(stty size)", "enter": true},
+    {"do": "smoke_type", "text": "echo r3aw-${nonce} $(stty size)", "enter": true},
     {"do": "smoke_long_line", "tag": "r3aww${nonce}"},
     {"do": "expect", "title": "R3a window resize: the window is 160 points narrower and the right pane narrower; grid == fit(bounds) == PTY == daemon size in the shown terminal, and a long line wraps at the new width", "since": "r3a-window", "timeout": 20, "settle": 1.5,
      "all": [
@@ -87,30 +87,30 @@
        {"smoke_frame": {}}
      ]},
     {"do": "smoke_widths", "name": "cols1"},
-    {"do": "key", "key": "d", "modifiers": ["control", "cmd"], "mark": "r3b-split"},
+    {"do": "smoke_key", "key": "d", "modifiers": ["control", "cmd"], "mark": "r3b-split"},
     {"do": "expect", "title": "R3b: New Column's key (Ctrl-Cmd-D) adds a column and every existing column keeps exactly its width", "since": "r3b-split", "timeout": 15, "settle": 1.5,
      "all": [
        {"smoke_same_widths": {"since": "cols1", "new": 1}},
        {"smoke_frame": {}}
      ]},
     {"do": "smoke_widths", "name": "cols2"},
-    {"do": "key", "key": "d", "modifiers": ["cmd"], "mark": "r3b-splitright"},
+    {"do": "smoke_key", "key": "d", "modifiers": ["cmd"], "mark": "r3b-splitright"},
     {"do": "expect", "title": "R3b: Cmd-D (Split Right) splits the pane inside its own column and every other column keeps exactly its width", "since": "r3b-splitright", "timeout": 15, "settle": 1.5,
      "all": [
        {"smoke_same_widths": {"since": "cols2", "new": 0, "split_in_place": true}},
        {"smoke_frame": {}}
      ]},
     {"do": "smoke_widths", "name": "cols3"},
-    {"do": "key", "key": "d", "modifiers": ["cmd", "shift"], "mark": "r3b-splitdown"},
+    {"do": "smoke_key", "key": "d", "modifiers": ["cmd", "shift"], "mark": "r3b-splitdown"},
     {"do": "expect", "title": "R3b: Cmd-Shift-D (Split Down) adds no column and every column keeps exactly its width", "since": "r3b-splitdown", "timeout": 15, "settle": 1.5,
      "all": [
        {"smoke_same_widths": {"since": "cols3", "new": 0}},
        {"smoke_frame": {}}
      ]},
     {"do": "smoke_snapshot", "name": "before_tabs"},
-    {"do": "key", "key": "`", "modifiers": ["control"], "mark": "tab1"},
+    {"do": "smoke_key", "key": "`", "modifiers": ["control"], "mark": "tab1"},
     {"do": "smoke_type_now", "text": "echo t1-${nonce}-$((6*7))"},
-    {"do": "key", "key": "`", "modifiers": ["control"], "mark": "tab2"},
+    {"do": "smoke_key", "key": "`", "modifiers": ["control"], "mark": "tab2"},
     {"do": "smoke_type_now", "text": "echo t2-${nonce}-$((6*7))"},
     {"do": "expect", "title": "Ctrl-` twice fast: two new tabs in the focused pane, and the line typed into each at once ran there and nowhere else", "since": "tab1", "timeout": 30,
      "all": [
@@ -119,23 +119,30 @@
        {"smoke_key_window": {}},
        {"frame_screen": {"shows": ["t2-${nonce}-42"]}}
      ]},
-    {"do": "key", "key": "l", "modifiers": ["cmd", "shift"], "mark": "browser"},
+    {"do": "smoke_key", "key": "l", "modifiers": ["cmd", "shift"], "mark": "browser"},
     {"do": "expect", "title": "Cmd-Shift-L opens a browser tab whose address bar takes the keys", "since": "browser", "timeout": 15,
      "all": [
        {"app_rpc": {"method": "debug.focus", "path": "windows.0.model.resolved", "equals": "addressBar"}}
      ]},
-    {"do": "type", "text": "example.com", "mark": "url"},
+    {"do": "smoke_type", "text": "example.com", "mark": "url"},
     {"do": "expect", "title": "the typed address shows in the address bar", "since": "url", "timeout": 15,
      "all": [
        {"app_rpc": {"method": "debug.focus", "path": "windows.0.model.resolved", "equals": "addressBar"}},
        {"frame_text": "example.com"}
      ]},
-    {"do": "key", "key": "return", "modifiers": [], "mark": "loaded"},
+    {"do": "smoke_key", "key": "return", "modifiers": [], "mark": "loaded"},
     {"do": "expect", "title": "the browser tab loads the page", "since": "loaded", "timeout": 45,
      "all": [
        {"app_rpc": {"method": "debug.focus", "path": "windows.0.model.resolved", "equals": "browserPage"}},
        {"frame_text": "documentation examples"}
      ]},
+    {"do": "smoke_snapshot", "name": "before_cmdt"},
+    {"do": "smoke_key", "key": "t", "modifiers": ["cmd"], "mark": "cmdt"},
+    {"do": "expect", "title": "Cmd-T opens a New Tab page as one more tab", "since": "cmdt", "timeout": 15,
+     "all": [{"smoke_tabs": {"since": "before_cmdt", "new": 1}}, {"smoke_key_window": {}}]},
+    {"do": "smoke_key", "key": "w", "modifiers": ["cmd"], "mark": "cmdw"},
+    {"do": "expect", "title": "Cmd-W closes that tab: the tab count is back, and the browser page shows again", "since": "cmdw", "timeout": 15,
+     "all": [{"smoke_tabs": {"since": "before_cmdt", "new": 0}}, {"frame_text": "documentation examples"}]},
     {"do": "relaunch", "how": "quit", "mark": "reopened"},
     {"do": "expect", "title": "after the reopen: one window, a clean launch, no blank pane, the same three workspaces with their output, and the browser page", "since": "reopened", "timeout": 60,
      "all": [
@@ -148,13 +155,13 @@
        {"frame_text": "documentation examples"}
      ]},
     {"do": "smoke_make_key"},
-    {"do": "key", "key": "n", "modifiers": ["cmd"], "mark": "ws4"},
+    {"do": "smoke_key", "key": "n", "modifiers": ["cmd"], "mark": "ws4"},
     {"do": "expect", "title": "Cmd-N after the reopen makes a fourth workspace", "since": "ws4", "timeout": 20,
      "all": [
        {"smoke_workspaces": {"new": 4}},
        {"smoke_frame": {}}
      ]},
-    {"do": "key", "key": "`", "modifiers": ["control"], "mark": "ws4term"},
+    {"do": "smoke_key", "key": "`", "modifiers": ["control"], "mark": "ws4term"},
     {"do": "smoke_type_now", "text": "echo w4-${nonce}-$((6*7))"},
     {"do": "expect", "title": "the fourth workspace's Ctrl-` terminal runs its line", "since": "ws4term", "timeout": 30,
      "all": [
@@ -163,7 +170,7 @@
      ]},
     {"do": "smoke_adopt_line", "line": "w4-${nonce}-42", "as": "first"},
     {"do": "smoke_widths", "name": "cols_first"},
-    {"do": "key", "key": "d", "modifiers": ["control", "cmd"], "mark": "r3b-first"},
+    {"do": "smoke_key", "key": "d", "modifiers": ["control", "cmd"], "mark": "r3b-first"},
     {"do": "expect", "title": "R3b: New Column's key (Ctrl-Cmd-D) as the first new column of a new one-pane workspace (Cmd-N, Ctrl-`) keeps the old column's exact width", "since": "r3b-first", "timeout": 15, "settle": 1.5,
      "all": [
        {"smoke_same_widths": {"since": "cols_first", "new": 1}},

@@ -145,6 +145,14 @@ def step_smoke_type_now(j, step):
     text = j.sub(step["text"])
     j.hold_from = None  # at once (or, diagnostic, the hold already waited out above)
     sent, replies = D.now(), []
+    if _key_path(j) == "real_hid":
+        for char in text:
+            _realkey().press_char(j, char)
+        _realkey().press(j, "return")
+        if step.get("bind"):
+            j.vars[step["bind"]] = text
+        return {"typed": text, "keys": len(text) + 1, "at": round(sent, 3), "at_once": waited is None,
+                "waited_hold_s": waited, "key_path": "real_hid", "send_ms": round((D.now() - sent) * 1000, 1)}
     for char in text:
         replies.append(j.key(char, [], j.key_window))
     replies.append(j.key("return", [], j.key_window))
@@ -156,7 +164,52 @@ def step_smoke_type_now(j, step):
     j.smoke_typed_paths = getattr(j, "smoke_typed_paths", []) + [{"line": text, "paths": paths}]
     return {"typed": text, "keys": len(replies), "at": round(sent, 3), "at_once": waited is None, "waited_hold_s": waited,
             "handled_by": sorted(set(paths)), "first_handled_by": paths[0] if paths else None,
-            "held_keys": paths.count("app")}
+            "held_keys": paths.count("app"), "key_path": "debug.key"}
+
+
+def _key_path(j):
+    """`key_path=real` (run.py --journey-option, the gate's real-key rounds): the journey's keys are real HID key
+    events through CuaDriver (ext_realkey), the path a person's keyboard takes; else debug.key (into the app's key
+    router, faster, but around the window server, the menu and AppKit: it cannot see the palette's Ctrl-` P0)."""
+    return "real_hid" if (j.spec.get("options") or {}).get("key_path") == "real" else "debug.key"
+
+
+def _realkey():
+    import ext_realkey
+    return ext_realkey
+
+
+def step_smoke_key(j, step):
+    """The driver's `key` step on the journey's key path (`_key_path`); the result names the path it used."""
+    if _key_path(j) == "debug.key":
+        return dict(j.step_key(step), key_path="debug.key")
+    held = j.before_keys()
+    if step.get("mark"):
+        j.marks[step["mark"]] = D.now()
+    t = D.now()
+    effect = _realkey().press(j, step["key"], step.get("modifiers", []))
+    return {"key": step["key"], "modifiers": step.get("modifiers", []), "key_path": "real_hid", "cua_effect": effect,
+            "send_ms": round((D.now() - t) * 1000, 1), "waited_out_hold_s": held}
+
+
+def step_smoke_type(j, step):
+    """The driver's `type` step (TEXT, then Return with `enter`; `mark` at Return, else at the first key) on the
+    journey's key path; the result names the path it used."""
+    if _key_path(j) == "debug.key":
+        return dict(j.step_type(step), key_path="debug.key")
+    text = j.sub(step["text"])
+    held = j.before_keys()
+    if step.get("mark") and not step.get("enter"):
+        j.marks[step["mark"]] = D.now()
+    t = D.now()
+    for ch in text:
+        _realkey().press_char(j, ch)
+    if step.get("enter"):
+        if step.get("mark"):
+            j.marks[step["mark"]] = D.now()
+        _realkey().press(j, "return")
+    return {"typed": text, "keys": len(text) + bool(step.get("enter")), "key_path": "real_hid",
+            "send_ms": round((D.now() - t) * 1000, 1), "waited_out_hold_s": held}
 
 
 def _workspace_ids(j):
@@ -249,6 +302,18 @@ def step_smoke_snapshot(j, step):
         j.smoke_snapshots = {}
     j.smoke_snapshots[step["name"]] = snap
     return {"terminals": len(snap["terms"]), "panes": len(snap["panes"]), "focused_pane": snap["focused_pane"]}
+
+
+def cond_smoke_tabs(j, want, cache):
+    """The topology has NEW more tabs (all panes, all workspaces) than at the smoke_snapshot SINCE (NEW may be 0:
+    back to that count, e.g. after Cmd-T then Cmd-W)."""
+    snap = getattr(j, "smoke_snapshots", {}).get(want["since"])
+    if snap is None:
+        return False, {"error": f"no smoke_snapshot named {want['since']!r} ran before this check"}
+    _terms, tabs = _layout(j)
+    before = sum(len(v) for v in snap["tabs"].values())
+    now = sum(len(v) for v in tabs.values())
+    return now - before == int(want["new"]), {"tabs_before": before, "tabs_now": now, "want_new": int(want["new"])}
 
 
 def cond_smoke_new_terminals(j, want, cache):
@@ -1292,11 +1357,11 @@ def step_smoke_burst(j, step):
     return {"steps": len(steps), "reply": reply, "held_keys": held}
 
 
-STEPS = {"smoke_burst": step_smoke_burst, "smoke_wait_new_view": step_smoke_wait_new_view, "smoke_creation": step_smoke_creation, "smoke_hold_path": step_smoke_hold_path, "smoke_no_key_gaps": step_smoke_no_key_gaps, "smoke_ready": step_smoke_ready, "smoke_make_key": step_smoke_make_key, "smoke_type_now": step_smoke_type_now,
+STEPS = {"smoke_key": step_smoke_key, "smoke_type": step_smoke_type, "smoke_burst": step_smoke_burst, "smoke_wait_new_view": step_smoke_wait_new_view, "smoke_creation": step_smoke_creation, "smoke_hold_path": step_smoke_hold_path, "smoke_no_key_gaps": step_smoke_no_key_gaps, "smoke_ready": step_smoke_ready, "smoke_make_key": step_smoke_make_key, "smoke_type_now": step_smoke_type_now,
          "smoke_remember_workspaces": step_smoke_remember_workspaces, "smoke_close_all": step_smoke_close_all,
          "smoke_snapshot": step_smoke_snapshot, "smoke_adopt_line": step_smoke_adopt_line,
          "smoke_long_line": step_smoke_long_line, "smoke_widths": step_smoke_widths}
-CONDITIONS = {"smoke_workspaces": ("app", cond_smoke_workspaces), "smoke_key_window": ("app", cond_smoke_key_window),
+CONDITIONS = {"smoke_tabs": ("app", cond_smoke_tabs), "smoke_workspaces": ("app", cond_smoke_workspaces), "smoke_key_window": ("app", cond_smoke_key_window),
               "smoke_app_lines": ("app", cond_smoke_app_lines), "smoke_daemon_lines": ("daemon", cond_smoke_daemon_lines),
               "smoke_new_terminals": ("daemon", cond_smoke_new_terminals), "smoke_frame": ("frame", cond_smoke_frame),
               "smoke_panes": ("app", cond_smoke_panes), "smoke_r3": ("daemon", cond_smoke_r3),

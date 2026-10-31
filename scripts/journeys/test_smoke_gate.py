@@ -45,10 +45,13 @@ if status == "gap":
 if status == "fail":
     json.dump({"steps": [{"do": "smoke_type_now", "ok": False, "error": "keys lost"}]},
               open(os.path.join(out, "smoke-dogfood", "result.json"), "w"))
-if status == "pass" and "--journey-option" not in args:
+opts = [args[i + 1] for i, a in enumerate(args) if a == "--journey-option"]
+real = "key_path=real" in opts and os.environ.get("SMOKE_REAL_PATH", "real_hid") != "none"
+if status == "pass" and not [o for o in opts if o != "key_path=real"]:
     late = os.environ.get("SMOKE_LATE") == "yes"
+    path = os.environ.get("SMOKE_REAL_PATH", "real_hid") if "key_path=real" in opts else "debug.key"
     typed = [] if os.environ.get("SMOKE_LATE") == "none" else [{"index": 7, "do": "smoke_type_now", "ok": True,
-                                                                 "result": {"at_once": not late}}]
+                                                                 "result": {"at_once": not late}, "key_path": path}]
     r3 = os.environ.get("SMOKE_R3", "all")  # all | none | r3b-failed | one-r3b | renamed | duplicated
     checks = [(title, not (r3 == "r3b-failed" and title.startswith("R3b: Cmd-D"))) for title in R3]
     if r3 == "none":
@@ -66,8 +69,8 @@ if status == "pass" and "--journey-option" not in args:
                 if os.environ.get("SMOKE_KEY_GAP") == "yes" else [])
     json.dump({"steps": typed, "evidence": evidence},
               open(os.path.join(out, "smoke-dogfood", "result.json"), "w"))
-if "--journey-option" in args:
-    open(os.path.join(out, "options.txt"), "w").write(args[args.index("--journey-option") + 1])
+if [o for o in opts if o != "key_path=real"]:
+    open(os.path.join(out, "options.txt"), "w").write([o for o in opts if o != "key_path=real"][0])
     json.dump({"steps": [{"index": 5, "do": "expect", "title": "Cmd-D twice fast", "ok": status == "pass",
                           "error": "" if status == "pass" else "no new pane"}]
                         + ([{"do": "expect", "title": t, "ok": True} for t in R3] if status == "pass" else [])},
@@ -103,7 +106,7 @@ def gate(plan, tmp, extra=(), env_extra=None, rounds=None):
 class Verdicts(unittest.TestCase):
     def test_pass_needs_every_round_and_a_committed_gate(self):
         with tempfile.TemporaryDirectory() as tmp:
-            code, summary = gate(["pass"] * 10, tmp)
+            code, summary = gate(["pass"] * 10, tmp, extra=("--hosts", "cmux99", "--whole-host", "cmux99"))
             self.assertEqual(summary["verdict"], "PASS")
             self.assertTrue(summary["rounds_detail"][0]["pressure"]["ok"])
             with open(os.path.join(tmp, "out", "round-01", "env.json")) as f:
@@ -180,9 +183,10 @@ class Verdicts(unittest.TestCase):
         panes, checked = 1, 0  # ws3: one pane (its New Tab page and its Ctrl-` terminal are tabs of it)
         for st in steps[start:]:
             mods = st.get("modifiers") or []
-            if st.get("do") == "key" and st.get("key") == "n" and mods == ["cmd"]:
+            is_key = st.get("do") in ("key", "smoke_key")
+            if is_key and st.get("key") == "n" and mods == ["cmd"]:
                 break  # a new workspace: the counts below are another workspace's
-            if (st.get("do") == "key" and st.get("key") == "d") or (st.get("do") == "action" and st.get("action") == "newColumn"):
+            if (is_key and st.get("key") == "d") or (st.get("do") == "action" and st.get("action") == "newColumn"):
                 panes += 1
             for cond in st.get("all", []):
                 if "smoke_panes" in cond:
@@ -273,6 +277,112 @@ class Verdicts(unittest.TestCase):
             self.assertIn("not empty", done.stderr)
 
 
+class RealKeys(unittest.TestCase):
+    """cmux-ad 13:10Z: each gate run types at least 2 of its 10 rounds with real HID keys, and they must pass."""
+
+    WH = ("--hosts", "cmux99", "--whole-host", "cmux99")
+
+    def test_two_rounds_type_real_keys_and_each_round_says_its_key_path(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            code, summary = gate(["pass"] * 10, tmp, extra=self.WH)
+            self.assertEqual(summary["real_key_rounds"], [1, 6])
+            for n in range(1, 11):
+                argv = json.load(open(os.path.join(tmp, "out", f"round-{n:02d}", "argv.json")))
+                self.assertEqual("key_path=real" in argv, n in (1, 6), n)
+            self.assertEqual([r["key_path"] for r in summary["rounds_detail"]][:2], ["real_hid", "debug.key"])
+            self.assertEqual(summary["real_key_passed"], 2)
+            self.assertEqual(summary["verdict"], "PASS")
+
+    def test_a_real_key_round_whose_keys_took_debug_key_is_no_pass(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            code, summary = gate(["pass"] * 10, tmp, extra=self.WH, env_extra={"SMOKE_REAL_PATH": "debug.key"})
+            self.assertEqual(summary["rounds_detail"][0]["status"], "not run")
+            self.assertIn("real HID", summary["rounds_detail"][0]["reason"])
+            self.assertEqual(summary["verdict"], "NOT JUDGED")
+            self.assertFalse(os.path.exists(os.path.join(tmp, "handoff", "job123.pass")))
+
+    def test_without_a_whole_host_there_are_no_real_key_rounds_and_no_pass(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            code, summary = gate(["pass"] * 10, tmp)
+            self.assertEqual(summary["real_key_rounds"], [])
+            self.assertEqual(summary["verdict"], "TRIAL PASS")
+            self.assertFalse(os.path.exists(os.path.join(tmp, "handoff", "job123.pass")))
+
+    def test_the_real_key_rounds_spread_over_the_run(self):
+        mod = load_gate()
+        self.assertEqual(mod.real_key_rounds(10, 2), [1, 6])
+        self.assertEqual(mod.real_key_rounds(10, 3), [1, 4, 7])
+        self.assertEqual(mod.real_key_rounds(1, 2), [1])
+        self.assertEqual(mod.real_key_rounds(10, 0), [])
+
+
+class RealKeySteps(unittest.TestCase):
+    """smoke_key / smoke_type / smoke_type_now on the real HID path (CuaDriver), with the path in the result."""
+
+    def setUp(self):
+        sys.path.insert(0, str(HERE))
+        import ext_smoke
+        import ext_realkey
+
+        class StepError(Exception):
+            pass
+
+        class NotRun(Exception):
+            pass
+        D = type("D", (), {"StepError": StepError, "NotRun": NotRun, "now": staticmethod(time.monotonic)})
+        ext_smoke.install(D)
+        ext_realkey.install(D)
+        self.ext, self.rk, self.NotRun = ext_smoke, ext_realkey, NotRun
+        self.sent = []
+        sent = self.sent
+
+        class Session:
+            proc = type("P", (), {"poll": staticmethod(lambda: None)})()
+
+            def call(self_, tool, args):
+                if tool == "list_windows":
+                    return False, {"windows": [{"pid": 7, "window_id": 3, "layer": 0, "bounds": {"width": 100, "height": 50}},
+                                               {"pid": 7, "window_id": 9, "layer": 0, "bounds": {"width": 900, "height": 700}},
+                                               {"pid": 8, "window_id": 4, "layer": 0, "bounds": {"width": 2000, "height": 2000}}]}, {}
+                sent.append((tool, args))
+                return False, {"effect": "unverifiable"}, {}
+
+        self.session = Session()
+
+    def journey(self, mode):
+        j = type("J", (), {})()
+        j.spec = {"options": {"key_path": "real"} if mode == "real" else {}}
+        j.app = type("A", (), {"pid": 7})()
+        j.marks, j.vars, j.cua_session = {}, {}, self.session
+        j.sub = lambda x: x
+        j.before_keys = lambda: None
+        j.step_key = lambda step: {"key": step["key"], "reply": {"handled_by": "app"}}
+        j.step_type = lambda step: {"typed": step["text"]}
+        return j
+
+    def test_a_key_goes_to_the_apps_main_window_as_a_foreground_hid_key(self):
+        done = self.ext.step_smoke_key(self.journey("real"), {"key": "`", "modifiers": ["control"], "mark": "m"})
+        self.assertEqual(done["key_path"], "real_hid")
+        self.assertEqual(self.sent, [("hotkey", {"pid": 7, "window_id": 9, "delivery_mode": "foreground", "keys": ["ctrl", "`"]})])
+
+    def test_typing_uses_shift_for_shifted_characters_and_return(self):
+        self.ext.step_smoke_type(self.journey("real"), {"text": "a$(B", "enter": True})
+        self.assertEqual([(t, a.get("key") or a.get("keys")) for t, a in self.sent],
+                         [("press_key", "a"), ("hotkey", ["shift", "4"]), ("hotkey", ["shift", "9"]),
+                          ("hotkey", ["shift", "b"]), ("press_key", "return")])
+
+    def test_the_debug_key_mode_says_so(self):
+        self.assertEqual(self.ext.step_smoke_key(self.journey("debug"), {"key": "n", "modifiers": ["cmd"]})["key_path"], "debug.key")
+        self.assertEqual(self.ext.step_smoke_type(self.journey("debug"), {"text": "x"})["key_path"], "debug.key")
+        self.assertEqual(self.sent, [])
+
+    def test_a_refused_key_is_not_run_never_a_red(self):
+        self.session.call = lambda tool, args: (True, {}, {"isError": True}) if tool != "list_windows" else \
+            (False, {"windows": [{"pid": 7, "window_id": 9, "layer": 0, "bounds": {"width": 9, "height": 9}}]}, {})
+        with self.assertRaises(self.NotRun):
+            self.ext.step_smoke_key(self.journey("real"), {"key": "d", "modifiers": ["cmd"]})
+
+
 class OpenP0(unittest.TestCase):
     """A .pass needs every open P0 journey passed, and never failed, on the exact build (cmux-ad 12:35Z)."""
 
@@ -280,7 +390,7 @@ class OpenP0(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             open(os.path.join(tmp, "open-p0.txt"), "w").write(
                 "# comment\nr3-new-tab-panel kit@1 owner STATUS-1017\nj-a|j-b kit@2 owner STATUS-1\n")
-            code, summary = gate(["pass"] * 10, tmp)
+            code, summary = gate(["pass"] * 10, tmp, extra=("--hosts", "cmux99", "--whole-host", "cmux99"))
             self.assertEqual(summary["verdict"], "PASS")
             self.assertEqual(code, 75)
             self.assertFalse(os.path.exists(os.path.join(tmp, "handoff", "job123.pass")))
