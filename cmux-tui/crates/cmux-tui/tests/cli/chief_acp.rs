@@ -11,7 +11,7 @@ use serde_json::{Value, json};
 
 /// `cmux --socket S chief acp` with pipes on stdin and stdout.
 struct Agent {
-    child: std::process::Child,
+    child: Child,
     stdin: std::process::ChildStdin,
     lines: mpsc::Receiver<Value>,
     next: u64,
