@@ -141,7 +141,7 @@ public final class AgentPaneRelaunchWake {
     /// How long a quit asks each live page for its state: below the quit's
     /// composer step limit, so the file is written inside that step even when
     /// a page does not answer (that page keeps the state it was given).
-    public static let askLimit: Duration = .seconds(1)
+    public static let askLimit: Duration = .milliseconds(250)
 
     /// What every chat holds for the next launch, by tab: the last quit's states no page took (after
     /// the launch read), `held` (released pages' states, by tab) over them, then each page in `pages`. A page that has not taken its state yet (no `ready`, only a

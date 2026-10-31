@@ -15,8 +15,9 @@ public struct QuitSaveSteps {
     /// relaunch (data-model.md 1.4).
     public var remoteSnapshots: @MainActor () async -> Void
     /// Agent chats get their composer's chips, shell command and place back
-    /// at the next launch (pages are asked at once, each within a second; a
-    /// step past its limit goes on beside the next steps).
+    /// at the next launch (pages are asked at once, each within
+    /// `AgentPaneRelaunchWake.askLimit`, below this step's limit; a step past
+    /// its limit goes on beside the next steps, and the quit waits for it).
     public var agentComposers: @MainActor () async -> Void
     /// Agent panes on screen draw their last page at the next launch.
     public var agentImages: @MainActor () async -> Void
@@ -89,8 +90,9 @@ public struct QuitSaveSteps {
          Step(name: "remote_snapshots", limit: .milliseconds(200), body: remoteSnapshots)]
     }
 
-    /// How long Cloud's step may still take once the saves are done: it began
-    /// before them, so a revoke that needs longer goes on until the process ends.
+    /// How long the save steps wait for Cloud's step once they are done: it
+    /// began before them. Past it, the quit waits for Cloud with every other
+    /// late step, for what is left of the deadline (``QuitSteps``).
     public var cloudLimit: Duration { .milliseconds(300) }
 
     /// How long the steps take if every one of them hangs.

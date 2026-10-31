@@ -68,11 +68,16 @@ public struct QuitSteps {
         if let remembered { await remember(remembered) }
         await prepareWindows()
         if ends {
+            // A late save to the daemon lands before the daemon stops (Cloud's step ends no local data).
+            await limiter.finishOverruns(within: Self.endQuitSaveWait, excluding: [QuitSaveSteps.cloudStepName])
             var failures = await endLocalAgents() + endLocalSessions()
             while !failures.isEmpty, await confirmFailures(failures) == .retry {
                 failures = await endLocalAgents() + endLocalSessions()
             }
         }
         await stopBrowserEngines()
+        // The steps past their limit (a late save, Cloud's credential cleanup) get what is left of
+        // the deadline before AppKit's reply ends the process.
+        await limiter.finishOverruns(within: timeLeft() ?? .zero)
     }
 }
