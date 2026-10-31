@@ -193,7 +193,7 @@ fn run(global: GlobalArgs, args: &[String]) -> i32 {
         return relocate::run(&global, &args[1..]);
     }
     if args.first().is_some_and(|word| word == "acp") {
-        return acp::run(&global, &args[1..]);
+        return acp::run(&global, args.get(1..).unwrap_or_default());
     }
     if args.first().is_some_and(|word| word == "usage") {
         return usage::run(&global, &args[1..]);
