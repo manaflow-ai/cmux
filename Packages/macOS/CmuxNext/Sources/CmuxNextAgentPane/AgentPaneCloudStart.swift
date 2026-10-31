@@ -122,11 +122,12 @@ struct AgentPaneHandOff {
     }
 
     /// `cwd` canonical when it is a folder under one of the pane's roots and not the home folder
-    /// or above it; nil otherwise. The roots are AcpmuxPathPolicy's: the pane's own and the New Tab
-    /// page's scan (which the Send's gesture picks), never home or above it, and the folders the
-    /// person added, as given.
+    /// or above it; nil otherwise. The roots are the pane's own (never home or above it) and the
+    /// folders the person added or picked, as given. Never the New Tab page's scan and open folders
+    /// (`gestureRoots`) by the Send's gesture alone: a folder there becomes a root only once the
+    /// person picks it, and this send copies the folder off this Mac.
     static func folderInScope(_ cwd: String, transport: AgentPaneTransport) async -> String? {
-        let roots = transport.roots() + transport.gestureRoots(), granted = transport.addedRoots
+        let roots = transport.roots(), granted = transport.addedRoots
         let home = transport.homeFolder
         return await Task.detached(priority: .userInitiated) { () -> String? in
             guard let folder = AcpmuxPathPolicy.canonical(cwd), AcpmuxPathPolicy.isDirectory(folder) else { return nil }

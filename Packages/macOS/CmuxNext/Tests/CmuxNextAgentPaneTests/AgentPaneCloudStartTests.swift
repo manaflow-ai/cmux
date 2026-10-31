@@ -187,6 +187,24 @@ struct AgentPaneCloudStartTests {
         #expect(AgentPaneCloudStart.uploadRoot(of: canonicalFolder) == Self.canonical(repo))
     }
 
+    /// A folder of the New Tab page's scan is not the pane's to copy by the Send's gesture alone:
+    /// only once the person picked it (a root of the pane, or one they added).
+    @Test func aScannedProjectTheSendDidNotPickIsNeverCopied() async throws {
+        let starts = Starts()
+        let (root, folder) = try Self.project()
+        defer { try? FileManager.default.removeItem(atPath: root) }
+        let model = Self.pane(starts)
+        model.transport.gestureRoots = { [root] }
+        model.transport.gestures.record()
+        let refused = await model.respond(to: Self.start(Self.good.merging(["cwd": folder]) { $1 }))
+        #expect(refused["ok"] as? Bool != true)
+        #expect(starts.seen.isEmpty)
+        // Picked (now one of the pane's roots): it starts.
+        model.transport.roots = { [root] }
+        model.transport.gestures.record()
+        #expect(await model.respond(to: Self.start(Self.good.merging(["cwd": folder]) { $1 }))["ok"] as? Bool == true)
+    }
+
     /// The create's key is the send's: a retry after a lost create answer gets the same machine.
     @Test func aRetryOfTheSameSendCreatesUnderTheSameKey() throws {
         let key = UUID().uuidString
