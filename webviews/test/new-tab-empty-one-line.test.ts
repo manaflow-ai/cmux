@@ -85,7 +85,7 @@ await requireBrowserLane("new-tab-empty-one-line.test.ts", async () => {
         const field = document.querySelector(".nt-field") as HTMLElement & {
           acpmuxMarkdownField?: { value(): string };
         };
-        const inset = getComputedStyle(field.querySelector<HTMLElement>(".acpmux-md-root")!);
+        const inset = getComputedStyle(field);
         const text = getComputedStyle(field.querySelector<HTMLElement>(".acpmux-md")!);
         return {
           value: field.acpmuxMarkdownField?.value(),

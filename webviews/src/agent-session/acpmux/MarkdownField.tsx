@@ -638,9 +638,22 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
                 const data = event.dataTransfer;
                 // A drag from inside the field moves its own text, as ProseMirror does.
                 if (editorView.dragging) return false;
-                if (!data || data.files.length || [...data.types].includes("Files")) return false;
-                const whole = data.getData("text/plain");
-                if (whole.length <= PASTE_FILE_CHARS || !beforeInput(editorView, whole, true)) return false;
+                if (!data) return false;
+                const files = data.files.length > 0 || [...data.types].includes("Files");
+                const whole = files ? "" : data.getData("text/plain");
+                if (files ? !inlineOn.current || !latest.current.onInlineViews : whole.length <= PASTE_FILE_CHARS)
+                  return false;
+                // Intake places its pending atom at the selection synchronously. A drop belongs at
+                // the pointer, never over text selected elsewhere before the drag started.
+                const at = editorView.posAtCoords({ left: event.clientX, top: event.clientY });
+                if (at) {
+                  const tr = editorView.state.tr;
+                  tr.setSelection(TextSelection.near(tr.doc.resolve(at.pos)));
+                  editorView.dispatch(tr);
+                }
+                if (!files && !beforeInput(editorView, whole, true)) return false;
+                // File intake listens on the document: leave propagation intact, but keep
+                // ProseMirror from also inserting the file's text/HTML payload.
                 event.preventDefault();
                 return true;
               },

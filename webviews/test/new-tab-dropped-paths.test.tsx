@@ -129,11 +129,11 @@ test("a folder and a zip dropped on the New Tab page go with the prompt as links
   for (let tries = 0; tries < 500 && chips().length < 2; tries += 1)
     await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
   expect(looked).toEqual([["drop", ["assets", "build.zip"]]]);
-  expect(chips().map((chip) => chip.querySelector(".acpmux-md-inline-file-name")?.textContent)).toEqual([
+  expect(chips().map((chip) => chip.querySelector(".acpmux-attachment-link-name")?.textContent)).toEqual([
     "assets/",
     "build.zip",
   ]);
-  expect(chips().map((chip) => chip.getAttribute("title"))).toEqual([
+  expect(chips().map((chip) => chip.querySelector<HTMLElement>(".acpmux-file-chip")?.getAttribute("title"))).toEqual([
     "/Users/you/src/app/assets",
     "/Users/you/Downloads/build.zip",
   ]);

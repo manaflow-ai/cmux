@@ -13,6 +13,8 @@ import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
+import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
+import { PASTE_FILE_CHARS } from "../src/agent-session/acpmux/pastedText";
 
 await requireBrowserLane("new-tab-paste-attachments.test.ts", async () => {
   setDefaultTimeout(240_000);
@@ -143,7 +145,7 @@ await requireBrowserLane("new-tab-paste-attachments.test.ts", async () => {
       }, data);
       await page.locator(INLINE_IMAGES).waitFor();
       // Removing it is the chip's own ×, as in a chat.
-      await page.locator(".nt-box .nt-field .acpmux-md-inline-remove").click();
+      await page.locator(".nt-box .nt-field .acpmux-attachment-remove").click();
       await page.waitForFunction(
         () => document.querySelectorAll(".nt-box .acpmux-attachment, .nt-box .acpmux-md-inline-chip").length === 0,
       );
@@ -163,6 +165,71 @@ await requireBrowserLane("new-tab-paste-attachments.test.ts", async () => {
       await page.close();
     },
   );
+
+  test.each(
+    engines.flatMap(
+      ([name]) =>
+        [
+          [name, "file"],
+          [name, "oversized text"],
+        ] as const,
+    ),
+  )("%s: an external %s drop lands at the pointer without replacing text selected elsewhere", async (name, kind) => {
+    const page = await newTab(name);
+    try {
+      const field = page.locator(EDITABLE);
+      await field.click();
+      await page.keyboard.type("before after");
+      const data =
+        kind === "file"
+          ? await transfer(page, "At-pointer.png")
+          : await page.evaluateHandle((length) => {
+              const data = new DataTransfer();
+              data.setData("text/plain", "x".repeat(length));
+              return data;
+            }, PASTE_FILE_CHARS + 1);
+      try {
+        await field.evaluate((node, data) => {
+          const text = node.querySelector("p")!.firstChild!;
+          const point = document.createRange();
+          point.setStart(text, "before ".length);
+          point.collapse(true);
+          const bounds = point.getBoundingClientRect();
+          const handle = node.closest<MarkdownFieldElement>(".nt-field")!.acpmuxMarkdownField!;
+          // Select "before" elsewhere: neither kind of drop may replace that text.
+          handle.writeText("before after", 0, "before".length);
+          node.dispatchEvent(
+            new DragEvent("drop", {
+              dataTransfer: data,
+              bubbles: true,
+              cancelable: true,
+              clientX: bounds.x,
+              clientY: bounds.y + bounds.height / 2,
+            }),
+          );
+        }, data);
+        const atom = page.locator(`${EDITABLE} [data-inline-attachment]`);
+        await atom.waitFor();
+        expect(await atom.count()).toBe(1);
+        expect(
+          await atom.evaluate((node) => {
+            const editor = node.closest(".ProseMirror")!;
+            const before = document.createRange();
+            before.selectNodeContents(editor);
+            before.setEndBefore(node);
+            const after = document.createRange();
+            after.selectNodeContents(editor);
+            after.setStartAfter(node);
+            return { before: before.toString(), after: after.toString() };
+          }),
+        ).toEqual({ before: "before ", after: "after" });
+      } finally {
+        await data.dispose();
+      }
+    } finally {
+      await page.close();
+    }
+  });
 
   // Austin 2026-10-21: a pasted image went only by its ×. Backspace with the caret at the field's
   // start takes back the last chip, one per press; Backspace in the text still edits the text.

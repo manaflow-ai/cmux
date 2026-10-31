@@ -263,7 +263,7 @@ await requireBrowserLane("new-tab-live-resize.test.ts", async () => {
       // MarkdownField's text box (`.acpmux-md-root`) holds the insets and its editable (`.acpmux-md`)
       // the line height, both of which the textarea held.
       const oneLine = await frame.locator(".nt-field").evaluate((node) => {
-        const inset = getComputedStyle(node.querySelector(".acpmux-md-root")!);
+        const inset = getComputedStyle(node);
         const text = getComputedStyle(node.querySelector(".acpmux-md")!);
         const insets = parseFloat(inset.paddingTop) + parseFloat(inset.paddingBottom);
         if (text.lineHeight.endsWith("px")) return parseFloat(text.lineHeight) + insets;
