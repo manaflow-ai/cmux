@@ -9,7 +9,8 @@
   margin: -3px -6px 2px 6px;
   color: var(--cv-text-muted);
   opacity: 0.45;
-  transition: opacity 100ms ease;
+  /* On the motion scale as a message's hover row (conversation.css --cv-actions-*): out quick, in micro. */
+  transition: opacity var(--cv-actions-out, 80ms) var(--cv-actions-ease, ease-out);
 }
 .cv-card-copy[data-look="quiet"] {
   opacity: 0.3;
@@ -18,6 +19,7 @@
 .cv-card-copy:focus-within,
 .cv-card-copy:has([data-copied]) {
   opacity: 1;
+  transition: opacity var(--cv-actions-in, 120ms) var(--cv-actions-ease, ease-out);
 }
 .cv-card-copy__button {
   all: unset;
@@ -30,7 +32,7 @@
   height: var(--cv-context-copy);
   padding: 0 var(--ds-space-1);
   border-radius: 6px;
-  cursor: pointer;
+  cursor: default;
   font-size: var(--text-detail);
   letter-spacing: var(--text-detail--letter-spacing);
 }

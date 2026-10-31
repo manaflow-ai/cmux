@@ -265,7 +265,7 @@ private struct TeamStep: View {
                         .font(theme.type.sidebarTitle)
                         .foregroundStyle(theme.colors.label)
                         .accessibilityAddTraits(.isHeader)
-                    Text("Your Macs show up in the space they're signed in to. You can switch any time from the sidebar.")
+                    Text("Your Macs appear in their signed-in space.")
                         .font(theme.type.rowSubtitle)
                         .foregroundStyle(theme.colors.label2)
                         .fixedSize(horizontal: false, vertical: true)

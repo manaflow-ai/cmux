@@ -94,6 +94,31 @@ impl Hub {
             && !(session.meta().claude_unstored && session.meta().turn_count > 0)
     }
 
+    /// What a host this daemon starts does once no daemon controls it (`agent_host::OrphanExit`;
+    /// its servers come from `LaunchServers::orphan_exit`): it waits [`crate::agent_host::ORPHAN_IDLE`], or this daemon's
+    /// own idle period when that is longer, and never ends while idle hibernation is off
+    /// (`ACPMUX_IDLE_CHILD_SECS=0`): an agent this daemon would keep, its host keeps too.
+    pub(super) fn orphan_exit(&self) -> Option<crate::agent_host::OrphanExit> {
+        let idle = (*self.idle_child.lock().unwrap_or_else(|e| e.into_inner()))?;
+        #[cfg_attr(not(debug_assertions), allow(unused_mut))]
+        let mut wait = idle.max(crate::agent_host::ORPHAN_IDLE);
+        // Debug builds only: `ACPMUX_TEST_HOST_ORPHAN_IDLE_MS` replaces the wait, so the
+        // integration tests can drive a host's own end. Release builds have no seam.
+        #[cfg(debug_assertions)]
+        if let Some(ms) = std::env::var("ACPMUX_TEST_HOST_ORPHAN_IDLE_MS")
+            .ok()
+            .and_then(|v| v.parse::<u64>().ok())
+        {
+            wait = std::time::Duration::from_millis(ms);
+        }
+        Some(crate::agent_host::OrphanExit {
+            idle_ms: u64::try_from(wait.as_millis()).unwrap_or(u64::MAX),
+            servers: Vec::new(),
+            path: String::new(),
+            cwd: std::path::PathBuf::new(),
+        })
+    }
+
     /// The daemon is stopping (`_acpmux/shutdown`, SIGTERM, then
     /// `shutdown_all`): the idle reaper never stops a harness again.
     pub fn stop_idle_reaper(&self) {
@@ -352,6 +377,8 @@ impl Hub {
     pub fn wake_for(self: &Arc<Self>, session: &Arc<Session>, web: bool, cause: &'static str) {
         // Use: a chat being typed into or opened does not hibernate meanwhile.
         self.touch(session);
+        // The person asked for it: what a daemon start held in its protected folder goes on.
+        self.release_protected_hold(session);
         let stops = session.stops.load(Ordering::SeqCst);
         if session.hibernated_at.load(Ordering::SeqCst) == 0
             || session.status() == SessionStatus::Closed

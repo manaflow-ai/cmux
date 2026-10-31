@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextAgentPane
 import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextPages
 import CmuxNextSettings
 import CmuxNextWakeups
 
@@ -142,14 +143,14 @@ final class NewTabSparePool {
         // The first page of a new workspace (Cmd-N, an empty window's New Tab page) adopts the
         // spare too, so a cold Cmd-N shows a page that already loaded (cx-ec99).
         services.agentTabs.takeSpare = { [weak self] in
-            guard let self, let window = NSApp.keyWindow.flatMap(self.mainWindow) ?? self.target else { return nil }
+            guard let self, let window = self.services.keyWindowSource().flatMap(self.mainWindow) ?? self.target else { return nil }
             let start = ContinuousClock.now
             let spare = self.take(for: window, size: nil)
             self.record(.init(spare: spare != nil, crossWindow: spare?.crossWindow == true, milliseconds: Self.milliseconds(since: start)))
             return spare?.view
         }
         observeWindows()
-        if let window = NSApp.keyWindow.flatMap(mainWindow) ?? services.windows.controllers.compactMap(\.window).first(where: \.isVisible) {
+        if let window = services.keyWindowSource().flatMap(mainWindow) ?? services.windows.controllers.compactMap(\.window).first(where: \.isVisible) {
             retarget(window)
         }
     }
@@ -422,9 +423,10 @@ final class NewTabSparePool {
 }
 
 /// Where the spare waits: in the target window (WebKit renders only views in
-/// a window and not hidden), fully transparent, never hit by the mouse, and
+/// a window and not hidden), fully transparent (to AppKit only: a Chromium spare's child window
+/// ignores alpha and keeps drawing, off screen, so Cmd-T adopts a page that already painted), never hit by the mouse, and
 /// out of the accessibility tree. Adopting the spare reparents it into a pane.
-final class NewTabSpareParking: NSView {
+final class NewTabSpareParking: NSView, PageChromiumOffscreenParking {
     /// The size of the pane content the spare will fill (nil: the window content's), far
     /// outside the window content. A web view's tracking areas ignore alpha and hit testing:
     /// parked over the content, the spare's cards hovered and set the cursor under the tab in
