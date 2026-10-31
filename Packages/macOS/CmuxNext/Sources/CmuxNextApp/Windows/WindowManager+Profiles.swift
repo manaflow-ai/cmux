@@ -136,8 +136,8 @@ extension WindowManager {
         guard value.window(state.id) != nil else { throw ActionFailure.invalidTarget(RefusalStrings.windowNotReady) }
         if value.isIncognito(state.id) || incognitoSpaces[state.id] != nil { throw ActionFailure.invalidTarget(RefusalStrings.incognitoMismatch) }
         let sources = value.openWindows.filter { $0.id != state.id && !value.isIncognito($0.id) && incognitoSpaces[$0.id] == nil }
-        // A window's own Home stays in its window, which closes (as Close Other Windows), never as a surplus Home here.
-        let moving = sources.flatMap(\.workspaceIDs).filter { !isWindowHome($0) }
+        // Only reported workspaces move; a window's own Home and one not reported yet stay in their window, which closes.
+        let moving = sources.flatMap(\.workspaceIDs).filter { services.workspace(id: $0).map { !$0.isWindowHome } == true }
         guard !sources.isEmpty else { return }
         try refuseClosingCreating(sources.map(\.id))
         try refuseLocalTabs((moving.isEmpty ? [] : [state.id]) + sources.map(\.id))
