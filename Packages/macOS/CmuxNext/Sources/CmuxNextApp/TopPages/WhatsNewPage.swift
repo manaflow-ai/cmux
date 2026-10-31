@@ -15,7 +15,9 @@ enum WhatsNewPage {
     /// the item.
     @discardableResult
     static func open(_ services: AppServices, in state: WindowState? = nil) -> Bool {
-        guard ActionRunScope.viewChangeAllowed(), services.settings?.snapshot.previewFeatures == true else { return false }
+        // Not behind Labs (Leo, 2026-10-29: "why the fuck does See What's New not fucking open the
+        // What's New tab anymore"; 2026-10-30: "i dont like putting so much stuff in labs").
+        guard ActionRunScope.viewChangeAllowed() else { return false }
         let center = services.updater.whatsNew
         // The span starts at the version seen before this update (read before `open` marks seen).
         let from = center.lastSeen.flatMap { seen in center.current.map { seen < $0 } == true ? seen : nil }
