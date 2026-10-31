@@ -32,7 +32,11 @@ final class DisplayLinkDriver: MotionAnimating {
         view = nil
     }
 
+    /// `start` calls, cumulative, manual ones too (`LayoutWorkProbe`: a still pointer asks for no frames).
+    private(set) var startRequests = 0
+
     func start() {
+        startRequests += 1
         guard let view, !isManual else { return }
         let target = MotionClock.forView(view)
         if let clock, clock !== target { clock.stop(self) }

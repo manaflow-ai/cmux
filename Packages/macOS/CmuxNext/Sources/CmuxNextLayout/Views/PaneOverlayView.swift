@@ -187,6 +187,8 @@ final class PaneOverlayView: NSView {
         focusFlash.borderWidth = max(focusRing.width, Self.flashMinimumWidth)
         glow.borderWidth = focusRing.width
         glow.shadowRadius = max(2, focusRing.width * LayoutTunables.focusGlowRadiusFactor.value)
+        // The shadow of the border it strokes, given: Core Animation needs no offscreen pass to find it (as `attention`).
+        glow.shadowPath = Self.ringOutline(size: rect.size, radius: ringRadius, width: focusRing.width)
         attention.borderWidth = attentionSettings.width
         attention.shadowPath = Self.ringOutline(size: rect.size, radius: radius, width: attentionSettings.width)
         CATransaction.commit()
@@ -365,8 +367,10 @@ final class PaneOverlayView: NSView {
             // The flash marks a move, so it draws at least at standard contrast.
             let flashAlpha = max(ringAlphaOverride ?? focusRing.contrast.ringAlpha, FocusRingContrast.standard.ringAlpha)
             focusFlash.borderColor = Palette.paneFocusRing(focusRing, override: flashAlpha).cgColor
-            glow.borderColor = ringColor.withAlphaComponent(ringColor.alphaComponent * LayoutTunables.focusGlowAlpha.value).cgColor
-            glow.shadowColor = ringColor.cgColor
+            let glowAlpha = ringColor.alphaComponent * LayoutTunables.focusGlowAlpha.value
+            glow.borderColor = ringColor.withAlphaComponent(glowAlpha).cgColor
+            // A `shadowPath` shadow is opaque where the border's alpha shaded it before: carry that alpha in the color.
+            glow.shadowColor = ringColor.withAlphaComponent(ringColor.alphaComponent * glowAlpha).cgColor
             let attentionColor = (attentionMark?.color ?? dismissingColor)?.nsColor ?? attentionSettings.color?.nsColor ?? attentionLook.defaultColor
             attention.borderColor = attentionColor.cgColor
             attention.shadowColor = attentionColor.cgColor

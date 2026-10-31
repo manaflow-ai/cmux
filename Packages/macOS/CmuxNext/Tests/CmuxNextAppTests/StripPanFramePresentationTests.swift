@@ -48,4 +48,30 @@ struct StripPanFramePresentationTests {
         w.settle()
         #expect(!w.root.isLayoutInMotion, "the pan landed")
     }
+
+    /// A strip pan beside a right dock, a still pointer over the strip (`LayoutWorkProbe`): each frame moves each
+    /// pane once (one presentation pass), recomputes only the clips and ring masks of panes the dock edge cuts,
+    /// asks the window's pages for at most one update, and asks the window server nothing (the pointer is still).
+    @Test func aStripPanFrameOverADockMovesNothingTwice() async throws {
+        let columns = (0..<8).map { PaneMotionBench.column($0, rows: 3, width: 0.4) }
+            + [LayoutColumn(id: "dock", width: 0.25, root: .leaf("chat"), dock: DockColumn(edge: .right, mode: .docked))]
+        let probe = LayoutWorkProbe(.columns(columns), focused: PaneID("p0-0"))
+        defer { probe.close() }
+        let screen = probe.screen
+        // The pointer rests on the first column's upper row divider, which runs under it for most of the pan.
+        let row = try #require(screen.dividerViews[.split(SplitID("s0-0"))], "no row divider")
+        probe.hoverAt = screen.convert(CGPoint(x: row.frame.minX + 380, y: row.frame.midY), to: nil)
+        #expect(screen.acceptsHorizontalScroll, "the strip does not overflow")
+        screen.beginUserScroll()
+        var frames = LayoutWorkProbe.Counts()
+        let steps = 60
+        for step in 1...steps {
+            frames = frames + (await probe.measure(tick: true) { screen.userScroll(deltaX: -6, timestamp: Double(step) / 120) })
+        }
+        screen.endUserScroll(timestamp: Double(steps + 1) / 120)
+        probe.settle()
+        print(frames.line("pan-dock-frame", steps: steps))
+        #expect(frames.pagePosts <= steps, "\(frames.pagePosts) page update requests over \(steps) pan frames")
+        #expect(frames.hoverQueries <= 1, "\(frames.hoverQueries) window server queries under a still pointer")
+    }
 }
