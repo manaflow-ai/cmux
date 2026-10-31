@@ -58,13 +58,17 @@ final class DisclosureChevronView: NSView {
         let target = angle(open: open)
         guard changed, animated else {
             glyph.removeAnimation(forKey: Self.rotation)
-            Motion.sidebar.transaction(nil) { glyph.setValue(target, forKeyPath: Self.rotation) }
+            Motion.sidebar.transaction(nil) { setTurn(target) }
             return
         }
         Motion.sidebar.set(glyph, Self.rotation, to: target, spring: open ? .appear : .disappear)
     }
 
     static let rotation = "transform.rotation.z"
+
+    /// Sets the glyph's model turn to `angle` about its center: the turn is the glyph's only transform, so this is
+    /// the value `transform.rotation.z` animates, set as a typed transform rather than by key-value coding.
+    private func setTurn(_ angle: CGFloat) { glyph.transform = CATransform3DMakeRotation(angle, 0, 0, 1) }
 
     /// The chevron image (a template glyph pointing right). The view always shows the one chevron glyph, so an image
     /// of the size it already shows, at the same window scale, is not drawn again.
@@ -99,7 +103,7 @@ final class DisclosureChevronView: NSView {
             glyph.position = CGPoint(x: bounds.midX, y: bounds.midY)
             shape.frame = glyph.bounds
             // A flip of the layer tree after the last turn (first layout in a window) keeps the glyph's direction.
-            if glyph.animation(forKey: Self.rotation) == nil { glyph.setValue(angle(open: isOpen), forKeyPath: Self.rotation) }
+            if glyph.animation(forKey: Self.rotation) == nil { setTurn(angle(open: isOpen)) }
         }
     }
 

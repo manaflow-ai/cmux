@@ -1,0 +1,11 @@
+{
+  "title": "Chief Home footnote spacing: Switching card above the paused memory summaries footnote",
+  "launch_args": ["--showcase"],
+  "steps": [
+    {
+      "title": "Fresh Home shows the Switching card and paused memory footnote",
+      "wait": 1.5,
+      "shot": true
+    }
+  ]
+}

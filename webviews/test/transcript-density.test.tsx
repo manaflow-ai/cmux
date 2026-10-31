@@ -1,8 +1,8 @@
 // The transcript hid too much (Leo, 2026-10-20: "we're swallowing up a few too many of these"): a
 // run of calls in an opened "Worked for" folded under one "Used tools, ran commands" line, each
 // "Ran N commands" group was closed, and an MCP call ran as `mcp__cmux-subsessions__start_session`.
-// Now every group keeps its own line and lists its latest calls, the earlier ones behind "+K more",
-// and an MCP call reads as its server and action, with the raw id kept in the opened call.
+// Now every group keeps its own line and lists every call, as Claude Code desktop lists a run's
+// steps (no "+K more" behind the latest few), and an MCP call reads as its server and action, with the raw id kept in the opened call.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
@@ -79,18 +79,16 @@ async function render(row: AcpmuxRow) {
 
 const texts = (selector: string) => [...host.querySelectorAll(selector)].map((node) => node.textContent?.trim());
 
-test("an ended turn's run keeps each group on its own line, with its latest commands listed", async () => {
-  const commands = ["c1", "c2", "c3", "c4", "c5", "c6", "c7"].map(command);
+test("an ended turn's run keeps each group on its own line, with every command listed", async () => {
+  const ids = ["c1", "c2", "c3", "c4", "c5", "c6", "c7"];
+  const commands = ids.map(command);
   await render(settledRow([...commands, read("r1")]));
   expect(host.textContent).not.toContain("Used tools");
   expect(host.textContent).not.toContain("ran commands");
-  // The group's line is open, and lists its last five commands under "+2 more".
+  // The group's line is open, and lists all seven commands, one step each.
   expect(host.querySelector('button.cv-tool[aria-expanded="true"]')?.textContent).toContain("7");
-  expect(texts(".cv-command__line")).toEqual(["echo c3", "echo c4", "echo c5", "echo c6", "echo c7"]);
-  const more = host.querySelector<HTMLButtonElement>(".cv-tool-group__more")!;
-  expect(more.textContent).toBe("+2 more");
-  await act(async () => more.dispatchEvent(new window.MouseEvent("click", { bubbles: true })));
-  expect(texts(".cv-command__line")).toHaveLength(7);
+  expect(texts(".cv-command__line")).toEqual(ids.map((id) => `echo ${id}`));
+  expect(host.querySelectorAll(".cv-steps > .cv-step")).toHaveLength(7);
   expect(host.querySelector(".cv-tool-group__more")).toBeNull();
   // The read after the commands keeps its own row.
   expect(host.textContent).toContain("Read config.ts");

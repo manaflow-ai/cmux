@@ -11,7 +11,7 @@
 use super::agent_session_attach::{AGENT_SESSION_ATTACH_CAPABILITY, MAX_ATTACHMENTS_PER_CLIENT};
 use super::*;
 use serde_json::{Value, json};
-use std::collections::VecDeque;
+use std::collections::{HashSet, VecDeque};
 use std::io::{BufRead, BufReader, Write};
 use std::net::Shutdown;
 use std::os::unix::net::{UnixListener, UnixStream};
@@ -32,6 +32,7 @@ pub(super) struct FakeAcpmux {
     frames: Receiver<Value>,
     connections: Receiver<UnixStream>,
     current: Option<UnixStream>,
+    transfer_blocked: Arc<Mutex<HashSet<String>>>,
 }
 
 impl FakeAcpmux {
@@ -52,16 +53,29 @@ impl FakeAcpmux {
         let listener = UnixListener::bind(&socket).unwrap();
         let (frame_tx, frames) = channel();
         let (connection_tx, connections) = channel();
+        let transfer_blocked = Arc::new(Mutex::new(HashSet::new()));
+        let shared_transfers = transfer_blocked.clone();
         std::thread::spawn(move || {
             for stream in listener.incoming() {
                 let Ok(stream) = stream else { return };
                 let _ = connection_tx.send(stream.try_clone().unwrap());
                 let frame_tx = frame_tx.clone();
                 let fixture = fixture.clone();
-                std::thread::spawn(move || serve(stream, frame_tx, &fixture));
+                let transfers = shared_transfers.clone();
+                std::thread::spawn(move || serve(stream, frame_tx, &fixture, &transfers));
             }
         });
-        Self { directory, socket, frames, connections, current: None }
+        Self { directory, socket, frames, connections, current: None, transfer_blocked }
+    }
+
+    /// Models an acpmux watcher abort, independently of any cmux transfer request.
+    pub(super) fn set_transfer_blocked(&self, session: &str, blocked: bool) {
+        let mut transfers = self.transfer_blocked.lock().unwrap();
+        if blocked {
+            transfers.insert(session.to_owned());
+        } else {
+            transfers.remove(session);
+        }
     }
 
     /// The next frame the daemon sent to acpmux.
@@ -140,7 +154,12 @@ pub(super) struct Fixture {
     pub(super) attach_gate: Option<Arc<Mutex<Receiver<()>>>>,
 }
 
-fn serve(stream: UnixStream, frames: Sender<Value>, fixture: &Fixture) {
+fn serve(
+    stream: UnixStream,
+    frames: Sender<Value>,
+    fixture: &Fixture,
+    transfers: &Mutex<HashSet<String>>,
+) {
     let mut writer = stream.try_clone().unwrap();
     // acpmux takes 2 `_acpmux/typing` a second per connection: the fake refuses the third.
     let mut typing_calls = 0;
@@ -180,6 +199,12 @@ fn serve(stream: UnixStream, frames: Sender<Value>, fixture: &Fixture) {
             // The machine's whole list: the attached session's family and others
             // (agent_session_children_tests.rs).
             "_acpmux/sessions" => Some(machine_sessions()),
+            "_acpmux/info" => Some(json!({
+                "sessionId": params["sessionId"],
+                "transferBlocked": transfers.lock().unwrap().contains(
+                    params["sessionId"].as_str().unwrap_or_default()
+                ),
+            })),
             "_acpmux/events" => {
                 Some(json!({"events": fixture.history, "hasMore": false, "lastSeq": 1}))
             }
@@ -194,7 +219,25 @@ fn serve(stream: UnixStream, frames: Sender<Value>, fixture: &Fixture) {
             }
             "_acpmux/permission_respond" | "_acpmux/view" => Some(json!({})),
             // `acpmux.transfer.v1` with the guarded receive (agent_transfer_tests.rs).
-            method if method.starts_with("_acpmux/transfer_") => transfer_reply(method, params),
+            method if method.starts_with("_acpmux/transfer_") => {
+                let reply = transfer_reply(method, params);
+                if let Some(answer) = &reply
+                    && answer.get(FAKE_ERROR).is_none()
+                {
+                    let session = answer["sessionId"].as_str().unwrap_or_default();
+                    let mut transfers = transfers.lock().unwrap();
+                    match method {
+                        "_acpmux/transfer_begin" | "_acpmux/transfer_commit" => {
+                            transfers.insert(session.to_owned());
+                        }
+                        "_acpmux/transfer_abort" | "_acpmux/transfer_finish" => {
+                            transfers.remove(session);
+                        }
+                        _ => {}
+                    }
+                }
+                reply
+            }
             "session/prompt" => {
                 let accepted = json!({"jsonrpc":"2.0","method":"_acpmux/prompt_accepted","params":{
                     "sessionId": SESSION, "promptId": params["_meta"]["acpmux"]["promptId"],

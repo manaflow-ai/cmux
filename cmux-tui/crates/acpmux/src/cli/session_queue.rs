@@ -21,6 +21,7 @@ use crate::client::Client;
 use crate::rpc::method;
 use anyhow::Result;
 use clap::Subcommand;
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 
 #[derive(Subcommand, Debug, Clone, PartialEq, Eq)]
@@ -121,11 +122,12 @@ pub async fn run(client: &Client, cmd: QueueCmd, json_out: bool) -> Result<()> {
             }
             let mut results = Vec::with_capacity(targets.len());
             for item in &targets {
-                let prompt_id = item["promptId"].as_str().unwrap_or_default();
+                let prompt_id = item.get("promptId").and_then(Value::as_str).unwrap_or_default();
                 let result = remove_one(client, &id, prompt_id, true).await;
                 // The probe said it checks; a daemon replaced since (updated back to an older
                 // build) would not: stop at the first removal it did not check.
-                let unchecked = result["status"] == "removed" && result["checked"] != true;
+                let unchecked = result.get("status").and_then(Value::as_str) == Some("removed")
+                    && result.get("checked").and_then(Value::as_bool) != Some(true);
                 results.push(result);
                 if unchecked {
                     report(&id, &results, json_out, true)?;
@@ -142,7 +144,7 @@ pub async fn run(client: &Client, cmd: QueueCmd, json_out: bool) -> Result<()> {
 /// The session's queue in run order (`_acpmux/info` `queue`).
 async fn queue(client: &Client, id: &str) -> Result<Vec<Value>> {
     let info = client.request(method::MUX_INFO, json!({"sessionId": id})).await?;
-    Ok(info["queue"].as_array().cloned().unwrap_or_default())
+    Ok(info.get("queue").and_then(Value::as_array).cloned().unwrap_or_default())
 }
 
 /// `item` with its whole text (`text`, from `_acpmux/queue_text`) beside the summary's
@@ -151,21 +153,21 @@ async fn queue(client: &Client, id: &str) -> Result<Vec<Value>> {
 /// a refusal, a daemon too old to answer) leaves `text` null, says why in `textError` and
 /// answers false.
 async fn with_full_text(client: &Client, id: &str, item: &mut Value) -> bool {
-    let prompt_id = item["promptId"].as_str().unwrap_or_default().to_owned();
+    let prompt_id = item.get("promptId").and_then(Value::as_str).unwrap_or_default().to_owned();
     let params = json!({"sessionId": id, "promptId": prompt_id});
     match client.request(method::MUX_QUEUE_TEXT, params).await {
         Ok(v) => {
-            item["text"] = v["text"].clone();
+            item.set("text", v.get("text").cloned().unwrap_or(Value::Null));
             true
         }
         Err(e) if left_queue(&e) => {
-            item["text"] = Value::Null;
-            item["left"] = json!(true);
+            item.set("text", Value::Null);
+            item.set("left", json!(true));
             true
         }
         Err(e) => {
-            item["text"] = Value::Null;
-            item["textError"] = json!(e.to_string());
+            item.set("text", Value::Null);
+            item.set("textError", json!(e.to_string()));
             false
         }
     }
@@ -182,19 +184,19 @@ fn left_queue(e: &anyhow::Error) -> bool {
 /// Another agent's message: `fromAgent` names its sender. The person's own prompt, and a
 /// teammate's in a shared chat (`author`), have none.
 fn is_from_agent(item: &Value) -> bool {
-    item["fromAgent"].as_str().is_some_and(|s| !s.is_empty())
+    item.get("fromAgent").and_then(Value::as_str).is_some_and(|s| !s.is_empty())
 }
 
 /// Who sent a queued prompt, as a row shows it.
 fn sender(item: &Value) -> String {
-    if let Some(agent) = item["fromAgent"].as_str().filter(|s| !s.is_empty()) {
+    if let Some(agent) = item.get("fromAgent").and_then(Value::as_str).filter(|s| !s.is_empty()) {
         // The sending session, when the daemon bound it (`fromSessionId`).
-        return match item["fromSessionId"].as_str().filter(|s| !s.is_empty()) {
+        return match item.get("fromSessionId").and_then(Value::as_str).filter(|s| !s.is_empty()) {
             Some(from) => format!("{agent} ({})", from.get(..8).unwrap_or(from)),
             None => agent.to_owned(),
         };
     }
-    match item["author"]["name"].as_str() {
+    match item.pointer("/author/name").and_then(Value::as_str) {
         Some(name) => format!("person:{name}"),
         None => "person".to_owned(),
     }
@@ -205,18 +207,20 @@ fn list_lines(queue: &[Value]) -> Vec<String> {
     if queue.is_empty() {
         return vec!["queue is empty".to_owned()];
     }
-    let id_w = queue.iter().map(|q| q["promptId"].as_str().unwrap_or("").len()).max();
+    let id_w =
+        queue.iter().map(|q| q.get("promptId").and_then(Value::as_str).unwrap_or("").len()).max();
     let id_w = id_w.unwrap_or(0).max("PROMPT ID".len());
     let senders: Vec<String> = queue.iter().map(sender).collect();
     let from_w = senders.iter().map(String::len).max().unwrap_or(0).max("FROM".len());
     let mut lines = vec![format!("{:id_w$}  {:from_w$}  {:>5}  TEXT", "PROMPT ID", "FROM", "AGE")];
     for (q, from) in queue.iter().zip(&senders) {
-        let held = if q["held"] == true { "[held] " } else { "" };
-        let preview = short(q["prompt"].as_str().unwrap_or(""), 100);
+        let held =
+            if q.get("held").and_then(Value::as_bool) == Some(true) { "[held] " } else { "" };
+        let preview = short(q.get("prompt").and_then(Value::as_str).unwrap_or(""), 100);
         lines.push(format!(
             "{:id_w$}  {from:from_w$}  {:>5}  {held}{preview}",
-            q["promptId"].as_str().unwrap_or("?"),
-            q["queuedAt"].as_u64().map(age).unwrap_or_default(),
+            q.get("promptId").and_then(Value::as_str).unwrap_or("?"),
+            q.get("queuedAt").and_then(Value::as_u64).map(age).unwrap_or_default(),
         ));
     }
     let agents = queue.iter().filter(|q| is_from_agent(q)).count();
@@ -230,7 +234,8 @@ async fn checks_agents_only(client: &Client, id: &str) -> Result<bool> {
     let probe = format!("acpmux-cli-probe-{}", uuid::Uuid::now_v7());
     let params = json!({"sessionId": id, "promptId": probe, "fromAgentsOnly": true});
     let reply = client.request(method::MUX_QUEUE_REMOVE, params).await?;
-    Ok(reply["fromAgentsOnly"] == true && reply["removed"] != true)
+    Ok(reply.get("fromAgentsOnly").and_then(Value::as_bool) == Some(true)
+        && reply.get("removed").and_then(Value::as_bool) != Some(true))
 }
 
 /// `clear` on a daemon that does not check `fromAgentsOnly` (an older acpmux, or a peer on one).
@@ -255,7 +260,7 @@ fn agents_only_unsupported(what: &str) -> anyhow::Error {
 async fn remove_one(client: &Client, id: &str, prompt_id: &str, from_agents_only: bool) -> Value {
     let mut params = json!({"sessionId": id, "promptId": prompt_id});
     if from_agents_only {
-        params["fromAgentsOnly"] = json!(true);
+        params.set("fromAgentsOnly", json!(true));
     }
     match client.request(method::MUX_QUEUE_REMOVE, params).await {
         Ok(v) => outcome(prompt_id, &v, from_agents_only),
@@ -265,23 +270,27 @@ async fn remove_one(client: &Client, id: &str, prompt_id: &str, from_agents_only
 
 /// `remove_one`'s outcome for the daemon's reply `v`.
 fn outcome(prompt_id: &str, v: &Value, from_agents_only: bool) -> Value {
-    let checked = v["fromAgentsOnly"] == true;
+    let checked = v.get("fromAgentsOnly").and_then(Value::as_bool) == Some(true);
     let mut r = match () {
-        _ if v["removed"] == true => json!({"promptId": prompt_id, "status": "removed"}),
-        _ if checked && v["notFromAgent"] == true => {
+        _ if v.get("removed").and_then(Value::as_bool) == Some(true) => {
+            json!({"promptId": prompt_id, "status": "removed"})
+        }
+        _ if checked && v.get("notFromAgent").and_then(Value::as_bool) == Some(true) => {
             json!({"promptId": prompt_id, "status": "kept"})
         }
         _ => json!({"promptId": prompt_id, "status": "not_found"}),
     };
     if from_agents_only {
-        r["checked"] = json!(checked);
+        r.set("checked", json!(checked));
     }
     r
 }
 
 /// Prints each outcome; an error when any prompt was refused, or (unless `gone_ok`) not found.
 fn report(id: &str, results: &[Value], json_out: bool, gone_ok: bool) -> Result<()> {
-    let count = |status: &str| results.iter().filter(|r| r["status"] == status).count();
+    let count = |status: &str| {
+        results.iter().filter(|r| r.get("status").and_then(Value::as_str) == Some(status)).count()
+    };
     let (removed, not_found, refused) = (count("removed"), count("not_found"), count("refused"));
     let kept = count("kept");
     if json_out {
@@ -295,12 +304,15 @@ fn report(id: &str, results: &[Value], json_out: bool, gone_ok: bool) -> Result<
         }));
     } else {
         for r in results {
-            let prompt_id = r["promptId"].as_str().unwrap_or("?");
-            match r["status"].as_str() {
+            let prompt_id = r.get("promptId").and_then(Value::as_str).unwrap_or("?");
+            match r.get("status").and_then(Value::as_str) {
                 Some("removed") => println!("removed    {prompt_id}"),
                 Some("not_found") => println!("not found  {prompt_id} (not in the queue)"),
                 Some("kept") => println!("kept       {prompt_id} (now the person's prompt)"),
-                _ => println!("refused    {prompt_id}: {}", r["error"].as_str().unwrap_or("")),
+                _ => println!(
+                    "refused    {prompt_id}: {}",
+                    r.get("error").and_then(Value::as_str).unwrap_or("")
+                ),
             }
         }
         println!("{removed} removed, {not_found} not found, {kept} kept, {refused} refused");
