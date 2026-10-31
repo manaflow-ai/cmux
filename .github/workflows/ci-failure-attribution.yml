@@ -5,8 +5,8 @@ name: CI failure attribution
 # (scripts/ci/classify_failures.py has the signatures and the rules). On every
 # completed pull request run of CI:
 #
-#   red or cancelled   each failed job gets a verdict (machine, code, unknown)
-#                      in the job summary and in one comment on the pull
+#   red, timed out     each failed job gets a verdict (machine, code, unknown)
+#   or cancelled       in the job summary and in one comment on the pull
 #                      request, edited in place; when every failed job of a
 #                      failed attempt 1 or 2 is machine, the failed jobs are
 #                      re-run (attempt 3 goes to Blacksmith, which ends it)
@@ -43,7 +43,7 @@ concurrency:
 jobs:
   attribute:
     name: Attribute
-    if: ${{ vars.CI_QUOTA_HOLD != '1' && github.repository == 'manaflow-ai/cmux' && github.event.workflow_run.event == 'pull_request' && contains(fromJSON('["success","failure","cancelled"]'), github.event.workflow_run.conclusion) }}
+    if: ${{ vars.CI_QUOTA_HOLD != '1' && github.repository == 'manaflow-ai/cmux' && github.event.workflow_run.event == 'pull_request' && contains(fromJSON('["success","failure","cancelled","timed_out"]'), github.event.workflow_run.conclusion) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: write token; the re-run must follow CI within a minute; CI_TRUSTED_RUNNER picks Blacksmith (default) or GitHub-hosted
     timeout-minutes: 10
     permissions:
