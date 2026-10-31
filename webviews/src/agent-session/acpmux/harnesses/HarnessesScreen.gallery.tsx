@@ -15,13 +15,28 @@ type Props = {
   install?: "running" | "fails";
   /// The update `harness.health` offers.
   update?: string;
+  signInFails?: boolean;
+  /// `harness.health` rejects.
   healthFailure?: boolean;
-  launchFailure?: "tab.open" | "chat.new";
+  /// The host rejects this launch.
+  launchFailure?: "chat.new";
+  /// Harnesses whose health answers with no `auth` at all: the sign-in is unknown.
+  authMissing?: string[];
 };
 
 /// The page in a pane, with a host that answers `harness.health` and `shell.*` and records what the
 /// page asks.
-function GalleryHarnesses({ acpmux, signedOut, checking, install, update, healthFailure, launchFailure }: Props) {
+function GalleryHarnesses({
+  acpmux,
+  signedOut,
+  checking,
+  install,
+  update,
+  signInFails,
+  healthFailure,
+  launchFailure,
+  authMissing,
+}: Props) {
   const [asked, setAsked] = useState<string>();
   const [closed, setClosed] = useState(false);
   const reads = useRef(0);
@@ -34,7 +49,9 @@ function GalleryHarnesses({ acpmux, signedOut, checking, install, update, health
           return Promise.resolve({
             health: {
               id: params.id,
-              auth: signedOut.includes(String(params.id)) ? "signedOut" : "signedIn",
+              ...(authMissing?.includes(String(params.id))
+                ? {}
+                : { auth: signedOut.includes(String(params.id)) ? "signedOut" : "signedIn" }),
               ...(update ? { update: { command: update, elevated: false } } : {}),
             },
           });
@@ -50,10 +67,16 @@ function GalleryHarnesses({ acpmux, signedOut, checking, install, update, health
             });
           return new Promise<never>(() => {});
         }
+        // Record the request before simulating a rejected terminal launch so the play can
+        // observe the attempted login even though the page handles the failure asynchronously.
         setAsked(`${method} ${JSON.stringify(params)}`);
+        if (method === "tab.open" && params.kind === "terminal" && signInFails)
+          return Promise.resolve().then(() => {
+            throw new Error("Terminal could not open");
+          });
         return Promise.resolve({});
       },
-    [signedOut, install, update, healthFailure, launchFailure],
+    [signedOut, install, update, signInFails, healthFailure, launchFailure, authMissing],
   );
   return (
     <div
@@ -143,6 +166,11 @@ export default componentEntry<Props>({
       note: "Harness action hover states without an automatic play.",
       props: { acpmux: thisMac, signedOut: ["codex"] },
     },
+    "sign-in-launch-failed": {
+      note: "Opening the sign-in terminal fails; the row keeps the failure and a Sign In retry.",
+      props: { acpmux: thisMac, signedOut: ["codex"], signInFails: true },
+      play: signIn,
+    },
     "signed-out-no-login": {
       note: "Claude is installed but signed out with no login command: setup recovery, never Start Chat.",
       props: { acpmux: thisMac, signedOut: ["claude"] },
@@ -151,10 +179,9 @@ export default componentEntry<Props>({
       note: "A failed health read is unavailable with a recovery action, never Ready or an endless spinner.",
       props: { acpmux: thisMac, signedOut: [], healthFailure: true },
     },
-    "sign-in-launch-failed": {
-      note: "A rejected Sign In launch stays visible with the error and a retry, never waiting for an unopened tab.",
-      props: { acpmux: thisMac, signedOut: ["codex"], launchFailure: "tab.open" },
-      play: failedLaunch("codex"),
+    "auth-unknown": {
+      note: "Grok's health answers with no sign-in at all: unknown is not ready, so Check Again, never Start Chat.",
+      props: { acpmux: thisMac, signedOut: ["codex"], authMissing: ["grok"] },
     },
     "chat-launch-failed": {
       note: "A rejected Start Chat keeps the setup page open with the error and a retry.",

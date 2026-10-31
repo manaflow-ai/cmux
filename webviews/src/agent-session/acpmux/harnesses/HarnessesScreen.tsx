@@ -25,7 +25,9 @@ const STATUS: Record<HarnessStatus, StringKey> = {
 /// says so if acpmux still cannot run the harness), or a sign-in in a terminal tab the page waits for.
 type Progress =
   | { kind: "installing"; line?: string }
-  | { kind: "failed"; reason: string; retryLaunch?: boolean }
+  /// `retrySignIn`: a rejected sign-in terminal, retried with its saved `login`; `retryLaunch`: a
+  /// rejected Start Chat, retried with the row's action.
+  | { kind: "failed"; reason: string; retrySignIn?: boolean; login?: string; retryLaunch?: boolean }
   | { kind: "done" }
   | { kind: "waiting" }
   | { kind: "launching" };
@@ -58,6 +60,7 @@ export function HarnessesScreen({
   callNative,
   onClose,
   onStart = onClose,
+  onStartChat,
   checking = false,
   refreshCatalog,
   signInPollMs = 3000,
@@ -76,6 +79,8 @@ export function HarnessesScreen({
   onClose(): void;
   /// A chat starts in this tab: the page leaves (and a New Tab page becomes the chat).
   onStart?(): void;
+  /// A New Tab setup request continues its pending draft instead of creating an empty chat.
+  onStartChat?(harness: string): void;
 }) {
   const t = useT();
   const [health, setHealth] = useState<Record<string, HarnessHealth | undefined>>({});
@@ -100,6 +105,21 @@ export function HarnessesScreen({
     if (live.current) setHealth((current) => ({ ...current, [harness]: row }));
     return row;
   };
+  useEffect(() => {
+    // A failed terminal launch can race with a health refresh that reports the harness ready.
+    // Reconcile that completed state so the stale failure cannot keep the row stuck on Sign In.
+    setProgress((current) => {
+      let changed = false;
+      const next = { ...current };
+      for (const [harness, state] of Object.entries(current)) {
+        if (state?.kind === "failed" && state.retrySignIn && health[harness]?.auth === "signedIn") {
+          next[harness] = undefined;
+          changed = true;
+        }
+      }
+      return changed ? next : current;
+    });
+  }, [health, progress]);
   const installed = useMemo(
     () =>
       catalog.harnesses
@@ -232,7 +252,16 @@ export function HarnessesScreen({
     if (row.docsUrl) return { label: t("harnesses.setupGuide"), run: () => openDocs(row) };
     return { label: t("harnesses.checkAgain"), run: () => checkAgain(row) };
   };
-  const launch = (row: HarnessRow, method: string, params: Record<string, unknown>, started: () => void) => {
+  /// Opens a terminal or chat on the host: the row spins (its action disabled) until the host
+  /// answers, a second click while it does is ignored, and a rejection stays on the row with its
+  /// reason and a retry (`failure`) instead of waiting for a tab that never opened.
+  const launch = (
+    row: HarnessRow,
+    method: string,
+    params: Record<string, unknown>,
+    started: () => void,
+    failure: Partial<Extract<Progress, { kind: "failed" }>>,
+  ) => {
     if (launching.current.has(row.harness)) return;
     launching.current.add(row.harness);
     mark(row.harness, { kind: "launching" });
@@ -244,20 +273,28 @@ export function HarnessesScreen({
       (error) => {
         launching.current.delete(row.harness);
         mark(row.harness, {
+          ...failure,
           kind: "failed",
           reason: error instanceof Error ? error.message : String(error),
-          retryLaunch: true,
         });
       },
     );
   };
+  const retrySignIn = (row: HarnessRow, login: string) =>
+    // Keep the original login command. A health refresh can make the row ready before this button
+    // is clicked; routing through act(row) then starts a chat instead of retrying the login.
+    launch(
+      row,
+      "tab.open",
+      { kind: "terminal", text: login, ...inFolder, run: true, keep: true },
+      () => mark(row.harness, { kind: "waiting" }),
+      { retrySignIn: true, login },
+    );
   const act = (row: HarnessRow) => {
     if (row.status === "signIn" && row.login) {
       // `keep`: the page stays beside the new tab and checks again on return (a page with no chat
       // yet would otherwise be replaced by it).
-      launch(row, "tab.open", { kind: "terminal", text: row.login, ...inFolder, run: true, keep: true }, () =>
-        mark(row.harness, { kind: "waiting" }),
-      );
+      retrySignIn(row, row.login);
     } else if (row.status === "signIn") {
       // Signed-out evidence without a command must never fall through to Start Chat.
       fix(row).run();
@@ -268,10 +305,17 @@ export function HarnessesScreen({
     } else if (row.status === "unavailable") {
       fix(row).run();
     } else if (row.status === "ready") {
-      launch(row, "chat.new", { harness: row.harness, ...inFolder }, () => {
-        mark(row.harness, undefined);
-        onStart();
-      });
+      if (onStartChat) return onStartChat(row.harness);
+      launch(
+        row,
+        "chat.new",
+        { harness: row.harness, ...inFolder },
+        () => {
+          mark(row.harness, undefined);
+          onStart();
+        },
+        { retryLaunch: true },
+      );
     }
   };
   const custom = () => {
@@ -314,16 +358,19 @@ export function HarnessesScreen({
             : finished?.kind === "done"
               ? undefined
               : finished;
-          // A failed command offers its setup page, or another look.
+          // A failed login launch retries the login; failed installs offer setup or another look.
           const failedFix =
             doing?.kind === "failed"
-              ? doing.retryLaunch && action(row)
-                ? { label: action(row)!, run: () => act(row) }
-                : row.docsUrl
+              ? doing.retrySignIn && doing.login
+                ? { label: t("harnesses.signIn"), run: () => retrySignIn(row, doing.login!) }
+                : doing.retryLaunch && action(row)
+                  ? { label: action(row)!, run: () => act(row) }
+                  : row.docsUrl
                   ? { label: t("harnesses.setupGuide"), run: () => openDocs(row) }
                   : { label: t("harnesses.checkAgain"), run: () => checkAgain(row) }
               : undefined;
-          const label = doing?.kind === "installing" ? undefined : (failedFix?.label ?? action(row));
+          const label =
+            doing?.kind === "installing" || doing?.kind === "waiting" ? undefined : (failedFix?.label ?? action(row));
           // acpmux's reason can run to several lines: the row shows the first, the tooltip all.
           const status =
             doing?.kind === "installing"
