@@ -97,6 +97,8 @@ on:
       - scripts/cmux-next/build-optchat-inspector-web.sh
       - scripts/cmux-next/build-web-bundles.sh
       - scripts/cmux-next/web-bundle-key.py
+      # The feature tips' source (webviews/scripts/pages/gen-feature-tips.mjs).
+      - release-notes/next/highlights/**
       # Files outside webviews/ that webviews sources import (web-bundle-key.py --inputs;
       # tests/test_web_bundle_key_inputs.sh keeps this list complete).
       - web/data/model-catalog/**
@@ -110,6 +112,8 @@ on:
       - tests/fixtures/cua-helper-signatures/**
       - scripts/whats-new/fixtures/**
       - scripts/ci/cmux_next_route.py
+      - scripts/ci/fast_tier_anchor.py
+      - tests/test_ci_fast_tier_anchor.py
       - scripts/ci/swiftpm_build_metrics.py
       - scripts/ci/build_metrics.py
       - tests/test_ci_swiftpm_build_metrics.py
@@ -172,6 +176,8 @@ on:
       - scripts/cmux-next/check-single-omnibar.py
       - scripts/cmux-next/check-no-swiftui.py
       - scripts/cmux-next/no-swiftui-allowlist.txt
+      - scripts/cmux-next/check-default-cursor.py
+      - scripts/cmux-next/pointer-cursor-allowlist.txt
       - scripts/cmux-next/check-perf-source-guard.py
       - scripts/cmux-next/check-overlay-glass.py
       - tests/test_cmux_next_perf_source_guard.py
@@ -368,6 +374,8 @@ on:
       - scripts/cmux-next/build-optchat-inspector-web.sh
       - scripts/cmux-next/build-web-bundles.sh
       - scripts/cmux-next/web-bundle-key.py
+      # The feature tips' source (webviews/scripts/pages/gen-feature-tips.mjs).
+      - release-notes/next/highlights/**
       # Files outside webviews/ that webviews sources import (web-bundle-key.py --inputs;
       # tests/test_web_bundle_key_inputs.sh keeps this list complete).
       - web/data/model-catalog/**
@@ -381,6 +389,8 @@ on:
       - tests/fixtures/cua-helper-signatures/**
       - scripts/whats-new/fixtures/**
       - scripts/ci/cmux_next_route.py
+      - scripts/ci/fast_tier_anchor.py
+      - tests/test_ci_fast_tier_anchor.py
       - scripts/ci/swiftpm_build_metrics.py
       - scripts/ci/build_metrics.py
       - tests/test_ci_swiftpm_build_metrics.py
@@ -445,6 +455,8 @@ on:
       - scripts/cmux-next/check-single-omnibar.py
       - scripts/cmux-next/check-no-swiftui.py
       - scripts/cmux-next/no-swiftui-allowlist.txt
+      - scripts/cmux-next/check-default-cursor.py
+      - scripts/cmux-next/pointer-cursor-allowlist.txt
       - scripts/cmux-next/check-perf-source-guard.py
       - scripts/cmux-next/check-overlay-glass.py
       - tests/test_cmux_next_perf_source_guard.py
@@ -1018,6 +1030,18 @@ jobs:
           else
             echo "own_tui=true" >> "$GITHUB_OUTPUT"
           fi
+          # A feat-cmux-next push's fast tier can end with no verdict: its job
+          # concurrency group replaces it while pending, or the head preflight
+          # skips it. So route the diff since the last push whose fast tier
+          # FINISHED (its cmux-next-fast-tier-finished marker), not since the
+          # previous push: a cancelled push's Swift is tested by the next one
+          # (2026-10-30: no run with c5dd001a, #27931, finished the fast tier).
+          # Fails open: the script answers true on any error, and a crash or
+          # timeout here answers true too.
+          if [[ "$EVENT_NAME" == push && "$GITHUB_REF" == refs/heads/feat-cmux-next ]]; then
+            timeout 150 python3 scripts/ci/fast_tier_anchor.py --head "$GITHUB_SHA" \
+              || echo "fast_tier=true" >> "$GITHUB_OUTPUT"
+          fi
 
       # One look (and one short re-check of a missing run list), no wait.
       # Fails open: the tiers above are already routed, so a probe that errs or
@@ -1236,7 +1260,9 @@ jobs:
     if: ${{ !cancelled() && ((inputs.same_tree_sha == '' && needs.push-head-preflight.outputs.current == 'true' && needs.path_route.outputs.macos == 'true') || (inputs.same_tree_sha != '' && inputs.same_tree_state == 'ready')) && github.repository_owner == 'manaflow-ai' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_PR_POOL_OWNED == '1' && (github.run_attempt == 1 || (github.run_attempt == 2 && contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor))) }}
     name: cmux-next macOS placement
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 4
+    # Checkout (1m), three bounded token mints (3m), placement (2m),
+    # marker upload (1m), plus time for runner setup and action cleanup.
+    timeout-minutes: 8
     # The workflow's CMUX_NEXT_SIDE_ROUTE, with the rescue's full re-run (attempt 2 by
     # github-actions[bot]) placed too: its steps read what is free when it starts, and the
     # cascade jobs take a free Blacksmith slot instead of the end of the side queue they waited
@@ -1257,9 +1283,14 @@ jobs:
       # label below). Read from free_retry_runner, which a placement script
       # predating the free-slot rule never writes.
       retry_runner: ${{ steps.place.outputs.free_retry_runner }}
+      # Preserve the existing queue only when the cascade has no admissible target.
+      deferred_runner: ${{ steps.place.outputs.deferred_runner }}
       # The Blacksmith labels a feed's compile counts as full (next_macos_cascade.fresh_stalled()): a feat-cmux-next
       # push's Release compile never falls back to one of them.
       fresh_stalled: ${{ steps.place.outputs.fresh_stalled }}
+      # Tiers with no live owned or Blacksmith macOS target are handed to the
+      # thin cmux-ci gateway once the matching client steps are enabled.
+      fleet_jobs: ${{ steps.place.outputs.fleet_jobs }}
       # vars.CI_FAST_LANE_RUNNER while one of its runners is idle, else empty
       # (side_lane_placement.fast_route()): the fast tier never queues on it.
       fast_runner: ${{ steps.place.outputs.fast_runner }}
@@ -1274,6 +1305,7 @@ jobs:
       gateway_runner: ${{ steps.place.outputs.gateway_runner }}
       gateway_attempt: ${{ steps.place.outputs.gateway_attempt }}
       fallback_jobs: ${{ steps.place.outputs.fallback_jobs }}
+      owned_jobs: ${{ steps.place.outputs.owned_jobs }}
       # The attempt this placement ran in. A re-run of failed jobs carries the placement job, and its
       # outputs, from an earlier attempt: a job output is evaluated when its job runs, so this stays that
       # attempt's number. Every Mac job reads blacksmith_12_jobs, blacksmith_6_jobs and
@@ -1302,6 +1334,7 @@ jobs:
     steps:
       # The placement code from the base branch, as ci-macos.yml's admission-placement uses it.
       - name: Check out the trusted placement
+        timeout-minutes: 1
         if: startsWith(env.CMUX_NEXT_SIDE_ROUTE, 'glaeda-')
         continue-on-error: true
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -1364,6 +1397,8 @@ jobs:
           ROUTE_TOKEN: ${{ steps.route-token.outputs.token }}
           ROUTE_TOKEN_FALLBACK: ${{ steps.route-token-fallback.outputs.token }}
           SNAPSHOT_TOKEN: ${{ steps.snapshot-read-token.outputs.token || github.token }}
+          # Glaeda's authoritative per-label gate reading; this avoids a second API request.
+          CI_FLEET_GATES: ${{ vars.CI_FLEET_GATES }}
           # The cascade's jobs that run on this route at all (next_macos_cascade.py):
           # not a job that path routing or the pull request's labels skip (a job
           # missing here only stays on the minis' queue). The fast tier is always
@@ -1440,7 +1475,7 @@ jobs:
       # running push run once a newer push exists.
       - name: Mark a run on the minis
         id: marker
-        if: startsWith(env.CMUX_NEXT_SIDE_ROUTE, 'glaeda-') && steps.place.outputs.watch != 'false' && github.event_name != 'push' && github.run_attempt == 1
+        if: startsWith(env.CMUX_NEXT_SIDE_ROUTE, 'glaeda-') && github.event_name != 'push' && github.run_attempt == 1
         continue-on-error: true
         run: |
           set -euo pipefail
@@ -1454,6 +1489,7 @@ jobs:
       # twice on 2026-10-21. The refusals marker has the sweeper re-run what a
       # mini refuses and leave a long queue alone.
       - name: Upload the owned-pool watch marker
+        timeout-minutes: 1
         if: ${{ steps.marker.outputs.path != '' }}
         continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -1616,6 +1652,13 @@ jobs:
         id: no-process-scan
         continue-on-error: true
         run: python3 -I scripts/cmux-next/check-no-process-scan.py "$GITHUB_WORKSPACE"
+
+      # The user (2026-10-30): "change all pointers back to cursor-default". App UI shows the
+      # arrow; only web page and terminal content may show the pointing hand (allowlist).
+      - name: Default cursor (no pointing hand in app UI)
+        id: default-cursor
+        continue-on-error: true
+        run: python3 -I scripts/cmux-next/check-default-cursor.py "$GITHUB_WORKSPACE"
 
       - name: No literal state roots (per-build isolation S7, cx-is1kf.8)
         id: state-roots
@@ -1890,6 +1933,7 @@ jobs:
             bash scripts/cmux-next/tests/check-no-process-scan.test.sh
           bash scripts/cmux-next/tests/check-single-omnibar.test.sh
             bash scripts/cmux-next/tests/check-no-swiftui.test.sh
+            bash scripts/cmux-next/tests/check-default-cursor.test.sh
             bash scripts/cmux-next/tests/check-state-roots.test.sh
             bash scripts/cmux-next/tests/check-dialog-key-hints.test.sh
             bash scripts/cmux-next/tests/check-switch-fetches.test.sh
@@ -2258,6 +2302,7 @@ jobs:
             ${{ steps.single-omnibar.outcome }}|One omnibar (popups, New Tab and tabs share AddressBarView)
             ${{ steps.no-swiftui.outcome }}|No new SwiftUI (macOS UI is AppKit)
             ${{ steps.no-process-scan.outcome }}|No process scanning (holders register themselves, plans/cmux-next/pty-holder.md 4)
+            ${{ steps.default-cursor.outcome }}|Default cursor (no pointing hand in app UI)
             ${{ steps.state-roots.outcome }}|No literal state roots (per-build isolation S7, cx-is1kf.8)
             ${{ steps.dialog-key-hints.outcome }}|Dialog buttons show their keys (u2647)
             ${{ steps.concurrency.outcome }}|Main-thread concurrency
@@ -2790,7 +2835,7 @@ jobs:
   # still runs, and a route with no answer (a failed path_route) runs it as before.
   fast-tier:
     needs: [macos-placement, path_route, push-head-preflight]
-    if: ${{ !cancelled() && inputs.same_tree_sha == '' && inputs.dev_daily != true && needs.push-head-preflight.outputs.current == 'true' && ((github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next' && needs.path_route.outputs.macos != 'false' && needs.path_route.outputs.fast_tier != 'false') || (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next')) }}
+    if: ${{ !cancelled() && inputs.same_tree_sha == '' && inputs.dev_daily != true && needs.push-head-preflight.outputs.current == 'true' && ((github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next' && needs.path_route.outputs.macos != 'false' && needs.path_route.outputs.fast_tier != 'false') || (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.path_route.outputs.fast_tier != 'false')) }}
     name: cmux-next fast tier
     # The cache saves name the R2 write credentials, which live in the ci-cache-writer
     # environment (main only; tests/test_ci_pull_request_caches_are_read_only.py). This job
@@ -2803,10 +2848,11 @@ jobs:
     # (glaeda-fast-<class>-xcode-26.6). The tier takes it only through the
     # placement's fast_runner, set while one of its runners is idle, and only on
     # attempt 1: a re-run reuses attempt 1's placement, whose idle reading is stale.
-    # Otherwise the tier takes the cascade (Blacksmith) and then the side
-    # route, so it never waits on that one small pool. The fork clause stays first, so a fork
-    # pull request never reaches it.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || needs.macos-placement.outputs.fast_runner != '' && github.run_attempt == 1 && needs.macos-placement.outputs.fast_runner || (github.run_attempt == 1 || github.run_attempt == 2 && contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.blacksmith_12_jobs, ' fast-tier ') && 'blacksmith-12vcpu-macos-26' || (github.run_attempt == 1 || github.run_attempt == 2 && contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.blacksmith_6_jobs, ' fast-tier ') && 'blacksmith-6vcpu-macos-26' || (github.run_attempt == 1 || !contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && needs.macos-placement.outputs.runner || github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","workflow_dispatch"]'), github.event_name) && (github.run_attempt == 1 || !contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && vars.CI_SIDE_LANE_RUNNER || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && needs.macos-placement.outputs.retry_runner || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","workflow_dispatch"]'), github.event_name) && (github.run_attempt <= 3 || !contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}
+    # Otherwise the tier takes the current cascade allocation. With every
+    # alternative excluded, deferred_runner preserves the base owned queue;
+    # it never bypasses Blacksmith outage/nightly exclusions or skips tests.
+    # The later fleet-client integration replaces that deferred case.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || needs.macos-placement.outputs.fast_runner != '' && github.run_attempt == 1 && needs.macos-placement.outputs.fast_runner || (github.run_attempt == 1 || github.run_attempt == 2 && contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.blacksmith_12_jobs, ' fast-tier ') && 'blacksmith-12vcpu-macos-26' || (github.run_attempt == 1 || github.run_attempt == 2 && contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.blacksmith_6_jobs, ' fast-tier ') && 'blacksmith-6vcpu-macos-26' || (github.run_attempt == 1 || github.run_attempt == 2 && contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.owned_jobs, ' fast-tier ') && needs.macos-placement.outputs.runner || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && needs.macos-placement.outputs.retry_runner || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && needs.macos-placement.outputs.deferred_runner || ((github.run_attempt == 1 || github.run_attempt == 2 && contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && vars.CI_PR_POOL_OWNED == '1' && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}
     permissions:
       # The reuse lookup lists artifacts.
       actions: read
@@ -2968,6 +3014,7 @@ jobs:
         run: python3 -I scripts/ci/e2e_warm_derived_data.py replay "$GITHUB_WORKSPACE" Packages/macOS/CmuxNext/.build/cmux-fast-tier-input-mtimes.json
 
       - name: Run the fast tier
+        id: fast-tier-run
         if: ${{ steps.reuse.outputs.hit != 'true' }}
         env:
           CMUX_FAST_SWIFT_CACHE_KEY: ${{ steps.fast-cache-key.outputs.swift-key }}
@@ -2996,6 +3043,28 @@ jobs:
           path: ${{ runner.temp }}/cmux-next-fast-tier.json
           if-no-files-found: warn
           retention-days: 14
+
+      # A feat-cmux-next push whose fast tier ran to a verdict (passed or failed) marks its commit:
+      # path_route anchors the next pushes' fast tier on it (scripts/ci/fast_tier_anchor.py). A
+      # cancelled job, one that failed before the tier ran, or a reused pass marks nothing, so the
+      # next push routes from an older anchor and runs it (fail open).
+      - name: Mark this push's fast tier finished
+        if: ${{ always() && !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && steps.reuse.outputs.hit != 'true' && (steps.fast-tier-run.outcome == 'success' || steps.fast-tier-run.outcome == 'failure') }}
+        continue-on-error: true
+        run: |
+          mkdir -p "$RUNNER_TEMP/fast-tier-finished"
+          printf '%s\n' "$GITHUB_SHA" > "$RUNNER_TEMP/fast-tier-finished/sha.txt"
+
+      - name: Upload the finished marker
+        if: ${{ always() && !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && steps.reuse.outputs.hit != 'true' && (steps.fast-tier-run.outcome == 'success' || steps.fast-tier-run.outcome == 'failure') }}
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-next-fast-tier-finished
+          path: ${{ runner.temp }}/fast-tier-finished
+          if-no-files-found: error
+          retention-days: 1
+          overwrite: true
 
       # A pass records itself for the next run on the same inputs: an artifact named after
       # the key, which every pull request and the base can list (scripts/ci/job_reuse.py
