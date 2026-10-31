@@ -176,8 +176,10 @@ lost holds nothing on any pool, so that pass ignores the queue threshold,
 has its own cap, and may end main schedules and TestFlight runs, which the
 categories above never touch. It never ends a nightly, DEV or promote run
 (scripts/ci/delivery_workflows.py): those are reported for more capacity. It acts later than (e)
-(CI_JANITOR_ORPHAN_MINUTES, 120 by default) and never re-runs; a run (e)
-cancels this sweep is excluded from it. An orphan at an open pull request's
+(CI_JANITOR_ORPHAN_MINUTES, 120 by default) and re-runs only a workflow_dispatch
+on a long-lived branch (orphan_reruns()): the next sweep re-runs it at the same
+head, below LOST_FAILOVER_MAX_ATTEMPT, unless a newer dispatch of its kind took
+its job (superseding_dispatch()). A run (e) cancels this sweep is excluded from it. An orphan at an open pull request's
 head, whatever its event, is skipped like every category's (open_pr_at_head()).
 
 Superseded delivery runs are one more pass (skip_superseded_delivery): "When
@@ -2150,8 +2152,10 @@ def plan_lost_reruns(
     app_token: bool = True,
     cmux_bot: bool = False,
     rerun_cap: int | None = None,
+    dispatch_runs: Mapping[int, Sequence[Mapping[str, Any]]] | None = None,
+    dispatch_jobs: Mapping[int, Sequence[Mapping[str, Any]]] | None = None,
 ) -> list[LostRerun]:
-    """Which pending category-e and category-f cancels to re-run now.
+    """Which pending category-e and category-f cancels, and orphaned dispatches, to re-run now.
 
     Each entry names the run and the attempt the janitor cancelled. It is
     re-run (rerun-failed-jobs) once that attempt has completed as cancelled,
@@ -2172,6 +2176,12 @@ def plan_lost_reruns(
     while this sweep's token is not cmux-bot's (`cmux_bot`). At most `rerun_cap`
     (LOST_RERUN_MAX by default) are re-run; main() shares that one allowance
     between rerun_open_head() and the pending entries.
+
+    An orphaned dispatch's entry (`dispatch`, orphan_reruns()) is judged by its run alone: once its cancel has
+    settled at the same attempt and head it is re-run, unless a newer dispatch of its kind took its job
+    (superseding_dispatch() over `dispatch_runs`, run id -> its workflow's dispatches on its branch, and
+    `dispatch_jobs`, run id -> jobs). Its branch moving on is no reason: it tests a long-lived branch's commit.
+    One whose dispatches were not listed this sweep is kept.
     """
     cap = LOST_RERUN_MAX if rerun_cap is None else max(0, rerun_cap)
     decisions: list[LostRerun] = []
@@ -2200,6 +2210,22 @@ def plan_lost_reruns(
             continue
         if run.get("head_sha") != entry.get("head_sha"):
             decisions.append(LostRerun(entry, "drop", "head changed", run))
+            continue
+        if isinstance(entry.get("dispatch"), Mapping):
+            job = str(entry["dispatch"].get("job") or "")
+            if dispatch_runs is None or run_id not in dispatch_runs:
+                decisions.append(LostRerun(entry, "keep", "newer dispatches not listed this sweep", run))
+                continue
+            newer = superseding_dispatch(entry, run, dispatch_runs[run_id], dispatch_jobs or {})
+            if newer is not None:
+                decisions.append(LostRerun(entry, "drop", f"not re-run: newer dispatch {newer.get('id')} took "
+                                                          f"`{job}`", run))
+                continue
+            if reruns >= cap:
+                decisions.append(LostRerun(entry, "keep", f"re-run cap of {LOST_RERUN_MAX} a sweep reached", run))
+                continue
+            reruns += 1
+            decisions.append(LostRerun(entry, "rerun", f"orphaned dispatch: no newer dispatch took `{job}`", run))
             continue
         branch = str(entry.get("branch") or "")
         if branch not in prs_by_branch:
@@ -2733,6 +2759,8 @@ class Orphan:
     queued_since: dt.datetime | None = None
     # Other jobs of the run still executing; the run waits for them.
     running_jobs: int = 0
+    # The lost job's id, for a re-run of that job alone (orphan_reruns()).
+    job_id: int | None = None
 
 
 def find_orphans(
@@ -2786,7 +2814,8 @@ def find_orphans(
             else:
                 continue
             if found is None or (found.queued_since is not None and queued_at < found.queued_since):
-                found = Orphan(run, evidence, str(job.get("name") or ""), queued_at, running)
+                found = Orphan(run, evidence, str(job.get("name") or ""), queued_at, running,
+                               job.get("id") if isinstance(job.get("id"), int) else None)
         if found is not None:
             orphans.append(found)
             continue
@@ -3438,6 +3467,106 @@ def cancel_orphans(
     return results, failures
 
 
+# --- orphaned dispatches on long-lived branches come back ------------------------------------------------------
+# A workflow_dispatch run has no pull request or live branch head for category e or f to judge it by, so its lost
+# job reached the orphan pass, which cancelled it and never re-ran it. Every `cmux-next base tier · <sha>` run whose
+# daemon tests waited on a runner died that way: 15 of them between 2026-10-30 12:00Z and 2026-10-31 13:00Z, among
+# them 41190186270 (`cmux-next daemon tests` queued 2h14m on blacksmith-6vcpu-macos-26), so base had no
+# daemon-tests verdict for base_red_excuse.py. The same-tree `cmux-next · <sha>` dispatches on feat-cmux-next too:
+# 41193804308's `cmux app scheme compile (Debug)` queued 2h04m on glaeda-std-xcode-26.6 while 5 newer jobs there
+# started. Now such a cancel carries a re-run through LOST_RERUNS_KEY, as
+# category e's does: the next sweep re-runs it at the same head (plan_lost_reruns()) unless a newer dispatch of
+# the same kind already took that job (superseding_dispatch()). The attempt bounds it: at most
+# LOST_FAILOVER_MAX_ATTEMPT - 1 re-runs, so a job that keeps losing its runner cannot loop.
+# These dispatches test a commit of a long-lived branch, whose head moves on by design, so "the branch moved"
+# is no reason to drop one; a dispatch on a short-lived branch stays category f's (stale_head_cancellable()).
+ORPHAN_RERUN_BRANCHES = LONG_LIVED_BRANCHES
+# Run names (cmux-next.yml's run-name) of dispatches that test their branch's tip: a newer one of the same kind
+# that took the job covers the old one whatever its commit. Any other kind is covered only by a newer dispatch
+# with the very same run name (the same commit and mode).
+TIP_DISPATCH_KINDS = frozenset({"cmux-next base tier", "cmux-next tip daemon suite", "cmux-next tip Swift suite"})
+# Newer dispatches whose jobs a sweep reads to judge supersession, over every pending entry; the in-flight ones
+# are in the inventory already. One listing of the workflow's dispatches per settled entry besides.
+DISPATCH_SUPERSEDE_JOB_READS = 6
+TITLE_SHA = re.compile(r"^(.*?) · [0-9a-f]{7,40}$")
+
+
+def dispatch_kind(run: Mapping[str, Any]) -> str:
+    """A dispatch's run name without its trailing ` · <sha>`: `cmux-next base tier · abc..` -> `cmux-next base tier`."""
+    title = str(run.get("display_title") or run.get("name") or "")
+    match = TITLE_SHA.match(title)
+    return match.group(1) if match else title
+
+
+def orphan_rerun_scope(orphan: Orphan) -> str | None:
+    """Why the orphan pass's cancel of this run carries a re-run, or None when it does not."""
+    run = orphan.run
+    branch = str(run.get("head_branch") or "")
+    attempt = int(run.get("run_attempt") or 1)
+    if orphan.job_name is None or run.get("event") != "workflow_dispatch" or branch not in ORPHAN_RERUN_BRANCHES:
+        return None
+    if attempt >= LOST_FAILOVER_MAX_ATTEMPT or orphan_protected_reason(run) is not None:
+        return None
+    return f"a {branch} dispatch at attempt {attempt}"
+
+
+def orphan_reruns(decisions: Sequence[OrphanDecision], results: Mapping[int, str],
+                  jobs_by_run: Mapping[int, Sequence[Mapping[str, Any]]], *, now: dt.datetime) -> list[dict[str, Any]]:
+    """Pending re-run entries (LOST_RERUNS_KEY) for this sweep's orphan cancels that took, in orphan_rerun_scope().
+
+    A run that already failed gets only its lost job re-run (`job_id`), so its red stays as it was."""
+    entries = []
+    for decision in decisions:
+        run = decision.orphan.run
+        result = results.get(run["id"]) or ""
+        if decision.action != "cancel" or not (result == "cancelled" or result.startswith("force-cancelled")):
+            continue
+        if orphan_rerun_scope(decision.orphan) is None:
+            continue
+        entry: dict[str, Any] = {
+            "run_id": run["id"], "attempt": int(run.get("run_attempt") or 1),
+            "head_sha": str(run.get("head_sha") or ""), "branch": str(run.get("head_branch") or ""),
+            "cancelled_at": _iso(now),
+            "dispatch": {"kind": dispatch_kind(run), "title": str(run.get("display_title") or run.get("name") or ""),
+                         "job": decision.orphan.job_name or ""},
+        }
+        if decision.orphan.job_id is not None and any(_failed(job) for job in jobs_by_run.get(run["id"]) or ()):
+            entry["job_id"] = decision.orphan.job_id
+        entries.append(entry)
+    return entries
+
+
+def newer_dispatches(entry: Mapping[str, Any], run: Mapping[str, Any],
+                     listed: Iterable[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
+    """The dispatches of `run`'s workflow and branch after it that can cover it, newest first."""
+    dispatch = entry.get("dispatch") if isinstance(entry.get("dispatch"), Mapping) else {}
+    kind = str(dispatch.get("kind") or dispatch_kind(run))
+    title = str(dispatch.get("title") or "")
+    found = [other for other in listed
+             if int(other.get("id") or 0) > int(run.get("id") or 0) and other.get("event") == "workflow_dispatch"
+             and other.get("path") == run.get("path") and other.get("head_branch") == run.get("head_branch")
+             and dispatch_kind(other) == kind
+             and (kind in TIP_DISPATCH_KINDS or str(other.get("display_title") or other.get("name") or "") == title)]
+    return sorted(found, key=lambda other: int(other.get("id") or 0), reverse=True)
+
+
+def superseding_dispatch(entry: Mapping[str, Any], run: Mapping[str, Any], listed: Iterable[Mapping[str, Any]],
+                         jobs_of: Mapping[int, Sequence[Mapping[str, Any]]]) -> Mapping[str, Any] | None:
+    """A newer dispatch of the same kind whose job of the same name a runner took and that was not cancelled.
+
+    Only that drops an orphaned dispatch's re-run: a newer dispatch whose job is still queued, was skipped or was
+    cancelled covers nothing (the kick's own base tier run skips the daemon tests its same-tree run carries). A
+    dispatch whose jobs were not read counts as not covering it, so the re-run goes ahead (the attempt bounds it).
+    """
+    dispatch = entry.get("dispatch") if isinstance(entry.get("dispatch"), Mapping) else {}
+    name = str(dispatch.get("job") or "")
+    for other in newer_dispatches(entry, run, listed):
+        for job in jobs_of.get(int(other.get("id") or 0)) or ():
+            if job.get("name") == name and took_runner(job) and job.get("conclusion") != "cancelled":
+                return other
+    return None
+
+
 def render_orphan_summary(
     decisions: Sequence[OrphanDecision],
     *,
@@ -3845,6 +3974,14 @@ class GitHub:
         """One page of the newest runs of `run`'s workflow on its branch (skip_superseded_delivery())."""
         workflow = str(run.get("path") or "").rsplit("/", 1)[-1]
         query = urllib.parse.urlencode({"branch": run.get("head_branch") or "", "per_page": 20})
+        payload = self.request("GET", f"/repos/{self.repo}/actions/workflows/{urllib.parse.quote(workflow)}/runs?{query}")
+        return [other for other in payload.get("workflow_runs") or [] if isinstance(other, Mapping)]
+
+    def dispatch_runs(self, run: Mapping[str, Any]) -> list[dict[str, Any]]:
+        """One page of the newest workflow_dispatch runs of `run`'s workflow on its branch (superseding_dispatch())."""
+        workflow = str(run.get("path") or "").rsplit("/", 1)[-1]
+        query = urllib.parse.urlencode({"branch": run.get("head_branch") or "", "event": "workflow_dispatch",
+                                        "per_page": 50})
         payload = self.request("GET", f"/repos/{self.repo}/actions/workflows/{urllib.parse.quote(workflow)}/runs?{query}")
         return [other for other in payload.get("workflow_runs") or [] if isinstance(other, Mapping)]
 
@@ -4299,7 +4436,10 @@ def sweep(argv: Sequence[str] | None, clients: list["GitHub"]) -> int:
     if not args.dry_run:
         results, failures = cancel_plan(github, plan.to_cancel(), jobs_by_run)
 
+    carried: list[dict[str, Any]] = []
+
     def save_lost_reruns(entries: Sequence[Mapping[str, Any]]) -> None:
+        carried[:] = [dict(entry) for entry in entries]
         if snapshot is not None and args.pool_load:
             snapshot[LOST_RERUNS_KEY] = [dict(entry) for entry in entries][-LOST_PENDING_MAX:]
             args.pool_load.write_text(json.dumps(snapshot, indent=2) + "\n", encoding="utf-8")
@@ -4347,25 +4487,56 @@ def sweep(argv: Sequence[str] | None, clients: list["GitHub"]) -> int:
                     runs_now[run_id] = github.run(run_id)
                 except Exception as error:  # noqa: BLE001 the entry is kept for the next sweep
                     print(f"queue-janitor: pending re-run of run {run_id}: {error!r}", file=sys.stderr)
+        # Orphaned dispatches (orphan_reruns()) are judged by newer dispatches of their kind, not by their head.
+        dispatch_ids = {entry.get("run_id") for entry in pending if isinstance(entry.get("dispatch"), Mapping)}
         # One listing per settled cancel: a newer run at its head that took
         # over (even one finished since) means no re-run.
         head_runs: dict[int, list[Mapping[str, Any]]] = {}
         for run_id, run in runs_now.items():
+            if run_id in dispatch_ids:
+                continue
             if run.get("status") == "completed" and run.get("conclusion") == "cancelled":
                 try:
                     head_runs[run_id] = [*github.runs_at_head(run), *runs]
                 except Exception as error:  # noqa: BLE001 the entry is kept for the next sweep
                     print(f"queue-janitor: runs at the head of run {run_id}: {error!r}", file=sys.stderr)
         # A settled push or dispatch cancel is re-run only while its branch is live.
-        settled = [run for run in runs_now.values()
-                   if run.get("status") == "completed" and run.get("conclusion") == "cancelled"]
+        settled = [run for run_id, run in runs_now.items() if run_id not in dispatch_ids
+                   and run.get("status") == "completed" and run.get("conclusion") == "cancelled"]
+        # A settled orphaned dispatch: one listing of its workflow's dispatches on its branch, and the jobs of the
+        # newer ones of its kind that may have run its job (the in-flight ones are in the inventory), newest
+        # first, at most DISPATCH_SUPERSEDE_JOB_READS a sweep.
+        dispatch_runs: dict[int, list[Mapping[str, Any]]] = {}
+        dispatch_jobs: dict[int, Sequence[Mapping[str, Any]]] = dict(jobs_by_run)
+        job_reads = 0
+        for entry in pending:
+            run = runs_now.get(entry.get("run_id"))
+            if (entry.get("run_id") not in dispatch_ids or not run or run.get("status") != "completed"
+                    or run.get("conclusion") != "cancelled" or run["id"] in dispatch_runs):
+                continue
+            try:
+                dispatch_runs[run["id"]] = github.dispatch_runs(run)
+            except Exception as error:  # noqa: BLE001 the entry is kept for the next sweep
+                print(f"queue-janitor: dispatches after run {run['id']}: {error!r}", file=sys.stderr)
+                continue
+            for other in newer_dispatches(entry, run, dispatch_runs[run["id"]]):
+                if other["id"] in dispatch_jobs or other.get("status") in ("queued", "pending", "waiting", "requested"):
+                    continue
+                if job_reads >= DISPATCH_SUPERSEDE_JOB_READS:
+                    break
+                job_reads += 1
+                try:
+                    dispatch_jobs[other["id"]] = github.jobs(other["id"])
+                except Exception as error:  # noqa: BLE001 unread: counts as not covering it
+                    print(f"queue-janitor: jobs of dispatch {other['id']}: {error!r}", file=sys.stderr)
         read_heads(branch_head_lookups(settled, {run.get("id") for run in settled}, prs_by_branch=prs_by_branch,
                                        known=branch_heads, cap=PENDING_HEAD_LOOKUPS))
         # One LOST_RERUN_MAX a sweep: what the open-head failover re-ran comes out of the pending entries' share.
         open_head_reruns = sum(1 for decision in open_head_decisions if decision.action == "rerun")
         rerun_decisions = plan_lost_reruns(pending, runs_now, prs_by_branch, now=now, head_runs=head_runs,
                                            branch_heads=branch_heads, app_token=github.app_token,
-                                           cmux_bot=cmux_bot(), rerun_cap=LOST_RERUN_MAX - open_head_reruns)
+                                           cmux_bot=cmux_bot(), rerun_cap=LOST_RERUN_MAX - open_head_reruns,
+                                           dispatch_runs=dispatch_runs, dispatch_jobs=dispatch_jobs)
         if args.dry_run:
             # Nothing acted on, so only an expired entry goes.
             still_pending = [dict(decision.entry) for decision in rerun_decisions
@@ -4380,9 +4551,16 @@ def sweep(argv: Sequence[str] | None, clients: list["GitHub"]) -> int:
         exclude_ids={candidate.run["id"] for candidate in plan.to_cancel()}, now=now,
     )
     orphan_results: dict[int, str] = {}
+    orphan_rerun_entries: list[dict[str, Any]] = []
     if not args.dry_run:
         orphan_results, orphan_failures = cancel_orphans(github, orphan_decisions)
         failures += orphan_failures
+        # An orphaned dispatch on a long-lived branch comes back: the next sweep re-runs it (plan_lost_reruns()).
+        # Without the re-run state (pending is None) it is cancelled with none, as before.
+        if pending is not None:
+            orphan_rerun_entries = orphan_reruns(orphan_decisions, orphan_results, jobs_by_run, now=now)
+            if orphan_rerun_entries:
+                save_lost_reruns([*carried, *orphan_rerun_entries])
 
     try:
         superseded_decisions, superseded_failures = skip_superseded_delivery(
@@ -4406,6 +4584,9 @@ def sweep(argv: Sequence[str] | None, clients: list["GitHub"]) -> int:
     summary += render_lost_reruns(rerun_decisions, dry_run=args.dry_run, results=rerun_results)
     summary += render_orphan_summary(orphan_decisions, dry_run=args.dry_run, now=now, min_age=orphan_age,
                                      results=orphan_results)
+    if orphan_rerun_entries:
+        summary += "\nRe-run by the next sweep unless a newer dispatch of the same kind took the job: " + ", ".join(
+            f"run {entry['run_id']} (`{entry['dispatch']['job']}`)" for entry in orphan_rerun_entries) + ".\n"
     summary += render_superseded_summary(superseded_decisions)
     summary += f"\n_{render_listing(listing)}._\n"
     summary += f"\n_{len(runs)} in-flight runs, {len(jobs_by_run)} job listings " \
