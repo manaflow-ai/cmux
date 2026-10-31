@@ -289,7 +289,7 @@ final class HomeHostView: NSView {
                 guard let summary = store.rows.first(where: { $0.summary.id == id })?.summary,
                       summary.lastSeq == 0, summary.participants.contains(where: { $0.agentClass == .chief }) else { return nil }
                 let me = store.me?.id
-                let others = TopHomePageView.visible(store.rows, archivedChiefs: service.directory.archivedChiefs, me: me)
+                let others = HomeArchivedChiefs(service.directory.archivedChiefs, me: me).visible(store.rows)
                     .filter { $0.kind == .chief && $0.id != id }.count
                 return intro.intro(for: id, otherChiefs: others)
             }) {
