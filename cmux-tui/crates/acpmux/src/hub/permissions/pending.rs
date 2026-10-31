@@ -2,6 +2,15 @@
 use super::*;
 
 impl Hub {
+    /// A daemon default change applies only to chats inheriting that policy.
+    pub(crate) async fn approve_pending_default_tools(&self) {
+        for session in self.sessions() {
+            if session.meta().permission_policy.is_none() && session.moving().is_none() {
+                self.approve_pending_tools(&session).await;
+            }
+        }
+    }
+
     pub(in crate::hub) async fn approve_pending_tools(&self, session: &Session) {
         let off = self.off_latch();
         // The local switch limits modes, not an explicit approve-all policy. MDM's forced
