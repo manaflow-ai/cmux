@@ -42,6 +42,14 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
     /// Codex or opencode chat send (`ownerCloud`, remoteEditing.ts).
     public typealias OwnerCloud = @Sendable () async -> Bool
 
+    /// A Cloud machine's ``OwnerCloud`` from its link's owner answer (the running link id while the
+    /// Cloud API says the caller owns it, else nil), when its daemon serves the owner start
+    /// (`served`). Nil for a machine that is not a Cloud one, or a daemon that does not serve it.
+    public static func ownerCloud(_ ownerLink: (@Sendable () async -> Int?)?, served: Bool) -> OwnerCloud? {
+        guard let ownerLink, served else { return nil }
+        return { await ownerLink() != nil }
+    }
+
     private struct State {
         var onFrame: (@Sendable (String) -> Void)?
         var onClose: (@Sendable (Int, String) -> Void)?

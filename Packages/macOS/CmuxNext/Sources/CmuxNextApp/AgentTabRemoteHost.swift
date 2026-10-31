@@ -34,17 +34,8 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
     /// A Cloud machine's link owner answer (``ownerLink(appLink:link:)``), read at each trust call
     /// and never kept. Nil for a machine that is not a Cloud machine.
     var ownerLink: AgentSessionAttachClient.OwnerLink?
-    /// The machine's daemon starts any agent on its owner's own Cloud VM
-    /// (`agent-session-start-owner-cloud-v1`).
-    var servesOwnerCloud = false
-
-    /// Whether the page may treat this chat as on the person's own Cloud VM (Codex and opencode
-    /// send there): the daemon serves it and the link's Cloud API owner answer holds now. Nil for a
-    /// machine that is not a Cloud machine.
-    var ownerCloud: RemoteAcpmuxWire.OwnerCloud? {
-        guard let ownerLink, servesOwnerCloud else { return nil }
-        return { await ownerLink() != nil }
-    }
+    /// The chat runs on the person's own Cloud VM (``RemoteAcpmuxWire/ownerCloud(_:served:)``).
+    var ownerCloud: RemoteAcpmuxWire.OwnerCloud?
 
     /// The owner answer of the link a Cloud machine's calls go over: the app link's own
     /// (``CloudLinkSession/ownerLink``) or the legacy link's (``CloudMachineLink/ownerLink``).
@@ -79,7 +70,6 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
             }
         }
         let route: AgentPaneRemoteRoute
-        let ownerCloud = ownerCloud
         // The folder trust question of this machine (cx-1bhjj), on the tab as its store lists it.
         let ask: RemoteAcpmuxWire.Trust = { [existing, surface, endpoint, reconnect, ownerLink] (cwd: String, level: String?, home: Bool) async throws -> Data in
             let client = AgentSessionAttachClient(surface: try await existing?()?.surface ?? surface, reconnect: reconnect, endpoint: endpoint)
@@ -91,8 +81,7 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
         if let session {
             route = AgentPaneRemoteRoute(machine: machine, hostID: hostID, approvals: approvals) { [surface, session, endpoint, reconnect] in
                 let client = AgentSessionAttachClient(surface: surface, mode: mode, reconnect: reconnect, endpoint: endpoint)
-                return RemoteAcpmuxWire(client: AgentTabRemoteClient(client: client, mode: mode), session: session, host: hostID, linksAlias: linksHost,
-                                        trust: mode == .attach && servesTrust ? ask : nil, ownerCloud: mode == .attach ? ownerCloud : nil)
+                return RemoteAcpmuxWire(client: AgentTabRemoteClient(client: client, mode: mode), session: session, host: hostID, linksAlias: linksHost, trust: mode == .attach && servesTrust ? ask : nil, ownerCloud: mode == .attach ? ownerCloud : nil)
             }
         } else if let start, mode == .attach {
             // A new chat: nothing runs on that machine until the page's first send (cx-k21v). The

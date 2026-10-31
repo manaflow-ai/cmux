@@ -47,4 +47,14 @@ struct RemoteAcpmuxOwnerCloudTests {
         let fresh = try await initialized(RemoteAcpmuxWire(start: start, ownerCloud: { true }))
         #expect(fresh["ownerCloud"] as? Bool == true)
     }
+
+    /// The link's owner answer decides, and only through a daemon that serves the owner start.
+    @Test func theOwnerAnswerAndTheDaemonDecide() async throws {
+        #expect(RemoteAcpmuxWire.ownerCloud(nil, served: true) == nil)
+        #expect(RemoteAcpmuxWire.ownerCloud({ 7 }, served: false) == nil)
+        let owned = try #require(RemoteAcpmuxWire.ownerCloud({ 7 }, served: true))
+        #expect(await owned())
+        let lost = try #require(RemoteAcpmuxWire.ownerCloud({ nil }, served: true))
+        #expect(await lost() == false)
+    }
 }
