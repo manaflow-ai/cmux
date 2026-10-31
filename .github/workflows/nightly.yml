@@ -1832,6 +1832,10 @@ jobs:
           # In order; only labels ci-owned-pool-rescue.yml watches are offered.
           OWNED_LABELS: ${{ format('{0} {1}', vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, vars.CI_SIDE_LANE_RUNNER) }}
           CANDIDATE: ${{ vars.MACOS_RUNNER_26 }}
+          # Unread runners (a 403 on /actions/runners) still queue on the watched owned pool, which the
+          # owned-pool rescue moves; only while the CI_PR_POOL_OWNED kill switch is on and the rescue itself is
+          # (ci-owned-pool-rescue.yml runs only while CI_OWNED_POOL_RESCUE is not '0').
+          UNREAD_OWNED_FALLBACK: ${{ vars.CI_PR_POOL_OWNED == '1' && (vars.CI_OWNED_POOL_RESCUE || '1') != '0' && '1' || '' }}
         run: python3 .publish-tooling/scripts/ci/nightly_build_runner.py
 
       # The rescue's workflow_run watch covers attempt 1 of a push. A dispatch made with
@@ -1878,6 +1882,9 @@ jobs:
       daemon_build: ${{ steps.resume.outputs.build || steps.remote_daemon.outputs.build }}
       daemon_version: ${{ steps.resume.outputs.version || steps.remote_daemon.outputs.version }}
       cmux_tui_commit: ${{ steps.install_client.outputs.commit || steps.resume.outputs.cmux_tui_commit }}
+      light_mini_runner: ${{ steps.place-light.outputs.mini_runner }}
+      light_mini_jobs: ${{ steps.place-light.outputs.mini_jobs }}
+      light_attempt: ${{ steps.place-light.outcome == 'success' && github.run_attempt || '' }}
     if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true' && needs.decide.outputs.continue_only != 'true'
     # nightly-next: pick-nightly-build-runner's dedicated builder, else an idle owned
     # label, else the moving Blacksmith label; never one label with no fallback. Main's
@@ -2067,19 +2074,10 @@ jobs:
         if: inputs.nightly_next_unsigned_run == ''
         run: if [ -f scripts/ci/gh_budget_wait.sh ]; then bash scripts/ci/gh_budget_wait.sh --install; fi
 
-      # The Embed CEF phase embeds the pinned Chromium engine
-      # (scripts/cmux-next/cef-manifest.json) from the ensure-cef cache. This
-      # step fills the cache from the private R2 bucket with the read-only key
-      # (the GitHub release with CMUX_CEF_READ_TOKEN is the fallback); only
-      # this step's background fetch gets the key, so the build step runs
-      # without it. With no readable source the app builds without the engine
-      # and reports the browser unavailable; "Report the embedded Chromium
-      # engine" flags that. The fetch (9-134 s, runs 40378565252, 40380339203)
-      # runs in the background beside the steps below, and "Finish fetching
-      # the Chromium engine" joins it right before the Release build. It fails
-      # where the serial step failed (a remote browser host digest mismatch,
-      # or an engine store that is not optional): the join exits with the
-      # fetch's status, before anything reads the cache.
+      # Fills the ensure-cef cache with the pinned Chromium engine (cef-manifest.json) from private R2 with the
+      # read-only key (CMUX_CEF_READ_TOKEN's release as fallback); only this background fetch gets the key. No
+      # source: the app builds without the engine ("Report the embedded Chromium engine" flags it). "Finish
+      # fetching the Chromium engine" joins it before the Release build and fails where it failed.
       - name: Fetch the Chromium engine
         if: inputs.nightly_next_unsigned_run == ''
         env:
@@ -2088,13 +2086,8 @@ jobs:
           CMUX_CEF_R2_SECRET_ACCESS_KEY: ${{ secrets.CMUX_CEF_R2_SECRET_ACCESS_KEY }}
           CMUX_CEF_R2_ENV_FILE: /dev/null
           GH_TOKEN: ${{ secrets.CMUX_CEF_READ_TOKEN }}
-        # The x86_64 engine (a manifest "x86_64" object) lets a universal
-        # build embed both slices (embed-cef.sh); without it this prints
-        # nothing and the universal app keeps the arm64 engine.
-        # The remote browser host the Embed remote browser host phase puts in
-        # Contents/Helpers (phone browser tabs, arm64). From R2 with the same key;
-        # unavailable, the app builds without it (the phase warns). A digest
-        # mismatch fails the join. The tailnet store is not reachable from runners.
+        # x86_64: a universal build embeds both engine slices (none: arm64 only). The remote browser host
+        # (Contents/Helpers, phone tabs) comes from R2 too; missing, the phase warns; a digest mismatch fails.
         run: |
           python3 scripts/ci/background_build.py start --state "$RUNNER_TEMP/nightly-helper-builds" chromium-engine -- \
             bash -c 'set -e
@@ -3015,6 +3008,33 @@ jobs:
           retention-days: 2
           overwrite: true
 
+      # The light jobs next take a mini idle now, else Blacksmith (Leo: "cant our minis just run them").
+      - name: Mint the routing token for the light-job placement
+        id: light-route-token
+        if: success() && github.ref == 'refs/heads/nightly-next' && inputs.nightly_next_unsigned_run == '' && github.repository == 'manaflow-ai/cmux' && vars.CI_PR_POOL_OWNED == '1' && vars.GLAEDA_ROUTE_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-administration: read
+          permission-organization-self-hosted-runners: read
+
+      - name: Place the light jobs on a free mini
+        id: place-light
+        if: success() && steps.light-route-token.outputs.token != ''
+        continue-on-error: true
+        timeout-minutes: 2
+        env:
+          JOBS: build-nightly-remote-daemon await-nightly-tree-marker
+          NIGHTLY: "1"
+          FLEET_LINUX: ""
+          SIDE_LABEL: ${{ vars.CI_SIDE_LANE_RUNNER }}
+          ROUTE_TOKEN: ${{ steps.light-route-token.outputs.token }}
+          SNAPSHOT_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci/portable_job_placement.py
+
       - name: Stop the helper builds still running
         if: always() && inputs.nightly_next_unsigned_run == ''
         run: python3 scripts/ci/background_build.py stop --state "$RUNNER_TEMP/nightly-helper-builds"
@@ -3024,7 +3044,7 @@ jobs:
     # Resume already retained these exact assets in build-nightly-app.
     needs: [decide, resolve-nightly-cmux-tui-client, build-nightly-app]
     if: needs.decide.outputs.build_only != 'true'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || needs.build-nightly-app.outputs.light_attempt == format('{0}', github.run_attempt) && contains(needs.build-nightly-app.outputs.light_mini_jobs, ' build-nightly-remote-daemon ') && needs.build-nightly-app.outputs.light_mini_runner || vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
     permissions:
       contents: read
     timeout-minutes: 20
@@ -3096,16 +3116,9 @@ jobs:
           name: cmux-nightly-remote-daemon
           path: remote-daemon-assets
 
-      # The provenance is for people who run `gh attestation verify` on a
-      # daemon asset; no nightly step reads it. Persisting it spends the
-      # repository's shared installation API budget, and when that budget was
-      # spent (Oct 25-26: runs 40237461954, 40243891601, 40244721101,
-      # 40249486409, 40268415260, 40279850697 all ended "Failed to persist
-      # attestation: API rate limit exceeded for installation") a finished
-      # build was thrown away. So: try, wait once for the budget to reset
-      # (bounded), try again, and on a second refusal ship with a warning.
-      # Persisting the attestation spends the shared budget: wait (bounded, logged) for 200 calls
-      # to be left before trying, so a nearly spent hour does not use up the retry below.
+      # Provenance is for `gh attestation verify`; no nightly step reads it. Persisting it spends the shared
+      # installation API budget (spent Oct 25-26: six runs threw a finished build away), so wait (bounded)
+      # for 200 calls, try, wait once more, retry, and on a second refusal ship with a warning.
       - name: Wait for API budget before the daemon attestation
         env:
           GH_TOKEN: ${{ github.token }}
@@ -3122,9 +3135,7 @@ jobs:
         if: steps.attest_daemon.outcome == 'failure'
         env:
           GH_TOKEN: ${{ github.token }}
-        # One bounded wait, not a poll, and only while fewer than 200 calls are left (an attestation
-        # that failed for another reason is retried at once). It shares the pre-step's ledger, so the
-        # two wait at most an hour together; timeout-minutes leaves room for it.
+        # One bounded wait, only under 200 calls left; with the pre-step's, at most an hour.
         run: if [ -f scripts/ci/gh_budget_wait.sh ]; then bash scripts/ci/gh_budget_wait.sh --reserve 200; fi
 
       - name: Retry the daemon attestation
@@ -6040,7 +6051,7 @@ jobs:
   await-nightly-tree-marker:
     needs: [decide, resolve-nightly-cmux-tui-client, build-nightly-app]
     if: (needs.resolve-nightly-cmux-tui-client.outputs.tree_pending == 'true' || inputs.nightly_next_unsigned_run != '') && needs.build-nightly-app.result == 'success'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || needs.build-nightly-app.outputs.light_attempt == format('{0}', github.run_attempt) && contains(needs.build-nightly-app.outputs.light_mini_jobs, ' await-nightly-tree-marker ') && needs.build-nightly-app.outputs.light_mini_runner || vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
     permissions:
       contents: read
     timeout-minutes: 60
