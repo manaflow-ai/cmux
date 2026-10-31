@@ -21,7 +21,14 @@ compile, the DEV daily, the fast tier and every nightly, DEV or promote build. T
 
 The kick runs serialized (its workflow's concurrency group, cancel-in-progress false): one waits for
 the window and the newest pending one replaces older pending ones, which never started. It waits once
-(one sleep, never a polling loop), reads the tip, and dispatches. It cancels nothing.
+(one sleep, never a polling loop), reads the tip, and dispatches.
+
+Once the tip has a base tier run, an older base tier run none of whose Mac jobs (MAC_JOBS) has started
+is superseded and the kick cancels it: the tip's run covers every landing it would have, and
+base_red_excuse.py reads the newest base verdict, not a given commit's. With the Mac pools saturated
+(2026-10-31) base tier runs waited up to two hours and 682 of their 826 Mac minutes in a day started
+after a newer base tier run had been dispatched. A run whose Mac job started is never cancelled, nor is
+anything that is not a base tier run (a nightly, DEV or promote build above all).
 Needs GH_TOKEN with actions: write and contents: read.
 """
 
@@ -52,6 +59,11 @@ WINDOW_S = 15 * 60
 SETTLE_S = 20
 # The compare API lists at most this many files; a longer diff counts as relevant.
 COMPARE_FILES_MAX = 300
+# The base tier's Mac jobs (cmux-next.yml's daemon-test, generated-files and cmux-scheme-compile names).
+# A base tier run where one of these has started (or finished) is never cancelled.
+MAC_JOBS = ("cmux-next daemon tests", "cmux-next generated files", "cmux app scheme compile (Debug)")
+# A run in one of these states has not finished.
+OPEN = ("queued", "in_progress", "waiting", "pending", "requested")
 SHA = re.compile(r"^[0-9a-f]{40}$")
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -144,6 +156,47 @@ def base_tier_runs(api: Api, repo: str) -> dict[str, float]:
     return firsts
 
 
+def mac_job_started(api: Api, repo: str, run_id: int) -> bool:
+    """Whether a Mac job of the base tier run has started. Anything unreadable counts as started."""
+    try:
+        listed = api.get(f"repos/{repo}/actions/runs/{run_id}/jobs?filter=latest&per_page=100")
+    except RuntimeError:
+        return True
+    for job in listed.get("jobs") or []:
+        if job.get("name") not in MAC_JOBS:
+            continue
+        if job.get("status") == "in_progress":
+            return True
+        if job.get("status") == "completed" and job.get("conclusion") not in ("skipped", "cancelled"):
+            return True
+    return False
+
+
+def cancel_superseded(api: Api, repo: str, newest: str, log: Callable[[str], None] = print) -> list[int]:
+    """Cancel the open base tier runs of commits other than NEWEST (the tip, which has a base tier run)
+    whose Mac jobs have not started; returns their ids. NEWEST's own runs, finished runs, runs whose Mac
+    job started and every other workflow's or title's runs are left alone."""
+    listed = api.get(f"repos/{repo}/actions/workflows/{WORKFLOW}/runs?branch={BRANCH}"
+                     f"&event=workflow_dispatch&per_page=100")
+    cancelled: list[int] = []
+    for run in listed.get("workflow_runs") or []:
+        title = run.get("display_title") or run.get("name") or ""
+        sha = title[len(TITLE):].strip() if title.startswith(TITLE) else ""
+        run_id = run.get("id")
+        if not SHA.match(sha) or sha == newest or not isinstance(run_id, int) or run.get("status") not in OPEN:
+            continue
+        if mac_job_started(api, repo, run_id):
+            log(f"base tier run {run_id} ({sha[:12]}) has a Mac job running or done; left alone")
+            continue
+        status = api.post(f"repos/{repo}/actions/runs/{run_id}/cancel", {})
+        if status in (202, 204):
+            cancelled.append(run_id)
+            log(f"cancelled base tier run {run_id} ({sha[:12]}): superseded by {newest[:12]}, no Mac job started")
+        else:
+            log(f"could not cancel base tier run {run_id} ({sha[:12]}): HTTP {status}")
+    return cancelled
+
+
 def relevant(api: Api, repo: str, since: str, tip: str, patterns: list[str]) -> tuple[bool, str]:
     """Whether a file the push paths name changed in since..tip. Anything unreadable is relevant."""
     if not patterns:
@@ -178,7 +231,8 @@ def kick(api: Api, repo: str, patterns: list[str], *, window: float = WINDOW_S,
     if not SHA.match(tip):
         raise RuntimeError(f"could not read the {BRANCH} tip")
     if tip in firsts:
-        log(f"{BRANCH} {tip[:12]} already has a base tier run; nothing to do")
+        log(f"{BRANCH} {tip[:12]} already has a base tier run; nothing to dispatch")
+        cancel_superseded(api, repo, tip, log)
         return None
     if last_sha is not None:
         due, why = relevant(api, repo, last_sha, tip, patterns)
@@ -191,6 +245,7 @@ def kick(api: Api, repo: str, patterns: list[str], *, window: float = WINDOW_S,
         raise RuntimeError(f"the base tier dispatch was refused (HTTP {status})")
     log(f"dispatched the base tier on {BRANCH} at {tip[:12]}")
     sleep(SETTLE_S)
+    cancel_superseded(api, repo, tip, log)
     return tip
 
 
