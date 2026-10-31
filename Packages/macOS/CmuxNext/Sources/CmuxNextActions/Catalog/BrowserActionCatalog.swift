@@ -142,7 +142,7 @@ nonisolated enum BrowserActionCatalog: ActionCatalogGroup {
                 var designMode = ActionDescriptor(
                     id: "toggleBrowserDesignMode",
                     title: String(localized: "action.toggleBrowserDesignMode", defaultValue: "Toggle Browser Design Mode", bundle: .module),
-                    keywords: ["browser", "edit"], defaultShortcut: Shortcut("d", modifiers: [.control, .option, .command]),
+                    keywords: ["browser", "edit"], defaultShortcut: Shortcut("e", modifiers: [.control, .option, .command]),
                     category: .browser, symbol: "paintbrush.pointed", surfaces: [.keyboard, .menu],
                     requires: [.browserFocused], targets: [.pane], cliName: "browser toggle-design-mode", mainMenu: .view
                 )

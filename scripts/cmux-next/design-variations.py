@@ -6,7 +6,7 @@
 Every `*.html` file in DIR (name order, the gallery itself excluded) becomes one tile: a caption
 "<n>. <title>" (the file's <title>, else its name) and a live frame of the file. Each tile is
 tagged `data-testid="cmux-variation-<n>"` and its caption `cmux-variation-<n>-title`, so turning
-on design mode (Ctrl-Opt-Cmd-D) in the gallery and clicking a tile sends the pick to the chat as
+on design mode (Ctrl-Opt-Cmd-E) in the gallery and clicking a tile sends the pick to the chat as
 "Picked design variation <n>: <title>". Frames ignore the pointer so a click lands on the tile.
 Writes DIR/index.html and prints its path. `--open` also shows it in the column right of the
 Home chat (`cmux browser right navigate <file URL> --agent NAME`, default agent "Chief"; the CLI is
