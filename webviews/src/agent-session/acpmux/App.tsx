@@ -7615,7 +7615,7 @@ function AcpmuxPane() {
         : undefined,
     [quick, inspectorLocal, remoteControlState],
   );
-  // Compact from Session Info's Context and the composer ring's card sends the agent's own /compact
+  // Compact from Session Info's Context sends the agent's own /compact
   // with the reach a context-full failure's Compact has: only where the agent lists it, never to a
   // View Only chat or a read-only pane, never the next chat during a switch's hold (#17537 had it on
   // the ring; #20454 dropped its wiring).
@@ -10648,7 +10648,7 @@ function AcpmuxPane() {
           label: t("chatMenu.rename"),
           icon: "action.edit",
           shortcutAction: HEADER_ACTIONS.rename,
-          mnemonic: "R",
+          accelerator: "R",
           onSelect: () => runHeaderAction(HEADER_ACTIONS.rename),
         },
         {
@@ -10724,13 +10724,13 @@ function AcpmuxPane() {
     const fork = row("fork");
     const archive = row("archive");
     const archiveItem = archive
-      ? { ...archive, shortcutLabel: "A" }
+      ? { ...archive, accelerator: "A" }
       : {
           key: "archive",
           label: t("chatMenu.archive"),
           icon: "inbox",
           disabled: true,
-          shortcutLabel: "A",
+          accelerator: "A",
         };
     const moveChildren = [
       ...(moves.includes(CONNECT_ACTIONS.move) && moveTargets.length > 0
@@ -10750,24 +10750,24 @@ function AcpmuxPane() {
           ]
         : []),
     ];
+    // Two groups with one line between them, before the destructive pair, as Claude and ChatGPT
+    // draw it (design/menus.md); no line between every row.
     return guardedChatMenu(
       menuGroups(
-        rename ? [{ ...rename, shortcutLabel: "R" }] : [],
         [
-          // `F` only on a Fork row that runs: a submenu row (children, no onSelect) keeps no letter.
+          ...(rename ? [{ ...rename, accelerator: "R" }] : []),
+          // `F` only on a Fork row that runs: a submenu row (children, no onSelect) takes no letter.
           fork
             ? fork.onSelect
-              ? { ...fork, shortcutLabel: "F" }
+              ? { ...fork, accelerator: "F" }
               : fork
             : {
                 key: "fork",
                 label: t("chatMenu.fork"),
                 icon: "agent.fork",
                 disabled: true,
-                shortcutLabel: "F",
+                accelerator: "F",
               },
-        ],
-        [
           {
             key: "moveMachine",
             label: moves.includes(CONNECT_ACTIONS.move)
@@ -10779,8 +10779,6 @@ function AcpmuxPane() {
             disabled: moveChildren.length === 0,
             children: moveChildren,
           },
-        ],
-        [
           {
             key: "openIn",
             label: t("preview.openIn"),
@@ -10797,14 +10795,14 @@ function AcpmuxPane() {
             ],
           },
         ],
-        [archiveItem],
         [
+          archiveItem,
           {
             key: "delete",
             label: t("permission.verb.delete"),
             icon: "action.delete",
             onSelect: requestDelete,
-            shortcutLabel: "D",
+            accelerator: "D",
           },
         ],
       ),
@@ -11774,7 +11772,6 @@ function AcpmuxPane() {
             chips={ComposerChips}
             permissionAccess={permissionAccess}
             onOpenContext={inspector.reveal ? () => inspector.reveal?.("context") : undefined}
-            onCompact={compactChat}
             draft={draft}
             onUnsentDraft={quick ? undefined : onNewChatDraft}
             onTyping={quick ? undefined : postTyping}
