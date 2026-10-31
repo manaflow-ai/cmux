@@ -65,7 +65,16 @@ test("notices next to each other are one row, a thread in both once", () => {
   // Find reads the run's words.
   expect(row.text).toContain("lane-b says");
   // The same rows give the same merged row back.
-  expect(mergeInboxNotices(rows, merged)[1]).toBe(row);
+  expect(mergeInboxNotices([...rows])[1]).toBe(row);
+});
+
+test("another chat's notices with the same row ids and versions never get this chat's merged row", () => {
+  const ours = [notice("n1", [thread("pr:9", "lane-a")]), notice("n2", [thread("pr:7", "lane-b")])];
+  const theirs = [notice("n1", [thread("pr:3", "other-a")]), notice("n2", [thread("pr:4", "other-b")])];
+  const mine = mergeInboxNotices(ours)[0]!;
+  const other = mergeInboxNotices(theirs)[0]!;
+  expect(other).not.toBe(mine);
+  expect(threadsOf(other).map((t) => t.threadId)).toEqual(["pr:3", "pr:4"]);
 });
 
 test("a joined thread keeps its messages whole only when both notices held them", () => {

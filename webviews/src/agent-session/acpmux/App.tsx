@@ -6151,12 +6151,11 @@ function AcpmuxPane() {
   const lastPending = useRef<AcpmuxRow | undefined>(undefined);
   // acpmux's inbox notices next to each other draw as one (conversation/inboxNotice.ts): rows with
   // none in a run come back as they are.
-  const lastInbox = useRef<readonly AcpmuxRow[] | undefined>(undefined);
   const transcriptRows = useMemo(() => {
     const steers = childRows ? NO_ROWS : (lastTurns.current?.turns.pending ?? NO_ROWS);
     const group = pendingMessagesRow(steers, queuedRows, lastPending.current);
     lastPending.current = group;
-    const shown = (lastInbox.current = mergeInboxNotices(turnRowsShown, lastInbox.current));
+    const shown = mergeInboxNotices(turnRowsShown);
     const rows = group ? [...shown, group] : shown;
     return childRows ? rows : btwNotes.rows(rows, snapshot.sessionId, btwSnapshot);
   }, [childRows, turnRowsShown, queuedRows, btwNotes, btwSnapshot, snapshot.sessionId]);

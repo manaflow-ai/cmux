@@ -171,7 +171,7 @@ const isNotice = (row: AcpmuxRow) => row.kind === "user" && row.incoming?.kind =
 /// `rows` with each run of notices next to each other (rows that draw nothing between them) as the
 /// first one's row, holding every thread of the run (`joined` names the rest, for Find). The same
 /// rows give the same array back; a run gives the same merged row back while its rows hold.
-export function mergeInboxNotices(rows: AcpmuxRow[], last?: readonly AcpmuxRow[]): AcpmuxRow[] {
+export function mergeInboxNotices(rows: AcpmuxRow[]): AcpmuxRow[] {
   let out: AcpmuxRow[] | undefined;
   for (let index = 0; index < rows.length; index += 1) {
     const row = rows[index]!;
@@ -193,26 +193,27 @@ export function mergeInboxNotices(rows: AcpmuxRow[], last?: readonly AcpmuxRow[]
       continue;
     }
     out ??= rows.slice(0, index);
-    out.push(mergedRow(run, last));
+    out.push(mergedRow(run));
     // The rows that draw nothing inside the run go with it; any after it stay.
     index = next - 1;
   }
   return out ?? rows;
 }
 
-/// One row for a run of notices, the one `last` drew for the same run when it still holds.
-function mergedRow(run: AcpmuxRow[], last?: readonly AcpmuxRow[]): AcpmuxRow {
+/// The merged row drawn for a run, by the run's first row object: reused while the run holds the
+/// very same row objects, so it never stands in for another chat's rows that share ids.
+const merged = new WeakMap<AcpmuxRow, { run: readonly AcpmuxRow[]; row: AcpmuxRow }>();
+
+/// One row for a run of notices, the one drawn before when the run is the same rows.
+function mergedRow(run: AcpmuxRow[]): AcpmuxRow {
   const first = run[0]!;
+  const held = merged.get(first);
+  if (held && held.run.length === run.length && held.run.every((row, i) => row === run[i])) return held.row;
   const joined = run.slice(1).map((row) => row.id);
   const version = run.reduce((sum, row) => sum + row.version, 0);
-  const held = last?.find((row) => row.id === first.id);
-  if (
-    held?.version === version &&
-    held.joined?.length === joined.length &&
-    held.joined.every((id, i) => id === joined[i])
-  )
-    return held;
   let notice = (first.incoming as { kind: "inbox"; notice: InboxNotice }).notice;
   for (const row of run.slice(1)) notice = joinNotices(notice, (row.incoming as { notice: InboxNotice }).notice);
-  return { ...first, version, joined, text: inboxText(notice), incoming: { kind: "inbox", notice } };
+  const row = { ...first, version, joined, text: inboxText(notice), incoming: { kind: "inbox" as const, notice } };
+  merged.set(first, { run, row });
+  return row;
 }
