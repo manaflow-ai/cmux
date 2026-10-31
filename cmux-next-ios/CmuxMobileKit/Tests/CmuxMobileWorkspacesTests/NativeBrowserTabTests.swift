@@ -248,6 +248,13 @@ final class DevServerChannel: LinkChannel, @unchecked Sendable {
         #expect(served.count > 0)
         #expect(native.forwarder?.ports == [port])
 
+        // Typed as people type it: no scheme, no slash (WebKit asks for `.../`).
+        let typed = try await freePort()
+        source.navigate(tab, to: "127.0.0.1:\(typed)")
+        for _ in 0..<2000 where native.forwarder?.ports.contains(typed) != true { try await Task.sleep(for: .milliseconds(5)) }
+        #expect(native.forwarder?.ports.contains(typed) == true, "a typed address opens its port: \(String(describing: phone.problem))")
+        #expect(phone.problem?.detail?.contains("A page tried") != true)
+
         source.mirrorFromMac(tab)
         #expect(native.forwarder?.ports.isEmpty == true, "no tab on the phone shows the port any more")
     }

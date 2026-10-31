@@ -252,7 +252,8 @@ final class MacAddressGuard: NSObject, WKNavigationDelegate {
             // A new port opens only for a navigation the person started, or one from
             // the same loopback origin (the dev app's own links); never a page's
             // script or form sending this iPhone into the Mac's loopback.
-            let own = model.ownLoad == target
+            // WebKit normalizes the address (`localhost:3000` asks for `localhost:3000/`).
+            let own = model.ownLoad.map { Self.sameOrigin($0, target) } ?? false
             model.ownLoad = nil
             // `sourceFrame` is nil for some navigations despite its Swift type.
             let source = (action.sourceFrame as WKFrameInfo?)?.request.url
