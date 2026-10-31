@@ -227,7 +227,11 @@ import {
   type ProcessSource,
   useProcessRegistry,
 } from "./inspector/processes";
-import { useInspectorOpen } from "./inspector/inspectorState";
+import {
+  setInspectorOpen as setInspectorPanelOpen,
+  setInspectorSection,
+  useInspectorOpen,
+} from "./inspector/inspectorState";
 import { openCommand, opensProcessTerminal } from "./processTerminal";
 import { descendants, subagentChangesFolder, type SubagentScope } from "./inspector/subagentScope";
 import { pendingToolCalls, waitingSubagents } from "./summary/SubagentStatusList";
@@ -7306,6 +7310,21 @@ function AcpmuxPane() {
     // A handoff review's form is wider than the transcript's column: the chat's shift is measured against it.
     wide: reviewing,
   });
+  // The summary card is the fallback surface while the Session Info feature is disabled in the
+  // header state. Its open-in-pane row enables that same panel before revealing the requested list.
+  const revealInspector = inspector.reveal;
+  const openSummarySection = useCallback(
+    (section: "subagents" | "tasks") => {
+      if (revealInspector) {
+        revealInspector(section);
+        return;
+      }
+      setHeaderState({ inspector: true });
+      setInspectorSection(section, true);
+      setInspectorPanelOpen(true);
+    },
+    [revealInspector],
+  );
   // Labs: a workflow's card opens Session Info's Background tasks, which lists its phases and agents.
   const toggleSessionInfo = useRef(inspector.toggle);
   useLayoutEffect(() => {
@@ -7316,7 +7335,6 @@ function AcpmuxPane() {
     sessionId: "",
     commands: {},
   });
-  const revealInspector = inspector.reveal;
   useEffect(() => {
     const openCard = revealInspector
       ? () => {
@@ -11689,6 +11707,7 @@ function AcpmuxPane() {
             tools={chatTools}
             workflows={workflows}
             workflowActionsFor={workflowActionsFor}
+            onOpenInspector={openSummarySection}
           />
         </SubagentHarnessContext.Provider>
       </SubagentClockContext.Provider>
