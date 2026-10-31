@@ -94,7 +94,7 @@ running.textIncludes = { selector: placeholder, text: "↵ steer · ⌘↵ queue
 // composer.box/claude-auto and grid-running. The box's controls and radius are still measured here.
 const attachScreenshot = composer("attach-screenshot", placeholder, "agent-pane.composer");
 attachScreenshot.absent = {
-  [placeholder]: "the capture fixture's prompt shows no placeholder; claude-auto and grid-running measure the text line",
+  [placeholder]: "The capture fixture's prompt shows no placeholder; claude-auto measures the text line.",
 };
 
 const stackToken: Record<string, string> = {
