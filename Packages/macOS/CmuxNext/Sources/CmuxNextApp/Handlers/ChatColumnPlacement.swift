@@ -1,3 +1,4 @@
+import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextBrowserTabs
 import CmuxNextDaemon
@@ -33,9 +34,10 @@ extension ChatColumnPlacement {
     /// one pane, then add tabs in the lower pane. The open waits for preceding right-side opens
     /// before measuring; the New Tab page keeps `route` and its own docking behavior.
     @MainActor static func openTool(from controller: PaneController, services: AppServices, background: Bool = false,
+                                    kind: RightColumnPlacement.Kind? = nil,
                                     _ make: @escaping LinkOpener.Make) -> Bool {
         guard case .tab = resolve(from: controller, services: services) else { return false }
-        services.linkOpener.open(from: controller, background: background, besideChat: true, make)
+        services.linkOpener.open(from: controller, background: background, besideChat: true, kind: kind, make)
         return true
     }
 

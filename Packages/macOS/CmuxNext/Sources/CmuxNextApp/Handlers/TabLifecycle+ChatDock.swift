@@ -14,7 +14,7 @@ extension TabLifecycle {
               let chat = ctx.services.paneController(for: pane) else { return false }
         let start = cwd ?? NewTerminalStart.uninherited(.tab, services: ctx.services, daemon: chat.daemon, besides: chat.selectedTab)
             ?? NewTerminalStart.inherited(besides: chat.selectedTab, in: pane, services: ctx.services)
-        return ChatColumnPlacement.openTool(from: chat, services: ctx.services) { target, placed in
+        return ChatColumnPlacement.openTool(from: chat, services: ctx.services, kind: .terminal) { target, placed in
             guard target.daemon.connection != nil else { return false }
             let then = placed ?? NewTabSlot.placing(after: target.selectedTab, services: ctx.services, then: nil)
             target.newTerminalTab(cwd: start, keep: keep, daemonResolvesCwd: true, then: then)
@@ -29,24 +29,24 @@ extension TabLifecycle {
                                     url: URL?, engine: String?, profile: AgentBrowserProfile.Request) -> Bool {
         guard invocation.origin == .user, !invocation.besideCaller,
               let chat = ctx.services.paneController(for: pane) else { return false }
-        return ChatColumnPlacement.openTool(from: chat, services: ctx.services, background: invocation.opensInBackground) { target, placed in
+        return ChatColumnPlacement.openTool(from: chat, services: ctx.services, background: invocation.opensInBackground, kind: .browser) { target, placed in
             let then = placed ?? NewTabSlot.placing(after: target.selectedTab, services: ctx.services, then: nil)
             let background = placed != nil || invocation.opensInBackground
             switch profile {
             case .cascade:
                 if url == nil {
-                    chat.newBrowserTabFromSelectedTab(engine: engine, in: target, background: background, then: then)
+                    chat.newBrowserTabFromSelectedTab(engine: engine, in: target, background: background, placementOwner: placed != nil, then: then)
                     return true
                 }
-                return target.newBrowserTab(url: url, engine: engine, background: background, then: then)
+                return target.newBrowserTab(url: url, engine: engine, background: background, placementOwner: placed != nil, then: then)
             case .explicit(let id):
-                return target.newBrowserTab(url: url, engine: engine, background: background, profile: id, then: then)
+                return target.newBrowserTab(url: url, engine: engine, background: background, profile: id, placementOwner: placed != nil, then: then)
             case .agent:
                 let profiles = ctx.services.browserProfiles
                 ctx.registry.track(Task { @MainActor in
                     do {
                         let id = try await AgentBrowserProfile.ensure(profiles)
-                        target.newBrowserTab(url: url, engine: engine, background: background, profile: id, then: then)
+                        target.newBrowserTab(url: url, engine: engine, background: background, profile: id, placementOwner: placed != nil, then: then)
                         return nil
                     } catch {
                         return "agent-browser-profile: \(error)"
