@@ -109,6 +109,14 @@ public actor CloudLinkSession {
         }
     }
 
+    /// The owner answer of the link a Cloud machine's calls go over: the app link's own
+    /// (``ownerLink``) or the legacy link's (``CloudMachineLink/ownerLink``). What a tab's chat
+    /// start, trust calls and owner-machine chats read (AgentTabs+Wiring).
+    public static func ownerAnswer(appLink: CloudLinkSession?, link: CloudMachineLink?) -> @Sendable () async -> Int? {
+        if let appLink { return { await appLink.ownerLink } }
+        return { await link?.ownerLink }
+    }
+
     /// The daemon connection's endpoint: the ticket's socket, once. Throws
     /// ``CloudLinkError`` otherwise; a current ticket's second call ends the
     /// link, an old ticket changes nothing.
