@@ -356,6 +356,7 @@ private struct ConfigSettingsTextView: NSViewRepresentable {
 
         let textView = NSTextView()
         textView.isRichText = false
+        textView.disableAutomaticTextSubstitutions()
         textView.importsGraphics = false
         textView.allowsUndo = true
         textView.isEditable = isEditable
