@@ -2021,6 +2021,10 @@ path = "tests/test_pr_design_spec_check.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_pr_cloud_backend_check.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_pr_capture_check_paths.py"
 lane = "linux-guard"
 
