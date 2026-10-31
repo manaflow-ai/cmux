@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+@testable import CmuxNextAgentLanes
 @testable import CmuxNextApp
 import CmuxNextDaemon
 import CmuxNextHomeEngine
@@ -27,6 +28,7 @@ struct ChiefSubagentLinkOpensChatTests {
             let tabs = services.agentTabs
             #expect(namedHost != tabs.chiefHost)
             let link = try #require(URL(string: "cmux://chief/\(namedID)/session/\(session)"))
+            Self.ownChiefSidebar(services)
             #expect(CmuxAppLinks.open(link, services: services), "the click was dropped")
             try await PinnedPageTests.until({ tabs.tab(showing: session, host: namedHost) != nil }, within: .seconds(30),
                                             report: { "no tab shows \(session) on \(namedHost); refusals \(refusals())" })
@@ -34,6 +36,7 @@ struct ChiefSubagentLinkOpensChatTests {
             #expect(services.locateTabOnAnyMachine(shown)?.0.kind == .conversation)
 
             // A second click shows that tab (synchronously, no disk read), never a second workspace.
+            Self.ownChiefSidebar(services)
             #expect(CmuxAppLinks.open(link, services: services))
             #expect(Self.tabs(showing: session, services) == 1)
 
@@ -41,8 +44,10 @@ struct ChiefSubagentLinkOpensChatTests {
             let stray = "01a19008-0000-7000-8000-\(UUID().uuidString.suffix(12).lowercased())"
             let unknown = try #require(URL(string: "cmux://chief/\(namedID)/session/\(stray)"))
             let before = refusals().count
+            Self.ownChiefSidebar(services)
             #expect(CmuxAppLinks.open(unknown, services: services))
-            try await PinnedPageTests.until({ refusals().count > before }, report: { "the stray link said nothing" })
+            try await PinnedPageTests.until({ refusals().dropFirst(before).contains(ChiefToolStrings.noSubagent) },
+                                            report: { "the stray link did not refuse: \(refusals().dropFirst(before))" })
             #expect(Self.tabs(showing: stray, services) == 0, "a link to a session no Chief keeps opened a chat")
         }
     }
@@ -93,6 +98,12 @@ struct ChiefSubagentLinkOpensChatTests {
     }
 
     @MainActor private final class Refusals { var all: [String] = [] }
+
+    /// Binds the app-wide `ChiefSidebar.shared` to this test's app again just before a click: another
+    /// suite's app, running at the same time in the parallel pass, may have bound it since.
+    private static func ownChiefSidebar(_ services: AppServices) {
+        SidebarSectionHandlers.bind(into: services.registry, context: AppActionContext(services: services))
+    }
 
     /// The tabs in every workspace whose chat is `session`, whatever host they record.
     private static func tabs(showing session: String, _ services: AppServices) -> Int {
