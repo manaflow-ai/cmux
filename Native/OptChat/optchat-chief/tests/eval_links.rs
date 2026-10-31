@@ -143,6 +143,18 @@ fn a_workspace_title_with_a_backslash_or_line_break_stays_one_link() {
 }
 
 #[test]
+fn an_existing_link_with_nested_brackets_stays_whole() {
+    let text = "[the [fix]](https://github.com/manaflow-ai/cmux/pull/25572)";
+    assert_eq!(link(text), text);
+}
+
+#[test]
+fn an_existing_link_with_escaped_brackets_stays_whole() {
+    let text = r"[the \[fix\]](https://github.com/manaflow-ai/cmux/pull/25572)";
+    assert_eq!(link(text), text);
+}
+
+#[test]
 fn a_github_url_becomes_a_short_named_link() {
     assert_eq!(
         link(&format!("Opened {PR}.")),
