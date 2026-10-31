@@ -118,9 +118,11 @@ struct HomeAgentMessages {
                 if !peers.contains(peer) { peers.append(peer) }
             }
             let open = expanded.contains(group)
+            let preview = peers.prefix(HomeAgentMessageRow.peerPreviewLimit).joined(separator: " · ")
+            let overflow = peers.count > HomeAgentMessageRow.peerPreviewLimit ? " · …" : ""
             var fold = TranscriptItem(
                 key: IdempotencyKey("agent-messages:\(group)"), seq: nil, author: first.author,
-                parts: [.text("\(open ? "▾" : "▸") \(peers.joined(separator: " · "))")], createdAt: first.createdAt,
+                parts: [.text("\(open ? "▾" : "▸") \(preview)\(overflow)")], createdAt: first.createdAt,
                 delivery: .committed, replyTo: first.replyTo, threadRoot: first.threadRoot)
             fold.isReadOnly = true
             fold.agentMessage = HomeAgentMessageRow(group: group, kind: .fold(count: members.count, peers: peers, expanded: open))
