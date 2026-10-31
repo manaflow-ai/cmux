@@ -121,8 +121,14 @@ inline DevToolsIdKind TopLevelDevToolsId(const char* p, size_t n, long long* id)
 }
 
 // Whether p[0, n) is the text of one JSON object, spaces around it allowed:
-// it starts with '{', its strings and brackets balance, and nothing follows
-// it. A byte scan with no values built; Chromium parses the message once.
+// it starts with '{', its strings close, its brackets nest to depth 0 at its
+// end, and nothing follows it. A byte scan with no values built; Chromium
+// parses the message once. '{' and '[' count as one kind of bracket, so a
+// mismatched closer ({"a":1]) passes the scan: it cannot close the message
+// around it early (the depth stays above 0 until the text's own end), and
+// Chromium's strict parse refuses the whole message, so the call gets no
+// result and times out (CEFRuntime.devToolsTimeout). The host never writes
+// such text: its parameters come from JSONSerialization.
 inline bool IsOneJSONObject(const char* p, size_t n) {
   using namespace devtools_id_detail;
   size_t i = SkipSpace(p, n, 0);

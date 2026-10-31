@@ -81,6 +81,10 @@ int main() {
   Check(object("{}") && object(" {\"a\":[1,{\"b\":\"}]\\\"\"}]} \n"), "objects, a brace and a quote inside a string");
   Check(!object("") && !object("[]") && !object("\"x\"") && !object("1"), "not an object");
   Check(!object("{\"a\":1") && !object("{\"a\":\"}") && !object("{} {}") && !object("{}x"), "unbalanced or trailing text");
+  // A mismatched closer passes the scan (one bracket kind) but still ends at the text's end: it cannot close
+  // the message's own object early, and Chromium's strict parse refuses the whole message.
+  Check(object("{\"a\":1]"), "a mismatched closer is left to Chromium's parse");
+  Check(!object("{\"a\":1]}") && !object("{\"a\":1]},\"id\":5}"), "a closer cannot end the object early and add keys");
   ExpectCallMessage(7, "Page.enable", "{}", R"({"id":7,"method":"Page.enable","params":{}})");
   ExpectCallMessage(9, "Page.getFrameTree", "", R"({"id":9,"method":"Page.getFrameTree"})");
   // Kept byte for byte: a lone surrogate escape and deep nesting (a full parse refuses both) and the key order.
