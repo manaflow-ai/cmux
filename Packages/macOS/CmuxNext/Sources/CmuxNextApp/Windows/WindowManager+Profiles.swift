@@ -95,18 +95,11 @@ extension DaemonStore {
     }
 }
 
-// Folding windows together (Leo 2026-10-29: "having windows be switchable in this way"): the
-// inverse of Open Space in New Window. A window takes one space out of the other windows (Move
-// Space to This Window), or takes every other window's workspaces (Merge All Windows). Each is
-// one registry transition: workspaces change owner and keep running (nothing restarts), and a
-// window left with none closes (`WindowRegistry.move`). Incognito content never moves
-// (spaces-overhaul-DESIGN.md rule 2).
+// Folding windows together (Leo 2026-10-29: "having windows be switchable in this way"): one registry transition each;
+// workspaces change owner and keep running, an emptied window closes. Incognito never moves (spaces-overhaul rule 2).
 extension WindowManager {
-    /// Move Space to This Window: every workspace of `profile` another normal window holds
-    /// (open or closed) moves into `state`'s window, which then shows `profile` with the
-    /// workspace the space last showed. With none elsewhere it is a plain space switch.
-    /// Refused for an incognito space and in an incognito window. Without view-change permission
-    /// (`ActionRunScope`) the workspaces still move and the window keeps its space.
+    /// Move Space to This Window: `profile`'s workspaces in other normal windows move here, and this window shows `profile`
+    /// at its last shown workspace (none elsewhere: a plain switch; no view-change permission: the view stays).
     func bringSpace(_ profile: ProfileID, into state: WindowState) throws {
         let value = registry.value
         if value.isIncognito(state.id) || incognitoSpaces[state.id] != nil || incognitoSpaces.values.contains(profile) {
@@ -114,13 +107,11 @@ extension WindowManager {
         }
         let machines = services.machines
         let sources = value.windows.filter { $0.id != state.id && !value.isIncognito($0.id) }
-        // Only workspaces whose space is known move. One no session reports yet (a remote machine
-        // paused or still connecting) shows in every space (`WindowProfiles.visible`); it stays put.
+        // Only workspaces whose space is known move (one no session reports yet shows in every space); window Homes stay.
         let moving = sources.flatMap { WindowProfiles.visible($0.workspaceIDs, profile: profile, machines: machines) }
-            .filter { WindowProfiles.qualified($0, machines: machines) != nil }
+            .filter { WindowProfiles.qualified($0, machines: machines) != nil && !isWindowHome($0) }
         try refuseClosingCreating(sources.filter { !$0.workspaceIDs.isEmpty && Set(moving).isSuperset(of: $0.workspaceIDs) }.map(\.id))
-        // A CLI or MCP run without focus permission moves the workspaces and leaves this window's
-        // view alone: it keeps its space and selection (as `RoomHandlers.startNewSpace`).
+        // A CLI or MCP run without focus permission leaves this window's view alone (as `RoomHandlers.startNewSpace`).
         let mayShow = ActionRunScope.viewChangeAllowed()
         guard !moving.isEmpty else {
             if mayShow { switchProfile(profile, in: state) }
@@ -133,39 +124,49 @@ extension WindowManager {
             preferred[state.id] = lastShown(in: profile, recency: value.recency, here: state).filter(candidates.contains)
             state.enterProfile(profile)
         }
+        carryLocalBrowserTabs(of: moving, from: sources.map(\.id), to: state)
         transition(select: preferred) { $0.move(moving, to: state.id) }
         recordSaver.stateDidChange(state)
     }
 
-    /// Merge All Windows: every other open normal window's workspaces move into `state`'s
-    /// window, each keeping its space, and those windows close. `state`'s window keeps its
-    /// space and selection, and takes the others' last shown workspace per space for the
-    /// spaces it never showed. Incognito windows stay as they are; refused in one.
+    /// Merge All Windows: every other open normal window's workspaces move here, keeping their space, and those windows
+    /// close; this window keeps its view and takes their last shown workspace per space it never showed.
     func mergeWindows(into state: WindowState) throws {
         let value = registry.value
         guard !value.isIncognito(state.id), incognitoSpaces[state.id] == nil else {
             throw ActionFailure.invalidTarget(RefusalStrings.incognitoMismatch)
         }
         let sources = value.openWindows.filter { $0.id != state.id && !value.isIncognito($0.id) }
-        let moving = sources.flatMap(\.workspaceIDs)
-        guard !moving.isEmpty else { return }
-        try refuseClosingCreating(sources.filter { !$0.workspaceIDs.isEmpty }.map(\.id))
+        // A window's own Home stays in its window, which closes (as Close Other Windows), never as a surplus Home here.
+        let moving = sources.flatMap(\.workspaceIDs).filter { !isWindowHome($0) }
+        guard !sources.isEmpty else { return }
+        try refuseClosingCreating(sources.map(\.id))
         // Front first, so the most recent window's pick wins for a space.
         let order = Dictionary(value.recency.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
         for source in sources.sorted(by: { order[$0.id, default: .max] < order[$1.id, default: .max] }) {
             guard let other = states[source.id] else { continue }
             var shown = other.profileWorkspaces
             if let workspaceID = other.workspaceID { shown[other.profileID] = workspaceID }
-            for (profile, workspaceID) in shown where profile != state.profileID && state.profileWorkspaces[profile] == nil {
-                state.profileWorkspaces[profile] = workspaceID
-            }
+            for (space, id) in shown where space != state.profileID && state.profileWorkspaces[space] == nil { state.profileWorkspaces[space] = id }
         }
-        transition { $0.move(moving, to: state.id) }
+        carryLocalBrowserTabs(of: moving, from: sources.map(\.id), to: state)
+        transition { registry in
+            let changes = registry.move(moving, to: state.id)
+            for source in sources where registry.window(source.id)?.isOpen == true { _ = registry.close(source.id) }
+            return changes
+        }
         recordSaver.stateDidChange(state)
     }
 
-    /// Refuses a move that would close a window still creating a workspace (claimed, placed, queued in its
-    /// `WorkspaceLanes` lane, or drawn as a provisional row): the create would reopen it or be stranded.
+    private func isWindowHome(_ id: String) -> Bool { services.workspace(id: id)?.isWindowHome == true }
+
+    /// A moved workspace's panes take their window-kept browser tabs (`localBrowserTabs`) along.
+    private func carryLocalBrowserTabs(of moving: [String], from sources: [String], to state: WindowState) {
+        let panes = Set(moving.compactMap { services.workspace(id: $0) }.flatMap { $0.screens.flatMap(\.panes).map(\.id) })
+        for source in sources.compactMap({ states[$0] }) { source.localBrowserTabs.move(panes: panes, to: state.localBrowserTabs) }
+    }
+
+    /// Refuses closing a window still creating a workspace (claim, placement, lane, provisional row): it would reopen it.
     private func refuseClosingCreating(_ windows: [String]) throws {
         let rows = PendingWorkspaceRows.shared.rows
         for window in windows {
@@ -177,8 +178,7 @@ extension WindowManager {
         }
     }
 
-    /// The workspaces `profile` last showed, best first: the one each window showing it shows
-    /// (front window first), then each window's remembered one there (this window first).
+    /// The workspaces `profile` last showed, best first: shown by a window on it (front first), then remembered.
     private func lastShown(in profile: ProfileID, recency: [String], here state: WindowState) -> [String] {
         let others = recency.filter { $0 != state.id }.compactMap { states[$0] }
         let showing = others.filter { $0.profileID == profile }.compactMap(\.workspaceID)
