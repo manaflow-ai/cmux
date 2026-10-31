@@ -136,9 +136,12 @@ def main(argv=None):
     for n in range(1, opts.rounds + 1):
         round_out = out / f"round-{n:02d}"
         started = time.time() - 1
+        # An exclusive lease waits for the mini's running fleet steps (the drain): give it the room the fleet
+        # rules set (capture-host's default acquire timeout, 120 s, ends the drain first on a busy fleet).
+        env = {**os.environ, "CAPTURE_HOST_ACQUIRE_TIMEOUT_SECONDS": os.environ.get("CAPTURE_HOST_ACQUIRE_TIMEOUT_SECONDS", "600")}
         done = subprocess.run([sys.executable, opts.runner, "--build", opts.build, "--journey", JOURNEY,
                                "--exclusive", "--hog-swap-gb", str(opts.swap_gb), "--hosts", opts.hosts,
-                               "--out", str(round_out)], capture_output=True, text=True)
+                               "--out", str(round_out)], capture_output=True, text=True, env=env)
         (round_out / "run.log").parent.mkdir(parents=True, exist_ok=True)
         (round_out / "run.log").write_text(done.stdout + done.stderr)
         row = round_result(round_out, opts.build, done.returncode, started)
