@@ -49,7 +49,6 @@ It never fails the job and never prints an empty `cloud`:
 from __future__ import annotations
 
 import datetime as dt
-import json
 import os
 import re
 import sys
@@ -71,9 +70,9 @@ TRUSTED_POOL = re.compile(r"glaeda-(?:root-)?trusted-(?:xl|std|light)-xcode-[0-9
 TRUSTED_RUNNER = re.compile(r"glaeda-runner-[a-z0-9][a-z0-9-]*")
 # RUNNER_POOLS' dead marks (label -> when last seen dead) and the pool the candidates form. A mark older than
 # runner_pools.DEAD_TTL is one its writer would drop (it re-marks a still-dead label every pass), so it proves nothing.
-DEAD_KEY = "_dead"
+DEAD_KEY = picker.DEAD_MARKS_KEY
 POOL = "macos_26"
-MARK_TTL = dt.timedelta(minutes=30)
+MARK_TTL = dt.timedelta(minutes=picker.DEAD_MARK_TTL_MINUTES)
 
 
 def runner_state(pool: str, runner: str, runners: Sequence[Mapping[str, Any]] | None) -> str:
@@ -127,28 +126,13 @@ def candidates(first: str = "") -> tuple[str, ...]:
 
 
 def runner_pools(raw: str | None) -> Mapping[str, Any]:
-    """The RUNNER_POOLS value, or {} when it is unset or not a JSON object."""
-    try:
-        value = json.loads(raw or "")
-    except ValueError:
-        return {}
-    return value if isinstance(value, dict) else {}
+    """The RUNNER_POOLS value, or {} when it is unset or not a JSON object (simple_pool_picker.runner_pools())."""
+    return picker.runner_pools(raw)
 
 
 def marked_dead(pools: Mapping[str, Any] | None, now: dt.datetime) -> set[str]:
-    """The candidates RUNNER_POOLS' `_dead` marks saw dead within MARK_TTL of `now`."""
-    marks = (pools or {}).get(DEAD_KEY)
-    if not isinstance(marks, Mapping):
-        return set()
-    out = set()
-    for label, since in marks.items():
-        try:
-            seen = dt.datetime.fromisoformat(str(since).replace("Z", "+00:00"))
-        except ValueError:
-            continue
-        if label in CANDIDATES and seen.tzinfo is not None and dt.timedelta(minutes=-5) <= now - seen < MARK_TTL:
-            out.add(label)
-    return out
+    """The candidates RUNNER_POOLS' `_dead` marks saw dead within MARK_TTL of `now` (simple_pool_picker.marked_dead())."""
+    return picker.marked_dead(pools, now) & set(CANDIDATES)
 
 
 def every_dead(evidence: Mapping[str, Any] | None, now: dt.datetime, pools: Mapping[str, Any] | None = None) -> set[str]:
@@ -297,13 +281,19 @@ def main(env: Mapping[str, str] = os.environ, argv: Sequence[str] = (),
     pools = runner_pools(env.get("RUNNER_POOLS"))
     blacksmith, blacksmith_why = blacksmith_route(snapshot, now, (env.get("FIRST") or "").strip(), evidence, pools)
     other = alternate(blacksmith, snapshot, now, evidence, pools)
+    # Every candidate dead (the snapshot, fresh or not, or a RUNNER_POOLS mark): `cloud` is then a label that starts
+    # nothing, so a job with no owned Mac to take (the DEV publisher's advisory tip-deltas) skips rather than queue.
+    dead = every_dead(evidence, now, pools) >= set(CANDIDATES)
     lines = [f"trusted: {'yes' if trusted else 'no'} ({trusted_why})", f"blacksmith: {blacksmith} ({blacksmith_why})"]
+    if dead:
+        lines.append("every Blacksmith macOS 26 label shows dead (dead=true)")
     for line in lines:
         print(f"classic nightly build runner: {line}")
     if env.get("GITHUB_OUTPUT"):
         with open(env["GITHUB_OUTPUT"], "a", encoding="utf-8") as handle:
             handle.write(f"trusted={'true' if trusted else 'false'}\ncloud={blacksmith}\n"
-                         f"alternate={other}\nattempt={(env.get('GITHUB_RUN_ATTEMPT') or '1').strip()}\n")
+                         f"alternate={other}\nattempt={(env.get('GITHUB_RUN_ATTEMPT') or '1').strip()}\n"
+                         f"dead={'true' if dead else 'false'}\n")
     if env.get("GITHUB_STEP_SUMMARY"):
         with open(env["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as handle:
             handle.write("\nNightly build runner:\n" + "".join(f"- {line}\n" for line in lines))

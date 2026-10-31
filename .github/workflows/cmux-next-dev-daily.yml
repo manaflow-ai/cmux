@@ -344,6 +344,8 @@ jobs:
       cloud: ${{ steps.cloud.outputs.cloud }}
       alternate: ${{ steps.cloud.outputs.alternate }}
       attempt: ${{ steps.cloud.outputs.attempt }}
+      # 'true' when every Blacksmith macOS 26 label shows dead: `cloud` then starts nothing.
+      cloud_dead: ${{ steps.cloud.outputs.dead }}
     steps:
       # Only main's own dispatch of this workflow (the sign job's condition)
       # is offered an owned Mac, and only on its first attempt.
@@ -414,6 +416,10 @@ jobs:
           POOL_OWNED: ${{ vars.CI_PR_POOL_OWNED }}
           OWNED_SLOTS: ${{ vars.CI_OWNED_POOL_SLOTS }}
           PR_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_PR }}
+          # Its `_dead` marks: a marked label has no free slot (simple_pool_picker.state_from()), so with
+          # every Blacksmith macOS 26 label dead verify and tip-dmg-build wait on the owned fleet
+          # (--wait-owned) instead of queuing on a label that starts nothing (run 41250674182).
+          RUNNER_POOLS: ${{ vars.RUNNER_POOLS }}
           # The only Blacksmith label verify and tip-dmg-build fall back to (their
           # runs-on; test_cmux_next_dev_tip_feed.py keeps the three equal). Free
           # room on another label (macOS 15) is none for them.
@@ -1443,7 +1449,10 @@ jobs:
     # DMG, signed, with no deltas for this build.
     continue-on-error: true
     needs: [sign, tip-dmg, tip, runner]
-    if: ${{ !cancelled() && needs.sign.outputs.build != '' && needs.tip.outputs.written == 'true' }}
+    # It holds the Sparkle key, which its script writes to a temporary file, so it stays on Blacksmith (a
+    # fresh VM) and never takes a reused owned Mac. With every Blacksmith macOS 26 label dead it skips:
+    # the feed already has the full DMG, and run 41249342756's tip-deltas queued on a dead label for hours.
+    if: ${{ !cancelled() && needs.sign.outputs.build != '' && needs.tip.outputs.written == 'true' && needs.runner.outputs.cloud_dead != 'true' }}
     # No concurrency group (a group replaces a pending run, which the dev-build
     # rule forbids): the feed write is a compare-and-swap that adds deltas only
     # to this build's item while it is still the newest.
