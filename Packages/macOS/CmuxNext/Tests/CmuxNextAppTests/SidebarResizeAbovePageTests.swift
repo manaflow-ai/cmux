@@ -3,6 +3,7 @@ import AppKit
 import CmuxNextDesign
 @testable import CmuxNextLayout
 import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// The sidebar's resize edge works whatever has focus (Leo 2026-10-20: "when im focused in
@@ -11,7 +12,7 @@ import Testing
 /// brought the window forward, and the band's part over the page went to the page. Pane dividers
 /// already had both covered: they take the first mouse and their hit areas get a catcher panel
 /// above pages (`DividerMouseCatchers`), which also sets the cursor while the page holds key.
-@MainActor @Suite(.serialized) struct SidebarResizeAbovePageTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct SidebarResizeAbovePageTests {
     func root(sidebarHidden: Bool = false) -> (ShellWindow, WindowRootView) {
         _ = NSApplication.shared
         let model = SidebarModel()
