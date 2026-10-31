@@ -48,11 +48,11 @@ impl Settings {
         {
             let left = token.seconds_left(now_unix);
             if left.is_some_and(|left| left > 0) {
-                let base_url = base_url_flag
+                // The key goes only to the service that minted it.
+                let requested = base_url_flag
                     .map(str::to_owned)
-                    .or_else(|| env("CMUX_VM_BASE_URL"))
-                    .or_else(|| token.base_url.clone())
-                    .unwrap_or_else(|| cmux_vm_client::DEFAULT_BASE_URL.to_owned());
+                    .or_else(|| env("CMUX_VM_BASE_URL"));
+                let base_url = token.issuer_for(requested.as_deref())?;
                 let team_id = team_flag
                     .map(str::to_owned)
                     .or_else(|| env("CMUX_VM_TEAM_ID"))
@@ -210,6 +210,35 @@ mod tests {
         let settings = Settings::resolve_with_token(None, None, None, &env, Some(&stored), 0)
             .expect("resolve");
         assert_eq!(settings.api_key, "cmuxvm_sk_env");
+    }
+
+    #[test]
+    fn a_stored_key_is_never_sent_to_another_base_url() {
+        let env = |name: &str| match name {
+            "CMUX_VM_BASE_URL" => Some("https://elsewhere.example".to_owned()),
+            "HOME" => Some("/nonexistent-cmux-vm-home".to_owned()),
+            _ => None,
+        };
+        let stored = token("2026-10-29T08:00:00Z");
+        let Err(error) = Settings::resolve_with_token(None, None, None, &env, Some(&stored), 0)
+        else {
+            panic!("the stored key resolved for another service");
+        };
+        assert!(
+            error.message().contains("belongs to"),
+            "{}",
+            error.message()
+        );
+        let flag = Settings::resolve_with_token(
+            Some("https://vm.cmux.dev"),
+            None,
+            None,
+            &|name: &str| (name == "HOME").then(|| "/nonexistent-cmux-vm-home".to_owned()),
+            Some(&stored),
+            0,
+        )
+        .expect("its own issuer");
+        assert_eq!(flag.base_url, "https://vm.cmux.dev");
     }
 
     #[test]

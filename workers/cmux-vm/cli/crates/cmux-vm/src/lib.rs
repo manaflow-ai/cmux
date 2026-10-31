@@ -728,12 +728,11 @@ async fn token_command(
             Ok(code)
         }
         token::TokenCommand::Revoke => {
-            let base_url = cli
+            let requested = cli
                 .base_url
                 .clone()
-                .or_else(|| env("CMUX_VM_BASE_URL"))
-                .or_else(|| stored.base_url.clone())
-                .unwrap_or_else(|| cmux_vm_client::DEFAULT_BASE_URL.to_owned());
+                .or_else(|| env("CMUX_VM_BASE_URL").filter(|url| !url.is_empty()));
+            let base_url = stored.issuer_for(requested.as_deref())?;
             let client = cmux_vm_client::authenticated_raw_client(
                 &base_url,
                 &stored.key,

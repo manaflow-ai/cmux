@@ -125,6 +125,29 @@ impl StoredToken {
         }
     }
 
+    /// The service this key was minted at: the only one it is ever sent to.
+    pub fn issuer(&self) -> String {
+        self.base_url
+            .clone()
+            .unwrap_or_else(|| cmux_vm_client::DEFAULT_BASE_URL.to_owned())
+    }
+
+    /// The issuer, refusing a base URL from a flag or the environment that
+    /// names another service: that would send this key there (and a revoke
+    /// answered 401/404 by it would drop the only local copy of a live key).
+    pub fn issuer_for(&self, requested: Option<&str>) -> Result<String, CliError> {
+        let issuer = self.issuer();
+        match requested {
+            Some(url) if url.trim_end_matches('/') != issuer.trim_end_matches('/') => {
+                Err(CliError::usage(format!(
+                    "the stored VM token {} belongs to {issuer}, not {url}; unset --base-url / CMUX_VM_BASE_URL, or set CMUX_VM_API_KEY to use another service",
+                    self.key_id
+                )))
+            }
+            _ => Ok(issuer),
+        }
+    }
+
     /// The public facts, for output: never the key.
     pub fn public(&self) -> Value {
         json!({
@@ -706,6 +729,32 @@ mod tests {
         let body = create_body(&args).unwrap();
         assert_eq!(body["scopes"], json!(["vm:read", "vm:write", "vm:exec"]));
         assert_eq!(body["ttlSeconds"], json!(DEFAULT_TTL_SECONDS));
+    }
+
+    #[test]
+    fn a_stored_key_goes_only_to_its_issuer() {
+        let mut token = StoredToken {
+            key: "k".into(),
+            key_id: "vmk_x".into(),
+            expires_at: "2099-01-01T00:00:00Z".into(),
+            team_id: None,
+            base_url: None,
+            scopes: Vec::new(),
+            max_vms: None,
+            max_usd_per_hour: None,
+        };
+        assert_eq!(token.issuer_for(None).unwrap(), "https://vm.cmux.dev");
+        assert_eq!(
+            token.issuer_for(Some("https://vm.cmux.dev/")).unwrap(),
+            "https://vm.cmux.dev"
+        );
+        assert!(token.issuer_for(Some("https://evil.example")).is_err());
+        token.base_url = Some("https://vm-staging.cmux.dev".into());
+        assert_eq!(
+            token.issuer_for(None).unwrap(),
+            "https://vm-staging.cmux.dev"
+        );
+        assert!(token.issuer_for(Some("https://vm.cmux.dev")).is_err());
     }
 
     #[test]

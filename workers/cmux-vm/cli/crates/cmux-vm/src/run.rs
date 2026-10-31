@@ -1023,6 +1023,12 @@ fn hard_linked(_meta: &std::fs::Metadata) -> bool {
     false
 }
 
+/// Whether `dir` or a directory above it holds a `.git`.
+fn in_a_repository(dir: &Path) -> bool {
+    let dir = dir.canonicalize().unwrap_or_else(|_| dir.to_path_buf());
+    dir.ancestors().any(|at| at.join(".git").exists())
+}
+
 /// The files git would show in `dir`: tracked and untracked, without the
 /// ignored ones. `Ok(None)` outside a git worktree (the caller walks the
 /// directory instead); an error inside one whose files git cannot list,
@@ -1036,8 +1042,18 @@ fn git_files(dir: &Path) -> Result<Option<Vec<PathBuf>>, CliError> {
         .output();
     match inside {
         Ok(out) if out.status.success() && out.stdout.starts_with(b"true") => {}
-        // No git, or not a worktree: nothing for git to ignore.
-        _ => return Ok(None),
+        // Not a worktree by git's own answer: nothing for git to ignore.
+        Ok(out) if out.status.success() => return Ok(None),
+        // git could not say (not installed, or failing) and no `.git` here.
+        _ if !in_a_repository(dir) => return Ok(None),
+        // git could not say beside a `.git`: walking it would upload what
+        // .gitignore leaves out.
+        _ => {
+            return Err(CliError::usage(format!(
+                "--sync needs git to list {}'s files (it is inside a git repository) and git did not run",
+                dir.display()
+            )));
+        }
     }
     let output = std::process::Command::new("git")
         .arg("-C")
@@ -1602,6 +1618,22 @@ mod tests {
         let error = sync_list(&dir).unwrap_err();
         assert!(error.message().contains("git"), "{}", error.message());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_dot_git_above_marks_a_repository() {
+        let base = std::env::temp_dir().join(format!("cmux-vm-run-dotgit-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(base.join("repo/.git")).unwrap();
+        std::fs::create_dir_all(base.join("repo/src")).unwrap();
+        std::fs::create_dir_all(base.join("plain")).unwrap();
+        assert!(in_a_repository(&base.join("repo/src")));
+        assert!(in_a_repository(&base.join("repo")));
+        // A `.git` file (a linked worktree) counts too.
+        std::fs::create_dir_all(base.join("linked")).unwrap();
+        std::fs::write(base.join("linked/.git"), "gitdir: /elsewhere").unwrap();
+        assert!(in_a_repository(&base.join("linked")));
+        let _ = std::fs::remove_dir_all(&base);
     }
 
     #[cfg(unix)]
