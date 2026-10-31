@@ -570,6 +570,8 @@ final class AppServices {
         wireBrowserTabMachines()
         cache.browserProfile = { [weak self] key in self?.browserProfiles.engineProfile(forTab: key) }
         cache.profileBadge = { [weak self] key in self?.browserProfiles.omnibarBadge(forTab: key) }
+        // Customize Menu… at the end of a right-click menu opens Settings > Menus on that menu.
+        registry.customizeMenu = { [weak self] context in self?.settingsWindow.showMenus(context) }
         cache.profileBadgeMenu = { [weak self] key in
             guard let self, let tab = cache.tabModel(key) else { return nil }
             let target = ActionTargetRef(kind: .browserProfile, id: browserProfiles.profileID(ofTab: tab))
