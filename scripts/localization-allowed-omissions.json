@@ -7058,5 +7058,13 @@
         ]
       }
     }
+  },
+  "iphone.phone.transport.next": {
+    "class": "brand",
+    "source": "%@ · cmux next"
+  },
+  "iphone.phone.transport.ios": {
+    "class": "brand",
+    "source": "%@ · cmux (iOS)"
   }
 }
