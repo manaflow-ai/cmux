@@ -11,7 +11,6 @@ public actor FallbackTokenStore: StackAuthTokenStoreProtocol {
     private let file: FileStackTokenStore
     private let log = AuthDebugLog()
     private var keychainWorks: Bool = true
-    private var tokenReadOccurred = false
 
     /// Creates the composite store.
     /// - Parameters:
@@ -23,8 +22,6 @@ public actor FallbackTokenStore: StackAuthTokenStoreProtocol {
     }
 
     public func getStoredAccessToken() async -> String? {
-        if !tokenReadOccurred { await keychain.resetLastReadStatus() }
-        tokenReadOccurred = true
         if keychainWorks, let value = await keychain.getStoredAccessToken() {
             return value
         }
@@ -37,8 +34,6 @@ public actor FallbackTokenStore: StackAuthTokenStoreProtocol {
     }
 
     public func getStoredRefreshToken() async -> String? {
-        if !tokenReadOccurred { await keychain.resetLastReadStatus() }
-        tokenReadOccurred = true
         if keychainWorks, let value = await keychain.getStoredRefreshToken() {
             return value
         }
@@ -50,22 +45,26 @@ public actor FallbackTokenStore: StackAuthTokenStoreProtocol {
         return fallbackValue
     }
 
-    /// Whether an empty read means no session is stored. Once this session
-    /// routes to the file store, the file is authoritative and always readable;
-    /// otherwise this is the Keychain's answer
-    /// (``KeychainStackTokenStore/isReadable()``). Pass it to
-    /// ``AuthCoordinator``'s `isTokenStorageAvailable`.
+    /// Reads credentials with the availability of the same primary-store read.
+    /// - Returns: The authoritative file snapshot, or the Keychain read and its status.
+    public func readStoredTokens() async -> AuthStoredTokenRead {
+        guard keychainWorks else { return await file.readStoredTokens() }
+        let primary = await keychain.readStoredTokens()
+        guard keychainWorks else { return await file.readStoredTokens() }
+        if primary.accessToken != nil || primary.refreshToken != nil { return primary }
+        let fallback = await file.readStoredTokens()
+        if fallback.accessToken != nil || fallback.refreshToken != nil {
+            keychainWorks = false
+            log.log("keychain read missed file fallback token; switching to file fallback for this session")
+            return fallback
+        }
+        return primary
+    }
+
+    /// Reports current storage availability without consuming another read's status.
+    /// - Returns: Whether the authoritative store can currently answer a token probe.
     public func isTokenStorageAvailable() async -> Bool {
         guard keychainWorks else { return true }
-        if tokenReadOccurred {
-            tokenReadOccurred = false
-            let readWasDefinitive = await keychain.wasLastReadDefinitive()
-            if !readWasDefinitive {
-                await keychain.resetLastReadStatus()
-                return false
-            }
-            return true
-        }
         return await keychain.isReadable()
     }
 

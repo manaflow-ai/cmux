@@ -102,16 +102,21 @@ public actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
 #endif
     }
 
-    /// Whether the most recent token read returned a definitive Keychain status.
-    /// This preserves a temporary read failure across the availability check
-    /// that follows session restore's token reads.
-    public func wasLastReadDefinitive() -> Bool {
-        lastReadWasDefinitive
-    }
-
-    /// Forget the consumed token-read status before retrying availability.
-    public func resetLastReadStatus() {
+    /// Reads credentials and their availability in one actor-isolated operation.
+    /// - Returns: Tokens and the definitive status of exactly these reads.
+    public func readStoredTokens() -> AuthStoredTokenRead {
         lastReadWasDefinitive = true
+        let access = cachedAccessToken ?? readOrAdoptLegacyToken(
+            account: Self.accessTokenAccount,
+            legacyAccount: legacyProjectID.map { "stack-auth-access-\($0)" }
+        )
+        let refresh = cachedRefreshToken ?? readOrAdoptLegacyToken(
+            account: Self.refreshTokenAccount,
+            legacyAccount: legacyProjectID.map { "stack-auth-refresh-\($0)" }
+        )
+        return AuthStoredTokenRead(
+            accessToken: access, refreshToken: refresh, isAvailable: lastReadWasDefinitive
+        )
     }
 
     /// Whether a Keychain read status is final. Only a temporary failure (the

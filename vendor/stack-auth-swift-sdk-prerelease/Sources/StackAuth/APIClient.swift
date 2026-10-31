@@ -153,11 +153,14 @@ actor APIClient {
     private var refreshRateLimitedUntil: UInt64?
     /// Consecutive rate-limited refresh exchanges, for exponential backoff.
     private var refreshRateLimitStreak = 0
+    /// A 429 has not yet been followed by a successful refresh.
+    private var refreshRateLimitRecoveryPending = false
     /// Consecutive refresh exchanges refused for a reason other than the
     /// refresh token; drives the same cooldown as a 429.
     private var refreshRejectedStreak = 0
     /// Whether a rejected request is in its cancellation-aware cooldown.
     private var refreshRejectedCooldownActive = false
+    private var refreshRejectedUntil: UInt64?
     private var refreshRejectedCooldownID: UUID?
     private var refreshRejectedCooldownTask: Task<Void, Never>?
     private var refreshCooldownEpoch: UInt64 = 0
@@ -543,7 +546,12 @@ actor APIClient {
     /// exponential from 5 seconds to 5 minutes, with jitter.
     private func refreshRespectingRateLimit(refreshToken: String) async -> RefreshOutcome {
         if refreshRejectedCooldownActive {
-            return .transientFailure
+            if let until = refreshRejectedUntil, refreshClock.now() < until {
+                return .transientFailure
+            }
+            // Timer delivery may lag behind its deadline. A new request can
+            // expire the cooldown without depending on task scheduling.
+            clearRejectedRefreshCooldown()
         }
         if let until = refreshRateLimitedUntil, refreshClock.now() < until {
             return .transientFailure
@@ -551,10 +559,16 @@ actor APIClient {
         let epoch = refreshCooldownEpoch
         let outcome = await refresh(refreshToken: refreshToken)
         guard epoch == refreshCooldownEpoch else {
+            // An unrelated token store can change this client's epoch. Its
+            // stale result must not change cooldowns or clear credentials, but
+            // the coordinator still owns compare-and-set for a valid success.
+            if case .success = outcome { return outcome }
             return .transientFailure
         }
         switch outcome {
         case .rateLimited(let retryAfter, let bodyKind):
+            refreshRejectedStreak = 0
+            refreshRateLimitRecoveryPending = true
             refreshRateLimitStreak += 1
             let delaySeconds = Self.rateLimitDelaySeconds(
                 retryAfterSeconds: retryAfter,
@@ -570,15 +584,17 @@ actor APIClient {
             ))
             return .transientFailure
         case .requestRejected:
+            refreshRateLimitStreak = 0
             refreshRejectedStreak += 1
             let delaySeconds = Self.rateLimitDelaySeconds(retryAfterSeconds: nil, streak: refreshRejectedStreak)
             startRejectedRefreshCooldown(delaySeconds: delaySeconds)
             return outcome
         case .success, .definitivelyRejected:
-            if case .success = outcome, refreshRateLimitStreak > 0 {
+            if case .success = outcome, refreshRateLimitRecoveryPending {
                 StackAuthRateLimitReporting.observer?.stackAuthTokenRefreshDidRecover()
             }
             refreshRateLimitStreak = 0
+            refreshRateLimitRecoveryPending = false
             refreshRejectedStreak = 0
             refreshRateLimitedUntil = nil
             clearRejectedRefreshCooldown()
@@ -595,6 +611,7 @@ actor APIClient {
         refreshRejectedCooldownID = id
         refreshRejectedCooldownActive = true
         let deadline = refreshClock.now() &+ UInt64(delaySeconds * 1_000_000_000)
+        refreshRejectedUntil = deadline
         let clock = refreshClock
         refreshRejectedCooldownTask = Task { [weak self] in
             do {
@@ -610,6 +627,7 @@ actor APIClient {
     private func finishRejectedRefreshCooldown(id: UUID) {
         guard refreshRejectedCooldownID == id else { return }
         refreshRejectedCooldownID = nil
+        refreshRejectedUntil = nil
         refreshRejectedCooldownActive = false
         refreshRejectedCooldownTask = nil
     }
@@ -618,6 +636,7 @@ actor APIClient {
         refreshRejectedCooldownTask?.cancel()
         refreshRejectedCooldownTask = nil
         refreshRejectedCooldownID = nil
+        refreshRejectedUntil = nil
         refreshRejectedCooldownActive = false
     }
 
@@ -625,6 +644,7 @@ actor APIClient {
         refreshCooldownEpoch &+= 1
         refreshRateLimitedUntil = nil
         refreshRateLimitStreak = 0
+        refreshRateLimitRecoveryPending = false
         refreshRejectedStreak = 0
         clearRejectedRefreshCooldown()
     }

@@ -183,7 +183,8 @@ actor TokenStorageAvailabilityProbe {
     private func makeCoordinator(
         client: LockedStorageAuthClient,
         cachedUser: CMUXAuthUser,
-        availability: TokenStorageAvailabilityProbe
+        availability: TokenStorageAvailabilityProbe,
+        atomicReads: Bool = false
     ) throws -> (AuthCoordinator, FakeKeyValueStore) {
         let store = FakeKeyValueStore()
         let sessionCache = CMUXAuthSessionCache(keyValueStore: store, key: "has_tokens")
@@ -198,7 +199,11 @@ actor TokenStorageAvailabilityProbe {
             anchor: FakeAnchor(),
             config: .test,
             launch: .plain(),
-            isTokenStorageAvailable: { await availability.isAvailable() }
+            isTokenStorageAvailable: { await availability.isAvailable() },
+            readStoredTokens: atomicReads ? {
+                let read = await client.readStoredTokens()
+                return AuthStoredTokenRead(accessToken: read.access, refreshToken: read.refresh, isAvailable: read.available)
+            } : nil
         )
         return (coordinator, store)
     }
@@ -211,7 +216,7 @@ actor TokenStorageAvailabilityProbe {
         )
         await client.pauseRefreshRead(after: 2)
         let availability = TokenStorageAvailabilityProbe(available: true)
-        let (coordinator, store) = try makeCoordinator(client: client, cachedUser: cachedUser, availability: availability)
+        let (coordinator, store) = try makeCoordinator(client: client, cachedUser: cachedUser, availability: availability, atomicReads: true)
         coordinator.start()
         await client.waitForPausedRefreshRead()
         // The unrelated caller consumes the unavailable result, then storage unlocks.
