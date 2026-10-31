@@ -19,4 +19,16 @@ package final class WorkspacePlacementLedger {
         anchors[id] = nil
         groupAnchors[id] = nil
     }
+
+    /// Reads the first-frame anchor, pruning settled or vanished rows through injected live lookups.
+    package func unplacedAnchor(for id: String, hasDocumentItem: (String) -> Bool,
+                                workspaceExists: (String) -> Bool) -> SidebarDocSections.UnplacedAnchor? {
+        guard !anchors.isEmpty else { return nil }
+        if anchors.count > 16 {
+            anchors = anchors.filter { key, _ in
+                !hasDocumentItem(key) && (workspaceExists(key) || placedByDaemon.contains(key))
+            }
+        }
+        return anchors[id]
+    }
 }
