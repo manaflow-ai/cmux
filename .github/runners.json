@@ -379,6 +379,26 @@
       "class": "macos-runtime-tests",
       "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
     },
+    "stable-next.yml#perf-budgets": {
+      "class": "apple-gui",
+      "picker_followup": "runs-on names a fixed macOS label (glaeda-gui-std-xcode-26.6 on attempt 1, an M4 Pro mini; stable-next never uses an M6), then Blacksmith; take it from a picker job's output that keeps off the M6 minis"
+    },
+    "stable-next.yml#sign": {
+      "class": "apple-signing-release",
+      "picker_followup": "runs-on names a fixed macOS label (glaeda-gui-std-xcode-26.6 on attempt 1, an M4 Pro mini; stable-next never uses an M6), then Blacksmith; take it from a picker job's output that keeps off the M6 minis"
+    },
+    "stable-next.yml#smoke-26": {
+      "class": "apple-gui",
+      "picker_followup": "runs-on names a fixed macOS 26 label (vars.MACOS_RUNNER_26, then Blacksmith macOS 26); take it from a picker job's output that keeps to macOS 26"
+    },
+    "stable-next.yml#smoke-27": {
+      "class": "apple-gui",
+      "picker_followup": "runs-on names a fixed macOS label (glaeda-gui-std-xcode-26.6 on attempt 1, an M4 Pro mini; stable-next never uses an M6), then Blacksmith; take it from a picker job's output that keeps off the M6 minis"
+    },
+    "stable-next.yml#swift-suites": {
+      "class": "apple-swift-tests",
+      "picker_followup": "runs-on names a fixed macOS label (glaeda-gui-std-xcode-26.6 on attempt 1, an M4 Pro mini; stable-next never uses an M6), then Blacksmith; take it from a picker job's output that keeps off the M6 minis"
+    },
     "terminal-hang-diagnostics.yml#phase-attribution": {
       "class": "apple-swift-tests",
       "placement_followup": "runs-on reads vars.CI_SIDE_LANE_RUNNER directly; take the label from a placement job"

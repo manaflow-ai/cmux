@@ -80,8 +80,9 @@ import test_ci_signing_keychain_is_deleted_before_bundle_code as keychain_guard 
 # SIGNING_JOBS). A signing job routed to owned Macs must be one of them, so a new one is added there too.
 SIGNING_JOBS = {
     ("nightly.yml", "build-sign-notarize-nightly"), ("nightly.yml", "recover-nightly-next-notarization"),
-    ("nightly.yml", "sign-nightly-identity-legacy"), ("release.yml", "build-sign-notarize"),
-    ("repair-v0-64-25-helper-rpaths.yml", "repair"), ("cmux-next-dev-daily.yml", "sign"),
+    ("nightly.yml", "sign-nightly-identity-legacy"), ("nightly.yml", "generate-nightly-deltas"),
+    ("release.yml", "build-sign-notarize"), ("repair-v0-64-25-helper-rpaths.yml", "repair"),
+    ("cmux-next-dev-daily.yml", "sign"),
 }
 OWNED_PICKER = "scripts/ci/signing_runner.py"
 BLACKSMITH_PICKER = "scripts/ci/nightly_sign_runner.py"
@@ -576,13 +577,14 @@ class SigningOwnedMacTests(unittest.TestCase):
         owned = "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_SIDE_LANE_RUNNER || " \
                 "'glaeda-std-xcode-26.6' }}"
         bare = {"runs-on": owned, "steps": [{"uses": "actions/checkout@v6"}, key]}
-        failures, owned_jobs = check({"nightly.yml": {"jobs": {"generate-nightly-deltas": bare}}})
+        # A job SIGNING_JOBS does not name, so every finding shows.
+        failures, owned_jobs = check({"other-nightly.yml": {"jobs": {"deltas": bare}}})
         self.assertEqual(owned_jobs, 1, failures)
         for needle in ("not in SIGNING_JOBS", "the first step must be the claim gate", "without a step that runs"):
             with self.subTest(needle):
                 self.assertTrue(any(needle in failure for failure in failures), failures)
         in_job_env = {"runs-on": owned, "env": key["env"], "steps": [{"run": "true"}]}
-        failures, _ = check({"nightly.yml": {"jobs": {"generate-nightly-deltas": in_job_env}}})
+        failures, _ = check({"other-nightly.yml": {"jobs": {"deltas": in_job_env}}})
         self.assertTrue(any("job-level env names a secret" in failure for failure in failures), failures)
         # Held whole: the claim gate first, the claim before the key, and no keychain to delete (rule 4 is the keychain's).
         held = {"runs-on": owned, "steps": [{"name": CLAIM_GATE_NAME, "id": CLAIM_GATE_ID, "run": CLAIM_GATE},
