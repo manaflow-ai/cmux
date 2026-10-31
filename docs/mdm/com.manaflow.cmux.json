@@ -1788,6 +1788,22 @@
       "title" : "Reactions Can Wake the Chief",
       "type" : "boolean"
     },
+    "cloud.newWorkspaceFolder" : {
+      "default" : "inherit",
+      "description" : "Current Folder copies the folder you work in (its whole git working copy) to the new machine. Empty Folder starts in the machine's own empty folder.",
+      "enum" : [
+        "inherit",
+        "empty"
+      ],
+      "title" : "New Cloud Workspaces Start In",
+      "type" : "string"
+    },
+    "cloud.newWorkspacesInCloud" : {
+      "default" : false,
+      "description" : "Each new workspace (Cmd-N, the sidebar's +) gets its own new Cloud machine. Agent chats you start in it run on that machine.",
+      "title" : "Run New Workspaces in Cloud",
+      "type" : "boolean"
+    },
     "computerUse.driver" : {
       "default" : "legacy",
       "description" : "Legacy runs the current cmux Computer Use helper. Upstream runs the new helper built on the upstream Cua Driver; macOS asks for its permissions separately.",

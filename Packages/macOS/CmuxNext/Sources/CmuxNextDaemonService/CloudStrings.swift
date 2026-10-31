@@ -15,6 +15,12 @@ public enum CloudStrings {
         String(format: String(localized: "cloud.machine.defaultNameNumbered", defaultValue: "Cloud Machine %lld", table: "Cloud", bundle: .module), number)
     }
     nonisolated public static var signInFirst: String { String(localized: "cloud.failed.signInFirst", defaultValue: "Sign in to use Cloud machines: run Sign In from the command palette, or `cmux cloud sign-in`.", table: "Cloud", bundle: .module) }
+    /// The Cloud toggle (#26062) is on, but this New Workspace opened on this Mac; `reason` says why.
+    public static func newWorkspaceOpenedHere(_ reason: String) -> String {
+        String(format: String(localized: "cloud.newWorkspace.openedHere", defaultValue: "This workspace opened on this Mac, not in Cloud. %@", table: "Cloud", bundle: .module), reason)
+    }
+    /// Why: no window was open to show a new Cloud machine's progress (Cmd-N with every window closed).
+    public static var newWorkspaceNoWindow: String { String(localized: "cloud.newWorkspace.noWindow", defaultValue: "New workspaces start in Cloud from an open window, where the new machine's progress shows.", table: "Cloud", bundle: .module) }
     /// Under a signed-out Cloud action in the command palette and context menus: running it signs in first, then the action runs.
     nonisolated public static var signInToContinue: String { String(localized: "cloud.signIn.toContinue", defaultValue: "Sign in to use Cloud machines: choose it to sign in, then it runs.", table: "Cloud", bundle: .module) }
     public static var noMachine: String { String(localized: "cloud.failed.noMachine", defaultValue: "No Cloud machine is selected. Right-click a machine or pass --target machine:<id>; `cmux cloud list-machines` lists ids.", table: "Cloud", bundle: .module) }
