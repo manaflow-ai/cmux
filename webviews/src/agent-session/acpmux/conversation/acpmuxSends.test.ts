@@ -117,7 +117,11 @@ describe("acpmuxSend", () => {
     expect(
       read("cat > /tmp/message.md <<'EOF'\n# Review\n\n- pass\nEOF\nacpmux send --no-wait lane - < /tmp/message.md"),
     ).toEqual({ target: "lane", file: "/tmp/message.md", noWait: true, others: 1 });
-    expect(read("acpmux send lane - < /tmp/message.md")).toEqual({ target: "lane", noWait: false });
+    expect(read("acpmux send lane - < /tmp/message.md")).toEqual({
+      target: "lane",
+      file: "/tmp/message.md",
+      noWait: false,
+    });
     // The last stdin redirect wins; a writer whose stdout goes elsewhere feeds nothing.
     expect(read("acpmux send lane - <<EOF < /tmp/message\nbody\nEOF")).toEqual({ target: "lane", noWait: false });
     expect(
@@ -348,7 +352,7 @@ describe("acpmuxSend", () => {
     expect(read("acpmux send lane - <<EOF\nfirst \\\nsecond\nEOF")).toEqual({ target: "lane", noWait: false });
     expect(read("cat > /tmp/message >> /tmp/other <<'EOF'\nambiguous\nEOF\nacpmux send lane - < /tmp/message")).toEqual(
       {
-      file: "/tmp/message",
+        file: "/tmp/message",
         target: "lane",
         noWait: false,
         others: 1,
@@ -361,11 +365,13 @@ describe("acpmuxSend", () => {
       others: 1,
     });
     expect(read("cat > /tmp/message 2> /tmp/other <<'EOF'\nstderr\nEOF\nacpmux send lane - < /tmp/message")).toEqual({
+      file: "/tmp/message",
       target: "lane",
       noWait: false,
       others: 1,
     });
     expect(read("cat > /tmp/message <<'EOF'\nOLD\nEOF\nacpmux send lane - < /tmp/message > /tmp/message")).toEqual({
+      file: "/tmp/message",
       target: "lane",
       noWait: false,
       others: 2,
@@ -378,19 +384,22 @@ describe("acpmuxSend", () => {
       others: 2,
     });
     expect(read("{ cat > /tmp/message <<'EOF'\nGROUPED\nEOF\n}\nacpmux send lane - < /tmp/message")).toEqual({
+      file: "/tmp/message",
       target: "lane",
       noWait: false,
       others: 1,
     });
     expect(
       read("cat > /tmp/message <<'EOF'\nOLD\nEOF\nprintf NEW > /tmp/message\nacpmux send lane - < /tmp/message"),
-    ).toEqual({ target: "lane", noWait: false, others: 2 });
+    ).toEqual({ file: "/tmp/message", target: "lane", noWait: false, others: 2 });
     expect(read("cat > /tmp/message > /dev/null <<'EOF'\nSHADOWED\nEOF\nacpmux send lane - < /tmp/message")).toEqual({
+      file: "/tmp/message",
       target: "lane",
       noWait: false,
       others: 1,
     });
     expect(read("true || cat > /tmp/message <<'EOF'\nSKIPPED\nEOF\nacpmux send lane - < /tmp/message")).toEqual({
+      file: "/tmp/message",
       target: "lane",
       noWait: false,
       others: 1,

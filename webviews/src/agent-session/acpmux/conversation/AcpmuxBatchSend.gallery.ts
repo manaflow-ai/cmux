@@ -40,9 +40,25 @@ const MCP_BATCH = tool("mcp__cmux__acpmux_send", "other", "completed", {
   }),
   output: JSON.stringify({
     results: [
-      { index: 0, to: "tests", target: "tests", ok: true, status: "delivered" },
-      { index: 1, tag: "area=docs", target: "docs-a", ok: true, status: "queued" },
-      { index: 1, tag: "area=docs", target: "docs-b", ok: true, status: "queued" },
+      { index: 0, to: "tests", target: "01a1aaaa", ok: true, status: "delivered", delivery: "next_step" },
+      {
+        index: 1,
+        tag: "area=docs",
+        to: "docs-a",
+        target: "peer/01a1bbbb",
+        ok: true,
+        status: "delivered",
+        delivery: "queued",
+      },
+      {
+        index: 1,
+        tag: "area=docs",
+        to: "docs-b",
+        target: "peer/01a1cccc",
+        ok: true,
+        status: "delivered",
+        delivery: "queued",
+      },
     ],
     sent: 3,
     failed: 0,
@@ -59,7 +75,12 @@ const turn = (calls: ReturnType<typeof tool>[], working = false) =>
     [
       user("Escalate the nightly, brief the lanes, and tell tests and docs.", 4),
       activity(calls, 3.8),
-      ...(working ? [] : [assistant("Sent. review-astra is not running; starting it next.", 3.5), summary(3.5, { status: "completed" })]),
+      ...(working
+        ? []
+        : [
+            assistant("Sent. review-astra is not running; starting it next.", 3.5),
+            summary(3.5, { status: "completed" }),
+          ]),
     ],
     { title: "coord", ...(working && { isWorking: true }) },
   );

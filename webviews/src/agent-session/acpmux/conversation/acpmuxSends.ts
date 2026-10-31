@@ -857,7 +857,12 @@ function readAcpmuxSend(
       while (ACPMUX_FLAGS.has(words[sub]?.text ?? "")) sub += 1;
       if (words[sub]?.text === "send") {
         sendScan.sends += 1;
-        send = sendArgs(words.slice(sub + 1), stdinOf(commands, index, recordedFiles, inheritedStdin), host, pathOf(command));
+        send = sendArgs(
+          words.slice(sub + 1),
+          stdinOf(commands, index, recordedFiles, inheritedStdin),
+          host,
+          pathOf(command),
+        );
       }
     } else if (name === "cmux" && words[1]?.text === "acp" && words[2]?.text === "send") {
       sendScan.sends += 1;
@@ -1212,8 +1217,14 @@ export function acpmuxSendBatch(line: string): AcpmuxSendBatch | undefined {
         loop = { name: name.text, words: words.map((word) => word.text), body: [], nested: 0 };
         continue;
       }
-      // A `while` or `until` loop's targets come from what it reads: not known here.
-      if (head?.literal && (head.text === "while" || head.text === "until")) {
+      // A `while` or `until` loop's targets come from what it reads: not known here. Whether a
+      // send after `exit` or a `||` runs is not known from the line either (the single reader
+      // refuses those too).
+      if (
+        (head?.literal && (head.text === "while" || head.text === "until")) ||
+        program(head) === "exit" ||
+        command.op === "||"
+      ) {
         refused = true;
         return;
       }
@@ -1257,6 +1268,9 @@ export function acpmuxSendBatch(line: string): AcpmuxSendBatch | undefined {
         return;
       }
       if (args) {
+        // A send that also writes a file or runs a substitution that does more than read does
+        // work of its own: counted, as a single send counts it.
+        if (command.writes || busy.length) others += 1;
         const send = sendArgs(args, stdinOf(commands, index, new Map()), undefined, pathOf(command));
         if (!send) {
           // `--status`, `--help`, a malformed line, or a target still an expansion.

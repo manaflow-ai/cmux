@@ -328,7 +328,16 @@ function SendRaw({ tool, reveal, live }: { tool: Tool; reveal: number; live: boo
   const call = useMemo(() => (tool.command ? undefined : mcpCall(tool)), [tool]);
   if (call)
     return (
-      <McpCallDetails id={id} call={call} raw={mcpRawName(tool, call)} output={tool.output} strip={false} reveal={reveal} />
+      <McpCallDetails
+        id={id}
+        call={call}
+        raw={mcpRawName(tool, call)}
+        output={tool.output}
+        strip={false}
+        reveal={reveal}
+      />
     );
-  return <ShellBlock command={tool.command} output={tool.output} exitCode={tool.exitCode} live={live} reveal={reveal} />;
+  return (
+    <ShellBlock command={tool.command} output={tool.output} exitCode={tool.exitCode} live={live} reveal={reveal} />
+  );
 }
