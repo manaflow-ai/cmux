@@ -111,6 +111,7 @@ pub(crate) use turn_errors::is_limit_error;
 mod git_watch;
 mod github_owner;
 mod lane_reports;
+mod meta_save;
 mod offer_results;
 mod offers;
 mod secrets;
@@ -1869,6 +1870,8 @@ impl Hub {
             return;
         }
         let meta = session.meta();
+        #[cfg(debug_assertions)]
+        meta_save::hold_seam(&session.id);
         if let Err(e) = self.store.save(&meta) {
             tracing::warn!(session = %session.id, "save meta failed: {e}");
         }
