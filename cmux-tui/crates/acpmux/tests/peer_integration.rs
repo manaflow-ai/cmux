@@ -2153,7 +2153,7 @@ async fn opening_a_long_peer_chat_stays_within_its_payload_budget_on_the_link() 
 /// No message on a peer link is larger than one frame every acpmux reads (31 MiB). At
 /// 2026-10-21 06:23Z a 32.8 MB reply from huge-blue reset cosmic-gray's link with its 29 chats:
 /// a history read with no `maxBytes`, 5000 records of a chat with long tool outputs. Here a
-/// 33 MB prompt pushed over the link fails alone, with an error; a 60 MB history comes in a page
+/// 33 MB prompt pushed over the link fails alone, with an error; a 72 MB history comes in a page
 /// that fits, and a record too large for any message comes as a stub; the link never drops.
 #[tokio::test]
 async fn a_payload_over_32_mb_fails_alone_and_the_peer_link_stays() {
