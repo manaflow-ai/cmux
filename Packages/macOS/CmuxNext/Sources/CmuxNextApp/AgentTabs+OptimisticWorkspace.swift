@@ -31,7 +31,8 @@ extension AgentTabStore {
     /// Shows workspace `key` named `name` with its New Tab page (starting in `cwd`; `token` is the
     /// key hold of the press) at daemon-order `index` in this turn, and returns the work that
     /// confirms it. Nil when it cannot (``showsWorkspaceAtOnce(on:)``).
-    func showWorkspace(_ key: WorkspaceKey, name: String, index: Int?, cwd: String?, token: String?,
+    func showWorkspace(_ key: WorkspaceKey, name: String, index: Int?, cwd: String?, token: String?, placedBy rule: NewWorkspaceDefaultSlot? = nil,
+                       ledger: NewWorkspacePlacements.Ledger? = nil,
                        on daemon: DaemonService, repair: EmptyWorkspaceRepair) -> OptimisticWorkspace? {
         guard showsWorkspaceAtOnce(on: daemon), let localHost else { return nil }
         let store = daemon.store
@@ -59,7 +60,7 @@ extension AgentTabStore {
             guard let connection = daemon.connection else { fail(); throw DaemonError.notConnected }
             do {
                 let created: (AgentTabCreated, UInt64?) = try await WorkspaceCreation.createWithFirstTab(
-                    key, name: name, on: connection, repair: repair, giveUp: giveUp
+                    key, name: name, placedBy: rule, ledger: ledger, on: connection, repair: repair, giveUp: giveUp
                 ) { workspace in
                     BenchSpans.mark("cmdN.workspace.created")
                     var request = NewConversationTabRequest(agentSession: record, workspace: workspace.workspace, origin: Self.createOrigin,

@@ -727,8 +727,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "62d993b975a8dc797fee4b31659d8ee105df6463f4c695b5da3a9775c88f0add",
-      "size": 78774
+      "sha256": "527724c3814d54bfd3254cf2b05be70c63231e68004bf6921eafb76786af68ce",
+      "size": 78950
     },
     {
       "path": "ConfigReloadRequestedEvent.java",
@@ -1142,8 +1142,8 @@
     },
     {
       "path": "CreateWorkspaceRequest.java",
-      "sha256": "47d11d6e3dea7da0b281b3147704be392f4041c3af311e323c8327dece14fc8e",
-      "size": 5638
+      "sha256": "42caaa46c659a32fb28bf45d267d22d25eb5a30dfe791466752f4f0630112bd6",
+      "size": 7764
     },
     {
       "path": "CursorStyle.java",
@@ -2132,7 +2132,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "3ab5792cf178699f6c02a27c1995df5bde1a3f64724b8c8447c21473805b809b",
+      "sha256": "8b29bf898240d82011c1713e21a3e7660a097e3b012de7e2a949f51f89aea6b7",
       "size": 7584
     },
     {
@@ -3452,7 +3452,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "440934d902c97a5d430e2f5c26ae15e96ab11f89fa383c70cf209c01f3abd2cb",
+  "ir_sha256": "1403b64f41399c8ef663aaffc9176aed93814c9457fb45a152f1d89d1bd1cd4e",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

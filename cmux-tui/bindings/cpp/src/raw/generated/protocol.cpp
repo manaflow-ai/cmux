@@ -21838,6 +21838,11 @@ Result<CreateTerminalRequest> Codec<CreateTerminalRequest>::decode(const Json& v
 Result<Json> Codec<CreateWorkspaceRequest>::encode(const CreateWorkspaceRequest& value) {
     (void)value;
     Json::Object object;
+    if (!value.current.is_absent()) {
+        auto encoded = encode_value(value.current);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("current", std::move(encoded).value());
+    }
     if (!value.expected_generation.is_absent()) {
         auto encoded = encode_value(value.expected_generation);
         if (!encoded) return std::move(encoded).error();
@@ -21868,6 +21873,16 @@ Result<Json> Codec<CreateWorkspaceRequest>::encode(const CreateWorkspaceRequest&
         if (!encoded) return std::move(encoded).error();
         object.emplace("origin", std::move(encoded).value());
     }
+    if (!value.placement.is_absent()) {
+        auto encoded = encode_value(value.placement);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("placement", std::move(encoded).value());
+    }
+    if (value.places_by_setting) {
+        auto encoded = encode_value(*value.places_by_setting);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("places_by_setting", std::move(encoded).value());
+    }
     return Json(std::move(object));
 }
 
@@ -21875,6 +21890,16 @@ Result<CreateWorkspaceRequest> Codec<CreateWorkspaceRequest>::decode(const Json&
     auto source = value.as_object();
     if (!source) return std::move(source).error();
     CreateWorkspaceRequest result{};
+    const Json* field_current = value.find("current");
+    if (field_current) {
+        if (field_current->is_null()) {
+            result.current = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_current);
+            if (!decoded) return std::move(decoded).error();
+            result.current = Field<std::string>(std::move(decoded).value());
+        }
+    }
     const Json* field_expected_generation = value.find("expected_generation");
     if (field_expected_generation) {
         if (field_expected_generation->is_null()) {
@@ -21937,6 +21962,22 @@ Result<CreateWorkspaceRequest> Codec<CreateWorkspaceRequest>::decode(const Json&
             if (!decoded) return std::move(decoded).error();
             result.origin = Field<std::string>(std::move(decoded).value());
         }
+    }
+    const Json* field_placement = value.find("placement");
+    if (field_placement) {
+        if (field_placement->is_null()) {
+            result.placement = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_placement);
+            if (!decoded) return std::move(decoded).error();
+            result.placement = Field<std::string>(std::move(decoded).value());
+        }
+    }
+    const Json* field_places_by_setting = value.find("places_by_setting");
+    if (field_places_by_setting) {
+        auto decoded = decode_value<bool>(*field_places_by_setting);
+        if (!decoded) return std::move(decoded).error();
+        result.places_by_setting = std::move(decoded).value();
     }
     return result;
 }
@@ -42279,6 +42320,11 @@ constexpr std::array<CommandFieldRequirement, 5> kCommand93FieldRequirements{{
     {"shell_args", 12U, "terminal-shell-args-v1"},
     {"terminal_id", 9U, ""},
 }};
+constexpr std::array<CommandFieldRequirement, 3> kCommand94FieldRequirements{{
+    {"current", 0U, "workspace-create-current-v1"},
+    {"placement", 0U, "workspace-create-current-v1"},
+    {"places_by_setting", 0U, "workspace-create-current-v1"},
+}};
 constexpr std::array<CommandFieldRequirement, 1> kCommand104FieldRequirements{{
     {"view", 12U, "shared-sizing-v1"},
 }};
@@ -42553,7 +42599,7 @@ constexpr std::array<CommandMetadata, 286> kCommands{{
     {"create-surface-with-receipt", "control", 10U, "creation-receipts-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand91FieldRequirements)},
     {"create-tab-group", "control", 12U, "tab-groups-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"create-terminal", "control", 7U, "workspace-registry-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand93FieldRequirements)},
-    {"create-workspace", "control", 7U, "workspace-registry-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
+    {"create-workspace", "control", 7U, "workspace-registry-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand94FieldRequirements)},
     {"create-workspace-group", "control", 12U, "workspace-groups-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"delete-bookmark", "control", 12U, "bookmarks-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"delete-browser-profile", "control", 12U, "browser-profiles-v1", false, "", "", std::span<const CommandFieldRequirement>{}},

@@ -93,13 +93,29 @@ enum PersonalSidebar {
                 loose.append(workspace)
             }
         }
-        let fresh = ordered.filter { rows[rowKey($0)] == nil }
+        // A create in flight that named a neighbour lists beside it (`SidebarDocSections.unplacedAnchor`), where
+        // the daemon's create puts it; the others first under `top`, else last.
+        let anchor = SidebarDocWiring.docSections.unplacedAnchor
+        let besides = ordered.filter { rows[rowKey($0)] == nil }.map { ($0, anchor($0)) }
+        let fresh = besides.filter { $0.1 == nil }.map(\.0)
         if !newRowsFirst { loose += fresh }
         for group in groups where group.topIndex.map({ $0 >= all.count }) ?? true { emit(group) }
         if !loose.isEmpty || sections.isEmpty { sections.append(SidebarSection(group: nil, workspaces: loose)) }
         if newRowsFirst, !fresh.isEmpty {
             if sections.count == 1, sections[0].group == nil, sections[0].workspaces.isEmpty { sections = [] }
             SidebarDocSections.insertFirst(Array(fresh.reversed()), into: &sections, machineSections: sections.count)
+        }
+        for case let (workspace, beside?) in besides where !SidebarDocSections.insert(workspace, beside: beside, into: &sections,
+                                                                                         within: sections.count) {
+            // Its neighbour is not listed here: where the others go.
+            if newRowsFirst || beside.fallsBackToFirst { SidebarDocSections.insertFirst([workspace], into: &sections, machineSections: sections.count) } else {
+                // Last of all, below a trailing group too.
+                if let last = sections.indices.last, sections[last].group == nil {
+                    sections[last] = SidebarSection(group: nil, workspaces: sections[last].workspaces + [workspace])
+                } else {
+                    sections.append(SidebarSection(group: nil, workspaces: [workspace]))
+                }
+            }
         }
         return sections
     }

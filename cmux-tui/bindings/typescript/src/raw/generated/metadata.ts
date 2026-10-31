@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 440934d902c97a5d430e2f5c26ae15e96ab11f89fa383c70cf209c01f3abd2cb. */
+/* cmux-tui mux protocol 12, IR 1403b64f41399c8ef663aaffc9176aed93814c9457fb45a152f1d89d1bd1cd4e. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "440934d902c97a5d430e2f5c26ae15e96ab11f89fa383c70cf209c01f3abd2cb" as const;
+export const SDK_IR_SHA256 = "1403b64f41399c8ef663aaffc9176aed93814c9457fb45a152f1d89d1bd1cd4e" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -1157,7 +1157,20 @@ export const COMMAND_METADATA = {
     "authority": "control",
     "since": 7,
     "capability": "workspace-registry-v1",
-    "fields": {},
+    "fields": {
+      "current": {
+        "since": null,
+        "capability": "workspace-create-current-v1"
+      },
+      "placement": {
+        "since": null,
+        "capability": "workspace-create-current-v1"
+      },
+      "places_by_setting": {
+        "since": null,
+        "capability": "workspace-create-current-v1"
+      }
+    },
     "stream": null,
     "constraints": []
   },
@@ -19170,6 +19183,16 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
         "At most 4096 live workspaces may exist; tombstoned keys cannot be reused."
       ],
       "fields": {
+        "current": {
+          "capability": "workspace-create-current-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
         "expected_generation": {
           "default": null,
           "nullable": true,
@@ -19235,6 +19258,26 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "scalar",
             "name": "string"
+          }
+        },
+        "placement": {
+          "capability": "workspace-create-current-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "places_by_setting": {
+          "capability": "workspace-create-current-v1",
+          "default": false,
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
           }
         }
       },

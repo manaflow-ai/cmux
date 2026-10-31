@@ -104,15 +104,15 @@ enum AgentSessionWorkspace {
                 AgentSessionWorkspace.join(id, group: group, sidebar: sidebar)
             }
         }
-        NewWorkspacePlacements.expect(key.rawValue, in: nil, byDefault: NewWorkspacePlacements.rule(for: nil, in: windows),
-                                      then: join, windows: windows)
+        let rule = NewWorkspacePlacements.rule(for: nil, in: windows)
+        NewWorkspacePlacements.expect(key.rawValue, in: nil, byDefault: rule, then: join, windows: windows)
         return Task { @MainActor in
             do {
                 // The session's chat is the workspace's first tab: a workspace store tab bound to
                 // the session (agent-session-tabs-v1), saved and restored with the workspace like any
                 // tab. No terminal first: one running `acpmux attach` landed as a bare "~" shell
                 // whenever its start missed the deadline (Leo, 2026-10-21 and 2026-10-28).
-                let tab = try await WorkspaceCreation.createWithFirstTab(key, name: name, on: connection, repair: repair) { created in
+                let tab = try await WorkspaceCreation.createWithFirstTab(key, name: name, placedBy: rule, ledger: windows.newPlacements, on: connection, repair: repair) { created in
                     try await WorkspaceCreation.sessionTab(session, in: created, host: host, linked: true, on: daemon, tabs: services.agentTabs)
                 }
                 // The workspace's first pane once the store mirrors it, found
@@ -132,8 +132,10 @@ enum AgentSessionWorkspace {
                 logger.info("agent.openSessionWorkspace: session \(session, privacy: .public) in workspace \(key.rawValue, privacy: .public) tab \(tab, privacy: .public)")
                 return nil
             } catch let refusal as AgentTabRefusal {
+                NewWorkspacePlacements.forget(key.rawValue, windows: windows)
                 return ActionWorkFailure("agent.openSessionWorkspace: \(refusal.message)")
             } catch {
+                NewWorkspacePlacements.forget(key.rawValue, windows: windows)
                 logger.error("agent.openSessionWorkspace failed: \(String(describing: error), privacy: .public)")
                 return ActionWorkFailure("agent.openSessionWorkspace: \(error)")
             }

@@ -70,6 +70,10 @@ enum WorkspaceHandlers {
         // Claimed before the create command, so the workspace lands in (or
         // opens) its window in the step that first mirrors it.
         let target = windows.targetWindow(preferring: newWindow ? nil : window ?? windows.active?.state.id)
+        // `workspaces.newPlacement` against the workspace the window shows now, at the request, not
+        // after the hop below (a selection made meanwhile would be the anchor). A History reopen
+        // (`workspaceKey`) keeps the place the daemon kept.
+        let rule = workspaceKey == nil ? NewWorkspacePlacements.rule(for: target, in: windows) : nil
         let home = services.machines.local
         // One ticket for the whole creation, opened now: an action run
         // answers after it (and the barrier covers its echo), so `created`
@@ -80,24 +84,21 @@ enum WorkspaceHandlers {
                 await daemon.closeTicket(ticket, label: "create workspace", error: DaemonError.notConnected)
                 return
             }
+            let key = workspaceKey ?? WorkspaceKey.generate()
             do {
-                let key = workspaceKey ?? WorkspaceKey.generate()
-                // A fresh workspace goes to the `workspaces.newPlacement` slot; a
-                // History reopen (`workspaceKey`) keeps the place the daemon kept.
-                if workspaceKey == nil {
-                    NewWorkspacePlacements.expect(key.rawValue, in: target, byDefault: NewWorkspacePlacements.rule(for: target, in: windows), windows: windows)
-                }
+                if let rule { NewWorkspacePlacements.expect(key.rawValue, in: target, byDefault: rule, windows: windows) }
                 windows.claimNew(workspaceID: key.rawValue, window: target)
                 if let room, let session = daemon.store.registryID, let homeConnection = home.connection {
                     try await homeConnection.pinWorkspace(session: session, key: key, to: room)
                 }
-                _ = try await WorkspaceCreation.create(key, name: name, on: connection, repair: services.emptyWorkspaces) { created in
+                _ = try await WorkspaceCreation.create(key, name: name, placedBy: rule, ledger: windows.newPlacements, on: connection, repair: services.emptyWorkspaces) { created in
                     let terminal = try await WorkspaceCreation.firstTerminal(in: created, cwd: cwd ?? NSHomeDirectory(), on: connection)
                     try await configure?(connection, terminal)
                     return created.rawValue
                 }
                 await daemon.closeTicket(ticket, label: "create workspace", error: nil, replying: connection)
             } catch {
+                NewWorkspacePlacements.forget(key.rawValue, windows: windows)
                 services.daemon.logger.error("create workspace failed: \(String(describing: error), privacy: .public)")
                 await daemon.closeTicket(ticket, label: "create workspace", error: error)
             }

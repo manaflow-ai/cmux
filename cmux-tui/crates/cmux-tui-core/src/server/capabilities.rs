@@ -339,6 +339,7 @@ pub(super) fn advertised_capabilities(
         crate::state::agent_start::CAPABILITY,
         crate::resource_router::OPEN_URL_CAPABILITY,
         crate::state::personal_order::PERSONAL_MIXED_ORDER_CAPABILITY,
+        crate::state::personal_order::CLIENT_CURRENT_CAPABILITY,
         crate::state::personal::WORKSPACE_GROUP_ICON_CAPABILITY,
         crate::state::personal::WORKSPACE_GROUP_PIN_CAPABILITY,
         crate::state::screens::SCREEN_GROUP_ICON_CAPABILITY,

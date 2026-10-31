@@ -53,6 +53,12 @@ fn after_current_keeps_the_daemon_place_last() {
 }
 
 #[test]
+fn before_current_keeps_the_daemon_place_last() {
+    let home = home_with(Some(r#"{"workspaces": {"newPlacement": "beforeCurrent"}}"#));
+    assert_eq!(new_group_index(home.path()), None);
+}
+
+#[test]
 fn a_missing_home_reads_as_the_default() {
     assert_eq!(
         new_group_index(Path::new("/nonexistent/cmux-home-for-test")),

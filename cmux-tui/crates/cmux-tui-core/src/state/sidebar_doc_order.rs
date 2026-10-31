@@ -79,8 +79,9 @@ pub(crate) fn document_order(connection: &Connection) -> anyhow::Result<Option<D
 /// Sort `workspaces` (reply objects whose `id_field` is the workspace's
 /// public id) into `order`. Unplaced ones keep their relative order and go
 /// to the `placement` slot: `Top` at the start of this machine's section,
-/// `Bottom` last, `AfterCurrent` right after the active (`active` or
-/// `focused`) workspace, else as `Top`.
+/// `Bottom` last, `BeforeCurrent` / `AfterCurrent` right before / after the
+/// active (`active` or `focused`) workspace of this machine's section other
+/// than Home, else first in the section below a leading Home row.
 pub(crate) fn sort_workspaces(
     workspaces: &mut Vec<Value>,
     id_field: &str,
@@ -98,9 +99,20 @@ pub(crate) fn sort_workspaces(
         .iter()
         .take_while(|workspace| rank_of(workspace).is_some_and(|rank| rank < order.machine_start))
         .count();
-    let is_active = |workspace: &Value| {
-        workspace["active"].as_bool() == Some(true) || workspace["focused"].as_bool() == Some(true)
+    let is_home = |workspace: &Value| {
+        workspace.pointer("/extra/kind").and_then(Value::as_str)
+            == Some(super::home_store::HOME_KIND)
     };
+    // The current workspace anchors only from this machine's section (not a
+    // pinned row before it) and never as Home; without one, a new row goes
+    // first in the section, below a leading Home row.
+    let current = placed.iter().enumerate().skip(top).find_map(|(index, workspace)| {
+        (!is_home(workspace)
+            && (workspace["active"].as_bool() == Some(true)
+                || workspace["focused"].as_bool() == Some(true)))
+        .then_some(index)
+    });
+    let below_home = top + usize::from(placed.get(top).is_some_and(is_home));
     // Above this machine's archived tail, where adopting the new workspace puts it.
     let bottom = order.archived_start.map_or(placed.len(), |start| {
         placed
@@ -111,9 +123,10 @@ pub(crate) fn sort_workspaces(
     let slot = match placement {
         NewWorkspacePlacement::Bottom => bottom,
         NewWorkspacePlacement::Top => top,
+        // An archived active workspace: above the tail too.
+        NewWorkspacePlacement::BeforeCurrent => current.unwrap_or(below_home).min(bottom),
         NewWorkspacePlacement::AfterCurrent => {
-            // An archived active workspace: above the tail too.
-            placed.iter().position(is_active).map_or(top, |index| (index + 1).min(bottom))
+            current.map_or(below_home, |index| index + 1).min(bottom)
         }
     };
     placed.splice(slot..slot, unplaced);
@@ -154,5 +167,12 @@ mod tests {
         let (mut workspaces, order) = listed("a");
         sort_workspaces(&mut workspaces, "id", &order, NewWorkspacePlacement::AfterCurrent);
         assert_eq!(ids(&workspaces), ["a", "new", "z"]);
+        // Before an archived active workspace: above the tail, not inside it.
+        let (mut workspaces, order) = listed("z");
+        sort_workspaces(&mut workspaces, "id", &order, NewWorkspacePlacement::BeforeCurrent);
+        assert_eq!(ids(&workspaces), ["a", "new", "z"]);
+        let (mut workspaces, order) = listed("a");
+        sort_workspaces(&mut workspaces, "id", &order, NewWorkspacePlacement::BeforeCurrent);
+        assert_eq!(ids(&workspaces), ["new", "a", "z"]);
     }
 }

@@ -322,6 +322,51 @@ struct RapidWorkspaceCreateTests {
         #expect(failures.isEmpty, "failed: \(failures)")
     }
 
+    /// Lawrence 2026-10-18 (NIGHTLY): a Cmd-N row drew at its `workspaces.newPlacement` slot,
+    /// then jumped to another one once the daemon reported the workspace (on the sidebar
+    /// document the placement went to the personal order, which the document does not show;
+    /// the document listed the new workspace after every group). The row stays where it drew
+    /// at the press, in every sample, until well after it is the workspace's own.
+    @Test func cmdNRowStaysWhereItDrewAtThePress() async throws {
+        let launched = try await Self.launch()
+        let services = launched.services
+        let window = try #require(services.windows.active?.state.id)
+        let sidebar = try #require(services.windows.controller(for: window)?.sidebar.model)
+        // The launch workspace's row shows: the new row has a neighbor whose side it keeps.
+        await Self.wait(within: .seconds(30)) { sidebar.allWorkspaces.contains { $0.rowState == .live } }
+        let before = Set(sidebar.allWorkspaces.map(\.id.rawValue))
+        let onDocument = SidebarDocWiring.isActive
+
+        let work = services.registry.capturingWork {
+            _ = services.registry.perform("newTab", invocation: ActionInvocation(arguments: ["name": .string("slot-01")]))
+        }
+        // Each place the new row takes, in order: one place is no jump.
+        var added: String?
+        var places: [Int] = []
+        var settledAt: ContinuousClock.Instant?
+        let giveUp = ContinuousClock.now + .seconds(30)
+        // Samples until 2 s after the row is the listed workspace's own (late echoes land in that time).
+        while ContinuousClock.now < (settledAt.map { $0 + .seconds(2) } ?? giveUp) {
+            let shown = sidebar.allWorkspaces
+            if added == nil { added = shown.first { !before.contains($0.id.rawValue) }?.id.rawValue }
+            if let added, let index = shown.firstIndex(where: { $0.id.rawValue == added }), places.last != index { places.append(index) }
+            if settledAt == nil, let added, services.windows.registry.members(of: window).contains(added),
+               shown.first(where: { $0.id.rawValue == added })?.rowState == .live {
+                settledAt = .now
+            }
+            try? await Task.sleep(for: .milliseconds(2))
+        }
+        var failures: [String] = []
+        for task in work { if let failure = await task.value { failures.append(failure.message) } }
+        let rows = sidebar.allWorkspaces.map(\.title)
+        await launched.stop()
+
+        #expect(added != nil, "no new row")
+        #expect(settledAt != nil, "never the workspace's own row: \(rows)")
+        #expect(places.count == 1, "the new row moved through \(places) (sidebar document: \(onDocument)); rows now \(rows)")
+        #expect(failures.isEmpty, "failed: \(failures)")
+    }
+
     /// Lawrence 2026-10-20: "doing Command-N to make a new workspace does not make it the top …
     /// Always make it at the top with a single state change, a single render, and have zero jank"
     /// (plans/cmux-next/sidebar-ordering-DESIGN.md). Over rows already there, one of them unread,

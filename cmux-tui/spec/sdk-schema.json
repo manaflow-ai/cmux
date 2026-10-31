@@ -11887,6 +11887,36 @@
        }
       ]
      },
+     "places_by_setting": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "default": false,
+      "capability": "workspace-create-current-v1"
+     },
+     "current": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "capability": "workspace-create-current-v1"
+     },
+     "placement": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "capability": "workspace-create-current-v1"
+     },
      "origin": {
       "type": {
        "kind": "scalar",

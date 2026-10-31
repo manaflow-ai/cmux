@@ -405,11 +405,9 @@ enum AgentHandlers {
         let repair = context.services.emptyWorkspaces
         // A fork into a new workspace is placed like Cmd-N: in the current group (cx-caoh).
         let key = WorkspaceKey.generate()
-        if destination == .workspace || destination == .window {
-            let windows = context.services.windows
-            NewWorkspacePlacements.expect(key.rawValue, in: nil, byDefault: NewWorkspacePlacements.rule(for: nil, in: windows), windows: windows)
-        }
+        let rule = destination == .workspace || destination == .window ? NewWorkspacePlacements.rule(for: nil, in: context.services.windows) : nil
         Task {
+            var workspace: WorkspaceKey?
             do {
                 // The shell line first: an acpmux fork that fails opens no empty terminal.
                 let line: String
@@ -423,7 +421,6 @@ enum AgentHandlers {
                 case .noSession, .unsupported: return
                 }
                 let surface: SurfaceID?
-                var workspace: WorkspaceKey?
                 switch destination {
                 case .right, .left:
                     surface = try await connection.split(handle, direction: .right, options: options).surface
@@ -435,10 +432,11 @@ enum AgentHandlers {
                 case .tab:
                     surface = try await connection.newTab(in: handle, options: options).surface
                 case .workspace, .window:
-                    workspace = key
-                    surface = try await WorkspaceCreation.create(key, name: nil, on: connection, repair: repair) { created in
+                    if let rule { NewWorkspacePlacements.expect(key.rawValue, in: nil, byDefault: rule, windows: windows) }
+                    surface = try await WorkspaceCreation.create(key, name: nil, placedBy: rule, ledger: context.services.windows.newPlacements, on: connection, repair: repair) { created in
                         try await WorkspaceCreation.firstTerminal(in: created, cwd: options.cwd, on: connection).surface
                     }
+                    workspace = key
                 }
                 if let surface { try await connection.send(surface, text: line) }
                 if let workspace {
@@ -449,6 +447,7 @@ enum AgentHandlers {
                     }
                 }
             } catch {
+                if workspace == nil { NewWorkspacePlacements.forget(key.rawValue, windows: windows) }
                 logger.error("fork-agent-conversation failed: \(String(describing: error), privacy: .public)")
                 // The person asked for a fork: say why there is none (acpmux's reason). A pane still opening was shown
                 // already where the request was refused (`DaemonConnection.observePaneNotReady`), once.

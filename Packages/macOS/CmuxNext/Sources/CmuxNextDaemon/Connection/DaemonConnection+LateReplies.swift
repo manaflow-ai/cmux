@@ -83,8 +83,10 @@ extension DaemonConnection {
     /// (the daemon replays it), with no budget: it ends on the reply, the daemon's refusal, the connection's
     /// end or cancellation (``waitingThroughLateReplies(_:_:)``). For a workspace with a first terminal.
     @discardableResult
-    public func createWorkspaceWaitingForReply(name: String? = nil, key: WorkspaceKey) async throws -> WorkspaceMutationResult {
-        let request = CreateWorkspaceRequest(name: name, key: key, mutation: mutation())
+    public func createWorkspaceWaitingForReply(name: String? = nil, key: WorkspaceKey, placesBySetting: Bool = false,
+                                               current: WorkspaceKey? = nil, placement: String? = nil) async throws -> WorkspaceMutationResult {
+        let request = CreateWorkspaceRequest(name: name, key: key, placesBySetting: placesBySetting, current: current, placement: placement,
+                                             mutation: mutation())
         do {
             return try await Self.waitingThroughLateReplies(CreateWorkspaceRequest.command) { try await self.request(request) }
         } catch {
@@ -126,9 +128,11 @@ extension DaemonConnection {
     /// `create-workspace` for workspace `key`, sent again on a late reply under one mutation
     /// identity (the daemon replays a create that committed after the deadline).
     @discardableResult
-    public func createWorkspaceRetryingLateReplies(name: String? = nil, key: WorkspaceKey,
+    public func createWorkspaceRetryingLateReplies(name: String? = nil, key: WorkspaceKey, placesBySetting: Bool = false,
+                                                   current: WorkspaceKey? = nil, placement: String? = nil,
                                                    until giveUp: ContinuousClock.Instant? = nil) async throws -> WorkspaceMutationResult {
-        let request = CreateWorkspaceRequest(name: name, key: key, mutation: mutation())
+        let request = CreateWorkspaceRequest(name: name, key: key, placesBySetting: placesBySetting, current: current, placement: placement,
+                                             mutation: mutation())
         return try await Self.retryingLateReplies(CreateWorkspaceRequest.command, until: giveUp) { try await self.request(request) }
     }
 }

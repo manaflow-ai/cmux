@@ -3313,6 +3313,9 @@ class CreateWorkspaceRequest:
     expected_generation: Union[str, None, MissingType] = field(default=MISSING)
     origin: Union[str, None, MissingType] = field(default=MISSING)
     mutation_id: Union[str, None, MissingType] = field(default=MISSING)
+    current: Union[str, None, MissingType] = field(default=MISSING)
+    placement: Union[str, None, MissingType] = field(default=MISSING)
+    places_by_setting: Union[bool, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)

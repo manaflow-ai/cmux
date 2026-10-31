@@ -2507,6 +2507,9 @@ Params:
 | --- | --- | --- | --- |
 | `name` | `string` | default null | Defaults to the zero-based workspace count at creation time |
 | `key` | `string` | default generated UUID | Must be a lowercase canonical UUID and never previously used |
+| `places_by_setting` | `bool` | default false | The client places the new workspace by `workspaces.newPlacement` against `current`; the daemon's first place then uses the same current workspace (none when `current` is absent) instead of the session's active one |
+| `current` | `string` | default null | Key of the workspace the creating window shows; a value that is not a canonical key counts as none |
+| `placement` | `string` | default null | The client's `workspaces.newPlacement` (`top`, `beforeCurrent`, `afterCurrent`, `bottom`), used instead of this daemon's settings file; unknown or absent: the file |
 | mutation fields | see [common envelope](#durable-workspace-mutation-envelope) | optional | Exactly-once retry and CAS |
 
 Result:

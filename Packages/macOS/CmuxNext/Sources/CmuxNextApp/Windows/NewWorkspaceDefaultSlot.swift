@@ -1,129 +1,17 @@
 import CmuxNextBridge
+import CmuxNextDaemon
 import CmuxNextSettings
 import CmuxNextSidebar
 
-/// `workspaces.newPlacement` for one new workspace whose entry point names
-/// no place (Cmd-N, the palette, the sidebar's +, `cmux workspace new`, a
-/// tab moved to a new workspace, a link or an agent opening one). Resolved once the daemon reports the
-/// workspace, against the sidebar of the window that lists it, and written
-/// by the row-drag path (`SidebarBridge.place`): personal order in the home
-/// session, else the owning daemon's order. Either survives a relaunch and
-/// shows in every window.
-///
-/// The rule: `top` is the first slot of the window's current workspace's
-/// group when that one is in a group (Cmd-N in a group keeps the new one in
-/// it, at the group's top, Lawrence 2026-10-28); else the first slot of the workspace's machine section, which
-/// lists no pinned workspace (they show in the Pinned section above), above
-/// every group, and right below the home workspace's row when the list shows
-/// it. `afterCurrent` is right after the workspace the window showed
-/// when the new one was asked for, inside its group when it has one; `top`
-/// when that workspace is not in the section (pinned, Home, another machine,
-/// none). `bottom` is the last slot of the current workspace's group; outside a
-/// group it leaves the daemon's place, the end of the loose rows. So a new
-/// workspace opened from inside a group stays in it under every value (cx-caoh).
-struct NewWorkspaceDefaultSlot: Hashable, Sendable {
-    var placement: NewWorkspacePlacement
-    /// The workspace the window showed when the new one was asked for.
-    var current: String?
-    /// The machine of `current`, when it was known at the press. A cold
-    /// sidebar can briefly omit that row while its document projection catches
-    /// up; only an omitted row on this same machine needs to defer placement.
-    /// Nil when `current` shows in a band of the window's layout (pinned, the
-    /// top region, a custom section): the list leaves that row out on purpose,
-    /// so its absence is no stale layout and `afterCurrent` falls back to `top`.
-    var currentMachine: String?
+typealias NewWorkspaceDefaultSlot = CmuxNextBridge.NewWorkspaceDefaultSlot
 
-    init(placement: NewWorkspacePlacement, current: String?, currentMachine: String? = nil) {
-        self.placement = placement
-        self.current = current
-        self.currentMachine = currentMachine
-    }
-
-    /// The current row is expected in this machine section but is not in the
-    /// stale layout yet. Returning true keeps Cmd-N pending until the row is
-    /// realized, instead of resolving the slot against an empty layout. Only
-    /// while the window's rows are a projection behind the sidebar document
-    /// (`catchingUp`, `layoutCatchingUp(rowsAt:)`): once they have caught up, a row still missing was
-    /// left out on purpose (a filter, another space, a close) and the slot
-    /// falls back as documented.
-    func awaitsCurrentAnchor(section: SectionID, in sections: [SidebarRowSection], home: String? = nil, catchingUp: Bool) -> Bool {
-        guard catchingUp, placement == .afterCurrent, let current, let currentMachine,
-              current != home,
-              case let .machine(machine) = section, machine.rawValue == currentMachine,
-              !sections.flatMap(\.workspaces).contains(where: { $0.id.rawValue == current }) else { return false }
-        return true
-    }
-
+extension NewWorkspaceDefaultSlot {
     /// Whether a window's rows built at `rowsAt` (the document's `shownChanges` then; nil: not built from its
     /// projection) are behind the sidebar document: its drawn projection is behind its version, or the window's
     /// rows pass has not run since the projection changed (a cold or updated layout a hop before its rows show).
     static func layoutCatchingUp(rowsAt: UInt64? = nil) -> Bool {
         guard let store = SidebarDocStore.current, store.isActive else { return false }
         return store.shown == nil || store.shownVersion != store.version || rowsAt != store.shownChanges
-    }
-
-    /// The slot for new workspace `id` in `section` of a window's `sections`;
-    /// nil keeps the daemon's place. `home` is the home workspace's id. `catchingUp`: the window's rows are a
-    /// projection behind (`awaitsCurrentAnchor`).
-    func slot(for id: String, section: SectionID, in sections: [SidebarRowSection], home: String?, catchingUp: Bool = false) -> WorkspaceSlot? {
-        switch placement {
-        case .bottom:
-            if let current, current != id, current != home,
-               WorkspaceSlot.bottom(anchor: current).position(moving: [id], section: section, in: sections)?.group != nil {
-                return .bottom(anchor: current)
-            }
-            return nil
-        case .afterCurrent:
-            if awaitsCurrentAnchor(section: section, in: sections, home: home, catchingUp: catchingUp) { return nil }
-            if let current, current != id, current != home,
-               WorkspaceSlot.below(current).position(moving: [id], section: section, in: sections) != nil {
-                return .below(current)
-            }
-            return Self.top(for: id, section: section, in: sections, home: home)
-        case .top:
-            if let current, current != id, current != home,
-               WorkspaceSlot.top(anchor: current).position(moving: [id], section: section, in: sections)?.group != nil {
-                return .top(anchor: current)
-            }
-            return Self.top(for: id, section: section, in: sections, home: home)
-        }
-    }
-
-    /// The move the app sends once the daemon reports new workspace `id`, or nil when the daemon's
-    /// create already put it at ``slot(for:section:in:home:catchingUp:)``: the daemon places every new workspace
-    /// by `workspaces.newPlacement` in the commit that creates it (first below Home under `top`,
-    /// last under `bottom`), so a second write would be a second state change and a second render
-    /// for the same order (plans/cmux-next/sidebar-ordering-DESIGN.md). Only a slot the daemon does
-    /// not know is moved to: inside the current workspace's group, after the window's current one.
-    func move(for id: String, section: SectionID, in sections: [SidebarRowSection], home: String?, catchingUp: Bool = false) -> WorkspaceSlot? {
-        guard let slot = slot(for: id, section: section, in: sections, home: home, catchingUp: catchingUp) else { return nil }
-        if slot == Self.top(for: id, section: section, in: sections, home: home) { return nil }
-        return slot
-    }
-
-    /// The slot for a new workspace made inside group `group` from the group itself (its header's
-    /// +, a double-click in its empty part), whose workspace rows are `members` in order: its
-    /// first slot under `top`, right below the window's current workspace under `afterCurrent`
-    /// when that one is a member (else the first slot), its last slot under `bottom`.
-    func slot(inGroup group: GroupID, members: [String]) -> WorkspaceSlot {
-        let first = members.first.map { WorkspaceSlot.top(anchor: $0) } ?? .endOfGroup(group)
-        switch placement {
-        case .top: return first
-        case .afterCurrent:
-            if let current, members.contains(current) { return .below(current) }
-            return first
-        case .bottom: return .endOfGroup(group)
-        }
-    }
-
-    /// First in the section, below a leading home row.
-    private static func top(for id: String, section: SectionID, in sections: [SidebarRowSection], home: String?) -> WorkspaceSlot {
-        let first = sections.first { $0.id == section }?.nodes.lazy.compactMap { node -> String? in
-            guard case let .workspace(workspace) = node else { return "" }
-            return workspace.id.rawValue == id ? nil : workspace.id.rawValue
-        }.first
-        if let home, first == home { return .below(home) }
-        return .top(anchor: nil)
     }
 }
 
@@ -135,12 +23,18 @@ struct NewWorkspaceDefaultSlot: Hashable, Sendable {
 enum NewWorkspacePlacements {
     /// `workspaces.newPlacement` for a new workspace of window `windowID`
     /// (nil: the window reconcile gives it, the most recent open one), with
-    /// the workspace that window shows now. Read it before the claim selects
-    /// the new workspace.
+    /// the workspace that window shows now. Read it at the request, before
+    /// any hop and before the claim selects the new workspace. A window
+    /// showing a top page (Home, Chats, a pinned page) selects that page's row
+    /// in its sidebar, not a workspace's, so it has no current workspace: the
+    /// one it showed last is not the one the person sees selected. The create
+    /// sends the rule (`WorkspaceCreation`, `CreateWorkspaceRequest.current`), so
+    /// the daemon places the new row against the same workspace, or none.
     static func rule(for windowID: String?, in windows: WindowManager) -> NewWorkspaceDefaultSlot {
         let placement = windows.services.settings?.snapshot.newWorkspacePlacement ?? CmuxConfigSnapshot.newWorkspacePlacementFallback
         let window = windowID ?? windows.registry.value.mostRecentOpen()
-        let current = window.flatMap { windows.states[$0]?.workspaceID }
+        let state = window.flatMap { windows.states[$0] }
+        let current = state?.page == nil ? state?.workspaceID : nil
         let model = window.flatMap { windows.controller(for: $0)?.sidebar.model }
         let currentMachine = current.flatMap { id in
             model.map { shownInBand(id, layout: $0.layout, room: $0.activeProfileID?.rawValue,
@@ -179,15 +73,42 @@ enum NewWorkspacePlacements {
     static func expect(_ id: String, in windowID: String?, slot: WorkspaceSlot? = nil, byDefault: NewWorkspaceDefaultSlot?,
                        then: (@MainActor @Sendable (String, any WorkspaceSpawnSidebar) -> Void)? = nil, windows: WindowManager) {
         guard slot != nil || byDefault != nil || then != nil else { return }
+        switch anchor(slot: slot, byDefault: byDefault, home: home(windows.services.machines)) {
+        // Only a daemon that places the create by the rule puts it in the group (`sending` arms it).
+        case let anchor? where anchor.isGroupAnchor: windows.newPlacements.groupAnchors[id] = anchor
+        case let anchor?: windows.newPlacements.anchors[id] = anchor
+        case nil: break
+        }
         if windows.pendingPlacements[id] == nil { windows.pendingPlacementOrder.append(id) }
         windows.pendingPlacements[id] = PendingPlacement(window: windowID, slot: slot, byDefault: byDefault, then: then)
         if windows.services.machines.workspace(id: id) != nil { windows.applyPendingPlacements(live: [id]) }
+    }
+
+    /// `rule` when `connection`'s daemon places a create by it (`workspace-create-current-v1`), recording
+    /// `key` in `ledger`'s ``Ledger/placedByDaemon``; nil for an older daemon, which
+    /// ignores the fields, or with no ledger to record it in, so the app still sends its own placement afterwards.
+    static func sending(_ rule: NewWorkspaceDefaultSlot?, key: WorkspaceKey, on connection: DaemonConnection,
+                        ledger: Ledger?) async -> NewWorkspaceDefaultSlot? {
+        await ledger?.sending(rule, key: key, on: connection)
+    }
+
+    /// Drops what a create that ended without its workspace left for it.
+    static func forget(_ id: String, windows: WindowManager) {
+        windows.pendingPlacements[id] = nil
+        windows.pendingPlacementOrder.removeAll { $0 == id }
+        windows.newPlacements.forget(id)
+    }
+
+    static func anchor(slot: WorkspaceSlot?, byDefault: NewWorkspaceDefaultSlot?, home: String?) -> SidebarDocSections.UnplacedAnchor? {
+        NewWorkspaceDefaultSlot.anchor(slot: slot, byDefault: byDefault, home: home)
     }
 
     /// The local home workspace (`workspace-kind-v1`), whose row `top` stays below.
     static func home(_ machines: MachineRegistry) -> String? {
         machines.local.store.workspaces.first { $0.kind == SidebarMapping.homeKind }?.id
     }
+
+    typealias Ledger = WorkspacePlacementLedger
 
     /// The index a group formed for a new workspace takes (`createGroup`'s `index`, New Workspace in
     /// New Group): first under `workspaces.newPlacement` `top` (the default), else last (`Int.max`).

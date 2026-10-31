@@ -8,8 +8,8 @@ public import CmuxNextDesign
 /// its create): first in the group of the workspace the window shows when that
 /// one is in a group, and first in a group the new workspace is made in (its
 /// header's +, a Chief subagent's group; Lawrence 2026-10-28); outside a group, first in the workspace list, below the Pinned
-/// section and the Home row, above every group. `afterCurrent` (cmux classic's
-/// default): right after the workspace the window shows, inside its group when
+/// section and the Home row, above every group. `beforeCurrent` / `afterCurrent` (`afterCurrent` is cmux classic's
+/// default): right before / after the workspace the window shows, inside its group when
 /// it has one (top when that workspace is pinned, Home, or on another machine).
 /// `bottom`: last in the
 /// group of the workspace the window shows; outside a group, after the last
@@ -17,7 +17,7 @@ public import CmuxNextDesign
 /// sidebar gap, New Workspace Above or Below) always wins; a reopened workspace
 /// keeps its old place.
 public nonisolated enum NewWorkspacePlacement: String, Hashable, Sendable, CaseIterable {
-    case top, afterCurrent, bottom
+    case top, beforeCurrent, afterCurrent, bottom
 }
 
 /// The workspace list's shape (Lawrence 2026-10-08, cx-plf5): new workspaces
@@ -71,12 +71,14 @@ nonisolated enum WorkspaceListSettingsSchema {
                                         "Where Cmd-N, the + button and the CLI put a new workspace in the sidebar. A workspace made in a group goes to the same place inside that group. Pinned workspaces stay above it."),
                 kind: .choice([
                     SettingChoice(NewWorkspacePlacement.top.rawValue, SettingsText.keyed("settings.choice.top", "Top")),
+                    SettingChoice(NewWorkspacePlacement.beforeCurrent.rawValue,
+                                  SettingsText.keyed("settings.choice.beforeCurrentWorkspace", "Before Current Workspace")),
                     SettingChoice(NewWorkspacePlacement.afterCurrent.rawValue,
                                   SettingsText.keyed("settings.choice.afterCurrentWorkspace", "After Current Workspace")),
                     SettingChoice(NewWorkspacePlacement.bottom.rawValue, SettingsText.keyed("settings.choice.bottom", "Bottom")),
                 ]),
                 default: .string(CmuxConfigSnapshot.newWorkspacePlacementFallback.rawValue),
-                keywords: ["workspace", "new", "cmd-n", "position", "order", "top", "bottom", "after", "sidebar", "placement"]
+                keywords: ["workspace", "new", "cmd-n", "position", "order", "top", "bottom", "after", "before", "above", "below", "sidebar", "placement"]
             ),
             SettingDescriptor(
                 CmuxConfigSnapshot.groupByComputerPath, section: .general, group: sidebar,

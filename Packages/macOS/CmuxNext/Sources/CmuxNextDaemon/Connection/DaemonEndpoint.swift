@@ -48,6 +48,9 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     case workspaceGroups = "workspace-groups-v1"
     case workspaceMetadata = "workspace-metadata-v1"
     case workspaceNameSource = "workspace-name-source-v1"
+    /// `create-workspace {places_by_setting, current, placement}`: the daemon places a new workspace
+    /// against the creating window's current workspace by the app's `workspaces.newPlacement`.
+    case workspaceCreateCurrent = "workspace-create-current-v1"
     case tabMetadata = "tab-metadata-v1"
     case frontendBrowserTabs = "frontend-browser-tabs-v1"
     case frontendBrowserTabKeys = "frontend-browser-tab-keys-v1" // idempotency_key on new-frontend-browser-tab
@@ -499,7 +502,7 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
         case .workspaceRegistry, .viewportSplits, .viewportColumnResize, .layoutUndo, .viewAttachmentLease,
              .viewAttachmentDetach, .attachInitialSize:
             return .required
-        case .workspaceGroups, .workspaceMetadata, .workspaceNameSource, .tabMetadata, .frontendBrowserTabs,
+        case .workspaceGroups, .workspaceMetadata, .workspaceNameSource, .workspaceCreateCurrent, .tabMetadata, .frontendBrowserTabs,
              .frontendBrowserTabKeys, .frontendBrowserHistory, .frontendBrowserTabProfile, .tabDrag, .sharedSizing,
              .tabWorkspaceName, .notificationAck, .feedLocalOwner, .tabGroups, .savedTabGroups, .workspacePin,
              .workspaceChecklist, .notificationMarkUnread, .tabMarkUnread, .tabAttention, .tabAttentionRequestID, .workspaceDescription, .workspaceStatus,

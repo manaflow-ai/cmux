@@ -60,6 +60,9 @@ pub enum NewWorkspacePlacement {
     /// First, below the home workspace's row, above every group.
     #[default]
     Top,
+    /// Right before the session's active workspace, in its group (`Top`
+    /// when there is none, or it is the home workspace).
+    BeforeCurrent,
     /// Right after the session's active workspace, in its group (`Top`
     /// when there is none, or it is the home workspace).
     AfterCurrent,
@@ -93,10 +96,23 @@ impl NewWorkspacePlacement {
         let Ok(document) = serde_json::from_str::<Value>(&strip_jsonc(text)) else {
             return Self::default();
         };
-        match document.pointer("/workspaces/newPlacement").and_then(Value::as_str) {
-            Some("afterCurrent") => Self::AfterCurrent,
-            Some("bottom") => Self::Bottom,
-            _ => Self::default(),
+        document
+            .pointer("/workspaces/newPlacement")
+            .and_then(Value::as_str)
+            .and_then(Self::from_name)
+            .unwrap_or_default()
+    }
+
+    /// The value named `name` (`top`, `beforeCurrent`, `afterCurrent`,
+    /// `bottom`), as the settings file and `create-workspace {placement}`
+    /// spell it; None for a name the app does not know.
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "top" => Some(Self::Top),
+            "beforeCurrent" => Some(Self::BeforeCurrent),
+            "afterCurrent" => Some(Self::AfterCurrent),
+            "bottom" => Some(Self::Bottom),
+            _ => None,
         }
     }
 

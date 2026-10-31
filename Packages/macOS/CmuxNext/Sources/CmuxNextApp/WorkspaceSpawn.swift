@@ -53,7 +53,7 @@ struct WorkspaceSpawner {
         guard daemon.connection != nil else { return { throw DaemonError.notConnected } }
         let key = WorkspaceKey.generate(), daemon = daemon, services = windows.services, machine = MachineID(daemon.machineID)
         var row = spawn.slot == nil ? NewWorkspacePlacements.rule(for: windowID, in: windows) : nil
-        if !spawn.placesFromCurrent || !spawn.placesBySetting, row?.placement != .afterCurrent { row?.current = nil }
+        if !spawn.placesFromCurrent || !spawn.placesBySetting, row?.placement != .afterCurrent, row?.placement != .beforeCurrent { row?.current = nil }
         let rule = spawn.placesBySetting ? row : nil
         // Only a create with a row names itself here; another keeps the daemon's own numbering.
         let name = spawn.name ?? windowID.map { _ in
@@ -79,6 +79,7 @@ struct WorkspaceSpawner {
                     }
                 }, settle: { await Self.settled(on: daemon) }) { try await named.create(key, rule: rule) }
             } catch {
+                NewWorkspacePlacements.forget(key.rawValue, windows: windows)
                 PendingWorkspaceRows.shared.remove(key.rawValue)
                 throw error
             }
@@ -104,7 +105,7 @@ struct WorkspaceSpawner {
         // its slot is placed in the turn the daemon's workspace takes the stand-in over.
         NewWorkspacePlacements.expect(key.rawValue, in: windowID, slot: spawn.slot, byDefault: rule, then: spawn.onListed, windows: windows)
         windows.claimNew(workspaceID: key.rawValue, window: windowID, frame: frame)
-        guard let shown = services.agentTabs.showWorkspace(key, name: name, index: nil, cwd: cwd, token: spawn.inputToken,
+        guard let shown = services.agentTabs.showWorkspace(key, name: name, index: nil, cwd: cwd, token: spawn.inputToken, placedBy: rule, ledger: windows.newPlacements,
                                                            on: daemon, repair: repair) else { return nil }
         // The keys held since the press may go to its page's field once that reports ready.
         services.keyRouter.newTabInputCoordinator.flushAll()
@@ -128,8 +129,7 @@ struct WorkspaceSpawner {
                 }
             } catch {
                 shown.abandon()
-                windows.pendingPlacements[key.rawValue] = nil
-                windows.pendingPlacementOrder.removeAll { $0 == key.rawValue }
+                NewWorkspacePlacements.forget(key.rawValue, windows: windows)
                 PendingWorkspaceRows.shared.remove(key.rawValue)
                 throw error
             }
@@ -192,9 +192,9 @@ struct WorkspaceSpawner {
         let cwd = spawn.cwd ?? defaults?.cwd.flatMap { $0.isEmpty ? nil : ($0 as NSString).expandingTildeInPath }
             ?? (daemon.isLocal ? spawn.inheritedCwd : nil) ?? daemon.defaultCwd
         BenchSpans.mark("cmdN.create.sending")
-        if let page = try await FirstTabHold.creating(key.rawValue, windows: windows, { try await WorkspaceCreation.newTabPage(spawn, key, cwd: cwd, on: daemon, repair: repair, tabs: services.agentTabs) }) { return page }
+        if let page = try await FirstTabHold.creating(key.rawValue, windows: windows, { try await WorkspaceCreation.newTabPage(spawn, key, cwd: cwd, placedBy: rule, ledger: windows.newPlacements, on: daemon, repair: repair, tabs: services.agentTabs) }) { return page }
         let command = spawn.command
-        return try await WorkspaceCreation.create(key, name: spawn.name, on: connection, repair: repair) { created in
+        return try await WorkspaceCreation.create(key, name: spawn.name, placedBy: rule, ledger: windows.newPlacements, on: connection, repair: repair) { created in
             // Keyed (terminal id, mutation): a late start is waited for, never taken back (P0 2026-10-30).
             _ = try await connection.createTerminalWaitingForStart(CreateTerminalRequest(
                 workspace: .key(created), command: command, cwd: cwd,

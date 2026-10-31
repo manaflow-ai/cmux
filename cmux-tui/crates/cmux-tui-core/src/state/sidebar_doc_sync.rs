@@ -309,6 +309,44 @@ fn neighbor_item(
     })
 }
 
+/// The item `row` follows among `(section, parent)`: its old-order neighbor
+/// when that is a sibling there, else the nearest earlier row that is. A row
+/// the document keeps elsewhere (Home in its own section, a pinned row, one
+/// not placed yet) is passed over, so a new row right after Home goes first in
+/// the machine section, not after every row. Also whether the row has a
+/// neighbor that is no sibling and no earlier sibling row (a group placed
+/// elsewhere): it then goes at the end, as before.
+fn sibling_before(
+    connection: &Connection,
+    doc: &Doc,
+    local: &str,
+    row: &Row,
+    section: &str,
+    parent: Option<&str>,
+) -> anyhow::Result<(Option<Item>, bool)> {
+    let mut position = row.position;
+    // Bounded: each step moves to an earlier row.
+    for _ in 0..4096 {
+        let neighbor = match &row.group {
+            Some(group) if parent.is_some() => {
+                member_before(connection, group, position)?.map(Neighbor::Row)
+            }
+            _ => loose_neighbor(connection, position)?,
+        };
+        let Some(neighbor) = neighbor else { return Ok((None, false)) };
+        let item = neighbor_item(connection, doc, local, &neighbor)?
+            .and_then(|id| doc.item(&id))
+            .filter(|item| item.section == section && item.parent.as_deref() == parent)
+            .cloned();
+        match (item, &neighbor) {
+            (Some(item), _) => return Ok((Some(item), true)),
+            (None, Neighbor::Row(previous)) => position = previous.position,
+            (None, Neighbor::Group(_)) => return Ok((None, true)),
+        }
+    }
+    Ok((None, true))
+}
+
 /// Where an item lands among `(section, parent)`: right after `anchor`
 /// when it is a sibling; first when there is no neighbor; else at the end.
 fn anchored(
@@ -370,18 +408,9 @@ fn sync_row(
             return Ok(());
         }
     }
-    let neighbor = match &row.group {
-        Some(group) if parent.is_some() => {
-            member_before(connection, group, row.position)?.map(Neighbor::Row)
-        }
-        _ => loose_neighbor(connection, row.position)?,
-    };
-    let anchor = match &neighbor {
-        Some(neighbor) => neighbor_item(connection, doc, local, neighbor)?,
-        None => None,
-    };
-    let anchor_item = anchor.as_deref().and_then(|id| doc.item(id)).cloned();
-    let target = anchored(&section, parent.as_deref(), anchor_item.as_ref(), neighbor.is_some());
+    let (anchor_item, has_neighbor) =
+        sibling_before(connection, doc, local, row, &section, parent.as_deref())?;
+    let target = anchored(&section, parent.as_deref(), anchor_item.as_ref(), has_neighbor);
     match placed {
         Some(item) if already_at(doc, &item, &target) => {}
         Some(item) => try_apply(batch, Op::Move { items: vec![item.id], to: target }),

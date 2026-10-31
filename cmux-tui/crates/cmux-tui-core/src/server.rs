@@ -1324,6 +1324,20 @@ enum Command {
         /// generates a UUIDv4 key and returns it.
         #[serde(default)]
         key: Option<String>,
+        /// The creating client places the new workspace by
+        /// `workspaces.newPlacement` against `current`, the key of the workspace
+        /// its window shows (absent: none, the window shows a top page), so the
+        /// daemon places it there too and its first place is the final one.
+        /// False with no `current`: the session's active workspace.
+        #[serde(default)]
+        places_by_setting: bool,
+        #[serde(default)]
+        current: Option<String>,
+        /// The client's `workspaces.newPlacement` (`top`, `beforeCurrent`,
+        /// `afterCurrent`, `bottom`), used instead of this daemon's settings
+        /// file so both place the row by one value. Unknown or absent: the file.
+        #[serde(default)]
+        placement: Option<String>,
         #[serde(flatten)]
         mutation: MutationRequest,
     },

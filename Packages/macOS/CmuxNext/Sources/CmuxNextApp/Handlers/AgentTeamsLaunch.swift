@@ -49,14 +49,23 @@ enum AgentTeamsLaunch: CaseIterable {
             // No pane to open a tab in: a new workspace, placed like Cmd-N (cx-caoh).
             let key = WorkspaceKey.generate()
             let windows = context.services.windows
-            NewWorkspacePlacements.expect(key.rawValue, in: nil, byDefault: NewWorkspacePlacements.rule(for: nil, in: windows), windows: windows)
+            let rule = NewWorkspacePlacements.rule(for: nil, in: windows)
+            NewWorkspacePlacements.expect(key.rawValue, in: nil, byDefault: rule, windows: windows)
             let repair = context.services.emptyWorkspaces
             let reveal = invocation.allowsViewChange
             Task {
+                let surface: SurfaceID?
                 do {
-                    let surface = try await WorkspaceCreation.create(key, name: nil, on: connection, repair: repair) { created in
+                    surface = try await WorkspaceCreation.create(key, name: nil, placedBy: rule, ledger: windows.newPlacements, on: connection, repair: repair) { created in
                         try await WorkspaceCreation.firstTerminal(in: created, cwd: nil, on: connection).surface
                     }
+                } catch {
+                    // The create ended without its workspace: drop the placement it left.
+                    NewWorkspacePlacements.forget(key.rawValue, windows: windows)
+                    logger.error("launch-agent-teams failed: \(String(describing: error), privacy: .public)")
+                    return
+                }
+                do {
                     if let surface { try await connection.send(surface, text: line) }
                     if reveal { context.window(showing: key.rawValue) }
                 } catch {
