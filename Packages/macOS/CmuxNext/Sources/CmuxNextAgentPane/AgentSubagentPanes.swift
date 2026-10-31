@@ -1,9 +1,10 @@
 import AppKit
 import CmuxNextCompat
 
-/// The agent panes a chat's subagents opened in (`chat.subagentPane`), one tracker per acpmux
-/// session, so every pane on that session asks the same one: each subagent's tab, so a second
-/// request shows the open pane instead of a second one. A new one opens where
+/// The agent panes a chat's subagents opened in (`chat.subagentPane`), one tracker per source chat
+/// on an acpmux session, so a click in one chat never reuses a tab opened beside another. Each
+/// subagent's tab is remembered, so a second request shows the open pane instead of a second one.
+/// A new one opens where
 /// ``RightColumnPlacement`` puts anything opened on the right of the chat: a split right of it,
 /// else one split below what is on the right, else a tab in the right column's lower pane (Leo
 /// 2026-10-28: "I mean the right top pane, and then you split to the bottom once so that you get
@@ -35,7 +36,7 @@ public final class AgentSubagentPanes {
 
     private static var sessions: [String: AgentSubagentPanes] = [:]
 
-    /// The tracker of acpmux session `id`, shared by every tab on that session.
+    /// The tracker identified by `id` (the app scopes this to the acpmux session and source chat).
     public static func session(_ id: String) -> AgentSubagentPanes {
         if let panes = sessions[id] { return panes }
         let panes = AgentSubagentPanes()
