@@ -5,6 +5,8 @@
 //   ends it as cancelled. The draft stays in the field and no failure notice shows beside it.
 // - stale-folder-reply-ready: the send's folder reply arrives after a newer folder request replaced
 //   it. That reply uses nothing and ends the send, so the next Return starts the chat.
+// - start-refused-shows-notice: beside them, a start the host really refused still says why beside
+//   the kept draft. Only a cancel is quiet.
 import { agentPaneEntry } from "../../../gallery/format";
 import type { PlayContext } from "../../../gallery/play";
 import { noChat } from "../../../gallery/fixtures/acpmux";
@@ -93,6 +95,18 @@ async function staleFolder(ctx: PlayContext) {
   await ctx.waitFor(() => ctx.document.querySelector(".cv-user__bubble"), { capMs: 10_000 });
 }
 
+/// A start the host refuses (no in-page daemon: `chat.new` goes to the host, which answers with its
+/// reason): the failure notice shows beside the kept draft.
+async function refused(ctx: PlayContext) {
+  await ctx.waitFor(() => field(ctx));
+  await ctx.type(DRAFT, { selector: ".nt-field" });
+  await ctx.press("Enter");
+  await ctx.waitFor(() => notice(ctx)?.textContent?.includes(REFUSAL), { capMs: 10_000 });
+  await frames(ctx);
+  if (field(ctx)?.value !== DRAFT) throw new Error(`the draft is gone after a refused start (${field(ctx)?.value})`);
+}
+const REFUSAL = "Claude Code could not start: agent unavailable";
+
 export default agentPaneEntry({
   id: "agent-pane.new-tab-start-cancel",
   title: "New Tab: cancelled start",
@@ -122,6 +136,13 @@ export default agentPaneEntry({
       nativeDelayMs: { "workspace.useFolder": FOLDER_DELAY_MS },
       snapshot: noChat([], { listedSessions: true }),
       play: staleFolder,
+    },
+    "start-refused-shows-notice": {
+      note: "Beside the cancels: a start the host refused still shows its reason beside the kept draft (#28815).",
+      ready: { newTab: newTab.newTab, newSession: true, machineName: "This Mac" },
+      native: { "chat.new": { nativeError: { code: "agent.start_failed", userMessage: REFUSAL } } },
+      snapshot: noChat([], { listedSessions: true }),
+      play: refused,
     },
   },
 });
