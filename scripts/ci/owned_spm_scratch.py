@@ -106,6 +106,8 @@ GLAEDA_DISK_DEFAULTS = {"min_free_gib": 30, "job_growth_gib": 20}
 SHARED_SOURCE = "src"
 SCRATCH = "spm-scratch"
 TRASH = ".trash-"
+# The lock new shared roots are admitted under (not a root's lock: no .lock suffix).
+ADMISSION = ".admission"
 HELD = "held"
 # swift-package-tests' timeout-minutes is 60: a holder outliving it belongs to a job the runner lost.
 HOLD_SECONDS = 65 * 60
@@ -580,6 +582,20 @@ def mirror(workspace: Path, source: Path) -> dict[str, int]:
     return {"copied": copied, "kept": kept, "removed": removed}
 
 
+def unbuilt_and_held(entry: Path) -> bool:
+    """Whether ENTRY is a root a job holds and has not built yet: room it will still take."""
+    if kept_build(entry):
+        return False
+    try:
+        with open(lock_path(entry), "a") as handle:
+            fcntl.flock(handle, fcntl.LOCK_SH | fcntl.LOCK_NB)
+    except BlockingIOError:
+        return True
+    except OSError:
+        return False
+    return False
+
+
 def lease(workspace: Path, store: Path, runner: str, verdict: dict[str, object] | None = None,
           fingerprints: list[str] | None = None) -> Path | None:
     """Lease one of the mini's shared roots for this job and mirror WORKSPACE into its source: the
@@ -623,27 +639,49 @@ def lease(workspace: Path, store: Path, runner: str, verdict: dict[str, object] 
 
     sizes: dict[str, int] = {}
     held: tuple[Path, int] | None = None
-    room_checked = False
-    # Every root that exists, lowest first; then new ones in order while the disk has room for one.
-    # A root another job holds or is making (its lock taken) is passed over, never waited for.
-    for target in itertools.chain(existing, new_roots()):
-        if not target.is_dir():
-            if not room_checked:
-                estimate = max((size for size, _ in (tree_stats(entry) for entry in known)), default=0)
-                prune(scratch, sizes=sizes, room=estimate)
-                if free_bytes(scratch) - disk_reserve_bytes() < estimate:
-                    break
-                room_checked = True
-        lock_existed = lock_path(target).exists()
+    estimate: int | None = None
+    made = False
+
+    def take(target: Path) -> int | None:
+        """TARGET's lock, exclusively, or None when another job holds it."""
         fd = os.open(lock_path(target), os.O_RDWR | os.O_CREAT, 0o644)
         try:
             fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             os.close(fd)
-            continue  # another job builds there
+            return None  # another job builds there
         except OSError:
             os.close(fd)
             raise  # locks do not work here: the caller links its own workspace
+        return fd
+
+    # Every root that exists, lowest first; then new ones in order while the disk has room for one.
+    # A root another job holds or is making (its lock taken) is passed over, never waited for.
+    for target in itertools.chain(existing, new_roots()):
+        lock_existed = lock_path(target).exists()
+        if not target.is_symlink() and target.is_dir():
+            fd = take(target)
+            if fd is None:
+                continue
+            held = (target, fd)
+            break
+        # A new root is admitted under one scratch-wide lock, each against the free disk left after the
+        # roots other jobs made and have not built yet, so jobs starting together never make more roots
+        # than the disk above the reserve can hold.
+        with open(scratch / ADMISSION, "a") as admission:
+            fcntl.flock(admission, fcntl.LOCK_EX)
+            if estimate is None:
+                estimate = max((size for size, _ in (tree_stats(entry) for entry in known)), default=0)
+                prune(scratch, sizes=sizes, room=estimate)
+            pending = sum(1 for entry in entries(scratch) if entry != target and unbuilt_and_held(entry))
+            if free_bytes(scratch) - disk_reserve_bytes() - pending * estimate < estimate:
+                break
+            fd = take(target)
+            if fd is None:
+                continue
+            no_link_at(target)
+            made = not target.is_dir()
+            target.mkdir(exist_ok=True)  # under the admission lock: the next job counts it as pending
         held = (target, fd)
         break
     if held is None:
@@ -651,7 +689,7 @@ def lease(workspace: Path, store: Path, runner: str, verdict: dict[str, object] 
     target, fd = held
     try:
         no_link_at(target)
-        existed, kept = target.is_dir(), kept_build(target)
+        existed, kept = target.is_dir() and not made, kept_build(target)
         os.utime(lock_path(target))
         prune(scratch, sizes=sizes)
         target.mkdir(exist_ok=True)
