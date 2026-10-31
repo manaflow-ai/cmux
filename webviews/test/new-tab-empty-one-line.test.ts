@@ -79,9 +79,9 @@ await requireBrowserLane("new-tab-empty-one-line.test.ts", async () => {
       const sizes = await page.evaluate(() => {
         const box = document.querySelector<HTMLElement>(".nt-box")!;
         const row = document.querySelector<HTMLElement>(".nt-input")!;
-        // The field is MarkdownField: its text box (`.acpmux-md-root`) carries the insets and its
-        // editable (`.acpmux-md`) the line height, as the textarea carried both; its value is read
-        // through the field's handle.
+        // MarkdownField keeps the New Tab insets on its `.nt-field` wrapper and the line height on
+        // its editable (`.acpmux-md`), as the textarea carried both; its value is read through the
+        // field's handle.
         const field = document.querySelector(".nt-field") as HTMLElement & {
           acpmuxMarkdownField?: { value(): string };
         };

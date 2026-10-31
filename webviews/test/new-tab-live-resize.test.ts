@@ -260,8 +260,8 @@ await requireBrowserLane("new-tab-live-resize.test.ts", async () => {
       await page.waitForTimeout(300);
       const stage = (await frame.locator(".nt-screen").getAttribute("data-layout")) === "stage";
       // One line of the field's text plus its insets (the Default template's 52px row).
-      // MarkdownField's text box (`.acpmux-md-root`) holds the insets and its editable (`.acpmux-md`)
-      // the line height, both of which the textarea held.
+      // MarkdownField's `.nt-field` wrapper holds the insets and its editable (`.acpmux-md`) the
+      // line height, both of which the textarea held.
       const oneLine = await frame.locator(".nt-field").evaluate((node) => {
         const inset = getComputedStyle(node);
         const text = getComputedStyle(node.querySelector(".acpmux-md")!);
