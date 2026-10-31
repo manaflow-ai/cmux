@@ -1708,6 +1708,25 @@ mod tests {
     }
 
     #[test]
+    fn agent_credentials_never_sync() {
+        // The coding agents' auth stores (acpmux hub/pool/auth.rs), in a
+        // project-local agent home or a synced home directory.
+        for path in [
+            ".claude/.credentials.json",
+            "home/.claude.json",
+            ".codex/auth.json",
+            "agents/.CODEX/auth.json",
+            ".local/share/opencode/auth.json",
+            ".gemini/oauth_creds.json",
+        ] {
+            assert!(credential_path(Path::new(path)), "{path}");
+        }
+        // An auth.json that is not an agent's store still syncs.
+        assert!(!credential_path(Path::new("src/fixtures/auth.json")));
+        assert!(!credential_path(Path::new(".claude/settings.json")));
+    }
+
+    #[test]
     fn credential_directories_match_in_any_case() {
         // macOS volumes are case-insensitive by default: `.AWS/config` is
         // the AWS CLI's `.aws/config` there.
