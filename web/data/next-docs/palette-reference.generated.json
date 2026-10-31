@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1231,
+    "entries": 1232,
     "shortcuts": 189
   },
   "sections": [
@@ -68,6 +68,12 @@
           "title": "Close All Windows",
           "shortcut": null,
           "command": "cmux app close-all-windows"
+        },
+        {
+          "id": "home.closeNewMessage",
+          "title": "Close New Message",
+          "shortcut": null,
+          "command": "cmux home close-new-message"
         },
         {
           "id": "window.closeOthers",

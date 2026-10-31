@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "verbs": 759,
-    "mcp": 677
+    "verbs": 760,
+    "mcp": 678
   },
   "nouns": [
     {
@@ -1786,6 +1786,13 @@
           "id": "home.channels",
           "mcp": true,
           "mcpTool": "app_home_channels"
+        },
+        {
+          "command": "cmux home close-new-message",
+          "title": "Close New Message",
+          "id": "home.closeNewMessage",
+          "mcp": true,
+          "mcpTool": "app_home_close_new_message"
         },
         {
           "command": "cmux home delete-chief",
