@@ -34,6 +34,7 @@ export interface NativeFile {
   readonly label: string
   readonly path: string
   readonly size: number
+  readonly revision: string
 }
 
 export interface SessionSummary {
@@ -112,6 +113,7 @@ export class TrajectoryStore {
     sql.exec(`CREATE TABLE IF NOT EXISTS traj_event (session TEXT NOT NULL, seq INTEGER NOT NULL, hash TEXT NOT NULL, line TEXT NOT NULL, PRIMARY KEY (session, seq))`)
     sql.exec(`CREATE TABLE IF NOT EXISTS traj_native (session TEXT NOT NULL, label TEXT NOT NULL, path TEXT NOT NULL, size INTEGER NOT NULL, PRIMARY KEY (session, label, path))`)
     sql.exec(`CREATE TABLE IF NOT EXISTS traj_native_chunk (session TEXT NOT NULL, label TEXT NOT NULL, path TEXT NOT NULL, offset INTEGER NOT NULL, data BLOB NOT NULL, PRIMARY KEY (session, label, path, offset))`)
+    sql.exec(`CREATE TABLE IF NOT EXISTS traj_native_revision (session TEXT NOT NULL, label TEXT NOT NULL, path TEXT NOT NULL, revision TEXT NOT NULL, PRIMARY KEY (session, label, path))`)
   }
 
   private row(session: string): SessionRow | undefined {
@@ -126,7 +128,17 @@ export class TrajectoryStore {
     this.sql.exec(`DELETE FROM traj_event WHERE session = ?`, session)
     this.sql.exec(`DELETE FROM traj_native_chunk WHERE session = ?`, session)
     this.sql.exec(`DELETE FROM traj_native WHERE session = ?`, session)
+    this.sql.exec(`DELETE FROM traj_native_revision WHERE session = ?`, session)
     this.sql.exec(`DELETE FROM traj_session WHERE session = ?`, session)
+  }
+
+  /** Existing stores acquire a revision on their first read; a rewrite replaces it atomically. */
+  private nativeRevision(session: string, label: string, path: string): string {
+    const kept = this.sql.exec<{ revision: string }>(`SELECT revision FROM traj_native_revision WHERE session = ? AND label = ? AND path = ?`, session, label, path).toArray()[0]
+    if (kept) return kept.revision
+    const revision = crypto.randomUUID()
+    this.sql.exec(`INSERT INTO traj_native_revision (session, label, path, revision) VALUES (?, ?, ?, ?)`, session, label, path, revision)
+    return revision
   }
 
   /**
@@ -206,7 +218,10 @@ export class TrajectoryStore {
     const freed = offset === 0 ? size : 0
     const total = this.totalBytes()
     if (data.byteLength > freed && total + data.byteLength - freed > MACHINE_MAX_BYTES) return { ok: false, refusal: { code: "cloud.trajectory.full", bytes: total } }
-    if (offset === 0) this.sql.exec(`DELETE FROM traj_native_chunk WHERE session = ? AND label = ? AND path = ?`, session, label, path)
+    if (offset === 0) {
+      this.sql.exec(`DELETE FROM traj_native_chunk WHERE session = ? AND label = ? AND path = ?`, session, label, path)
+      this.sql.exec(`INSERT INTO traj_native_revision (session, label, path, revision) VALUES (?, ?, ?, ?) ON CONFLICT(session, label, path) DO UPDATE SET revision = excluded.revision`, session, label, path, crypto.randomUUID())
+    }
     if (data.byteLength > 0) this.sql.exec(`INSERT INTO traj_native_chunk (session, label, path, offset, data) VALUES (?, ?, ?, ?, ?)`, session, label, path, offset, data.slice().buffer)
     const next = offset + data.byteLength
     this.sql.exec(`INSERT INTO traj_native (session, label, path, size) VALUES (?, ?, ?, ?) ON CONFLICT(session, label, path) DO UPDATE SET size = excluded.size`, session, label, path, next)
@@ -245,7 +260,7 @@ export class TrajectoryStore {
       generation: Number(r.generation),
       last_seq: Number(r.last_seq),
       meta: JSON.parse(r.meta) as unknown,
-      native: this.sql.exec<{ label: string; path: string; size: number }>(`SELECT label, path, size FROM traj_native WHERE session = ? ORDER BY label, path`, r.session).toArray().map((n) => ({ label: n.label, path: n.path, size: Number(n.size) })),
+      native: this.sql.exec<{ label: string; path: string; size: number }>(`SELECT label, path, size FROM traj_native WHERE session = ? ORDER BY label, path`, r.session).toArray().map((n) => ({ label: n.label, path: n.path, size: Number(n.size), revision: this.nativeRevision(r.session, n.label, n.path) })),
       updated_at: Number(r.updated_at)
     }))
     return { sessions, has_more: hasMore, next_after_session: hasMore ? sessions.at(-1)!.session : null }
@@ -270,17 +285,18 @@ export class TrajectoryStore {
   }
 
   /** The kept chunk of a native file that starts at `offset`, and the file's size. */
-  readNative(session: string, label: string, path: string, offset: number): TrajectoryResult<{ generation: number; size: number; data: Uint8Array }> {
+  readNative(session: string, label: string, path: string, offset: number): TrajectoryResult<{ generation: number; revision: string; size: number; data: Uint8Array }> {
     const row = this.row(session)
     if (!row) return { ok: false, refusal: { code: "cloud.trajectory.not_found" } }
     const generation = Number(row.generation)
     const kept = this.sql.exec<{ size: number }>(`SELECT size FROM traj_native WHERE session = ? AND label = ? AND path = ?`, session, label, path).toArray()[0]
     if (!kept) return { ok: false, refusal: { code: "cloud.trajectory.not_found" } }
     const size = Number(kept.size)
-    if (offset >= size) return { ok: true, value: { generation, size, data: new Uint8Array(0) } }
+    const revision = this.nativeRevision(session, label, path)
+    if (offset >= size) return { ok: true, value: { generation, revision, size, data: new Uint8Array(0) } }
     const chunk = this.sql.exec<{ data: ArrayBuffer }>(`SELECT data FROM traj_native_chunk WHERE session = ? AND label = ? AND path = ? AND offset = ?`, session, label, path, offset).toArray()[0]
     if (!chunk) return { ok: false, refusal: { code: "cloud.trajectory.offset", size } }
-    return { ok: true, value: { generation, size, data: new Uint8Array(chunk.data) } }
+    return { ok: true, value: { generation, revision, size, data: new Uint8Array(chunk.data) } }
   }
 }
 

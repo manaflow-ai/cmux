@@ -96,7 +96,7 @@ pub struct Remote {
     pub generation: u64,
     pub last_seq: u64,
     pub meta: Value,
-    pub native: Vec<(String, String, u64)>,
+    pub native: Vec<(String, String, u64, String)>,
 }
 
 enum Reply {
@@ -182,6 +182,7 @@ fn remotes_of(value: &Value) -> Vec<Remote> {
                     n.field("label").as_str()?.to_owned(),
                     n.field("path").as_str()?.to_owned(),
                     n.field("size").as_u64()?,
+                    n.field("revision").as_str().unwrap_or("").to_owned(),
                 ))
             })
             .collect::<Vec<_>>();
@@ -316,7 +317,7 @@ impl Mirror {
                     native: remote
                         .native
                         .iter()
-                        .map(|(l, p, size)| ((l.clone(), p.clone()), *size))
+                        .map(|(l, p, size, _)| ((l.clone(), p.clone()), *size))
                         .collect(),
                     ..Track::default()
                 },
@@ -406,12 +407,12 @@ impl Mirror {
                         remote.session, remote.last_seq
                     ));
                 }
-                Err(RestoreError::GenerationChanged) => {
+                Err(RestoreError::SourceChanged) => {
                     // The source recreated this id after listing. Discard the partial bundle
                     // and fetch fresh metadata and native-file sizes before another attempt.
                     self.reset_parent();
                     (self.log)(&format!(
-                        "trajectory {}: source generation changed; listing again",
+                        "trajectory {}: source changed; listing again",
                         remote.session
                     ));
                 }
@@ -638,7 +639,7 @@ impl Mirror {
 }
 
 enum RestoreError {
-    GenerationChanged,
+    SourceChanged,
     Failed(String),
 }
 
@@ -657,7 +658,7 @@ impl From<&str> for RestoreError {
 fn restore_generation(value: &Value, generation: u64) -> Result<(), RestoreError> {
     match value.field("generation").as_u64() {
         Some(kept) if kept == generation => Ok(()),
-        Some(_) => Err(RestoreError::GenerationChanged),
+        Some(_) => Err(RestoreError::SourceChanged),
         None => Err(RestoreError::Failed("trajectory read omitted its generation".to_owned())),
     }
 }
@@ -701,9 +702,12 @@ fn stage_bundle(api: &mut dyn Api, remote: &Remote, stage: &Path) -> Result<(), 
     if after < remote.last_seq {
         return Err(format!("read {after} of {} records", remote.last_seq).into());
     }
-    for (label, path, size) in &remote.native {
+    for (label, path, size, revision) in &remote.native {
         if !native_path(label, path) {
             continue;
+        }
+        if revision.is_empty() {
+            return Err("trajectory list omitted native file revision".into());
         }
         let mut bytes = Vec::new();
         while (bytes.len() as u64) < *size {
@@ -713,6 +717,9 @@ fn stage_bundle(api: &mut dyn Api, remote: &Remote, stage: &Path) -> Result<(), 
                 other => return Err(failed(other).into()),
             };
             restore_generation(&chunk, remote.generation)?;
+            if chunk.field("revision").as_str() != Some(revision.as_str()) {
+                return Err(RestoreError::SourceChanged);
+            }
             let data = decode_base64(chunk.field("data").as_str().unwrap_or(""))
                 .ok_or("a kept file chunk is not base64")?;
             if data.is_empty() {
