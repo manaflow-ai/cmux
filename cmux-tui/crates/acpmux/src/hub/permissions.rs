@@ -45,6 +45,8 @@ pub(super) mod settled;
 mod display;
 pub(crate) use display::{ChildTags, drop_display_lines};
 
+mod pending;
+
 impl Hub {
     // ------------------------------------------------------------- inbound
 
