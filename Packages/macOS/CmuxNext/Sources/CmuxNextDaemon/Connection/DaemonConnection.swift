@@ -55,7 +55,7 @@ public actor DaemonConnection {
     private var pacer: RetryPacer
     private let wake: RetryWake
     private let healthy: DemandTimer
-    private let heartbeat = ConnectionHeartbeat()
+    private nonisolated let heartbeat = ConnectionHeartbeat()
 
     /// Identity of the current (or last) daemon.
     public private(set) var identity: DaemonIdentity?
@@ -116,6 +116,15 @@ public actor DaemonConnection {
         phase = .closed
         releaseHandoffHold()
         continuation.finish()
+    }
+
+    /// False while the connected daemon left its heartbeat's asks unanswered and its process is alive
+    /// (``ConnectionHeartbeat/answering``): the connection stays open and its requests keep waiting.
+    public nonisolated var daemonAnswering: Bool { heartbeat.answering }
+
+    /// Calls `observer` with ``daemonAnswering`` after each change, off the main actor; nil stops.
+    public nonisolated func observeAnswering(_ observer: (@Sendable (Bool) -> Void)?) {
+        heartbeat.observeAnswering(observer)
     }
 
     public var isReady: Bool {
@@ -304,6 +313,8 @@ public actor DaemonConnection {
         if case .ready = phase {} else if case .connecting = phase {} else { return }
         phase = .waiting
         healthy.cancel()
+        // The connection ended: nothing answers on it, and the next connection's run starts answering.
+        heartbeat.stop()
         let detail: String = switch reason {
         case .closedByClient: "closed"
         case .daemonShutdown: "daemon shut down"
