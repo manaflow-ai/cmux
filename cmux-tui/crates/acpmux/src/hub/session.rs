@@ -77,6 +77,12 @@ pub struct Session {
     /// that cancel is handed to the child prevents the next turn's prompt from overtaking it.
     pub(super) input_handoff: std::sync::Arc<Mutex<()>>,
     pub(super) turn: StdMutex<Option<TurnInfo>>,
+    /// The turn `finish_turn` took and has not ended yet: a shutdown settles it if its end does
+    /// not land within the grace (`shutdown.rs` `settle_ends`).
+    pub(super) ending: StdMutex<Option<TurnInfo>>,
+    /// A detach is ending the agent it took under the child lock (`detach_child`): a shutdown
+    /// that meets that lock waits for the detach rather than count the agent as kept.
+    pub(super) detaching: AtomicBool,
     pub(super) queued: AtomicU64,
     pub(super) queue: StdMutex<Vec<QueuedPrompt>>,
     /// Durable team notices, indexed once per session; receiving one never queues a turn.
