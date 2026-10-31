@@ -432,7 +432,7 @@
 }
 
 .theme-token:not(:disabled) {
-  cursor: pointer;
+  cursor: default;
 }
 
 .theme-token:not(:disabled):hover {
@@ -519,7 +519,7 @@
   padding: 0;
   border: 1px solid var(--border);
   border-radius: 50%;
-  cursor: pointer;
+  cursor: default;
 }
 
 .token-tuner-contrast {
@@ -969,7 +969,7 @@
   font: inherit;
   position: relative;
   text-align: center;
-  cursor: pointer;
+  cursor: default;
   transition: border-color var(--motion-hover) var(--motion-ease);
 }
 
