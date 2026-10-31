@@ -51,11 +51,13 @@ struct AppWebPaneUpdateTests {
         view.webViewWebContentProcessDidTerminate(view.webView)
         #expect(!view.bridge.enabled)
 
+        let (restored, didRestore) = AsyncStream.makeStream(of: Void.self)
+        view.onLoaded = { if view.webView.url == pane.entryURL { didRestore.yield() } }
         transport.record = original
         transport.includesRecord = true
         transport.onEvent?(.availability(.available(epoch: 2)))
         transport.onEvent?(.changed(revision: 3, app: original.id, transaction: "set"))
-        for await _ in loaded { break }
+        for await _ in restored { break }
         #expect(view.bridge.enabled)
         #expect(view.webView.url == pane.entryURL)
         #expect(try await view.webView.evaluateJavaScript("document.title") as? String == "one")
@@ -63,6 +65,26 @@ struct AppWebPaneUpdateTests {
 
     enum Revocation: CaseIterable, Sendable {
         case disabled, removed, forgotten, missingPackage, disconnected, policy, detached
+    }
+
+    @Test(.timeLimit(.minutes(1))) func aNewPaneCannotLoadAStaleDisabledRecord() async throws {
+        let bundle = FileManager.default.temporaryDirectory.appendingPathComponent("pane-inactive-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: bundle) }
+        try writePage(root: bundle.appendingPathComponent("web"), entry: "index.html", version: "one")
+        var app = try record(bundle: bundle, root: "web", entry: "index.html", version: "1.0.0")
+        app.enabled = false
+        let transport = UpdatingPaneTransport(record: app)
+        let client = AppsClient(transport: transport)
+        client.start()
+        await waitForVersion("1.0.0", client: client, app: app.id)
+        let pane = try #require(AppWebPane(manifest: app.manifest, bundle: bundle))
+        let view = AppWebPaneView(pane: pane, client: client, work: BackgroundWork())
+        let (loaded, didLoad) = AsyncStream.makeStream(of: Void.self)
+        view.onLoaded = { didLoad.yield() }
+        for await _ in loaded { break }
+        #expect(!view.bridge.enabled)
+        #expect(view.webView.url?.absoluteString == "about:blank")
+        #expect(try await view.webView.evaluateJavaScript("document.title") as? String == "")
     }
 
     @Test(.timeLimit(.minutes(1))) func anOpenPaneFollowsTheReplacedManifest() async throws {
