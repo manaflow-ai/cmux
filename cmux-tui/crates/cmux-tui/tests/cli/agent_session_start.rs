@@ -500,7 +500,13 @@ fn a_first_chat_on_the_callers_own_cloud_vm_starts_in_its_trusted_work_folder() 
         fs::remove_dir(&work).unwrap();
         // The start at the home folder runs in the work folder (made for it), with no question.
         let started = start_at_home(&vm, surface);
-        assert_eq!(started["ok"], true, "{kind}: {started}");
+        if kind == "owner" {
+            assert_eq!(started["ok"], true, "{kind}: {started}");
+        } else {
+            // Past the folder and its trust; a team VM then runs only an agent that asks
+            // before acting (#28613), which the test agent has no mode for.
+            assert_eq!(started["error_code"], "agent_session.not_asking", "{kind}: {started}");
+        }
         assert!(work.is_dir(), "{kind}: the work folder was not made");
         // Another folder of that machine still asks.
         let surface = vm.own_agent_tab();
