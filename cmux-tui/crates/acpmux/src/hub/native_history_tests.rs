@@ -321,7 +321,7 @@ fn a_large_single_turn_reply_is_bounded_without_dropping_events() {
             call: json!({
                 "kind": "execute",
                 "title": "large input",
-                "rawInput": {"command": "x".repeat(40_000)}
+                "rawInput": {"command": "x".repeat(80_000)}
             }),
             done: json!({"status": "completed"}),
             started_at: Some(1),
@@ -350,8 +350,8 @@ async fn oversized_native_pages_keep_rpc_bounds_and_continuations() {
     let hub = hub(&home);
     let file = home.join("projects/-work/s1.jsonl");
     let mut out = std::io::BufWriter::new(std::fs::File::create(&file).unwrap());
-    let content = "x".repeat(40_000);
-    // Three older turns each have roughly 4 MiB of raw Write input and roughly 8 MiB of ACP
+    let content = "x".repeat(60_000);
+    // Three older turns each have roughly 6 MiB of raw Write input and roughly 12 MiB of ACP
     // call content (rawInput plus the display diff). Two turns exceed the 14 MiB result budget,
     // while each turn remains well below the individual-event frame limit.
     for n in 0..3 {

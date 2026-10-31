@@ -397,8 +397,8 @@ async fn a_watch_list_too_large_from_an_old_peer_is_read_in_pages_of_rows() {
     let (ours, theirs) = tokio::io::duplex(1 << 16);
     let client = WebSocketStream::from_raw_socket(ours, Role::Client, None).await;
     let server = WebSocketStream::from_raw_socket(theirs, Role::Server, None).await;
-    // 500 rows of 40 KB: 20 MB whole, over the limit; a page of 512 is too, one of 256 is not.
-    let (rows, bytes) = (500, 40_000);
+    // 500 rows of 70 KB: 35 MB whole, over the limit; a page of 512 is too, one of 256 is not.
+    let (rows, bytes) = (500, 70_000);
     assert!(rows * bytes > crate::rpc::MAX_MESSAGE_BYTES);
     let fake = old_peer(server, rows, bytes);
     let mut out_rx = peer.out_rx.lock().await.take().unwrap();
