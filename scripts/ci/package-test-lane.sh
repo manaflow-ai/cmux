@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# SCRATCH (not for merge): exercise the fuzz seed env until the controller admits it.
+export CMUX_FUZZ_SEED=random
 # The swift-package-tests lane of ci-macos.yml as one script, so the same code
 # runs on a GitHub runner and as a fleet ci-step (`cmux-ci run`, hq#794) from a
 # fresh checkout of the commit on a mini.

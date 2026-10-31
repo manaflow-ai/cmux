@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# SCRATCH (not for merge): exercise the fuzz seed env until the controller admits it.
+export CMUX_FUZZ_SEED=random
 # cmux-tui's Rust checks on a macOS fleet host, as a cmux-ci step:
 #   cmux-ci run --class isolated --script scripts/ci/cmux-tui-rust-check.sh --ref SHA --key KEY \
 #     --arg MODE [--arg TEST_FILTER]
