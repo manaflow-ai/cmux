@@ -616,7 +616,7 @@ async function startDaemon(ctx: Ctx): Promise<void> {
   const { vm, L } = ctx;
   if (ctx.options.nativeReceiver) {
     // A new image with the old pin must fail before it becomes a candidate.
-    await L.step(vm, "native-receiver-supported", `${HOST_CLI} run --help | grep -F -- '--native-receiver'`);
+    await L.step(vm, "native-receiver-supported", `${HOST_CLI} --help | grep -F -- '--native-receiver'`);
     ctx.result.nativeReceiver = true;
   }
   await writeGuestFile(vm, `/etc/systemd/system/${DAEMON_UNIT}`, daemonUnit(ctx.options.agentTools ? agentToolsDaemonEnv(ctx.lock) : {}, ctx.options.nativeReceiver), 0o644);
