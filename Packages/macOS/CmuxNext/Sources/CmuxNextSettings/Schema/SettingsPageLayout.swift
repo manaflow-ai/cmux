@@ -35,14 +35,16 @@ public nonisolated struct SettingsPageLayout: Sendable {
         case cloudEnvironments
     }
 
-    /// A group card as the layout states it: the rows of a schema group
-    /// (minus rows another card claims), plus rows claimed by key.
+    /// A group card as the layout states it: rows claimed by key to lead it, the rows
+    /// of a schema group (minus rows another card claims), then rows claimed by key.
     public nonisolated struct GroupSpec: Sendable {
         /// A schema group key: its title, and every row of it no other card claims.
         public var group: String?
         /// Rows by key, moved here from their schema group; `title` names the card then.
         public var keys: [String] = []
         public var title: SettingText?
+        /// Rows by key, claimed like `keys` but drawn first, before the schema group's own rows.
+        public var leadKeys: [String] = []
     }
 
     public nonisolated struct CategorySpec: Sendable {
@@ -78,11 +80,11 @@ public nonisolated struct SettingsPageLayout: Sendable {
     public init() {}
 
     /// The categories with their cards resolved against `rows`: only rows the
-    /// page shows, empty cards dropped, schema-group rows in schema order.
+    /// page shows, empty cards dropped, lead keys first, then schema-group rows in schema order.
     public func categories(rows: [SettingDescriptor] = SettingsSchema.all) -> [Category] {
         let shown = rows.filter(\.isShownOnSettingsPage)
         let specs = Self.specs
-        let claimed = Set(specs.flatMap { $0.groups.flatMap(\.keys) })
+        let claimed = Set(specs.flatMap { $0.groups.flatMap { $0.leadKeys + $0.keys } })
         let ids = Set(shown.map(\.id))
         return specs.map { spec in
             let groups = spec.groups.enumerated().compactMap { index, group -> Group? in
@@ -90,7 +92,7 @@ public nonisolated struct SettingsPageLayout: Sendable {
                     shown.filter { $0.textKeys.group == key && !claimed.contains($0.id) }.map(\.id)
                 } ?? []
                 let moved = group.keys.filter(ids.contains)
-                let rows = own + moved
+                let rows = group.leadKeys.filter(ids.contains) + own + moved
                 let title = group.title ?? group.group.flatMap { key in
                     shown.first { $0.textKeys.group == key }.map { SettingText(key: key, text: $0.group) }
                 }
@@ -145,7 +147,10 @@ public nonisolated struct SettingsPageLayout: Sendable {
                 group("settings.group.terminalFont"), group("settings.group.densityMotion"), group("settings.group.motion"),
                 group("settings.group.colorTransition"),
                 group("settings.group.windowBackground"), group("settings.group.panes"), group("settings.group.focusRing"),
-                group("settings.group.sidebar"), group("settings.group.workspaceRows"),
+                // Show Workspace Tabs leads the Sidebar card: it is off by default, and this is
+                // where a person turns each workspace's tabs back on (#26384).
+                GroupSpec(group: "settings.group.sidebar", leadKeys: ["sidebar.showWorkspaceTabs"]),
+                group("settings.group.workspaceRows"),
                 group("settings.group.statusIndicator"), group("settings.group.surfaces"),
             ],
             // Change Background… lands here: the art picker draws appearance.background and
