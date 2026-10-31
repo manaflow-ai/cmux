@@ -195,8 +195,8 @@ jobs:
           GH_TOKEN: ${{ steps.cmux-bot-token.outputs.token || steps.glaeda-token.outputs.token || github.token }}
           # Takes over when the App's token is refused (queue_janitor.GitHub).
           GH_FALLBACK_TOKEN: ${{ github.token }}
-          # The pinned token action cannot request variable permissions by name. The trusted script mints a
-          # repository-scoped route-App token with its installed grants, solely for a separate GET-only client.
+          # The pinned token action cannot request repository Variables by name. The trusted script mints a
+          # repository-scoped route-App token with Variables:read only, solely for a separate GET-only client.
           RUNNER_POOLS_APP_ID: ${{ vars.GLAEDA_ROUTE_APP_ID }}
           RUNNER_POOLS_APP_KEY: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
           # The same cmux-bot token again, so the janitor knows GH_TOKEN is cmux-bot's: only then does

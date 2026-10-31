@@ -331,6 +331,11 @@ LOST_RERUN_ALARM = dt.timedelta(hours=6)
 # Pending re-runs read (one run request each) and re-runs posted per sweep.
 LOST_PENDING_MAX = 25
 LOST_RERUN_MAX = 10
+# The route App token is used only for the one repository-variable read that
+# supplies RUNNER_POOLS.  Do not preserve its installed grants in this client:
+# GitHub's Variables repository permission is the narrow read capability for
+# GET /repos/{owner}/{repo}/actions/variables/{name}.
+RUNNER_POOL_VARIABLE_PERMISSIONS = {"variables": "read"}
 # A lost job at an open pull request's head (classify_lost(), open_head): the sweep that cancels it reads
 # the run up to LOST_SETTLE_READS times, LOST_SETTLE_INTERVAL_S apart, for the cancel to settle, re-checks
 # its pull request and the runs at its head, then re-runs its failed jobs as cmux-bot (rerun_open_head()).
@@ -3290,6 +3295,17 @@ def cancel_orphans(
         if status not in IN_FLIGHT_RUN_STATUSES:
             results[run_id] = "cancelled"
         else:
+            # A PR can open or opt out while the normal cancel settles.  Read
+            # protection again immediately before the irreversible force-cancel.
+            try:
+                why_not = pr_recheck(github, orphan.run)
+            except RuntimeError as error:
+                failures += 1
+                results[run_id] = f"failed before force-cancel: {error}"
+                continue
+            if why_not:
+                results[run_id] = f"cancel asked; skipped force-cancel ({why_not})"
+                continue
             results[run_id] = _force_cancel(github, orphan, f"cancel left it {status}")
     return results, failures
 
@@ -4056,10 +4072,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 2
     orphan_age = dt.timedelta(minutes=orphan_minutes)
 
-    # Like the existing overflow switch, omit permissions when minting for the route App's installed variable
-    # grant. Keep that token confined to a separate GET-only client, never the janitor's cancellation credential.
+    # Mint only the repository Variables:read grant needed for RUNNER_POOLS.
+    # Keep that token confined to a separate GET-only client, never the
+    # janitor's cancellation credential.
     app_id, app_key = os.environ.get("RUNNER_POOLS_APP_ID"), os.environ.get("RUNNER_POOLS_APP_KEY")
-    variables_mint = rescue.app_token_minter(app_id, app_key, args.repo, permissions=None) if app_id and app_key else None
+    variables_mint = (rescue.app_token_minter(app_id, app_key, args.repo,
+                                              permissions=RUNNER_POOL_VARIABLE_PERMISSIONS)
+                      if app_id and app_key else None)
     github = GitHub(token, args.repo, fallback_token=os.environ.get("GH_FALLBACK_TOKEN") or "")
     github.variables_mint = variables_mint
     # The workflow passes cmux-bot's token as CMUX_BOT_TOKEN too: GH_TOKEN is cmux-bot's only when they match
@@ -4468,9 +4487,20 @@ def main(argv: Sequence[str] | None = None) -> int:
     if not args.dry_run:
         orphan_results, orphan_failures = cancel_orphans(github, orphan_decisions, hold=READS.hold)
         failures += orphan_failures
-        superseded_decisions, superseded_failures = cancel_superseded(
-            github, superseded_decisions, hold=READS.hold, runs=runs, jobs_by_run=delivery_jobs,
-            prs_by_branch=prs_by_branch)
+        try:
+            superseded_decisions, superseded_failures = cancel_superseded(
+                github, superseded_decisions, hold=READS.hold, runs=runs, jobs_by_run=delivery_jobs,
+                prs_by_branch=prs_by_branch)
+        except RateLimited as error:
+            # A rate limit during the final recheck is an infra hold, never an
+            # uncaught janitor crash and never permission to cancel blindly.
+            READS.failed("superseded-run phase-2 recheck", error)
+            superseded_decisions = [
+                SupersededDecision(d.run, "keep", f"held: superseded-run phase-2 recheck rate limited: {error}")
+                if d.action == "cancel" else d
+                for d in superseded_decisions
+            ]
+            superseded_failures = 1
         failures += superseded_failures
     else:
         superseded_decisions = [SupersededDecision(d.run, d.action, d.note.replace("planned: ", "would cancel: ", 1))
