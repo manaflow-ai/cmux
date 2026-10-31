@@ -387,3 +387,31 @@ impl EventQueue {
         })
     }
 }
+
+#[cfg(test)]
+mod event_queue_tests {
+    use super::{Answer, EventQueue};
+    use serde_json::json;
+
+    /// HQ#5351 item 2: nothing drains the queue while it backs off (up to 600 s), so
+    /// socket clients could grow the agent's memory without bound. Past its cap the
+    /// queue refuses new events and keeps the ones it holds, in order.
+    #[test]
+    fn a_backed_off_queue_refuses_events_past_its_cap() {
+        let mut queue = EventQueue::new("vm-1");
+        let first = queue.emit("agent.started", 1, json!({})).unwrap();
+        assert!(first.is_some());
+        let (_, next) = queue.finished(&Answer::Transport, 0, 0.5);
+        assert!(next.is_none());
+        let mut refused = 0;
+        for at in 2..1_000 {
+            if queue.emit("agent.started", at, json!({})).is_err() {
+                refused += 1;
+            }
+        }
+        assert!(queue.len() <= 256, "queue grew to {}", queue.len());
+        assert!(refused > 0);
+        let retry = queue.fire(u64::MAX).expect("the head retries");
+        assert_eq!(retry.params["at"], 1);
+    }
+}
