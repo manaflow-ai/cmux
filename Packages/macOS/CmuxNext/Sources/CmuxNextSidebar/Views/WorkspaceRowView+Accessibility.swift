@@ -46,11 +46,6 @@ extension WorkspaceRowView {
         return actions.isEmpty ? nil : actions
     }
 
-    /// The header's AXExpanded on the row that stands for its group; nil (a plain row) otherwise.
-    override func isAccessibilityExpanded() -> Bool {
-        standingGroup?.expanded ?? super.isAccessibilityExpanded()
-    }
-
     func accessibilityText(_ ws: SidebarWorkspace, content: WorkspaceRowContent, title: String? = nil) -> String {
         Self.accessibilityText(ws, content: content, tabCount: count, presence: presenceDots.isHidden ? [] : presenceDots.presence,
                                title: title)
