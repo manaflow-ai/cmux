@@ -56,19 +56,29 @@ pub(super) fn read_only() -> RpcError {
 /// [`MAX_BYTES`], after a line break. A line longer than [`MAX_READ`] is skipped: its rest fails
 /// to parse and is dropped.
 pub(super) fn read_lines(file: &Path, offset: u64) -> std::io::Result<(Vec<String>, u64)> {
+    read_lines_with_limits(file, offset, MAX_BYTES, MAX_READ)
+}
+
+// Same byte bounds as production; small ones make boundary tests inexpensive.
+fn read_lines_with_limits(
+    file: &Path,
+    offset: u64,
+    max_bytes: u64,
+    max_read: u64,
+) -> std::io::Result<(Vec<String>, u64)> {
     let mut f = std::fs::File::open(file)?;
     let len = f.metadata()?.len();
     let mut start = if offset > len { len } else { offset };
-    let skip_partial = start == 0 && len > MAX_BYTES;
+    let skip_partial = start == 0 && len > max_bytes;
     if skip_partial {
-        start = len - MAX_BYTES;
+        start = len - max_bytes;
     }
     if start >= len {
         return Ok((Vec::new(), start));
     }
     f.seek(SeekFrom::Start(start))?;
     let mut buf = Vec::new();
-    f.take(MAX_READ.min(len - start)).read_to_end(&mut buf)?;
+    f.take(max_read.min(len - start)).read_to_end(&mut buf)?;
     let mut from = 0;
     if skip_partial {
         match buf.iter().position(|&b| b == b'\n') {
@@ -78,7 +88,7 @@ pub(super) fn read_lines(file: &Path, offset: u64) -> std::io::Result<(Vec<Strin
     }
     // Only complete lines: the app may be halfway through writing the last one.
     let Some(end) = buf.iter().rposition(|&b| b == b'\n') else {
-        let skip = if buf.len() as u64 == MAX_READ { buf.len() as u64 } else { 0 };
+        let skip = if buf.len() as u64 == max_read { buf.len() as u64 } else { 0 };
         return Ok((Vec::new(), start + skip));
     };
     if end < from {
@@ -367,6 +377,54 @@ mod tests {
         assert!(lines.is_empty());
         std::fs::OpenOptions::new().append(true).open(&file).unwrap().write_all(b"{}\n").unwrap();
         assert_eq!(read_lines(&file, offset).unwrap().0, ["{}"]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A first 64 MiB window may begin halfway through a very large JSONL entry.
+    /// Once that entry ends, the reader must advance and reach the valid following row.
+    #[test]
+    fn oversized_first_window_line_advances_to_the_next_record() {
+        let dir = std::env::temp_dir().join(format!("acpmux-watch-long-{}", uuid::Uuid::now_v7()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("oversized.jsonl");
+        let content = format!("{{\"large\":\"{}\"}}\n{{\"next\":true}}\n", "x".repeat(160));
+        std::fs::write(&file, content.as_bytes()).unwrap();
+        let window_start = content.len() as u64 - 64;
+
+        // The old code found no newline in the first 20 bytes, returned window_start,
+        // and repeated the same read forever with offset still zero.
+        let (lines, after_large) = read_lines_with_limits(&file, 0, 64, 20).unwrap();
+        assert!(lines.is_empty());
+        assert!(after_large > window_start, "stalled at the overlong line");
+        let (lines, done) = read_lines_with_limits(&file, after_large, 64, 20).unwrap();
+        assert_eq!(lines, ["{\"next\":true}"]);
+        assert_eq!(done, content.len() as u64);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The source may still be writing its oversized first JSONL entry. Retain the
+    /// checkpoint until a newline exists, then skip the entry and deliver later rows.
+    #[test]
+    fn oversized_incomplete_window_line_resumes_when_terminated() {
+        let dir = std::env::temp_dir().join(format!("acpmux-watch-partial-{}", uuid::Uuid::now_v7()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("partial.jsonl");
+        let unfinished = format!("{{\"large\":\"{}", "x".repeat(160));
+        std::fs::write(&file, unfinished.as_bytes()).unwrap();
+        let (lines, start) = read_lines_with_limits(&file, 0, 64, 20).unwrap();
+        assert!(lines.is_empty());
+        assert_eq!(start, unfinished.len() as u64 - 64);
+        std::fs::OpenOptions::new()
+            .append(true)
+            .open(&file)
+            .unwrap()
+            .write_all(b"\"}\n{\"next\":1}\n")
+            .unwrap();
+        let (lines, after_large) = read_lines_with_limits(&file, 0, 64, 20).unwrap();
+        assert!(lines.is_empty());
+        assert!(after_large > start);
+        let (lines, _) = read_lines_with_limits(&file, after_large, 64, 20).unwrap();
+        assert_eq!(lines, ["{\"next\":1}"]);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
