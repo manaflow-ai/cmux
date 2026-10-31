@@ -31,7 +31,7 @@ use cmux_process::{Command, Stdio};
 use std::collections::BTreeMap;
 use std::io::Write as _;
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{Mutex, PoisonError};
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -382,7 +382,7 @@ impl Supervisor {
         request: &DeployRequest,
     ) -> Result<(Target, ServerSpec), ApiError> {
         let manifest = {
-            let inner = self.inner.lock().unwrap();
+            let inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
             inner.catalog.packages.get(app).map(|p| p.manifest.clone())
         }
         .ok_or_else(|| ApiError::new("apps.unknown", "no such app"))?;
@@ -449,7 +449,8 @@ impl Supervisor {
         match result {
             Ok(url) => {
                 let current = {
-                    let instances = self.deployments.instances.lock().unwrap();
+                    let instances =
+                        self.deployments.instances.lock().unwrap_or_else(PoisonError::into_inner);
                     instances.get(app).cloned()
                 };
                 // The app was removed while it deployed: its uninstall stops the container.
@@ -493,12 +494,15 @@ impl Supervisor {
     /// On uninstall: drops the instance and removes its container off the request.
     pub(super) fn deploy_remove(&self, app: &str) {
         let removed = {
-            let mut instances = self.deployments.instances.lock().unwrap();
+            let mut instances =
+                self.deployments.instances.lock().unwrap_or_else(PoisonError::into_inner);
             instances.remove(app)
         };
         let Some(instance) = removed else { return };
-        self.deployments
-            .save(self.config.state_dir.as_deref(), &self.deployments.instances.lock().unwrap());
+        self.deployments.save(
+            self.config.state_dir.as_deref(),
+            &self.deployments.instances.lock().unwrap_or_else(PoisonError::into_inner),
+        );
         self.instance_changed(app, "removed");
         let app = app.to_string();
         let _ = std::thread::Builder::new().name("cmux-app-undeploy".into()).spawn(move || {
@@ -510,7 +514,8 @@ impl Supervisor {
 
     fn instance_set(&self, app: &str, instance: Option<Instance>, why: &str) {
         {
-            let mut instances = self.deployments.instances.lock().unwrap();
+            let mut instances =
+                self.deployments.instances.lock().unwrap_or_else(PoisonError::into_inner);
             match instance {
                 Some(instance) => instances.insert(app.to_string(), instance),
                 None => instances.remove(app),
@@ -521,7 +526,7 @@ impl Supervisor {
     }
 
     fn instance_changed(&self, app: &str, why: &str) {
-        let revision = self.inner.lock().unwrap().mirror.revision;
+        let revision = self.inner.lock().unwrap_or_else(PoisonError::into_inner).mirror.revision;
         self.emit(vec![Out::Broadcast(json!({
             "event": "apps-changed",
             "revision": revision,
@@ -532,7 +537,7 @@ impl Supervisor {
 
     fn app_log(&self, app: &str, level: &str, message: String) {
         let outs = {
-            let mut inner = self.inner.lock().unwrap();
+            let mut inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
             self.log_locked(&mut inner, app, level, message)
         };
         self.emit(outs);
