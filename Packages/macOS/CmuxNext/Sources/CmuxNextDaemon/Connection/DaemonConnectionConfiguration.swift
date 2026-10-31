@@ -23,6 +23,8 @@ public struct DaemonConnectionConfiguration: Sendable {
     /// over a closed lid must still be found); nil asks nothing then. Other
     /// connections ask nothing while hidden and once when a window shows.
     public var hiddenHeartbeat: Duration? = .seconds(60)
+    /// Unanswered asks in a row that mark the daemon not answering while its process is alive, and close a bridged
+    /// connection or one whose daemon exited (``ConnectionHeartbeat``).
     public var heartbeatMisses = 2
     /// Heartbeat a local daemon too: an owner stopped (SIGSTOP) or wedged
     /// keeps its socket open, so no EOF ends the connection (cx-jniyz.4).

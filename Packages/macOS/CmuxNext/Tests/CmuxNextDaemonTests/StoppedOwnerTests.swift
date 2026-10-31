@@ -6,14 +6,16 @@ import Testing
 
 /// cx-jniyz.4: an owner that stops answering while the app is connected
 /// (SIGSTOP, a wedged main loop) keeps its socket open, so no EOF ever
-/// reaches the connection. The store must still turn disconnected (the
-/// window's and the App Store's not-connected state read it) and come back
-/// once the owner answers again. p14-energy-064: the heartbeat asks only
+/// reaches the connection. The connection must notice (its heartbeat marks the
+/// daemon not answering) and, as the P0 of 2026-10-30 requires, must not end:
+/// the owner's process is alive, so the store stays connected and a request sent
+/// while it is stopped gets its reply once it answers again, on the same
+/// connection. p14-energy-064: the heartbeat asks only
 /// after a silence, and a hidden app asks a local owner nothing until a
 /// window shows.
 @Suite(.enabled(if: RealBinary.url != nil, "no cmux-tui binary available"), .liveDaemon, .timeLimit(.minutes(2)))
 struct StoppedOwnerTests {
-    /// A store on a live owner whose connection asks after 1 s of silence, 2 misses closing it.
+    /// A store on a live owner whose connection asks after 1 s of silence, 2 misses marking it not answering.
     private struct Owner {
         let pid: pid_t
         let wake: RetryWake
@@ -56,38 +58,55 @@ struct StoppedOwnerTests {
         }
     }
 
-    @Test func aStoppedOwnerShowsDisconnectedAndReconnectsWhenItResumes() async throws {
+    @Test func aStoppedOwnerShowsNotAnsweringAndItsRequestsCompleteWhenItResumes() async throws {
         let owner = try await Owner.start(presence: ConnectionPresence(shown: true))
         let store = owner.store
+        let connection = owner.connection
 
         kill(owner.pid, SIGSTOP)
-        let noticed = await Self.holds { try await store.waitUntil("disconnected", timeout: .seconds(20)) { store.connectionState.isDisconnected } }
+        // Sent while the owner is stopped, with no client deadline (as a create waits for its daemon); it goes out
+        // well before SIGCONT, which waits for at least two missed asks below.
+        let pending = Task { try await connection.request(IdentifyRequest(), timeout: nil) }
+        let noticed = await Self.holds { try await Self.waitUntil(seconds: 20) { !connection.daemonAnswering } }
+        let stayedConnected = await store.connectionState.isConnected
         kill(owner.pid, SIGCONT)
-        #expect(noticed)
+        #expect(noticed, "the heartbeat did not mark a stopped owner not answering")
+        #expect(stayedConnected, "a live owner's connection ended")
 
-        owner.wake.fire()
-        let resumed = await Self.holds { try await store.waitUntil("reconnected", timeout: .seconds(30)) { store.connectionState.isConnected } }
-        #expect(resumed)
+        let answered = try await pending.value
+        #expect(answered.pid == owner.pid, "the request sent while stopped was answered by another daemon")
+        let resumed = await Self.holds { try await Self.waitUntil(seconds: 20) { connection.daemonAnswering } }
+        #expect(resumed, "the owner answers again but the connection still says it does not")
+        #expect(await store.connectionState.isConnected)
         await owner.shutDown()
     }
 
     @Test func aHiddenAppAsksAStoppedOwnerNothingUntilAWindowShows() async throws {
         let presence = ConnectionPresence(shown: false)
         let owner = try await Owner.start(presence: presence)
-        let store = owner.store
+        let connection = owner.connection
         // The store's first requests are answered: a waiting request would ask on the shown silence.
         _ = await owner.connection.quietHandoff { false }
 
         kill(owner.pid, SIGSTOP)
-        // Shown, 1 s of silence and two misses close it in about 3 s; hidden, nothing asks.
-        let closedWhileHidden = await Self.holds { try await store.waitUntil("disconnected", timeout: .seconds(4)) { store.connectionState.isDisconnected } }
-        #expect(!closedWhileHidden)
+        // Shown, 1 s of silence and two misses mark it in about 3 s; hidden, nothing asks.
+        let noticedWhileHidden = await Self.holds { try await Self.waitUntil(seconds: 4) { !connection.daemonAnswering } }
+        #expect(!noticedWhileHidden)
 
         presence.update(shown: true)
-        let noticed = await Self.holds { try await store.waitUntil("disconnected", timeout: .seconds(20)) { store.connectionState.isDisconnected } }
+        let noticed = await Self.holds { try await Self.waitUntil(seconds: 20) { !connection.daemonAnswering } }
         kill(owner.pid, SIGCONT)
         #expect(noticed)
         await owner.shutDown()
+    }
+
+    /// Polls `condition` every 50 ms for at most `seconds`; throws when it never held.
+    private static func waitUntil(seconds: Int, _ condition: @Sendable () -> Bool) async throws {
+        for _ in 0..<(seconds * 20) {
+            if condition() { return }
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        throw CancellationError()
     }
 
     private static func holds(_ wait: () async throws -> Void) async -> Bool {
@@ -102,5 +121,4 @@ struct StoppedOwnerTests {
 
 private extension DaemonConnectionState {
     var isConnected: Bool { if case .connected = self { true } else { false } }
-    var isDisconnected: Bool { if case .disconnected = self { true } else { false } }
 }

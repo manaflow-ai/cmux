@@ -451,6 +451,18 @@ public final class DaemonService {
         connection.heartbeat.follow(KeepaliveGate(mainWork.energy))
         if let connectionPresence { connection.heartbeat.follow(connectionPresence) }
         self.connection = connection
+        let recovery = recovery
+        connection.observeAnswering { [weak connection] answering in
+            // task-owner: one hop to main per heartbeat edge or unanswered ask; nothing to cancel. On main it reads the
+            // connection's answering again, so hops that land out of order never leave a stale state; an unanswered
+            // ask that still holds probes the owner once more.
+            Task { @MainActor in
+                guard let connection else { return }
+                let now = connection.daemonAnswering
+                if now == answering || now { recovery.noteDaemonAnswering(now) }
+            }
+        }
+        recovery.noteDaemonAnswering(connection.daemonAnswering)
         connection.diagnosticSites.forward(to: diagnosticSites)
         launchSnapshot.remember(identity)
         resumeConnectionWaiters()
@@ -616,6 +628,8 @@ public final class DaemonService {
         runTask = nil
         keptLayoutRelaunch?.cancel()
         keptLayoutRelaunch = nil
+        connection?.observeAnswering(nil)
+        recovery.stopProbing()
         // task-owner: teardown; close() is idempotent and finishes the store pump. Off main: nothing resumes here.
         if let connection { Task { @concurrent in await connection.close() } }
         connection = nil

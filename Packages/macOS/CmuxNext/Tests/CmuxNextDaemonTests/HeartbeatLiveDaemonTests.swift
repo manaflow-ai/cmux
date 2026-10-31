@@ -37,6 +37,7 @@ import Testing
         let outcome = await daemon.waitForAsks(4)
         #expect(outcome == .asked, "the heartbeat closed a live daemon's connection after its misses (\(outcome))")
         #expect(!transport.isClosed, "the transport was closed while the daemon process was alive")
+        #expect(!heartbeat.answering, "past its misses the heartbeat must say the daemon does not answer")
 
         daemon.answerEverything()
         let reply = await create.result
@@ -45,6 +46,12 @@ import Testing
         case .failure(let error): Issue.record("the create failed while the daemon was alive: \(error)")
         }
         #expect(closes.withLock { $0 }.isEmpty, "the connection ended: \(closes.withLock { $0 })")
+        var answeringAgain = false
+        for _ in 0..<500 where !answeringAgain {
+            answeringAgain = heartbeat.answering
+            if !answeringAgain { try? await Task.sleep(for: .milliseconds(10)) }
+        }
+        #expect(answeringAgain, "the daemon answers again but the heartbeat still says it does not")
     }
 }
 

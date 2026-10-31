@@ -29,6 +29,13 @@ import CmuxNextCompat
 /// after ``KeepaliveGate/reconnectDelay()``, so a bridge that died in the sleep closes within its
 /// misses. Chrome's GCM heartbeat stops on `OnSuspend` and checks the connection on `OnResume` the
 /// same way (google_apis/gcm/engine/heartbeat_manager.cc).
+///
+/// No client clock ends a live daemon's connection (P0 2026-10-30, v2.2.10-opt: under swap the asks went
+/// unanswered, the close failed every create, window save and trail step on the connection with "closed by
+/// client" for 47 min). When the probe says the daemon's process is alive (``Probe/alive``: a local socket's
+/// peer, ``LineTransport/peerProcessIsAlive``), the misses mark it not answering (``answering``) and the
+/// connection stays open with its pending requests; only EOF, a socket error or the process's exit end it. A
+/// bridged connection, whose daemon this Mac cannot see, still closes after its misses.
 public final class ConnectionHeartbeat: Sendable {
     /// One run's daemon: how to ask it, how to close it, and how long it has been quiet.
     struct Probe: Sendable {
@@ -36,6 +43,8 @@ public final class ConnectionHeartbeat: Sendable {
         let ask: @Sendable (_ timeout: Duration) async -> Bool
         /// Closes the transport (`.disconnected`, then a reconnect).
         let close: @Sendable () -> Void
+        /// Whether the daemon's process is alive (its socket's peer); true keeps the connection open past the misses.
+        let alive: @Sendable () -> Bool
         /// How long since the daemon last sent anything (``LineTransport/inboundSilence``).
         let silence: @Sendable () -> Duration
         /// The silence that asks while a window shows or a request waits, and each ask's timeout.
@@ -46,11 +55,14 @@ public final class ConnectionHeartbeat: Sendable {
 
         /// - Parameter silence: By default the daemon was never heard: the run's own start and
         ///   answers bound the silence alone.
+        /// - Parameter alive: By default the daemon's process cannot be seen (a bridge): the misses close.
         init(ask: @escaping @Sendable (_ timeout: Duration) async -> Bool, close: @escaping @Sendable () -> Void,
+             alive: @escaping @Sendable () -> Bool = { false },
              silence: @escaping @Sendable () -> Duration = { .seconds(Int64.max) },
              interval: Duration, hiddenInterval: Duration? = nil, misses: Int) {
             self.ask = ask
             self.close = close
+            self.alive = alive
             self.silence = silence
             self.interval = interval
             self.hiddenInterval = hiddenInterval
@@ -78,6 +90,8 @@ public final class ConnectionHeartbeat: Sendable {
         /// When the run started, the daemon last answered an ask, or a request went out while hidden, on
         /// `elapsed`: the silence is at most the time since.
         var heard: Duration = .zero
+        /// False once the run's misses passed while the daemon's process is alive; true at its next answer.
+        var answering = true
 
         /// The silence that asks now; nil asks nothing.
         var cadence: Duration? {
@@ -106,6 +120,8 @@ public final class ConnectionHeartbeat: Sendable {
     private let elapsed: @Sendable () -> Duration
     // concurrency-allow: the run's counters, its probe, gate and presence, read and written synchronously by the timer's ask and the policy's and presence's edges (lock carve-out: a few fields, no I/O; the timer is scheduled with no wait under it).
     private let state = Mutex(State())
+    /// Told ``answering`` (``observeAnswering(_:)``), outside the lock.
+    private let observer = Mutex<(@Sendable (Bool) -> Void)?>(nil)
 
     init(clock: any Clock<Duration> = ContinuousClock()) {
         // timer-class-allow: off main: each ask runs on the connection's own probe (a request on its transport) and posts no main-thread job
@@ -162,6 +178,30 @@ public final class ConnectionHeartbeat: Sendable {
         if let run { schedule(.onSilence, run: run) }
     }
 
+    /// False while the daemon left its misses unanswered and its connection stays open (its process is alive);
+    /// true again at its next answer, a new start or a stop.
+    var answering: Bool { state.withLock { $0.answering } }
+
+    /// Calls `observer` on the heartbeat's timer task: with true when the daemon answers again, and with false at
+    /// each unanswered ask past the misses while its connection stays open (one per interval), so the owner can
+    /// probe it then (``DaemonRecovery`` runs one `server ensure` per call); nil stops. The value is a hint of the
+    /// moment: read ``answering`` for the current one.
+    func observeAnswering(_ observer: (@Sendable (Bool) -> Void)?) {
+        self.observer.withLock { $0 = observer }
+    }
+
+    /// Sets ``answering`` for run `run` (any run when nil) and tells the observer when it changed, and at every
+    /// unanswered ask past the misses.
+    private func setAnswering(_ answering: Bool, run: UInt64?) {
+        let tell = state.withLock { state -> Bool in
+            guard run.map({ $0 == state.run }) ?? true else { return false }
+            let changed = state.answering != answering
+            state.answering = answering
+            return changed || !answering
+        }
+        if tell, let observer = observer.withLock({ $0 }) { observer(answering) }
+    }
+
     /// Starts asking on `transport`; a later start (a reconnect) or `stop`
     /// ends the earlier run, and a closed transport ends it after its misses.
     func start(_ transport: LineTransport, every interval: Duration, hidden hiddenInterval: Duration?, misses limit: Int) {
@@ -169,7 +209,7 @@ public final class ConnectionHeartbeat: Sendable {
             (try? await transport.request(cmd: IdentifyRequest.commandName, timeout: timeout) { id in
                 try WireCoding.encodeRequest(IdentifyRequest(), id: id)
             }) != nil
-        }, close: { transport.close() }, silence: { transport.inboundSilence },
+        }, close: { transport.close() }, alive: { transport.peerProcessIsAlive }, silence: { transport.inboundSilence },
         interval: interval, hiddenInterval: hiddenInterval, misses: limit))
     }
 
@@ -184,6 +224,7 @@ public final class ConnectionHeartbeat: Sendable {
             state.heard = now
             return state.run
         }
+        setAnswering(true, run: nil)
         schedule(.onSilence, run: run)
     }
 
@@ -194,6 +235,7 @@ public final class ConnectionHeartbeat: Sendable {
             state.asking = false
         }
         timer.cancel()
+        setAnswering(true, run: nil)
     }
 
     /// Arms the next fire of run `run`, unless the gate holds the keepalive, a later start, stop or
@@ -257,12 +299,14 @@ public final class ConnectionHeartbeat: Sendable {
             return state.misses >= probe.misses
         }
         guard let close else { return }
-        if close {
+        if close, !probe.alive() {
             probe.close()
-        } else {
-            // After a miss the silence is past the cadence already: the next ask goes at once.
-            schedule(.onSilence, run: run)
+            return
         }
+        if answered || close { setAnswering(answered, run: run) }
+        // After a miss the silence is past the cadence already: the next ask goes at once (a live daemon that
+        // still does not answer: after the interval, its ask's own timeout).
+        schedule(.onSilence, run: run)
     }
 
     private func changed(_ edge: KeepaliveGate.Edge) {
