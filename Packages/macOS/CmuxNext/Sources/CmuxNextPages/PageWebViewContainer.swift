@@ -17,6 +17,6 @@ extension PageWebView {
     /// - Parameter content: A tab's content view (an internal page's provider view).
     /// - Returns: The page view that shows there now.
     public static func shown(in content: NSView) -> PageWebView? {
-        content as? PageWebView
+        content as? PageWebView ?? (content as? any PageWebViewContainer)?.shownPageView
     }
 }
