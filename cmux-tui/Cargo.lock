@@ -1362,6 +1362,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-rd-link"
+version = "0.1.0"
+dependencies = [
+ "cmux-transport",
+ "libc",
+ "snow",
+]
+
+[[package]]
 name = "cmux-rd-proto"
 version = "0.1.0"
 dependencies = [

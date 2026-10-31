@@ -42,5 +42,14 @@ struct AgentPaneOpenPageRelayTests {
         try #require(await transport.send(connection: id, frames: [older]) == nil, "the pane refused an older page")
         _ = await inbox.frame(containing: #""id":2"#)
         #expect(sent("_acpmux/events").count == 1, "the older page never reached acpmux")
+
+        let native = Self.request(id: 3, method: "_acpmux/native_history", params: """
+            {"sessionId":"s","before":4096,"mark":"transcript-boundary-mark"}
+            """)
+        try #require(await transport.send(connection: id, frames: [native]) == nil)
+        _ = await inbox.frame(containing: #""id":3"#)
+        let nativeFrame = try #require(sent("_acpmux/native_history").first)
+        let nativeParams = try #require((try JSONSerialization.jsonObject(with: Data(nativeFrame.utf8)) as? [String: Any])?["params"] as? [String: Any])
+        #expect(nativeParams["mark"] as? String == "transcript-boundary-mark")
     }
 }

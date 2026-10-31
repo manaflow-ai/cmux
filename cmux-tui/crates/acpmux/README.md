@@ -460,8 +460,7 @@ last hour. A number acpmux could not read is null, never zero, and an unknown ca
 chat it adopted or revived without seeing its launch) or count never raises a warning. A peer's
 row names the peer's session (`<peer>/<name>`) in its commands. Each warning names the step that answers it (`actions`: `[{label, command, pending}]`, the one
 to try first first; nothing is done automatically): no cap, rotate onto a capped profile
-(`lane-place rotate NAME --harness claude-sr2`, a dry run until `--yes`, which rotates; `pending`
-names leo-workspace#1617 until it lands); a large context, compact it (`acpmux send NAME
+(`lane-place rotate NAME --harness claude-sr2`, a dry run until `--yes`, which rotates); a large context, compact it (`acpmux send NAME
 /compact`) or rotate to a fresh session (`lane-place rotate NAME`); many subagents, open
 the session and, to stop it, `acpmux session cancel NAME`. `acpmux ls` marks such a row `warn`
 in a WARN column, shown only while some row has one; `acpmux ls --wide` names each rule with its
@@ -1472,7 +1471,11 @@ and `hasMore` says older ones exist. `kinds` filters records before `limit` coun
 `turn_started`, `turn_result`, permissions and `message_superseded`, and drops raw wire records,
 responses and `.replay` records. Categories `mux`, `wire` and `all`, or exact record kinds, also
 work. `eventStream: true` on attach delivers every live record (filtered by `kinds`) as
-`_acpmux/event`, with agent notifications nested in `msg`, instead of `session/update`.
+`_acpmux/event`, with agent notifications nested in `msg`, instead of `session/update`. A live
+record is the record as logged. So Claude Code's raw `claude.assistant` and `claude.user` lines
+come without the content-block bodies and tool data their translated updates carry (block `type`,
+`id`, `tool_use_id`, `name` and `is_error` stay; `_acpmux.bodiesLeftOut` says how many bytes went,
+`claude_stdio/logged_bodies.rs`), live and in a page alike.
 
 Turns: `queued`, `dequeued`, `queue_removed`, `user_message`, `turn_started`, `turn_end` and `turn_result`
 carry `turnId` (and `promptId`); `turn_result.turnSeq` is the seq of `turn_started`. A failed
