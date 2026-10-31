@@ -188,14 +188,9 @@ impl Mux {
     }
 
     /// Host ids of every live hosted terminal that has no tab placement and
-    /// is not marked `keep`.
-    pub(crate) fn reapable_terminals(&self) -> anyhow::Result<HashSet<String>> {
-        Ok(self.reapable_and_retained_terminals()?.0)
-    }
-
-    /// The reapable host ids, and the other hosted terminals this owner
-    /// serves (placed or kept), whose unplaced times are cleared.
-    fn reapable_and_retained_terminals(
+    /// is not marked `keep` (reapable), and of the other hosted terminals
+    /// this owner serves (placed or kept), whose unplaced times are cleared.
+    pub(crate) fn reapable_and_retained_terminals(
         &self,
     ) -> anyhow::Result<(HashSet<String>, HashSet<String>)> {
         let (mut unplaced, mut retained) = {
@@ -247,16 +242,16 @@ impl Mux {
     /// first saw it so (`terminal_unplaced_store.rs`).
     fn reapable_terminals_unplaced_for(&self) -> anyhow::Result<HashMap<String, Duration>> {
         let (unplaced, retained) = self.reapable_and_retained_terminals()?;
-        let now_ms = crate::mux::now_ms();
+        let wall_ms = now_ms();
         let since = self
             .workspace_registry
             .lock()
             .unwrap()
-            .sync_terminal_unplaced(&unplaced, &retained, now_ms)?;
+            .sync_terminal_unplaced(&unplaced, &retained, wall_ms)?;
         Ok(since
             .into_iter()
             .map(|(terminal_id, since_ms)| {
-                (terminal_id, Duration::from_millis(now_ms.saturating_sub(since_ms)))
+                (terminal_id, Duration::from_millis(wall_ms.saturating_sub(since_ms)))
             })
             .collect())
     }

@@ -132,8 +132,10 @@ fn terminal_reap_ends_unplaced_terminals_after_grace_but_not_kept_ones() {
 
     close_workspace_of(&mux, &doomed);
     close_workspace_of(&mux, &kept);
-    assert!(mux.reapable_terminals().unwrap().contains(&doomed_id));
-    assert!(!mux.reapable_terminals().unwrap().contains(&kept_id));
+    let (reapable, retained) = mux.reapable_and_retained_terminals().unwrap();
+    assert!(reapable.contains(&doomed_id));
+    assert!(!reapable.contains(&kept_id));
+    assert!(retained.contains(&kept_id), "a kept terminal is retained");
     assert!(mux.reap_unplaced_terminals(&mut schedule, start).is_empty());
     let almost = start + grace - Duration::from_millis(1);
     assert!(mux.reap_unplaced_terminals(&mut schedule, almost).is_empty());
