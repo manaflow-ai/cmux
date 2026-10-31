@@ -88,6 +88,10 @@ def unreported() -> list[dict]:
     return [dict(r, note="the run ended in the seed's end steps; not shrunk")
             for r in LIVE.get("ending") or [] if finding_key(r) not in LIVE["seen"]]
 WATCH_POLL_S = 5.0
+# Seconds the end-of-seed delete of this run's downloads may take. The files are in the account's real ~/Downloads (the
+# app ignores the step's HOME), where a file operation can wait on a Files and Folders prompt that nobody answers in a
+# fleet session: the delete runs in a daemon thread and the run never waits on it longer than this.
+DOWNLOAD_DELETE_S = 10.0
 # The run has one final verdict: the first thread that claims it (the watchdog, a signal handler or the main thread at
 # the run's end) prints it and exits; every later claim, and the main thread's verdict, finding and launch paths once
 # the run is ending, wait until the process exits (review of #29662: a HANG line was followed by the main thread's PASS).
@@ -266,7 +270,8 @@ class Session:
         self.windows_made = 0
         self.notes: list[str] = []
         self.stalls: dict[str, Failure] = {}
-        self.download_tokens: set[str] = {run_token}
+        # The exact paths the app reported for this run's downloads (record_download): the only files cleanup deletes.
+        self.download_paths: set[str] = set()
         self.last_reading: dict[str, tuple[str, str]] = {}  # tab -> (url, title) of its last check_url reading
         self.counts = {"ops": 0, "renderer_kills": 0, "sad_tabs": 0, "downloads": 0, "devtools": 0, "refused": 0, "no_renderer": 0, "no_verdict": 0}
 
@@ -345,17 +350,35 @@ class Session:
     def kill_app(self):
         self.bm.end_bundle(self.opts.app)
 
+    def record_download(self, row: dict, token: str):
+        """Keeps the path the app reported for one of this run's downloads, when its file name starts with that
+        download's token (the ops name each download "<token>-..."): a file the run did not make is never kept."""
+        destination = row.get("destination") or ""
+        if destination and os.path.basename(destination).startswith(token):
+            self.download_paths.add(destination)
+
     def cleanup(self):
+        """Deletes the run's own scratch, and only the exact download paths the app reported for this run. It never
+        lists a folder outside the scratch (replay c980cdb0c1c9: a scandir of the account's ~/Downloads never returned)."""
         import shutil
         shutil.rmtree(self.scratch, ignore_errors=True)
-        real = pwd.getpwuid(os.getuid()).pw_dir
-        for folder in (os.path.join(real, "Downloads"), os.path.join(self.home, "Downloads")):
-            for token in self.download_tokens:
-                for path in glob.glob(os.path.join(folder, f"{glob.escape(token)}-*")):
-                    try:
-                        os.remove(path)
-                    except OSError:
-                        pass
+        paths = sorted(self.download_paths)
+        if not paths:
+            return
+
+        def delete():
+            for path in paths:
+                try:
+                    os.remove(path)
+                except OSError:
+                    pass
+
+        worker = threading.Thread(target=delete, daemon=True)
+        worker.start()
+        worker.join(DOWNLOAD_DELETE_S)
+        if worker.is_alive():
+            self.notes.append(f"the delete of {len(paths)} download(s) did not finish in {DOWNLOAD_DELETE_S:.0f} s; "
+                              f"left in place: {[os.path.basename(p)[:60] for p in paths]}")
 
     # -- model
 
@@ -666,7 +689,7 @@ class Session:
         self.call("browser.page.navigate", {"tab": tab, "url": url}, index=index)
         # The ops name each download "<run token>-<n>-..." (fuzz_model.generate); cleanup deletes only that prefix.
         token = name.split("-")[0] + "-" + name.split("-")[1] if name.count("-") >= 2 else self.run
-        self.download_tokens.add(token)
+        self.download_token = token
         deadline = time.monotonic() + 30
         row = None
         while time.monotonic() < deadline:
@@ -679,13 +702,16 @@ class Session:
                 self.notes.append(f"op {index}: the download asked first (a visible prompt)")
                 return
             time.sleep(0.5)
+        if row is not None:
+            self.record_download(row, token)
         if row is None:
             self.notes.append(f"op {index}: no downloads row for {name[:80]!r} in 30 s (no verdict)")
             return
         self.counts["downloads"] += 1
         real = pwd.getpwuid(os.getuid()).pw_dir
         for folder in (os.path.join(real, "Downloads"), os.path.join(self.home, "Downloads")):
-            if os.path.realpath(os.path.dirname(row.get("destination") or "")) == os.path.realpath(folder):
+            # Text only: no stat or realpath inside the account's Downloads folder (see cleanup).
+            if os.path.normpath(os.path.dirname(row.get("destination") or "")) == os.path.normpath(folder):
                 break
         else:
             folder = os.path.join(real, "Downloads")

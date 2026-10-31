@@ -268,8 +268,10 @@ def download_violation(row: dict, downloads_dir: str) -> str | None:
     if not destination:
         return None
     import os.path
-    real_dir = os.path.realpath(downloads_dir)
-    real = os.path.realpath(destination)
+    # Text only (normpath resolves "..", "." and "//"): the files are in the account's Downloads folder, where a file
+    # system call can wait on a privacy prompt (replay c980cdb0c1c9). A symlink escape is out of this oracle's scope.
+    real_dir = os.path.normpath(os.path.abspath(downloads_dir))
+    real = os.path.normpath(os.path.abspath(destination))
     if os.path.dirname(real) != real_dir:
         return f"a download landed outside {real_dir}: {destination!r}"
     name = os.path.basename(real)
