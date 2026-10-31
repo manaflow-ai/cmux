@@ -214,6 +214,8 @@ export function ComposerBox({
       <div
         ref={boxRef}
         className="ui-glass ui-glass-floats acpmux-composer-box"
+        // Claude's compact grid (composerLocation.css): a state attribute, not a :has() on the box.
+        data-composer-grid={claudeGrid ? "" : undefined}
         data-attachment-view={attachmentView}
         onMouseDown={focusFromCard}
       >
