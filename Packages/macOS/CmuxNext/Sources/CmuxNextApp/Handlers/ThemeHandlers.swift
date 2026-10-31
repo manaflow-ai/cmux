@@ -41,8 +41,7 @@ enum ThemeHandlers {
 
     /// What a theme action would act on, without running it (pickers).
     private static func previewTarget(_ action: ActionID, _ target: ActionTargetRef?, _ machine: String?, _ context: AppActionContext) -> ThemePreview.Target? {
-        var invocation = ActionInvocation(target: target)
-        invocation.targetMachineID = machine
+        let invocation = ActionInvocation(target: target).onMachine(machine)
         switch action {
         case "space.setTheme": return (try? context.room(invocation)).map { .room($0.id) }
         case "workspace.setTheme": return (try? context.workspace(invocation)).map { .workspace($0.model.id) }

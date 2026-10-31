@@ -17,7 +17,6 @@ struct ActionScope {
         if let target = invocation.target ?? invocation["tab"]?.targetValue ?? invocation["pane"]?.targetValue {
             switch target.kind {
             case .tab:
-                // On the invocation's machine when it names one (cmuxterm-hq#5338).
                 guard let (_, pane) = AppActionContext(services: services).targetTab(target.id, invocation) else { return notFound(RefusalStrings.noTab(target.id)) }
                 // In a hidden or parked workspace: no controller to act on.
                 guard let controller = services.paneController(for: pane) else {

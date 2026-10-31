@@ -277,11 +277,11 @@ enum TabHandlers {
                 // On one of several selected tabs, Pin pins them all unless all are pinned (Chrome's Pin Tabs).
                 let strip = invocation.actsOnTabSelection ? ctx.services.paneController(for: pane)?.stripModel : nil
                 let ids = strip?.actingTabs(for: StripTabID(tab.id)) ?? [StripTabID(tab.id)], pin = strip?.pinsAll(ids) ?? !tab.pinned
-                return ids.forEach { commands.setTabPinned($0.rawValue, pinned: pin, origin: invocation.origin) }
+                return ids.forEach { commands.setTabPinned($0.rawValue, pinned: pin, origin: invocation.origin, machineID: invocation.targetMachineID) }
             }
             guard let (pane, id) = ctx.tab(invocation) else { return }
             guard let tab = pane.tab(id) ?? ctx.refuse(RefusalStrings.sessionLocalCannotPin) else { return }
-            commands.setTabPinned(id.rawValue, pinned: !tab.pinned, origin: invocation.origin)
+            commands.setTabPinned(id.rawValue, pinned: !tab.pinned, origin: invocation.origin, machineID: invocation.targetMachineID)
         })
         // A tab only this app holds (an internal page, a session-only browser tab) has no daemon
         // record to pin: its menu has no Pin row, rather than one that refuses.

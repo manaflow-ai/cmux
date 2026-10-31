@@ -10,7 +10,6 @@ import Testing
         "AppActionContext+Targets.swift": ["locateTab(id)": 1],
         "BrowserDeviceHandlers.swift": ["locateTab(tab)": 1],
         "TabHandlers.swift": ["locateTab(tabID)": 1],
-        "TabIconHandlers.swift": ["locateTab(id)": 1],
     ]
 
     // Paths are relative to Sources/CmuxNextApp; this legacy allowance only shrinks.

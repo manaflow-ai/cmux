@@ -140,7 +140,6 @@ extension AppActionContext {
             return services.windows.active?.focusedPane ?? refuse(MiscHandlerStrings.noPane)
         }
         for window in services.windows.controllers {
-            // A row scoped to a machine names only that machine's pane (forks keep tab ids, cmuxterm-hq#5338).
             for pane in window.content?.panes.values.map({ $0 }) ?? [] where invocation.targetMachineID.map({ pane.daemon.machineID == $0 }) ?? true {
                 let hit = target.kind == .pane
                     ? pane.paneKey == target.id
