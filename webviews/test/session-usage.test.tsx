@@ -11,7 +11,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { ChatInspector } from "../src/agent-session/acpmux/inspector/ChatInspector";
 import { DEFAULT_SECTIONS, resetInspectorState } from "../src/agent-session/acpmux/inspector/inspectorState";
-import { groupOrder } from "../src/agent-session/acpmux/inspector/sectionOrder";
+import { DEFAULT_ORDER, GROUP_SECTIONS } from "../src/agent-session/acpmux/inspector/sectionOrder";
 import { sessionEntry } from "../src/agent-session/acpmux/sessionList";
 import { byUsage, sameUsageStats, usageCost, usageStatsOf } from "../src/agent-session/acpmux/usageStats";
 import { SessionPager, withUsage } from "../src/agent-session/acpmux/sessionPages";
@@ -163,7 +163,8 @@ test("byUsage ranks by 24h cost or by context, highest first, and leaves out ses
 });
 
 test("Usage is a folded row in the top block, after Context, valued at this chat's 24h cost", async () => {
-  expect(groupOrder("about", {})).toEqual(["environment", "context", "usage", "connectors"]);
+  expect(GROUP_SECTIONS.about).toEqual(["environment", "context", "usage", "connectors"]);
+  expect(DEFAULT_ORDER.indexOf("usage")).toBe(DEFAULT_ORDER.indexOf("context") + 1);
   expect(DEFAULT_SECTIONS.usage).toBe(false);
   await render(
     <ChatInspector
