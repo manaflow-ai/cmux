@@ -1291,7 +1291,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         // A stream's rows follow the newest loaded message (which may lose its tail to it); a final message is new.
         case .streamBegin, .streamSet, .streamAppend, .streamEnd: idx.append(max(0, old.conversation.messages.count - 1))
         case let .status(id, _): if let i = index(id) { idx.append(i) }
-        case let .cmuxSetAttachment(id, _): if let i = index(id) { idx.append(i) }  // cmux
+        case let .cmuxSetAttachments(updates): if let i = updates.compactMap({ index($0.id) }).min() { idx.append(i) }  // cmux
         case let .cmuxSetParts(id, _): if let i = index(id) { idx.append(i) }  // cmux
         // cmux (2026-10-31): a link card's metadata or picture changes only the messages with that link (and the quotes
         // of them, below them): from the first one down, not every row (each link picture that loaded re-derived the
