@@ -1,3 +1,4 @@
+import AppKit
 @testable import CmuxNextPages
 import CmuxNextSettings
 import Foundation
@@ -72,21 +73,53 @@ struct AppRegistryPageProviderTests {
         }
         var puts: [(String, String, String, [String: String])] = []
         let provider = makeProvider(put: { app, version, sha, files in puts.append((app, version, sha, files)) })
-        let got = try await provider.call("cmux.registry.get", params: ["app": "octo/board", "version": "1.0.0"], context: page())
+        let got = try await provider.call("cmux.registry.get", params: ["app": "octo/board", "version": "1.0.0"], context: page(confirmed: true))
         #expect(got == ["app": "octo/board", "version": "1.0.0"])
         #expect(puts.count == 1 && puts[0].0 == "octo/board" && puts[0].2 == "listed" && puts[0].3 == ["cmux-app.json": "e30="])
         #expect(puts.first?.2 == "listed", "the hash the supervisor checks is the listing's, not the bundle's own")
         #expect(RegistryStub.seen.allSatisfy { $0.authorization == nil }, "an approved bundle is public")
 
         await #expect(throws: PageError.self) {
-            try await provider.call("cmux.registry.get", params: ["app": "octo/board", "version": "2.0.0"], context: page())
+            try await provider.call("cmux.registry.get", params: ["app": "octo/board", "version": "2.0.0"], context: page(confirmed: true))
         }
         await #expect(throws: PageError.self) {
-            try await provider.call("cmux.registry.get", params: ["app": "../x", "version": "1.0.0"], context: page())
+            try await provider.call("cmux.registry.get", params: ["app": "../x", "version": "1.0.0"], context: page(confirmed: true))
         }
         #expect(puts.count == 1, "another bundle or a bad id is never handed over")
         #expect(AppRegistryPageProvider.isAppID(publisher: "0x", name: "2048"), "the manifest schema's ids")
         #expect(!AppRegistryPageProvider.isAppID(publisher: String(repeating: "a", count: 40), name: "x"))
+    }
+
+    @Test func gettingANewerBundleCannotReplaceActiveCodeWithoutTheNativeSheet() async throws {
+        RegistryStub.reset { request in
+            request.path.hasSuffix("/bundle")
+                ? (200, #"{"app":"octo/board","version":"2.0.0","files":{"cmux-app.json":"e30="}}"#)
+                : (200, #"{"versions":[{"version":"2.0.0","sha256":"listed"}]}"#)
+        }
+        // Put is the activation boundary: the supervisor replaces the installed bundle and
+        // notifies the open pane to reload. Neither an unconfirmed call nor Cancel may reach it.
+        var activeVersion = "1.0.0"
+        let provider = makeProvider(put: { _, version, _, _ in activeVersion = version })
+        let params: JSONValue = ["app": "octo/board", "version": "2.0.0"]
+        let error = await #expect(throws: PageError.self) {
+            try await provider.call("cmux.registry.get", params: params, context: page())
+        }
+        #expect(error?.code == "cmux.page.unconfirmed")
+        #expect(activeVersion == "1.0.0" && RegistryStub.seen.isEmpty)
+
+        let presenter = RegistryConfirmationPresenter()
+        let confirming = ConfirmingPageProvider(inner: provider, presenter: presenter) { op, params in
+            PageConfirmation.appRegistry(op: op, params: params)
+        }
+        await #expect(throws: PageError.cancelled) {
+            try await confirming.call("cmux.registry.get", params: params, context: page())
+        }
+        #expect(activeVersion == "1.0.0" && RegistryStub.seen.isEmpty)
+        let sheet = try #require(presenter.sheets.first)
+        #expect(sheet.name.contains("octo/board") && sheet.name.contains("2.0.0"))
+        presenter.approved = true
+        _ = try await confirming.call("cmux.registry.get", params: params, context: page())
+        #expect(activeVersion == "2.0.0")
     }
 
     @Test func aReviewersDecisionNeedsTheSheetAndRefusalsKeepTheirCodes() async throws {
@@ -131,6 +164,17 @@ struct AppRegistryPageProviderTests {
             return "token-1"
         }, session: URLSession(configuration: configuration))
         return AppRegistryPageProvider(api: api, pack: pack, put: put)
+    }
+}
+
+@MainActor
+private final class RegistryConfirmationPresenter: PageConfirmationPresenter {
+    var approved = false
+    var sheets: [PageConfirmation] = []
+
+    func confirm(_ confirmation: PageConfirmation, anchor: NSView?) async -> Bool {
+        sheets.append(confirmation)
+        return approved
     }
 }
 
