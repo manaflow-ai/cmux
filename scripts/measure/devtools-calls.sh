@@ -39,6 +39,7 @@ RUNNER_TEMP="$out" GITHUB_PATH="$out/bun-path" ./scripts/cmux-next/private-bun.s
 PATH="$(tail -n 1 "$out/bun-path"):$PATH"
 export PATH
 apps=()
+echo "DEVTOOLS-CALLS-DISK free at start: $(df -g "$out" | awk 'NR == 2 {print $4}') GiB"
 IFS=',' read -r -a arm_list <<< "$arms"
 for arm in "${arm_list[@]}"; do
   label="${arm%%:*}" sha="${arm#*:}"
@@ -79,7 +80,14 @@ for arm in "${arm_list[@]}"; do
     grep -E "error:|BUILD FAILED" "$out/reload-$label.log" | head -n 60 >&2 || true
     exit 1
   fi
-  echo "DEVTOOLS-CALLS-ARM $label $sha $app"
+  # Two cold app builds take about 27 GiB each, and a measure mini may start this step with 40 GiB free: once the
+  # app is built, its build's intermediates go (the bundle in Build/Products is self-contained), so the next arm
+  # builds in the space this one used. Only inside this arm's own per-tag DerivedData.
+  derived="$(cd "$app/../../../.." && pwd)"
+  if [[ "$(basename "$derived")" == cmux-* && "$app" == "$derived/Build/Products/"* ]]; then
+    rm -rf "$derived/Build/Intermediates.noindex" "$derived/Index.noindex"
+  fi
+  echo "DEVTOOLS-CALLS-ARM $label $sha $app (free after build: $(df -g "$out" | awk 'NR == 2 {print $4}') GiB)"
   apps+=(--app "$label=$app")
 done
 mkdir -p artifacts
