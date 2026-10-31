@@ -1645,6 +1645,7 @@ dependencies = [
  "bytes",
  "cmux-agent-pane-policy",
  "cmux-api-compat",
+ "cmux-automations",
  "cmux-build-identity",
  "cmux-chat-index",
  "cmux-config",
