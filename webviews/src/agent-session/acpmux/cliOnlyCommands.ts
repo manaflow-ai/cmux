@@ -64,7 +64,11 @@ export function commandWaitsForTurn(
   commands: readonly { name: string; source?: string }[] | undefined,
 ): boolean {
   if (agentKey(harness) !== "claude" || !commands?.length) return false;
-  const name = /^\/(\S+)(?:\s|$)/.exec(prompt.trim())?.[1]?.toLowerCase();
+  // The composer's text is Markdown with typed characters escaped (`/mcp\_\_github\_\_list`).
+  const name = /^\/(\S+)(?:\s|$)/
+    .exec(prompt.trim())?.[1]
+    ?.replace(/\\([!-/:-@[-`{-~])/g, "$1")
+    .toLowerCase();
   // cmux's own commands (cmuxCommands.ts) share the menu's list; their passthrough forms
   // (`/model opus`, `/plan explain`) keep the send they had.
   return (

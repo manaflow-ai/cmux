@@ -3,7 +3,7 @@ import { commandWaitsForTurn } from "./cliOnlyCommands";
 
 // Leo's chat, 2026-10-31: Claude Code listed /loop (a skill) among its 88 commands, and a `/loop`
 // steered into the running turn sat as an unread steer until Claude Code's running command ended.
-const commands = [{ name: "loop" }, { name: "compact" }, { name: "cmux:acpmux" }];
+const commands = [{ name: "mcp__github__list_prs" }, { name: "loop" }, { name: "compact" }, { name: "cmux:acpmux" }];
 
 describe("commandWaitsForTurn", () => {
   test("a listed command, bare or with arguments, waits for the turn in a Claude chat", () => {
@@ -11,6 +11,8 @@ describe("commandWaitsForTurn", () => {
     expect(commandWaitsForTurn("/loop keep launching new dev builds", "claude", commands)).toBe(true);
     expect(commandWaitsForTurn("  /Compact\n", "claude", commands)).toBe(true);
     expect(commandWaitsForTurn("/cmux:acpmux ls", "claude-sr", commands)).toBe(true);
+    // As the composer holds it: Markdown, with the typed underscores escaped.
+    expect(commandWaitsForTurn("/mcp\\_\\_github\\_\\_list\\_prs", "claude", commands)).toBe(true);
   });
 
   test("text that only starts with a slash steers as before", () => {
