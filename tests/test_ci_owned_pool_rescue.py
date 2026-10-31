@@ -3435,6 +3435,11 @@ class Nightly(unittest.TestCase):
         self.assertNotIn("newer:nightly-next", api.calls)
         self.assertEqual(api.calls[-1], "rerun-failed")
 
+    # nightly-next's build-nightly-app as an owned-only job (as sign-nightly-identity-legacy is there).
+    OWNED_ONLY = ("jobs:\n  build-nightly-app:\n    runs-on: ${{ needs.pick.outputs.attempt == github.run_attempt && "
+                  "needs.pick.outputs.owned || vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-std-xcode-26.6' }}\n"
+                  "    steps: []\n")
+
     @staticmethod
     def with_ids(jobs):
         """nightly_run()'s jobs with ids, so their annotations can be read."""
@@ -3466,7 +3471,7 @@ class Nightly(unittest.TestCase):
         # commit is refused the same way (sign-nightly-identity-legacy reached attempt 15 on 2026-10-31).
         clock = Clock()
         api = NightlyAPI(clock, self.with_ids(nightly_run(refused_at=60, helper_done_at=200)),
-                         finished=lambda s: s >= 200)
+                         finished=lambda s: s >= 200, workflow=self.OWNED_ONLY)
         refused_ids = set()
 
         def annotations(job_id, *, final=False):
@@ -3484,6 +3489,32 @@ class Nightly(unittest.TestCase):
         self.assertNotIn("rerun-failed", api.calls)
         self.assertNotIn("cancel", api.calls)
         self.assertIn("does not list the minis' runner hook", summary)
+
+    def test_an_unlisted_hook_refusal_whose_re_run_can_leave_the_minis_is_still_re_run(self):
+        # A runs-on with an attempt-2 alternate (or a Blacksmith pick) sends the re-run past the hook.
+        for workflow in (self.OWNED_ONLY.replace("vars.CI_NIGHTLY_NEXT_BUILD_RUNNER",
+                                                 "github.run_attempt > 1 && needs.pick.outputs.sign_alternate"),
+                         self.OWNED_ONLY.replace("vars.CI_NIGHTLY_NEXT_BUILD_RUNNER",
+                                                 "needs.pick.outputs.blacksmith"),
+                         None):
+            with self.subTest(workflow=workflow):
+                clock = Clock()
+                api = NightlyAPI(clock, self.with_ids(nightly_run(refused_at=60, helper_done_at=200)),
+                                 finished=lambda s: s >= 200, workflow=workflow)
+                api.annotations = lambda job_id, *, final=False: [{"message": rescue.HOOK_UNLISTED}]
+                run_main(api, clock, payload=nightly_event(head_branch="nightly-next"))
+                self.assertEqual(api.calls[-1], "rerun-failed")
+
+    def test_jobs_all_done_in_a_run_still_going_is_not_moot(self):
+        # The jobs list can be all done while the run is still in progress (its later jobs not created yet).
+        clock = Clock()
+        api = NightlyAPI(clock, nightly_run(refused_at=60, helper_done_at=200), finished=lambda s: False)
+        api.next_feed_newest_build = lambda: (RUN_ID + 3) * 100 + 2
+        target = rescue.target_from_event(nightly_event(head_branch="nightly-next"), "manaflow-ai/cmux")
+        clock.seconds = 300
+        self.assertEqual(rescue.pull_moved(api, target, clock.sleep, lambda text: None), "")
+        api.finished = lambda s: True
+        self.assertIn("publish-nightly refuses", rescue.pull_moved(api, target, clock.sleep, lambda text: None))
 
     def test_an_other_refusal_is_still_re_run(self):
         clock = Clock()
@@ -3503,8 +3534,11 @@ class Nightly(unittest.TestCase):
         self.assertEqual(rescue.pull_moved(api, target, clock.sleep, lambda text: None), "")
 
     def test_the_feeds_newest_build_is_its_highest_version(self):
-        xml = ("<item><sparkle:version>4119158082902</sparkle:version></item>"
-               "<item><sparkle:version> 4118935876003 </sparkle:version></item>")
+        xml = ("<item><sparkle:channel>cmux-next</sparkle:channel><sparkle:version>4119158082902</sparkle:version></item>"
+               "<item><sparkle:channel>cmux-next</sparkle:channel><sparkle:version> 4118935876003 </sparkle:version></item>"
+               "<item><sparkle:channel>cmux-next-dev</sparkle:channel><sparkle:version>9919158082902</sparkle:version></item>"
+               "<item><sparkle:version>9999999999999</sparkle:version></item>")
+        # A Dev item, or one with no channel, is no nightly run's build.
         self.assertEqual(rescue.newest_feed_build(xml), 4119158082902)
         self.assertIsNone(rescue.newest_feed_build("<rss></rss>"))
 
