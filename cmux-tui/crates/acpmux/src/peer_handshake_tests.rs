@@ -333,6 +333,98 @@ async fn a_request_of_a_gone_link_takes_no_page_of_the_watch_list() {
     fake.abort();
 }
 
+/// A peer from before #28182 (cosmic-gray's NIGHTLY on 2026-10-30): a list with no `limit` is
+/// sent whole or refused as too large (`message.too_large`), with or without tools, and a list
+/// with `limit` is a keyset page of that many rows, newest first. Its first page request is
+/// paced once (`list.paced`). Each row is `bytes` long.
+fn old_peer(
+    mut server: WebSocketStream<tokio::io::DuplexStream>,
+    rows: usize,
+    bytes: usize,
+) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        let pad = "x".repeat(bytes);
+        let list: Vec<Value> = (0..rows)
+            .map(|n| json!({"sessionId": format!("s{n:04}"), "updatedAt": rows - n, "title": pad}))
+            .collect();
+        let mut paced = false;
+        while let Some(Ok(frame)) = server.next().await {
+            let Frame::Text(text) = frame else { continue };
+            let msg: Value = serde_json::from_str(&text).unwrap();
+            let Some(id) = msg.get("id").cloned() else { continue };
+            let params = &msg["params"];
+            let result = match msg["method"].as_str() {
+                Some(method::MUX_WATCH | method::MUX_SESSIONS) => match params["limit"].as_u64() {
+                    None => Ok(json!({"sessions": list})),
+                    Some(_) if !paced => {
+                        paced = true;
+                        Err(RpcError::new(-32000, "session lists are paced".to_owned())
+                            .with_data(json!({"reason": "list.paced", "retryAfterMs": 5})))
+                    }
+                    Some(limit) => {
+                        let start = params["cursor"]
+                            .as_str()
+                            .map_or(0, |c| c.trim_start_matches('k').parse::<usize>().unwrap());
+                        let end = (start + limit as usize).min(rows);
+                        let next = (end < rows).then(|| format!("k{end}"));
+                        Ok(json!({"sessions": list[start..end], "nextCursor": next}))
+                    }
+                },
+                _ => Ok(json!({})),
+            };
+            let mut line = match result {
+                Ok(result) => Message::ok(id.clone(), result),
+                Err(error) => Message::err(id.clone(), error),
+            }
+            .to_line();
+            if line.len() > crate::rpc::MAX_MESSAGE_BYTES {
+                line = Message::err(id, RpcError::too_large(line.len())).to_line();
+            }
+            if server.send(Frame::Text(line.trim_end().to_owned().into())).await.is_err() {
+                return;
+            }
+        }
+    })
+}
+
+/// A peer from before #28182 whose list is too large for one message even without tools is
+/// read in pages of a count of rows, which it serves: the link connects with every row once.
+/// A page too large is asked for again with half the rows, and a paced one after its wait.
+#[tokio::test]
+async fn a_watch_list_too_large_from_an_old_peer_is_read_in_pages_of_rows() {
+    let (tx, mut notices) = mpsc::channel(64);
+    let peer = Peer::new("cosmic", "ws://127.0.0.1:9", None, None, tx);
+    let (ours, theirs) = tokio::io::duplex(1 << 16);
+    let client = WebSocketStream::from_raw_socket(ours, Role::Client, None).await;
+    let server = WebSocketStream::from_raw_socket(theirs, Role::Server, None).await;
+    // 500 rows of 40 KB: 20 MB whole, over the limit; a page of 512 is too, one of 256 is not.
+    let (rows, bytes) = (500, 40_000);
+    assert!(rows * bytes > crate::rpc::MAX_MESSAGE_BYTES);
+    let fake = old_peer(server, rows, bytes);
+    let mut out_rx = peer.out_rx.lock().await.take().unwrap();
+    let link = peer.clone();
+    let serving = tokio::spawn(async move { link.serve(client, &mut out_rx).await });
+    let mut lists = Vec::new();
+    loop {
+        let (_, _, notice) = tokio::time::timeout(Duration::from_secs(20), notices.recv())
+            .await
+            .expect("the link connects instead of failing on a list too large")
+            .expect("the link stays open");
+        match notice {
+            PeerNotice::Sessions(rows) => lists.push(rows),
+            PeerNotice::Connected => break,
+            _ => {}
+        }
+    }
+    assert_eq!(lists.len(), 1, "the list is published once, whole");
+    let ids: Vec<&str> = lists[0].iter().map(|r| r["sessionId"].as_str().unwrap()).collect();
+    let unique: HashSet<&str> = ids.iter().copied().collect();
+    assert_eq!((ids.len(), unique.len()), (rows, rows), "every row once");
+    assert!(peer.link().is_ready());
+    serving.abort();
+    fake.abort();
+}
+
 /// A watch page cursor that is not a string ends the handshake with an error, instead of
 /// connecting with the rows before it as if the list were whole.
 #[tokio::test]
