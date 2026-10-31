@@ -4,7 +4,8 @@ package import Foundation
 /// screen, for a browser tab opened from it. Same rules as the agent pane's
 /// `paneContext.ts`: `0.0.0.0` becomes `localhost`, trailing punctuation is
 /// not part of the URL.
-package enum WorkingURL {
+package struct WorkingURL {
+    package init() {}
     private static let localHosts: Set<String> = ["localhost", "127.0.0.1", "0.0.0.0", "::1", "[::1]"]
 
     package static func devServer(in text: String?) -> URL? {
