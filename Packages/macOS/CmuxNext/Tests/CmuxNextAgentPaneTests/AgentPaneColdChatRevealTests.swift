@@ -75,6 +75,16 @@ struct AgentPaneColdChatRevealTests {
         }
     }
 
+    @Test func aColdChatLoadingCoverHasNoTranscriptSkeleton() throws {
+        let (view, window) = try Self.pane()
+        defer { window.close() }
+
+        // The loading cover is deliberately just the pane background and its delayed busy mark.
+        // Transcript-shaped bars are a skeleton and must never return to the chat-open path.
+        #expect(view.loadingView.subviews.allSatisfy { $0 === view.loadingView.indicator },
+                "a cold chat loading cover drew a transcript skeleton")
+    }
+
     @Test func aColdChatHoldsItsBackgroundWithoutAMarkThenFadesIn() async throws {
         let (view, window) = try Self.pane()
         defer { window.close() }
