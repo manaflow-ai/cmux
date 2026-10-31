@@ -43,11 +43,8 @@ final class HomeHostView: NSView {
     static let memoryOfferUsedKey = "home.firstRun.memoryOfferUsed"
     private var shortcutsWatch: Task<Void, Never>?
     private var spellCheckingWatch: Task<Void, Never>?
-    /// The Chief's avatar when its profile sets none: the pet character `mascot` picks
-    /// (`home.chiefPetMascot`; Leo 2026-10-20: one of the nine characters, never a plain circle),
-    /// else 🫡 if its picture is missing from the bundle.
-    static func defaultTileAvatar(mascot: String?) -> HomeChiefAvatar { defaultTileAvatar(picture: ChiefPetSettingsRows.avatarURL(of: mascot)) }
-    /// The same from the picture the default Chief wears (`AppServices.characterPicture(of:)`: its upload, else its character).
+    /// The Chief's avatar when its profile sets none: `picture` (`AppServices.wornUpload(of:)`, its
+    /// worn upload), else its monogram (``HomeChiefAvatar/chiefDefault``, CH; Lawrence 2026-10-30).
     static func defaultTileAvatar(picture: URL?) -> HomeChiefAvatar { picture.map(HomeChiefAvatar.picture) ?? .chiefDefault }
     private var firstPage: Task<Void, Never>?
     /// Which brain answers this conversation (this Mac's or a paired server's).
@@ -221,7 +218,7 @@ final class HomeHostView: NSView {
             for await avatars in ObservationStream({ () -> [String: HomeChiefAvatar] in
                 guard let service else { return [:] }
                 let participants = store.rows.first { $0.summary.id == id }?.summary.participants ?? []
-                let fallback = HomeHostView.defaultTileAvatar(picture: services?.characterPicture(of: nil))
+                let fallback = HomeHostView.defaultTileAvatar(picture: services?.wornUpload(of: nil)?.still)
                 return HomeChiefAvatar.bubbleAvatars(for: participants, own: service.chiefFaces, fallback: fallback)
             }) {
                 self?.transcript.setChiefBubbleAvatars(avatars)
@@ -280,11 +277,14 @@ final class HomeHostView: NSView {
                 self?.transcript.setFirstRunStarters(state.1)
             }
         }
-        // Onboarding: the Chief's first-open message, contextual (ChiefIntroStore): the only Chief welcomes once per
-        // install; a Chief made beside others asks what to focus on, once per Chief. It shows on the Chief's front
-        // page (no messages yet) and is marked shown the moment it does, so it never returns.
+        // Onboarding: the Chief's first-open message, contextual (ChiefIntroStore). The only Chief welcomes once per
+        // install in the chat itself (ChiefWelcome: its typing dots, then its messages, drawn by the iMessage
+        // transcript); a Chief made beside others asks what to focus on, once per Chief. It shows on the Chief's
+        // front page (no messages yet). A fresh install hides the first-run panel from the start, so it never
+        // flashes before the welcome.
+        let intro = ChiefIntroStore(defaults: .standard)
+        transcript.welcomesInChat = intro.welcomePending && !service.isCloudConversation(id)
         chiefIntroWatch = Task { [weak self] in
-            let intro = ChiefIntroStore(defaults: .standard)
             for await kind in ObservationStream({ () -> ChiefIntroKind? in
                 guard let summary = store.rows.first(where: { $0.summary.id == id })?.summary,
                       summary.lastSeq == 0, summary.participants.contains(where: { $0.agentClass == .chief }) else { return nil }
@@ -295,6 +295,11 @@ final class HomeHostView: NSView {
             }) {
                 guard let kind else { continue }
                 guard let self else { return }
+                // A cloud Chief (no local import) or an owner not connected yet keeps the first-run intro.
+                if kind == .welcome, service.chiefWelcome.play(in: id, source: service.homeSource,
+                                                               connection: service.isCloudConversation(id) ? nil : service.chief.connection,
+                                                               intro: intro) { return }
+                self.transcript.welcomesInChat = false
                 intro.markShown(kind, for: id)
                 self.transcript.showFirstRunIntro(kind)
                 return
@@ -463,19 +468,19 @@ final class HomeHostView: NSView {
         return (avatars, HomeChiefAvatars.chiefID(named: control.named))
     }
 
-    /// The picture of the pet character the Chief shown here wears (its own pick).
-    private var characterPicture: URL? {
-        control.services.characterPicture(of: petRows.chief)
+    /// The picture the Chief shown here wears where its profile sets none: its worn upload, else nil.
+    private var fallbackPicture: URL? {
+        control.services.wornUpload(of: petRows.chief)?.still
     }
 
     /// The header avatar of the Chief shown here: its registry picture, else its profile's text,
-    /// else its own pet character.
+    /// else its worn upload, else nil and the header draws its name's monogram.
     private func loadAvatar() {
         let home = control.brainHome
         let files = HomeChiefFiles(muxHome: home)
         let store = pictureStore()
         settingsView.pictureStore = store
-        let fallback = characterPicture
+        let fallback = fallbackPicture
         // task-owner: one avatar read (registry, else files off the main actor); ends when it is shown
         Task { [weak self] in
             let avatar = if let store {
@@ -489,11 +494,11 @@ final class HomeHostView: NSView {
             let decoded = await Task.detached(priority: WorkPriority.userBlocking.taskPriority) { data.flatMap(Self.decode) }.value
             // A read for the Chief or the character shown before (another came in since) is dropped.
             guard let self, control.brainHome == home,
-                  fallback == characterPicture else { return }
+                  fallback == fallbackPicture else { return }
             let picture = decoded.map { NSImage(cgImage: $0, size: .zero) }
-            let text = HomeChiefAvatar.headerText(avatar.text, hasPicture: picture != nil)
+            let text = avatar.text  // nil: the header and the hero draw the name's monogram (CH)
             transcript.setChiefAvatar(picture: picture, text: text)  // the header and the first-run hero
-            settingsView.setAvatar(picture: picture, text: text)
+            settingsView.setAvatar(picture: picture, text: text ?? transcript.shownMonogram)
         }
     }
 

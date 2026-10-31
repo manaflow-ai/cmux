@@ -116,6 +116,18 @@ class DefaultsGuardTests(unittest.TestCase):
 
     # The cases that just bit us.
 
+    def test_a_checkout_without_the_comment_writer_keeps_the_verdict(self):
+        # The pull_request_target workflow runs from main, whose sparse checkout listed no
+        # pr_status.py after #28451, so every pull request failed on ModuleNotFoundError.
+        head = self.head(extra={"README.md": "no default changes\n"})
+        path = self.repo.root.parent / f"{self.repo.root.name}-pull.json"
+        path.write_text(json.dumps({"author": {"login": AUTHOR}, "headRefOid": head, "merged": False,
+                                    "reviews": {"nodes": []}, "comments": {"nodes": []}}), encoding="utf-8")
+        result = self.repo.guard("check", "--base", self.base, "--head", head, "--pull-json", str(path),
+                                 "--repo", "o/r", "--pr", "1", "--comment")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("::warning title=Defaults comment not posted::", result.stdout)
+
     def test_a_new_default_chord_fails_and_names_it(self):
         actions = [*BASE_ACTIONS[:3], action("toggleEditor", "e", ["ctrl", "cmd"])]
         result = self.check(self.head(actions))

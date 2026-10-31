@@ -1,8 +1,9 @@
 public import AppKit
 
-/// A dialog button: gray fills from the theme (no system accent), the
-/// default button prominent, a destructive one in the danger color. It
-/// draws a focus ring in `Palette.focusRing` while it has keyboard focus.
+/// A dialog button in its ``CmuxDialogButtonLook``: the default button a solid accent fill, a
+/// destructive one in the danger color, the others a theme gray (never the system accent), every
+/// title 4.5:1 on its fill. It draws a focus ring (`Palette.focusRing`, fit to 3:1 on the card) around itself while it has
+/// keyboard focus (outside the fill, so it shows on a solid one too).
 @MainActor
 public final class CmuxDialogButtonView: ClickableButton {
     public private(set) var button: CmuxDialogButton
@@ -11,6 +12,11 @@ public final class CmuxDialogButtonView: ClickableButton {
     private var isHovering = false { didSet { refresh() } }
     private var tracking: NSTrackingArea?
     private var hasFocus = false { didSet { refresh() } }
+    /// The keyboard focus ring, just outside the button.
+    private let focusRing = CALayer()
+    /// On a solid fill, a line of the card's color just inside the button's edge, between the fill and
+    /// the ring, so the ring reads apart from a fill of its own color (the accent default button).
+    private let focusGap = CALayer()
 
     /// A button drawing `hint` after its title. The hint only labels the key: the host
     /// answers it (``CmuxDialogView`` through ``CmuxDialogKeys``), so pass the hint that
@@ -31,6 +37,12 @@ public final class CmuxDialogButtonView: ClickableButton {
         // VoiceOver reads the key after the title; the label stays the title (automation finds it).
         setAccessibilityHelp(hint?.spokenName)
         heightAnchor.constraint(equalToConstant: CmuxDialogMetrics.buttonHeight).isActive = true
+        focusRing.borderWidth = Self.focusRingWidth
+        focusRing.isHidden = true
+        focusGap.borderWidth = Self.focusGapWidth
+        focusGap.isHidden = true
+        // The ring sits outside the fill: nothing may clip it.
+        clipsToBounds = false
         refresh()
     }
 
@@ -99,6 +111,45 @@ public final class CmuxDialogButtonView: ClickableButton {
     public override func mouseEntered(with event: NSEvent) { isHovering = true }
     public override func mouseExited(with event: NSEvent) { isHovering = false }
 
+    public override func layout() {
+        super.layout()
+        // AppKit may replace a button's backing layer after init: the ring follows the current one.
+        if let layer, focusRing.superlayer !== layer {
+            layer.masksToBounds = false
+            layer.addSublayer(focusGap)
+            layer.addSublayer(focusRing)
+        }
+        let outset = Self.focusRingOutset
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        focusRing.frame = bounds.insetBy(dx: -outset, dy: -outset)
+        focusRing.cornerRadius = CmuxDialogMetrics.buttonCornerRadius + outset
+        // Just outside the fill, so a focused button keeps its full size and its edges line up with
+        // its neighbors' (drawn inside, the band shrank the fill 3 px on every side).
+        let gap = Self.focusGapWidth
+        focusGap.frame = bounds.insetBy(dx: -gap, dy: -gap)
+        focusGap.cornerRadius = CmuxDialogMetrics.buttonCornerRadius + gap
+        CATransaction.commit()
+    }
+
+    /// The overlay surface (the dialog's card) this button draws on, if any.
+    private var enclosingSurface: OverlaySurfaceView? {
+        var view = superview
+        while let current = view {
+            if let surface = current as? OverlaySurfaceView { return surface }
+            view = current.superview
+        }
+        return nil
+    }
+
+    /// How far outside the button the focus ring reaches: the gap (``focusGap``, on a solid fill)
+    /// then the ring's line. Dialog button rows are `Metrics.space2` (4 pt) apart, and a ring
+    /// reaching 4 pt ran into the next button; 2.5 pt leaves 1.5 pt to it. On a translucent fill
+    /// there is no gap band and the ring still sits 1 pt off the fill, the same place.
+    static let focusRingOutset: CGFloat = focusGapWidth + focusRingWidth
+    static let focusRingWidth: CGFloat = 1.5
+    static let focusGapWidth: CGFloat = 1
+
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         refresh()
@@ -109,20 +160,35 @@ public final class CmuxDialogButtonView: ClickableButton {
         refresh()
     }
 
+    /// The look this button draws now (its role, hover and press, in its theme scope).
+    var look: CmuxDialogButtonLook {
+        let state: CmuxDialogButtonLook.State = isHighlighted ? .pressed : isHovering ? .hover : .rest
+        return performWithTheme {
+            let tokens = ThemeContext.active ?? ThemeScope.app.tokens
+            return CmuxDialogButtonLook(role: button.role, tokens: tokens, state: state,
+                                        card: CmuxDialogButtonLook.cardSurfaces(tokens, lift: ChromeTunables.opaqueOverlayLift.value))
+        }
+    }
+
     private func refresh() {
-        let prominent = button.role == .default
+        let look = look
         performWithTheme {
-            var fill = prominent ? Palette.selectionFill : Palette.hoverFill
-            if isHighlighted || isHovering { fill = prominent ? Palette.pressedFill : Palette.selectionFill }
-            layer?.backgroundColor = fill.cgColor
-            alphaValue = isEnabled ? 1 : 0.45
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            layer?.backgroundColor = look.fill.nsColor.cgColor
             layer?.cornerRadius = CmuxDialogMetrics.buttonCornerRadius
-            layer?.borderWidth = hasFocus ? 2 : 0
-            layer?.borderColor = Palette.focusRing.cgColor
-            let color = button.role == .destructive ? Palette.danger : Palette.textPrimary
-            let font = prominent ? Typography.bodyEmphasized : Typography.body
-            attributedTitle = keyHint?.attributedTitle(button.title, font: font, color: color)
-                ?? NSAttributedString(string: button.title, attributes: [.foregroundColor: color, .font: font])
+            focusRing.isHidden = !hasFocus
+            focusRing.borderColor = look.focusRing.nsColor.cgColor
+            // Only a solid fill needs the gap: a translucent one already reads apart from the ring.
+            focusGap.isHidden = !hasFocus || look.fill.alpha < 1
+            // The card's own color: the opaque surface under Reduce Transparency, else the glass.
+            let onOpaqueCard = enclosingSurface?.material == .opaque
+            focusGap.borderColor = (onOpaqueCard ? look.opaqueCard : look.card).nsColor.cgColor
+            CATransaction.commit()
+            alphaValue = isEnabled ? 1 : 0.45
+            let font = button.role == .default ? Typography.bodyEmphasized : Typography.body
+            attributedTitle = keyHint?.attributedTitle(button.title, font: font, color: look.title.nsColor, hintColor: look.keyHint.nsColor)
+                ?? NSAttributedString(string: button.title, attributes: [.foregroundColor: look.title.nsColor, .font: font])
         }
         invalidateIntrinsicContentSize()
     }
