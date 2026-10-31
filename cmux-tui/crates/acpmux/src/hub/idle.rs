@@ -379,6 +379,8 @@ impl Hub {
     pub fn wake_for(self: &Arc<Self>, session: &Arc<Session>, web: bool, cause: &'static str) {
         // Use: a chat being typed into or opened does not hibernate meanwhile.
         self.touch(session);
+        // The person asked for it: what a daemon start held in its protected folder goes on.
+        self.release_protected_hold(session);
         let stops = session.stops.load(Ordering::SeqCst);
         if session.hibernated_at.load(Ordering::SeqCst) == 0
             || session.status() == SessionStatus::Closed
