@@ -64,7 +64,7 @@ const RETRIES: u32 = 6;
 /// Where the run keeps its files on the guest.
 const RUN_DIR: &str = "/tmp/cmux-run";
 
-/// Directories that never sync, at any depth.
+/// Directories that never sync, at any depth, in any case (`skipped_dir`).
 const SKIPPED_DIRS: &[&str] = &[
     ".git",
     "node_modules",
@@ -92,6 +92,10 @@ const CREDENTIAL_DIRS: &[&str] = &[
     ".password-store",
     ".vercel",
 ];
+
+/// Directories whose `auth.json` is a coding agent's auth store
+/// (`~/.codex/auth.json`, `~/.local/share/opencode/auth.json`).
+const AGENT_AUTH_DIRS: &[&str] = &[".codex", "opencode"];
 
 /// Credential directories under `.config` (`.config/gcloud`, `.config/gh`).
 const CREDENTIAL_CONFIG_DIRS: &[&str] = &["gcloud", "gh", "op", "doctl", "hub"];
@@ -939,6 +943,10 @@ pub(crate) fn credential_shaped(name: &str) -> bool {
                 | "vm.json"
                 | "vm-token.json"
                 | "agent-issuer.json"
+                // Coding agents' auth stores (acpmux hub/pool/auth.rs).
+                | ".credentials.json"
+                | ".claude.json"
+                | "oauth_creds.json"
         )
 }
 
@@ -966,10 +974,19 @@ pub(crate) fn credential_path(path: &Path) -> bool {
                 .collect()
         })
         .unwrap_or_default();
-    parts.iter().any(|part| CREDENTIAL_DIRS.contains(&part.as_str()))
-        || parts.windows(2).any(|pair| {
-            pair[0] == ".config" && CREDENTIAL_CONFIG_DIRS.contains(&pair[1].as_str())
-        })
+    // Codex's and opencode's auth stores have a generic name; their
+    // directory makes them credentials.
+    let agent_auth = name.eq_ignore_ascii_case("auth.json")
+        && parts
+            .last()
+            .is_some_and(|dir| AGENT_AUTH_DIRS.contains(&dir.as_str()));
+    agent_auth
+        || parts
+            .iter()
+            .any(|part| CREDENTIAL_DIRS.contains(&part.as_str()))
+        || parts
+            .windows(2)
+            .any(|pair| pair[0] == ".config" && CREDENTIAL_CONFIG_DIRS.contains(&pair[1].as_str()))
 }
 
 /// Whether every directory on the way to `path` is a real directory inside
@@ -994,6 +1011,15 @@ fn inside_without_links(dir: &Path, path: &Path) -> bool {
     true
 }
 
+/// Whether `--sync` skips a directory of this name. Any case: on a
+/// case-insensitive macOS volume `Node_Modules` is `node_modules`.
+fn skipped_dir(name: &std::ffi::OsStr) -> bool {
+    let name = name.to_string_lossy();
+    SKIPPED_DIRS
+        .iter()
+        .any(|dir| name.eq_ignore_ascii_case(dir))
+}
+
 /// The files `--sync` uploads, relative to `dir`, the credential files it
 /// leaves out, and the files it leaves out because a directory on their way
 /// is a symlink.
@@ -1007,7 +1033,7 @@ pub(crate) fn sync_list(dir: &Path) -> Result<SyncList, CliError> {
         let in_skipped_dir = path.parent().is_some_and(|parent| {
             parent
                 .components()
-                .any(|part| SKIPPED_DIRS.iter().any(|dir| part.as_os_str() == *dir))
+                .any(|part| skipped_dir(part.as_os_str()))
         });
         if in_skipped_dir {
             continue;
@@ -1147,7 +1173,7 @@ fn walk(dir: &Path) -> Result<Vec<PathBuf>, CliError> {
             let path = relative.join(&name);
             match entry.file_type() {
                 Ok(kind) if kind.is_dir() => {
-                    if !SKIPPED_DIRS.iter().any(|skip| name == *skip) {
+                    if !skipped_dir(&name) {
                         stack.push(path);
                     }
                 }
@@ -1649,7 +1675,10 @@ mod tests {
                 .output()
                 .unwrap();
             let ok = out.status.success()
-                && String::from_utf8_lossy(&out.stdout).split_whitespace().nth(1) == Some("0");
+                && String::from_utf8_lossy(&out.stdout)
+                    .split_whitespace()
+                    .nth(1)
+                    == Some("0");
             (ok, String::from_utf8_lossy(&out.stderr).into_owned())
         };
         let (ok, stderr) = run("leak/secret");
@@ -1705,6 +1734,20 @@ mod tests {
         std::fs::write(base.join("linked/.git"), "gitdir: /elsewhere").unwrap();
         assert!(in_a_repository(&base.join("linked")));
         let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn skipped_directories_match_in_any_case() {
+        for name in [
+            "node_modules",
+            "Node_Modules",
+            ".GIT",
+            "Target",
+            "deriveddata",
+        ] {
+            assert!(skipped_dir(std::ffi::OsStr::new(name)), "{name}");
+        }
+        assert!(!skipped_dir(std::ffi::OsStr::new("src")));
     }
 
     #[test]
