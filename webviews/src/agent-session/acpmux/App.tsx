@@ -387,6 +387,7 @@ import {
   THINKING,
   WORKED,
   messageRevealTarget,
+  toggleTurnFold,
   turnFoldFor,
   turnFooterFrom,
   WORKING,
@@ -3836,7 +3837,7 @@ export function VirtualTranscript({
         ? startTurnFold(
             host,
             id,
-            !foldInputs.current.expanded.has(id),
+            !(shown.find((row) => row.id === id)?.foldOpen ?? foldInputs.current.expanded.has(id)),
             {
               count: shown.length,
               idAt: (index) => shown[index]?.id,
@@ -4707,7 +4708,7 @@ export function VirtualTranscript({
                   const actions = hasReplyActions(row, next);
                   const kind = rowKind(row);
                   const Component = registry[kind] ?? NoticeRow;
-                  const isExpanded = expanded.has(row.id);
+                  const isExpanded = row.foldOpen ?? expanded.has(row.id);
                   const controls =
                     row.kind === WORKED && isExpanded ? disclosureControls(rows, absoluteIndex + 1) : undefined;
                   return (
@@ -10818,13 +10819,7 @@ function AcpmuxPane() {
   ]);
   // Stable: memoized transcript rows compare it.
   const toggleActivity = useCallback(
-    (id: string) =>
-      setExpanded((current) => {
-        const next = new Set(current);
-        if (next.has(id)) next.delete(id);
-        else next.add(id);
-        return next;
-      }),
+    (id: string) => setExpanded((current) => toggleTurnFold(turnRowsRef.current, current, id)),
     [],
   );
   const loadReplay = useCallback(
