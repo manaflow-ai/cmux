@@ -118,6 +118,16 @@ test("calls the table has no words for fall back to the script line, naming the 
   expect(titleOf(exec("x", both))).toBe("Closed 2 tabs and 1 more step");
 });
 
+test("a cut call log never gives a count: the title says the script's total calls", () => {
+  // The server keeps the first 200 calls of a script that made more (`call_log_truncated`).
+  const cut = { calls: 250, call_log: log("tab_close", 200), call_log_truncated: true, logs: [] };
+  expect(titleOf(exec("x", cut))).toBe("Ran cmux script (250 calls): tab close");
+  // A log shorter than the count it reports is cut too, even without the flag.
+  const short = { calls: 250, call_log: log("tab_close", 200), logs: [] };
+  expect(titleOf(exec("x", short))).toBe("Ran cmux script (250 calls): tab close");
+  expect(titleOf(exec("x", { calls: 200, call_log: log("tab_close", 200), logs: [] }))).toBe("Closed 200 tabs");
+});
+
 test("a failed call counts only when none of its kind went through", () => {
   const mixed = { calls: 3, call_log: [...log("tab_close", 2), { name: "tab_close", ok: false, state: "not_run" }] };
   expect(titleOf(exec("x", mixed))).toBe("Closed 2 tabs");
@@ -298,6 +308,10 @@ test("an opened script shows highlighted JavaScript, its calls and a structured 
     ].join("\n"),
   );
   expect(tree.querySelector('[data-role="attribute"]')?.textContent).toBe("tools");
+  // Find highlights a match across the coloured tokens ("await cmux"): each block is one Find run
+  // (chatFind.ts findRuns).
+  expect(code.hasAttribute("data-find-join")).toBe(true);
+  expect(tree.hasAttribute("data-find-join")).toBe(true);
   expect(tree.textContent).not.toContain("\\n");
   expect(details.textContent).toContain("found 2");
   // The machine name and the call as it came are behind Raw, not in the default view.

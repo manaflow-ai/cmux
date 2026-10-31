@@ -235,11 +235,7 @@ export function readAnswer(output: string): ExecView["answer"] {
   };
 }
 
-function findAnswer(
-  value: unknown,
-  depth: number,
-  layers: { exact: boolean },
-): Record<string, unknown> | undefined {
+function findAnswer(value: unknown, depth: number, layers: { exact: boolean }): Record<string, unknown> | undefined {
   if (depth > 5) return undefined;
   if (typeof value === "string") {
     if (!/^\s*\{/.test(value)) return undefined;
@@ -359,8 +355,10 @@ function withOthers(t: Translate, line: string, others: number): string {
 export function execTitle(t: Translate, view: ExecView, running: boolean): string {
   const answer = view.answer;
   if (!running && answer) {
-    const steps = finishedSteps(answer.callLog);
-    const picked = mainStep(steps);
+    // The server keeps only the first calls of a long script (`call_log_truncated`): a count from a
+    // cut log would be wrong ("Closed 200 tabs" for 250), so such a script says its total instead.
+    const complete = !answer.truncated && answer.callLog.length >= answer.calls;
+    const picked = complete ? mainStep(finishedSteps(answer.callLog)) : undefined;
     if (picked) return withOthers(t, stepLine(t, picked.main, false, view.workspace), picked.others);
     const first = answer.callLog[0]?.name ?? view.scriptCalls[0];
     if (first) return t("tools.cmux.script", { n: Math.max(answer.calls, 1), first: spoken(first) });

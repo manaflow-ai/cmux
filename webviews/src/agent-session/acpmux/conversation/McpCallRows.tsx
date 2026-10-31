@@ -316,7 +316,12 @@ export function CmuxExecDetails({
       {script &&
         part(
           t("tools.cmux.head.script"),
-          <pre ref={scriptBox} className="cv-mcp-call__body cv-cmux-exec__code selectable" data-lang="javascript">
+          <pre
+            ref={scriptBox}
+            className="cv-mcp-call__body cv-cmux-exec__code selectable"
+            data-lang="javascript"
+            data-find-join=""
+          >
             <CodeSpans tokens={script} />
           </pre>,
         )}
@@ -340,14 +345,14 @@ export function CmuxExecDetails({
       {parts.result &&
         part(
           t("tools.cmux.head.result"),
-          <pre ref={resultBox} className="cv-mcp-call__body cv-cmux-exec__code selectable" data-tree>
+          <pre ref={resultBox} className="cv-mcp-call__body cv-cmux-exec__code selectable" data-tree data-find-join="">
             <TreeLines lines={parts.result} />
           </pre>,
         )}
       {parts.error &&
         part(
           t("tools.cmux.head.error"),
-          <pre className="cv-mcp-call__body cv-cmux-exec__code selectable" data-tree>
+          <pre className="cv-mcp-call__body cv-cmux-exec__code selectable" data-tree data-find-join="">
             <TreeLines lines={parts.error} />
           </pre>,
         )}
