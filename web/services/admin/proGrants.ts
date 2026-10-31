@@ -39,6 +39,11 @@ import {
   type ProMetadataJson,
   type StripeBillingStatus,
 } from "../billing/pro";
+import {
+  VM_ENTITLEMENT_OVERRIDE_METADATA_KEY,
+  vmEntitlementOverrideFromMetadata,
+  type VmEntitlementOverride,
+} from "../vms/entitlementOverride";
 
 export const ADMIN_GRANTABLE_PLAN_IDS = [PRO_PLAN_ID, MAX_PLAN_ID, FOUNDERS_PLAN_ID] as const;
 export type AdminGrantablePlanId = (typeof ADMIN_GRANTABLE_PLAN_IDS)[number];
@@ -102,6 +107,17 @@ export type AdminTeamRow = {
     readonly hasActiveSubscription: boolean;
   };
   readonly lastGrant: AdminPlanGrantRecord | null;
+  /** Custom Cloud VM deal (caps, pool, size, label, price); null means plan defaults. */
+  readonly vmEntitlementOverride: VmEntitlementOverride | null;
+  /** Who last set or cleared the custom deal. */
+  readonly lastEntitlementOverrideChange: AdminEntitlementOverrideRecord | null;
+};
+
+export type AdminEntitlementOverrideRecord = {
+  readonly byUserId: string;
+  readonly byEmail: string | null;
+  readonly at: string;
+  readonly cleared: boolean;
 };
 
 export type AdminPendingGrantRow = {
@@ -424,6 +440,21 @@ export async function searchAdminTeams(
   );
 }
 
+/** One team's admin row by exact id, or null when Stack has no such team. */
+export async function loadAdminTeam(
+  teamId: string,
+  options: {
+    readonly app?: AdminStackApp;
+    readonly stripeBillingStatus?: (teamId: string) => Promise<StripeBillingStatus>;
+  } = {},
+): Promise<AdminTeamRow | null> {
+  const app = options.app ?? defaultAdminStackApp();
+  const team = await app.getTeam(teamId);
+  if (!team || team.id !== teamId) return null;
+  const billing = options.stripeBillingStatus ?? stripeBillingStatusForTeam;
+  return adminTeamRow(team, await billing(team.id), await memberCount(team));
+}
+
 /** Null when the provider could not list members; the UI then blocks a Team grant. */
 async function memberCount(team: AdminStackTeam): Promise<number | null> {
   try {
@@ -453,6 +484,21 @@ export function adminTeamRow(
       hasActiveSubscription: stripe.hasActiveSubscription,
     },
     lastGrant: grantRecordFromServerMetadata(team.serverMetadata),
+    vmEntitlementOverride: vmEntitlementOverrideFromMetadata(team.clientReadOnlyMetadata),
+    lastEntitlementOverrideChange: entitlementOverrideRecordFromServerMetadata(team.serverMetadata),
+  };
+}
+
+function entitlementOverrideRecordFromServerMetadata(raw: unknown): AdminEntitlementOverrideRecord | null {
+  const record = metadataRecord(raw).cmuxAdminEntitlementOverride;
+  if (!record || typeof record !== "object" || Array.isArray(record)) return null;
+  const value = record as Record<string, unknown>;
+  if (typeof value.byUserId !== "string" || typeof value.at !== "string") return null;
+  return {
+    byUserId: value.byUserId,
+    byEmail: typeof value.byEmail === "string" ? value.byEmail : null,
+    at: value.at,
+    cleared: value.cleared === true,
   };
 }
 
@@ -523,6 +569,66 @@ export async function setTeamManualPlanGrant(input: {
         at: now().toISOString(),
       };
       server.cmuxAdminPlanGrant = grant;
+      await team.update({
+        clientReadOnlyMetadata: client as ProMetadataJson,
+        serverMetadata: server as ProMetadataJson,
+      });
+    });
+  } catch (error) {
+    if (error instanceof AdminTeamNotFoundError) throw error;
+    if (
+      error instanceof AccountDeletionMutationBlockedError ||
+      error instanceof AccountDeletionUserMutationInProgressError
+    ) {
+      throw new AdminGrantConflictError(input.teamId);
+    }
+    throw error;
+  }
+
+  const reloaded = await app.getTeam(input.teamId);
+  if (!reloaded) throw new AdminTeamNotFoundError(input.teamId);
+  const billing = input.stripeBillingStatus ?? stripeBillingStatusForTeam;
+  return adminTeamRow(reloaded, await billing(reloaded.id), await memberCount(reloaded));
+}
+
+/**
+ * Writes or clears the team's custom Cloud VM deal
+ * (`clientReadOnlyMetadata.cmuxVmEntitlementOverride`), which
+ * `resolveVmEntitlements` applies over the plan defaults. The caller has
+ * already validated the override. It runs under the same team lease as the
+ * plan grant and leaves every other metadata key as it found it. Members see
+ * the new caps once their identity snapshot refreshes (at most ten minutes).
+ */
+export async function setTeamVmEntitlementOverride(input: {
+  readonly teamId: string;
+  readonly override: VmEntitlementOverride | null;
+  readonly admin: { readonly id: string; readonly primaryEmail?: string | null };
+  readonly now?: () => Date;
+  readonly app?: AdminStackApp;
+  readonly withFreshTeam?: FreshAdminTeamMutation;
+  readonly stripeBillingStatus?: (teamId: string) => Promise<StripeBillingStatus>;
+}): Promise<AdminTeamRow> {
+  const app = input.app ?? defaultAdminStackApp();
+  const now = input.now ?? (() => new Date());
+  const withFreshTeam = input.withFreshTeam ?? defaultWithFreshTeam(app);
+
+  try {
+    await withFreshTeam(input.teamId, async (team, lease) => {
+      await lease.refresh();
+      const client = metadataRecord(team.clientReadOnlyMetadata);
+      if (input.override === null) {
+        delete client[VM_ENTITLEMENT_OVERRIDE_METADATA_KEY];
+      } else {
+        client[VM_ENTITLEMENT_OVERRIDE_METADATA_KEY] = { ...input.override };
+      }
+      const server = metadataRecord(team.serverMetadata);
+      const record: AdminEntitlementOverrideRecord = {
+        byUserId: input.admin.id,
+        byEmail: input.admin.primaryEmail ?? null,
+        at: now().toISOString(),
+        cleared: input.override === null,
+      };
+      server.cmuxAdminEntitlementOverride = record;
       await team.update({
         clientReadOnlyMetadata: client as ProMetadataJson,
         serverMetadata: server as ProMetadataJson,

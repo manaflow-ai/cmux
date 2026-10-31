@@ -20,6 +20,7 @@ import {
   type VmResourcePoolPolicy,
 } from "./machineSpec";
 import { pickVmImageSizeForMemory } from "./images/sizes";
+import type { VmEntitlementOverride } from "./entitlementOverride";
 
 export {
   PAID_MAX_ACTIVE_VMS_DEFAULT,
@@ -43,6 +44,7 @@ export {
   vmDiskMb,
 } from "./machineSpec";
 export type { VmComputeResources, VmResourcePoolPolicy } from "./machineSpec";
+export type { VmEntitlementOverride } from "./entitlementOverride";
 
 export type VmEntitlements = {
   readonly planId: string;
@@ -52,6 +54,11 @@ export type VmEntitlements = {
   readonly maxActiveVms: number | null;
   /** vCPUs and memory the active machines share; null when the plan has no pool. */
   readonly resourcePool: VmComputeResources | null;
+  /**
+   * The billing team's admin-set custom deal, or null. Pass it to the
+   * per-plan size helpers below so machine sizes honor it too.
+   */
+  readonly override?: VmEntitlementOverride | null;
 };
 
 export type VmEntitlementOptions = {
@@ -121,18 +128,60 @@ export function resolveVmEntitlements(
   // or replace the team's seat-based machine allowance.
   const planId = normalizedPlanId(user.userBillingPlanId ?? "") === MAX_PLAN_ID
     ? MAX_PLAN_ID : teamPlanId;
-  const maxActiveVms = maxActiveVmsForPlan(teamPlanId === TEAM_PLAN_ID ? teamPlanId : planId, env, { seats: billing.billingSeats });
+  const allowancePlanId = teamPlanId === TEAM_PLAN_ID ? teamPlanId : planId;
+  const override = withPlanDefaultPool(
+    billing.override,
+    resourcePoolForPlan(planId, maxActiveVmsForPlan(allowancePlanId, env, { seats: billing.billingSeats })),
+  );
+  const maxActiveVms = maxActiveVmsForPlan(allowancePlanId, env, {
+    seats: billing.billingSeats,
+    override,
+  });
   return {
     planId,
     billingCustomerType: billing.billingCustomerType,
     billingTeamId: billing.billingTeamId,
     maxActiveVms,
-    resourcePool: resourcePoolForPlan(planId, maxActiveVms),
+    resourcePool: resourcePoolForPlan(planId, maxActiveVms, override),
+    // Absent without a deal, so plan-only entitlements keep their shape.
+    ...(override ? { override } : {}),
   };
+}
+
+/**
+ * The team's custom deal, only while the team itself holds a paid, pooled
+ * plan. A member's personal Pro or Max must never carry a deal from a team
+ * whose Team grant or subscription is absent or has lapsed.
+ */
+function paidTeamOverride(
+  team: { readonly billingPlanId: string | null; readonly vmEntitlementOverride?: VmEntitlementOverride | null } | undefined,
+): VmEntitlementOverride | null {
+  if (!team?.vmEntitlementOverride) return null;
+  return overrideAppliesToPlan(normalizedPlanId(team.billingPlanId ?? ""), team.vmEntitlementOverride)
+    ? team.vmEntitlementOverride
+    : null;
 }
 
 export function isVmBillingTeamResolutionError(err: unknown): err is VmBillingTeamResolutionError {
   return err instanceof VmBillingTeamResolutionError;
+}
+
+/**
+ * A deal that changes the machine count but not the pool keeps the plan's
+ * seat-based pool. The pool is otherwise derived from the machine count, so
+ * the plan's own pool is pinned onto the override here; every later helper
+ * that receives this override then sees the same capacity.
+ */
+function withPlanDefaultPool(
+  override: VmEntitlementOverride | null,
+  planPool: VmComputeResources | null,
+): VmEntitlementOverride | null {
+  if (!override || override.maxActiveVms === undefined || !planPool) return override;
+  return {
+    ...override,
+    poolVcpus: override.poolVcpus ?? planPool.vcpus,
+    poolMemoryMb: override.poolMemoryMb ?? planPool.memoryMb,
+  };
 }
 
 function resolveBillingContext(
@@ -143,6 +192,7 @@ function resolveBillingContext(
   readonly billingTeamId: string;
   readonly billingPlanId: string | null;
   readonly billingSeats: number | null;
+  readonly override: VmEntitlementOverride | null;
 } {
   const requestedTeamId = normalizedOptionalString(options.requestedBillingTeamId);
   if (requestedTeamId) {
@@ -159,6 +209,7 @@ function resolveBillingContext(
       billingTeamId: team.id,
       billingPlanId: team.billingPlanId ?? user.userBillingPlanId,
       billingSeats: team.billingSeats,
+      override: paidTeamOverride(team),
     };
   }
 
@@ -168,6 +219,7 @@ function resolveBillingContext(
       billingTeamId: user.billingTeamId,
       billingPlanId: user.billingPlanId ?? user.userBillingPlanId,
       billingSeats: user.billingSeats,
+      override: paidTeamOverride(user.teams.find((team) => team.id === user.billingTeamId)),
     };
   }
 
@@ -188,6 +240,7 @@ function resolveBillingContext(
     billingTeamId: user.billingTeamId,
     billingPlanId: user.userBillingPlanId,
     billingSeats: null,
+    override: null,
   };
 }
 
@@ -226,10 +279,24 @@ export function upgradePlanForMemory(memoryMb: number, currentPlanId: string, en
   return memoryMb <= maxMemoryMbForPlan(MAX_PLAN_ID, env) ? MAX_PLAN_ID : null;
 }
 
-/** Largest machine a plan may create. Env-overridable per plan. */
+/**
+ * Largest machine a plan may create. Env-overridable per plan; a team's
+ * custom deal replaces it (Max keeps the larger of the two).
+ */
 export function maxMemoryMbForPlan(
   planId: string | null | undefined,
   env: Record<string, string | undefined> = process.env,
+  override?: VmEntitlementOverride | null,
+): number {
+  const base = planMaxMemoryMb(planId, env);
+  const normalized = normalizedPlanId(planId ?? "");
+  if (!overrideAppliesToPlan(normalized, override) || override?.maxMemoryMb === undefined) return base;
+  return normalized === MAX_PLAN_ID ? Math.max(base, override.maxMemoryMb) : override.maxMemoryMb;
+}
+
+function planMaxMemoryMb(
+  planId: string | null | undefined,
+  env: Record<string, string | undefined>,
 ): number {
   const normalized = normalizedPlanId(planId ?? "");
   const planKey = normalized.replace(/[^a-zA-Z0-9]/g, "_").toUpperCase();
@@ -259,14 +326,20 @@ export function maxMemoryMbForPlan(
   ));
 }
 
-/** Disk ceiling follows the plan's machine tier. */
+/**
+ * Disk ceiling follows the plan's machine tier. A custom deal whose largest
+ * machine is above the Pro/Team ceiling gets Max's disk tier.
+ */
 export function maxDiskMbForPlan(
   planId: string | null | undefined,
   env: Record<string, string | undefined> = process.env,
+  override?: VmEntitlementOverride | null,
 ): number {
   const normalized = normalizedPlanId(planId ?? "");
   const key = normalized.replace(/[^a-zA-Z0-9]/g, "_").toUpperCase();
-  const fallback = normalized === MAX_PLAN_ID
+  const customLargeMachines = overrideAppliesToPlan(normalized, override) &&
+    (override.maxMemoryMb ?? 0) > PLAN_MAX_MEMORY_MB;
+  const fallback = normalized === MAX_PLAN_ID || customLargeMachines
     ? 256 * 1024
     : 128 * 1024;
   const raw = env[`CMUX_VM_PLAN_${key}_MAX_DISK_MB`];
@@ -279,8 +352,9 @@ export function maxDiskMbForPlan(
 export function maxVcpusForPlan(
   planId: string | null | undefined,
   env: Record<string, string | undefined> = process.env,
+  override?: VmEntitlementOverride | null,
 ): number {
-  return Math.max(1, Math.floor(maxMemoryMbForPlan(planId, env) / VM_PLAN_MEMORY_MB_PER_VCPU));
+  return Math.max(1, Math.floor(maxMemoryMbForPlan(planId, env, override) / VM_PLAN_MEMORY_MB_PER_VCPU));
 }
 
 /**
@@ -291,8 +365,9 @@ export function maxVcpusForPlan(
 export function lockedMemoryOptionsMbForPlan(
   planId: string | null | undefined,
   env: Record<string, string | undefined> = process.env,
+  override?: VmEntitlementOverride | null,
 ): { readonly memoryOptionsMb: readonly number[]; readonly upgradePlanId: string | null } {
-  const max = maxMemoryMbForPlan(planId, env);
+  const max = maxMemoryMbForPlan(planId, env, override);
   const locked = VM_MEMORY_OPTIONS_MB.filter((mb) => mb > max);
   const normalized = normalizedPlanId(planId ?? "");
   const candidateUpgradePlanId = max >= PLAN_MAX_MEMORY_MB || planIncludes(normalized, "pro")
@@ -314,10 +389,11 @@ export function lockedMemoryOptionsMbForPlan(
 export function memoryOptionsMbForPlan(
   planId: string | null | undefined,
   env: Record<string, string | undefined> = process.env,
+  override?: VmEntitlementOverride | null,
 ): readonly number[] {
-  const max = maxMemoryMbForPlan(planId, env);
+  const max = maxMemoryMbForPlan(planId, env, override);
   const options = new Set(VM_MEMORY_OPTIONS_MB.filter((mb) => mb <= max));
-  options.add(defaultMemoryMbForPlan(planId, env));
+  options.add(defaultMemoryMbForPlan(planId, env, override));
   return [...options].sort((a, b) => a - b);
 }
 
@@ -325,6 +401,7 @@ export function memoryOptionsMbForPlan(
 export function defaultMemoryMbForPlan(
   planId: string | null | undefined,
   env: Record<string, string | undefined> = process.env,
+  override?: VmEntitlementOverride | null,
 ): number {
   const normalized = normalizedPlanId(planId ?? "");
   const planKey = normalized.replace(/[^a-zA-Z0-9]/g, "_").toUpperCase();
@@ -342,7 +419,7 @@ export function defaultMemoryMbForPlan(
         env.CMUX_VM_PAID_DEFAULT_MEMORY_MB ?? String(PLAN_MACHINE_MEMORY_MB),
         "CMUX_VM_PAID_DEFAULT_MEMORY_MB",
       );
-  return Math.min(raw, maxMemoryMbForPlan(planId, env));
+  return Math.min(raw, maxMemoryMbForPlan(planId, env, override));
 }
 
 /**
@@ -350,21 +427,44 @@ export function defaultMemoryMbForPlan(
  * get the allowance sold on /pricing (PAID_MAX_ACTIVE_VMS_DEFAULT), counted
  * per billing team; a Team subscription multiplies it by its paid seats
  * (`cmuxSeats`), so "5 per user" holds for the whole team. Free plans stay
- * capped (zero unless free provisioning is allowed).
+ * capped (zero unless free provisioning is allowed). A team's custom deal
+ * replaces the paid allowance (Max keeps the larger of the two).
  */
 export function maxActiveVmsForPlan(
   planId: string | null | undefined,
   env: Record<string, string | undefined> = process.env,
-  options: { readonly seats?: number | null } = {},
+  options: { readonly seats?: number | null; readonly override?: VmEntitlementOverride | null } = {},
 ): number | null {
   const normalized = normalizedPlanId(planId ?? "");
+  const base = planMaxActiveVms(normalized, env, options.seats);
+  const custom = overrideAppliesToPlan(normalized, options.override) ? options.override?.maxActiveVms : undefined;
+  if (custom === undefined || base === null) return base;
+  return normalized === MAX_PLAN_ID ? Math.max(base, custom) : custom;
+}
+
+function planMaxActiveVms(
+  normalized: string,
+  env: Record<string, string | undefined>,
+  seats: number | null | undefined,
+): number | null {
   const resolved = activeVmLimitForPlan(normalized, env);
   // An operator brake is an absolute ceiling for the whole team; only the
   // advertised allowance scales with paid seats.
   if (resolved.limit === null || resolved.brake || normalized !== TEAM_PLAN_ID) return resolved.limit;
-  const seats = options.seats;
   const paidSeats = typeof seats === "number" && Number.isSafeInteger(seats) && seats > 0 ? seats : 1;
   return resolved.limit * paidSeats;
+}
+
+/**
+ * A custom deal adjusts the caps of a paid, pooled plan. It never grants a
+ * plan (Free stays gated) and never applies to Go, whose single machine is
+ * the product.
+ */
+function overrideAppliesToPlan(
+  normalizedPlan: string,
+  override: VmEntitlementOverride | null | undefined,
+): override is VmEntitlementOverride {
+  return !!override && isPaidVmPlan(normalizedPlan) && normalizedPlan !== GO_PLAN_ID;
 }
 
 /**
@@ -372,9 +472,27 @@ export function maxActiveVmsForPlan(
  * the plan has no pool (Free, Go, or an uncapped allowance). Team multiplies
  * the per-seat pool by paid seats exactly as it multiplies the machine count,
  * so the seat count is recovered from the resolved allowance. A Max caller on
- * a large team keeps whichever pool is larger in each dimension.
+ * a large team keeps whichever pool is larger in each dimension. A team's
+ * custom deal replaces each pool dimension it sets (Max again keeps the
+ * larger value).
  */
 export function resourcePoolForPlan(
+  planId: string | null | undefined,
+  maxActiveVms: number | null | undefined,
+  override?: VmEntitlementOverride | null,
+): VmComputeResources | null {
+  const base = planResourcePool(planId, maxActiveVms);
+  const normalized = normalizedPlanId(planId ?? "");
+  if (!base || !overrideAppliesToPlan(normalized, override)) return base;
+  const pick = (planValue: number, custom: number | undefined) =>
+    custom === undefined ? planValue : normalized === MAX_PLAN_ID ? Math.max(planValue, custom) : custom;
+  return {
+    vcpus: pick(base.vcpus, override.poolVcpus),
+    memoryMb: pick(base.memoryMb, override.poolMemoryMb),
+  };
+}
+
+function planResourcePool(
   planId: string | null | undefined,
   maxActiveVms: number | null | undefined,
 ): VmComputeResources | null {
@@ -423,8 +541,9 @@ export function resourcePoolPolicyForPlan(
   planId: string | null | undefined,
   maxActiveVms: number | null | undefined,
   env: Record<string, string | undefined> = process.env,
+  override?: VmEntitlementOverride | null,
 ): VmResourcePoolPolicy | null {
-  const capacity = resourcePoolForPlan(planId, maxActiveVms);
+  const capacity = resourcePoolForPlan(planId, maxActiveVms, override);
   if (!capacity) return null;
   return {
     capacity,

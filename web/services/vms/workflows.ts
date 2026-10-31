@@ -117,6 +117,7 @@ import {
   resourcePoolPolicyForPlan,
   VM_PLAN_MEMORY_MB_PER_VCPU,
   vmFreeAccessWindowDays,
+  type VmEntitlementOverride,
   type VmResourcePoolPolicy,
 } from "./entitlements";
 import { getPlanBudgetUsage, isBudgetPlanId, type PlanBudgetUsage } from "./planUsage";
@@ -1000,9 +1001,14 @@ function isFailedVmCreate(vm: Pick<CloudVmRow, "status" | "failureCode">): boole
 }
 
 /** Check the copied or requested shape before provisioning side effects. */
-function requireMemoryPlan(planId: string, memoryMb: number | null, vcpus: number | null = null) {
-  const maxMemoryMb = maxMemoryMbForPlan(planId);
-  const maxVcpus = maxVcpusForPlan(planId);
+function requireMemoryPlan(
+  planId: string,
+  memoryMb: number | null,
+  vcpus: number | null = null,
+  override: VmEntitlementOverride | null = null,
+) {
+  const maxMemoryMb = maxMemoryMbForPlan(planId, process.env, override);
+  const maxVcpus = maxVcpusForPlan(planId, process.env, override);
   const memoryFromVcpus = vcpus === null ? 0 : vcpus * VM_PLAN_MEMORY_MB_PER_VCPU;
   const exceedsMemory = memoryMb === null ? maxMemoryMb < 65536 : memoryMb > maxMemoryMb;
   const exceedsVcpus = vcpus !== null && vcpus > maxVcpus;
@@ -1215,6 +1221,8 @@ type CreateVmInput = {
   readonly billingTeamId: string;
   readonly billingPlanId: string;
   readonly maxActiveVms: number | null;
+  /** The billing team's custom deal; sizes and the pool honor it. */
+  readonly entitlementOverride?: VmEntitlementOverride | null;
   readonly provider: ProviderId;
   readonly image: string;
   readonly imageVersion?: string | null;
@@ -1283,12 +1291,12 @@ function createVmBeginInput(input: CreateVmInput): CreateVmInput & Pick<Paramete
     // may instead provide only imageSize; in that form the image is the
     // authoritative request.
     resourceReservation,
-    planMaxMemoryMb: maxMemoryMbForPlan(input.billingPlanId),
-    planMaxVcpus: maxVcpusForPlan(input.billingPlanId),
+    planMaxMemoryMb: maxMemoryMbForPlan(input.billingPlanId, process.env, input.entitlementOverride),
+    planMaxVcpus: maxVcpusForPlan(input.billingPlanId, process.env, input.entitlementOverride),
     // The machine draws from the billing scope's shared vCPU/memory pool.
     ...(isPaidVmPlan(input.billingPlanId)
       ? {
-        resourcePool: resourcePoolPolicyForPlan(input.billingPlanId, input.maxActiveVms),
+        resourcePool: resourcePoolPolicyForPlan(input.billingPlanId, input.maxActiveVms, process.env, input.entitlementOverride),
         resourcePoolPhase: input.origin === "fork" ? "fork" as const : "create" as const,
       }
       : {}),
@@ -1320,6 +1328,7 @@ export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflo
         input.billingPlanId,
         requestedCreateMemory(input as { memoryMb?: number; imageSize?: { memoryMb: number }; resourceReservation?: { memoryMb: number } }),
         requestedCreateVcpus(input as { imageSize?: { cpu: number }; resourceReservation?: { vcpus: number } }),
+        input.entitlementOverride,
       );
     }
     // Record paid machine shapes for snapshot, fork, and resize recovery.
@@ -1714,6 +1723,8 @@ export function openBaseVm(input: {
   readonly billingTeamId: string;
   readonly billingPlanId: string;
   readonly maxActiveVms: number | null;
+  /** The billing team's custom deal; sizes and the pool honor it. */
+  readonly entitlementOverride?: VmEntitlementOverride | null;
   readonly provider: ProviderId;
   readonly image: string;
   readonly imageVersion?: string | null;
@@ -1737,12 +1748,12 @@ export function openBaseVm(input: {
     const resourceReservation = vmResourceReservationForCreate({ imageSize: input.imageSize });
     const beginInput = {
       ...input,
-      planMaxMemoryMb: maxMemoryMbForPlan(input.billingPlanId),
-      planMaxVcpus: maxVcpusForPlan(input.billingPlanId),
+      planMaxMemoryMb: maxMemoryMbForPlan(input.billingPlanId, process.env, input.entitlementOverride),
+      planMaxVcpus: maxVcpusForPlan(input.billingPlanId, process.env, input.entitlementOverride),
       resourceReservation,
       ...(isPaidVmPlan(input.billingPlanId)
         ? {
-          resourcePool: resourcePoolPolicyForPlan(input.billingPlanId, input.maxActiveVms),
+          resourcePool: resourcePoolPolicyForPlan(input.billingPlanId, input.maxActiveVms, process.env, input.entitlementOverride),
         }
         : {}),
     };
@@ -1762,6 +1773,8 @@ export function resetBaseVm(input: {
   readonly billingTeamId: string;
   readonly billingPlanId: string;
   readonly maxActiveVms: number | null;
+  /** The billing team's custom deal; sizes and the pool honor it. */
+  readonly entitlementOverride?: VmEntitlementOverride | null;
   readonly provider: ProviderId;
   readonly image: string;
   readonly imageVersion?: string | null;
@@ -1774,7 +1787,7 @@ export function resetBaseVm(input: {
   readonly deferAfterResponse?: (work: Effect.Effect<void>) => void;
 }): Effect.Effect<BaseVmEntry, VmWorkflowError, VmRepository | VmProviderGateway | VmBillingGateway> {
   return Effect.gen(function* () {
-    yield* requireMemoryPlan(input.billingPlanId, input.imageSize?.memoryMb ?? 0, input.imageSize?.cpu ?? null);
+    yield* requireMemoryPlan(input.billingPlanId, input.imageSize?.memoryMb ?? 0, input.imageSize?.cpu ?? null, input.entitlementOverride);
     yield* requireGoShape(input.billingPlanId, input.imageSize ? {
       vcpus: input.imageSize.cpu, memoryMb: input.imageSize.memoryMb, diskMb: input.imageSize.storageMb,
     } : null);
@@ -1784,11 +1797,11 @@ export function resetBaseVm(input: {
     const billing = yield* VmBillingGateway;
     const beginInput = {
       ...input,
-      planMaxMemoryMb: maxMemoryMbForPlan(input.billingPlanId),
-      planMaxVcpus: maxVcpusForPlan(input.billingPlanId),
+      planMaxMemoryMb: maxMemoryMbForPlan(input.billingPlanId, process.env, input.entitlementOverride),
+      planMaxVcpus: maxVcpusForPlan(input.billingPlanId, process.env, input.entitlementOverride),
       resourceReservation: vmResourceReservationForCreate({ imageSize: input.imageSize }),
       ...(isPaidVmPlan(input.billingPlanId)
-        ? { resourcePool: resourcePoolPolicyForPlan(input.billingPlanId, input.maxActiveVms) }
+        ? { resourcePool: resourcePoolPolicyForPlan(input.billingPlanId, input.maxActiveVms, process.env, input.entitlementOverride) }
         : {}),
     };
     const create = yield* measureVmEffect(
@@ -1811,6 +1824,8 @@ function finishBaseCreate(
     readonly billingTeamId: string;
     readonly billingPlanId: string;
     readonly maxActiveVms: number | null;
+    /** The billing team's custom deal; sizes and the pool honor it. */
+    readonly entitlementOverride?: VmEntitlementOverride | null;
     readonly provider: ProviderId;
     readonly image: string;
     readonly imageVersion?: string | null;
@@ -2069,6 +2084,7 @@ function reopenBaseIfProviderDeleted(
     readonly timing?: VmTimingSink;
     readonly imageSize?: CreateOptions["imageSize"];
     readonly modelPlane?: VmModelPlaneRevoker;
+    readonly entitlementOverride?: VmEntitlementOverride | null;
   },
   create: Extract<BeginBaseCreateResult, { readonly kind: "existing" }>,
   existing: CloudVmRow,
@@ -2109,11 +2125,11 @@ function reopenBaseIfProviderDeleted(
             "begin_base_open",
             Effect.suspend(() => repo.beginBaseOpen({
               ...input,
-              planMaxMemoryMb: maxMemoryMbForPlan(input.billingPlanId),
-              planMaxVcpus: maxVcpusForPlan(input.billingPlanId),
+              planMaxMemoryMb: maxMemoryMbForPlan(input.billingPlanId, process.env, input.entitlementOverride),
+              planMaxVcpus: maxVcpusForPlan(input.billingPlanId, process.env, input.entitlementOverride),
               resourceReservation: vmResourceReservationForCreate({ imageSize: input.imageSize }),
               ...(isPaidVmPlan(input.billingPlanId)
-                ? { resourcePool: resourcePoolPolicyForPlan(input.billingPlanId, input.maxActiveVms) }
+                ? { resourcePool: resourcePoolPolicyForPlan(input.billingPlanId, input.maxActiveVms, process.env, input.entitlementOverride) }
                 : {}),
             })),
           );
@@ -2611,6 +2627,8 @@ export function resumeVm(input: {
   readonly teamIds?: readonly string[];
   readonly providerVmId: string;
   readonly maxActiveVms?: number | null;
+  /** The billing team's custom deal; sizes and the pool honor it. */
+  readonly entitlementOverride?: VmEntitlementOverride | null;
   readonly callerPlanId?: string | null;
   readonly modelPlane?: VmModelPlaneRevoker;
 }) {
@@ -2632,7 +2650,7 @@ export function resumeVm(input: {
       vm,
       providerVmId,
       "user",
-      { forceProviderProbe: true, maxActiveVms: input.maxActiveVms, callerPlanId: input.callerPlanId, modelPlane: input.modelPlane },
+      { forceProviderProbe: true, maxActiveVms: input.maxActiveVms, entitlementOverride: input.entitlementOverride, callerPlanId: input.callerPlanId, modelPlane: input.modelPlane },
     );
     return { id: providerVmId, status: "running" } satisfies VmPauseResumeResult;
   });
@@ -2747,6 +2765,8 @@ export function restoreVm(input: {
   readonly billingTeamId: string;
   readonly billingPlanId: string;
   readonly maxActiveVms: number | null;
+  /** The billing team's custom deal; sizes and the pool honor it. */
+  readonly entitlementOverride?: VmEntitlementOverride | null;
   readonly provider: ProviderId;
   readonly snapshotId: string;
   readonly idempotencyKey?: string;
@@ -2791,7 +2811,7 @@ export function restoreVm(input: {
       : null;
     if (!existingRetry || isFailedVmCreate(existingRetry)) {
       yield* requireGoShape(input.billingPlanId, snapshotReservation);
-      yield* requireMemoryPlan(input.billingPlanId, snapshotReservation?.memoryMb ?? null, snapshotReservation?.vcpus ?? null);
+      yield* requireMemoryPlan(input.billingPlanId, snapshotReservation?.memoryMb ?? null, snapshotReservation?.vcpus ?? null, input.entitlementOverride);
     }
     return yield* createVm({
       userId: input.userId,
@@ -2799,6 +2819,7 @@ export function restoreVm(input: {
       billingTeamId: input.billingTeamId,
       billingPlanId: input.billingPlanId,
       maxActiveVms: input.maxActiveVms,
+      entitlementOverride: input.entitlementOverride,
       provider: input.provider,
       image: input.snapshotId,
       imageVersion: null,
@@ -2916,7 +2937,13 @@ function finalizeNativeForkReservation(
   );
 }
 
-function requireForkMemoryPlan(source: CloudVmRow, providers: VmProviderGatewayShape, providerVmId: string, planId: string) {
+function requireForkMemoryPlan(
+  source: CloudVmRow,
+  providers: VmProviderGatewayShape,
+  providerVmId: string,
+  planId: string,
+  override: VmEntitlementOverride | null | undefined,
+) {
   return Effect.gen(function* () {
     const sourceShape = hasVmResourceReservationMetadata(source.providerMetadata)
       ? vmResourceReservationFromMetadata(source.providerMetadata)
@@ -2930,7 +2957,7 @@ function requireForkMemoryPlan(source: CloudVmRow, providers: VmProviderGatewayS
             Effect.catchAll(() => Effect.succeed({ memoryMb: null, vcpus: null })),
           )
         : Effect.succeed({ memoryMb: null, vcpus: null }));
-    yield* requireMemoryPlan(planId, sourceShape.memoryMb, sourceShape.vcpus);
+    yield* requireMemoryPlan(planId, sourceShape.memoryMb, sourceShape.vcpus, override ?? null);
   });
 }
 
@@ -2947,6 +2974,8 @@ export function forkVm(input: {
   readonly teamIds?: readonly string[];
   readonly billingPlanId: string;
   readonly maxActiveVms: number | null;
+  /** The billing team's custom deal; sizes and the pool honor it. */
+  readonly entitlementOverride?: VmEntitlementOverride | null;
   readonly providerVmId: string;
   readonly name?: string;
   readonly idempotencyKey?: string;
@@ -2974,7 +3003,7 @@ export function forkVm(input: {
       return { snapshot: null, fork: vmEntryFromRow(existingWithReservation) };
     }
     yield* requireGoMetadataShape(input.billingPlanId, source.providerMetadata);
-    yield* requireForkMemoryPlan(source, providers, input.providerVmId, input.billingPlanId);
+    yield* requireForkMemoryPlan(source, providers, input.providerVmId, input.billingPlanId, input.entitlementOverride);
     // Kill-switch parity with POST /api/vm: fork provisions a brand-new
     // machine on the source VM's provider and spends the same provider money.
     // The check lives here rather than in the route because the provider is
@@ -3000,6 +3029,7 @@ export function forkVm(input: {
         forceProviderProbe: true,
         allowPausedSnapshot: !nativeFork,
         maxActiveVms: input.maxActiveVms,
+        entitlementOverride: input.entitlementOverride,
         callerPlanId: input.billingPlanId,
         modelPlane: input.modelPlane,
       },
@@ -3042,7 +3072,7 @@ export function forkVm(input: {
         ...(isPaidVmPlan(input.billingPlanId)
           ? {
             resourceReservation: sourceReservation,
-            resourcePool: resourcePoolPolicyForPlan(input.billingPlanId, input.maxActiveVms),
+            resourcePool: resourcePoolPolicyForPlan(input.billingPlanId, input.maxActiveVms, process.env, input.entitlementOverride),
             resourcePoolPhase: "fork" as const,
             forkPending: true,
             forkMinimumResourceReservation: sourceHasReservation
@@ -3220,6 +3250,7 @@ export function forkVm(input: {
       billingTeamId: input.billingTeamId,
       billingPlanId: input.billingPlanId,
       maxActiveVms: input.maxActiveVms,
+      entitlementOverride: input.entitlementOverride,
       provider: source.provider,
       image: snapshot.id,
       imageVersion: null,
@@ -3973,6 +4004,8 @@ type VmResumeSource = "exec" | "attach" | "ssh" | "scp" | "fork" | "open_port" |
 type ResumePreflightOptions = {
   /** Resolved billing-scope allowance; null is unlimited, undefined uses the plan default. */
   readonly maxActiveVms?: number | null;
+  /** The billing team's custom deal; sizes and the pool honor it. */
+  readonly entitlementOverride?: VmEntitlementOverride | null;
   /** The caller's current plan, whose shared pool a resumed machine draws from. */
   readonly callerPlanId?: string | null;
   /** Revokes coderouter tokens if the provider reports that compute is gone. */
@@ -4115,26 +4148,35 @@ function resumeResourcePoolForMachine(
   vm: CloudVmRow,
   planId: string | null | undefined,
   maxActiveVms: number | null,
+  override: VmEntitlementOverride | null = null,
 ): VmResourcePoolPolicy | null {
   const normalizedPlanId = planId || vm.billingPlanId || "free";
   if (!isPaidVmPlan(normalizedPlanId) || normalizedPlanId === "go") {
-    return resourcePoolPolicyForPlan(normalizedPlanId, maxActiveVms);
+    return resourcePoolPolicyForPlan(normalizedPlanId, maxActiveVms, process.env, override);
   }
-  return isGrandfatheredMachine(vm, normalizedPlanId)
+  return isGrandfatheredMachine(vm, normalizedPlanId, override)
     ? null
-    : resourcePoolPolicyForPlan(normalizedPlanId, maxActiveVms);
+    : resourcePoolPolicyForPlan(normalizedPlanId, maxActiveVms, process.env, override);
 }
 
 /** Identify an existing paid-plan VM that exceeds the caller's current tier. */
-function isGrandfatheredMachine(vm: CloudVmRow, planId: string | null | undefined): boolean {
+function isGrandfatheredMachine(
+  vm: CloudVmRow,
+  planId: string | null | undefined,
+  override: VmEntitlementOverride | null = null,
+): boolean {
   const normalizedPlanId = planId || vm.billingPlanId || "free";
   if (!isPaidVmPlan(normalizedPlanId) || normalizedPlanId === "go") return false;
   // A legacy row without a marker is deliberately usable during migration;
   // the repository's conservative fallback protects the shared pool.
   if (!hasVmResourceReservationMetadata(vm.providerMetadata)) return true;
   const reservation = vmResourceReservationFromMetadata(vm.providerMetadata);
-  return reservation.memoryMb > maxMemoryMbForPlan(normalizedPlanId) ||
-    reservation.vcpus > maxVcpusForPlan(normalizedPlanId);
+  // The larger of the plan and the deal: a deal that raises the ceiling admits
+  // its own large machines normally, and one that lowers it must not turn
+  // every existing machine into a grandfathered one that skips admission.
+  const maxMemoryMb = Math.max(maxMemoryMbForPlan(normalizedPlanId), maxMemoryMbForPlan(normalizedPlanId, process.env, override));
+  const maxVcpus = Math.max(maxVcpusForPlan(normalizedPlanId), maxVcpusForPlan(normalizedPlanId, process.env, override));
+  return reservation.memoryMb > maxMemoryMb || reservation.vcpus > maxVcpus;
 }
 
 /** Reserve a paused team's VM without re-gating grandfathered capacity. */
@@ -4144,6 +4186,7 @@ function reservePausedResumeIfTeam(
   providerVmId: string,
   maxActiveVms: number | null = maxActiveVmsForPlan(vm.billingPlanId),
   planId: string | null | undefined = vm.billingPlanId,
+  override: VmEntitlementOverride | null = null,
 ): Effect.Effect<boolean, VmWorkflowError> {
   if (!vm.billingTeamId) return Effect.succeed(false);
   return Effect.gen(function* () {
@@ -4153,8 +4196,8 @@ function reservePausedResumeIfTeam(
       billingTeamId: vm.billingTeamId,
       providerVmId,
       maxActiveVms,
-      skipActiveLimit: isGrandfatheredMachine(vm, planId),
-      resourcePool: resumeResourcePoolForMachine(vm, planId, maxActiveVms),
+      skipActiveLimit: isGrandfatheredMachine(vm, planId, override),
+      resourcePool: resumeResourcePoolForMachine(vm, planId, maxActiveVms, override),
     });
     if (!reserved) {
       return yield* Effect.fail(new VmNotFoundError({ vmId: providerVmId }));
@@ -4436,7 +4479,7 @@ function preflightResumeIfSuspended(
     if (status !== "paused") return false;
     if (options.allowPausedSnapshot) return false;
 
-    const reserved = yield* reservePausedResumeIfTeam(repo, vm, providerVmId, options.maxActiveVms, options.callerPlanId);
+    const reserved = yield* reservePausedResumeIfTeam(repo, vm, providerVmId, options.maxActiveVms, options.callerPlanId, options.entitlementOverride ?? null);
     yield* resumeUntilRunning(providers, vm, providerVmId).pipe(
       Effect.tapError(() => rollbackPausedResumeReservation(repo, vm, providerVmId, reserved)),
     );
@@ -4495,6 +4538,8 @@ function withResumeOnSuspendedAfterFailure<A>(
   callerPlanId?: string | null,
   /** Failures a status probe and resume cannot fix; they are returned as they are. */
   isUnrecoverable: (error: VmWorkflowError) => boolean = () => false,
+  /** The billing team's custom deal, which sizes that shared pool. */
+  entitlementOverride: VmEntitlementOverride | null = null,
 ): Effect.Effect<A, VmWorkflowError> {
   return op.pipe(
     Effect.catchAll((originalError) => {
@@ -4521,7 +4566,7 @@ function withResumeOnSuspendedAfterFailure<A>(
           return yield* Effect.fail(originalError);
         }
 
-        const reserved = yield* reservePausedResumeIfTeam(repo, vm, providerVmId, maxActiveVms, callerPlanId);
+        const reserved = yield* reservePausedResumeIfTeam(repo, vm, providerVmId, maxActiveVms, callerPlanId, entitlementOverride);
         yield* resumeUntilRunning(providers, vm, providerVmId).pipe(
           Effect.tapError(() => rollbackPausedResumeReservation(repo, vm, providerVmId, reserved)),
           // An allowance refusal is the answer the caller needs; any other
@@ -4819,6 +4864,8 @@ export function execVm(input: {
   readonly providerVmId: string;
   /** Current billing-scope machine allowance; null means unlimited. */
   readonly maxActiveVms?: number | null;
+  /** The billing team's custom deal; sizes and the pool honor it. */
+  readonly entitlementOverride?: VmEntitlementOverride | null;
   readonly command: string;
   readonly timeoutMs: number;
   /**
@@ -4847,7 +4894,7 @@ export function execVm(input: {
       vm,
       input.providerVmId,
       "exec",
-      { maxActiveVms: input.maxActiveVms, callerPlanId: input.callerPlanId, modelPlane: input.modelPlane },
+      { maxActiveVms: input.maxActiveVms, entitlementOverride: input.entitlementOverride, callerPlanId: input.callerPlanId, modelPlane: input.modelPlane },
     );
     const execStartedAtMs = yield* Clock.currentTimeMillis;
     // A dispatched command always gets its own timeout window, so a slow
@@ -5079,6 +5126,8 @@ type VmFileInput = {
   readonly providerVmId: string;
   readonly callerPlanId?: string | null;
   readonly maxActiveVms?: number | null;
+  /** The billing team's custom deal; sizes and the pool honor it. */
+  readonly entitlementOverride?: VmEntitlementOverride | null;
 };
 
 function fileVm<A>(input: VmFileInput, run: (provider: VmProviderGatewayShape, vm: CloudVmRow) => Effect.Effect<A, VmProviderOperationError | VmOperationUnsupportedError | VmFileNotFoundError>): VmWorkflowProgram<A> {
@@ -5090,6 +5139,7 @@ function fileVm<A>(input: VmFileInput, run: (provider: VmProviderGatewayShape, v
     yield* noteVmApiActivity(vm);
     yield* preflightResumeIfSuspended(repo, providers, vm, input.providerVmId, "user", {
       maxActiveVms: input.maxActiveVms,
+      entitlementOverride: input.entitlementOverride,
     });
     return yield* run(providers, vm);
   });
@@ -5257,6 +5307,8 @@ export function resizeVm(input: {
   readonly billingPlanId?: string | null;
   /** Current machine-count allowance, also used when resuming a paused VM. */
   readonly maxActiveVms?: number | null;
+  /** The billing team's custom deal; sizes and the pool honor it. */
+  readonly entitlementOverride?: VmEntitlementOverride | null;
   readonly modelPlane?: VmModelPlaneRevoker;
 }): VmWorkflowProgram<VMStats> {
   // oxlint-disable-next-line complexity -- Resize orchestration must keep reservation, provider, rollback, and confirmation order explicit.
@@ -5266,9 +5318,9 @@ export function resizeVm(input: {
     let vm = yield* requireAccessibleUserVm({ ...input, callerPlanId: input.billingPlanId });
     const planId = input.billingPlanId ?? vm.billingPlanId ?? "free";
     for (const [resource, requested, max] of [
-      ["cpu", input.cpu, maxVcpusForPlan(planId)],
-      ["memory", input.memoryMb, maxMemoryMbForPlan(planId)],
-      ["storage", input.storageMb, maxDiskMbForPlan(planId)],
+      ["cpu", input.cpu, maxVcpusForPlan(planId, process.env, input.entitlementOverride)],
+      ["memory", input.memoryMb, maxMemoryMbForPlan(planId, process.env, input.entitlementOverride)],
+      ["storage", input.storageMb, maxDiskMbForPlan(planId, process.env, input.entitlementOverride)],
     ] as const) {
       if (requested !== undefined && requested > max) {
         return yield* Effect.fail(new VmResizePlanLimitError({
@@ -5287,7 +5339,7 @@ export function resizeVm(input: {
     }
     yield* preflightResumeIfSuspended(repo, providers, vm, input.providerVmId, "resize", {
       forceProviderProbe: true,
-      maxActiveVms: input.maxActiveVms, callerPlanId: input.billingPlanId,
+      maxActiveVms: input.maxActiveVms, entitlementOverride: input.entitlementOverride, callerPlanId: input.billingPlanId,
       modelPlane: input.modelPlane,
     });
     const current = yield* providers.getStats(vm.provider, input.providerVmId);
@@ -5375,7 +5427,7 @@ export function resizeVm(input: {
         reason: "below_current",
       }));
     }
-    const diskMaxMb = maxDiskMbForPlan(planId);
+    const diskMaxMb = maxDiskMbForPlan(planId, process.env, input.entitlementOverride);
     if (input.storageMb > diskMaxMb || input.storageMb % VM_DISK_MB_STEP !== 0) {
       return yield* Effect.fail(new VmResizeInvalidError({
         vmId: input.providerVmId,
@@ -5540,6 +5592,8 @@ function reserveComputeResize(
     readonly cpu?: number;
     readonly memoryMb?: number;
     readonly maxActiveVms?: number | null;
+    /** The billing team's custom deal; sizes and the pool honor it. */
+    readonly entitlementOverride?: VmEntitlementOverride | null;
   },
   current: VMStats,
   planId: string,
@@ -5547,7 +5601,11 @@ function reserveComputeResize(
   const reserve = repo.reserveVmComputeResize;
   const pool = resourcePoolPolicyForPlan(
     planId,
-    input.maxActiveVms === undefined ? maxActiveVmsForPlan(planId) : input.maxActiveVms,
+    input.maxActiveVms === undefined
+      ? maxActiveVmsForPlan(planId, process.env, { override: input.entitlementOverride })
+      : input.maxActiveVms,
+    process.env,
+    input.entitlementOverride,
   );
   if (!reserve || !pool || current.cpus === undefined || current.memoryTotalMb === undefined) {
     return Effect.succeed(null);
@@ -5639,6 +5697,8 @@ export function openVmPort(input: {
   readonly providerVmId: string;
   /** Current billing-scope machine allowance; null means unlimited. */
   readonly maxActiveVms?: number | null;
+  /** The billing team's custom deal; sizes and the pool honor it. */
+  readonly entitlementOverride?: VmEntitlementOverride | null;
   readonly port: number;
   /** Caller's CURRENT billing plan; used for the free access window. */
   readonly callerPlanId?: string | null;
@@ -5666,7 +5726,7 @@ export function openVmPort(input: {
       vm,
       input.providerVmId,
       "open_port",
-      { forceProviderProbe: true, maxActiveVms: input.maxActiveVms, callerPlanId: input.callerPlanId, modelPlane: input.modelPlane },
+      { forceProviderProbe: true, maxActiveVms: input.maxActiveVms, entitlementOverride: input.entitlementOverride, callerPlanId: input.callerPlanId, modelPlane: input.modelPlane },
     );
     const endpoint = yield* providers.openPort(vm.provider, input.providerVmId, input.port);
     // Keep the preview token in the same revocation ledger as terminal/RPC
@@ -5716,6 +5776,8 @@ export function openVmCmuxRemote(input: {
   readonly providerVmId: string;
   /** Current billing-scope machine allowance; null means unlimited. */
   readonly maxActiveVms?: number | null;
+  /** The billing team's custom deal; sizes and the pool honor it. */
+  readonly entitlementOverride?: VmEntitlementOverride | null;
   readonly deviceFingerprint?: string;
   readonly clientCapabilities?: readonly string[];
   /** Caller's CURRENT billing plan; the free access window applies to cmux-tui attaches too. */
@@ -5759,7 +5821,7 @@ export function openVmCmuxRemote(input: {
       vm,
       input.providerVmId,
       "attach",
-      { forceProviderProbe: true, maxActiveVms: input.maxActiveVms, callerPlanId: input.callerPlanId, modelPlane: input.modelPlane },
+      { forceProviderProbe: true, maxActiveVms: input.maxActiveVms, entitlementOverride: input.entitlementOverride, callerPlanId: input.callerPlanId, modelPlane: input.modelPlane },
     );
     const endpoint = yield* withResumeOnSuspendedAfterFailure(
       repo,
@@ -5775,6 +5837,8 @@ export function openVmCmuxRemote(input: {
       }),
       input.maxActiveVms,
       input.callerPlanId,
+      undefined,
+      input.entitlementOverride ?? null,
     );
     yield* repo.recordLease({
       vmId: vm.id,
@@ -5896,6 +5960,8 @@ type OpenAttachEndpointInput = {
   readonly providerVmId: string;
   /** Current billing-scope machine allowance; null means unlimited. */
   readonly maxActiveVms?: number | null;
+  /** The billing team's custom deal; sizes and the pool honor it. */
+  readonly entitlementOverride?: VmEntitlementOverride | null;
   readonly options?: AttachOptions;
   readonly sessionTitle?: string | null;
   /** Caller's CURRENT billing plan; used for the free access window. */
@@ -5988,6 +6054,8 @@ export function prepareScpEndpoint(input: {
   readonly providerVmId: string;
   readonly callerPlanId?: string | null;
   readonly maxActiveVms?: number | null;
+  /** The billing team's custom deal; sizes and the pool honor it. */
+  readonly entitlementOverride?: VmEntitlementOverride | null;
   readonly modelPlane?: VmModelPlaneRevoker;
 }) {
   return Effect.gen(function* () {
@@ -6022,7 +6090,7 @@ export function prepareScpEndpoint(input: {
     // retried here: a probe or resume inside the same request does not fix it.
     const endpoint = yield* Effect.gen(function* () {
       yield* preflightResumeIfSuspended(repo, providers, vm, input.providerVmId, "scp", {
-        forceProviderProbe: true, maxActiveVms: input.maxActiveVms, callerPlanId: input.callerPlanId, modelPlane: input.modelPlane,
+        forceProviderProbe: true, maxActiveVms: input.maxActiveVms, entitlementOverride: input.entitlementOverride, callerPlanId: input.callerPlanId, modelPlane: input.modelPlane,
       });
       return yield* withResumeOnSuspendedAfterFailure(
         repo,
@@ -6034,6 +6102,7 @@ export function prepareScpEndpoint(input: {
         input.maxActiveVms,
         input.callerPlanId,
         isVmProviderHang,
+        input.entitlementOverride ?? null,
       );
     }).pipe(
       (work) => withVmAnswerDeadline(work, {
@@ -6066,6 +6135,8 @@ export function openVmSession(input: {
   readonly providerVmId: string;
   /** Current billing-scope machine allowance; null means unlimited. */
   readonly maxActiveVms?: number | null;
+  /** The billing team's custom deal; sizes and the pool honor it. */
+  readonly entitlementOverride?: VmEntitlementOverride | null;
   readonly sessionId?: string;
   readonly attachmentId?: string;
   readonly title?: string | null;
@@ -6082,6 +6153,7 @@ export function openVmSession(input: {
     providerVmId: input.providerVmId,
     callerPlanId: input.callerPlanId,
     maxActiveVms: input.maxActiveVms,
+    entitlementOverride: input.entitlementOverride,
     modelPlane: input.modelPlane,
     sessionTitle: input.title,
     options: {
@@ -6134,7 +6206,7 @@ function openAttachEndpointResult(input: OpenAttachEndpointInput) {
       vm,
       input.providerVmId,
       "attach",
-      { forceProviderProbe: true, maxActiveVms: input.maxActiveVms, callerPlanId: input.callerPlanId, modelPlane: input.modelPlane },
+      { forceProviderProbe: true, maxActiveVms: input.maxActiveVms, entitlementOverride: input.entitlementOverride, callerPlanId: input.callerPlanId, modelPlane: input.modelPlane },
     );
     // Once preflight records the VM as running, that state is externally
     // visible to concurrent attach/SSH requests. Later cleanup failures must
@@ -6152,6 +6224,8 @@ function openAttachEndpointResult(input: OpenAttachEndpointInput) {
       }),
       input.maxActiveVms,
       input.callerPlanId,
+      undefined,
+      input.entitlementOverride ?? null,
     );
     yield* storeEndpointLeases(vm, endpoint).pipe(
       Effect.catchAll((err) =>
