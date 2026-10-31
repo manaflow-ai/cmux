@@ -140,7 +140,7 @@ static IMP swap(Class window_class, const char *name, IMP replacement) {
 // cuts short ends on SIGTERM, which runs no atexit handler, so without the timed census the run
 // that most needs the leak names (feat 07088897, 2026-10-31: 10508 tests in 1500 s, 5.8 GB, the
 // main thread laying out sidebar rows of windows still open) printed none.
-static void census(const char *when) {
+static void census(const char *when, int at_exit) {
     id *app_slot = (id *)dlsym(RTLD_DEFAULT, "NSApp");
     if (app_slot == NULL || *app_slot == nil) return;
     id (*send)(id, SEL) = (id (*)(id, SEL))objc_msgSend;
@@ -205,14 +205,17 @@ static void census(const char *when) {
         for (long slot = 0; slot < created_suite_total; slot++) {
             if (strcmp(created_suites[slot], owner) == 0) created = created_counts[slot];
         }
-        length = snprintf(line, sizeof line, "cmux-next window leak: %s left %ld of the %ld windows it created open (%ld on screen): %s%s\n",
+        // At exit every test has ended: a window still open is a leak. In a timed census tests still run, so an
+        // open window may belong to a test in flight: it is named, not called a leak.
+        length = snprintf(line, sizeof line, at_exit ? "cmux-next window leak: %s left %ld of the %ld windows it created open (%ld on screen): %s%s\n"
+                                                     : "cmux-next window open now: %s has %ld of the %ld windows it created open (%ld on screen; its tests may still run): %s%s\n",
                           owner, suite_open, created, suite_visible, details, suite_open > 4 ? ", ..." : "");
         if (length > 0) write(STDERR_FILENO, line, (size_t)length < sizeof line ? (size_t)length : sizeof line - 1);
     }
     for (long slot = 0; slot < reported_count; slot++) free(reported[slot]);
 }
 
-static void census_at_exit(void) { census("at exit"); }
+static void census_at_exit(void) { census("at exit", 1); }
 
 static CFAbsoluteTime census_started;
 
@@ -221,7 +224,7 @@ static void census_on_timer(CFRunLoopTimerRef timer, void *info) {
     (void)info;
     char when[64];
     snprintf(when, sizeof when, "after %.0f s", CFAbsoluteTimeGetCurrent() - census_started);
-    census(when);
+    census(when, 0);
 }
 
 // The timed census: off with CMUX_NEXT_TEST_WINDOW_CENSUS_SECONDS=0. It reads the window list on
