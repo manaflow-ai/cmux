@@ -1,7 +1,7 @@
 // attach-endpoint's `vmKind`: the Mac app gives up its local sandbox for its
 // own session only when this reads "owner", so "owner" must mean a machine the
-// signed-in caller created that nobody else can reach: their personal account,
-// or a Stack team whose member list, read for this attach, is only them.
+// signed-in caller created: their personal account, or a Stack team whose
+// member list, read for this attach, still contains them, whatever its size.
 import { describe, expect, test } from "bun:test";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -120,7 +120,7 @@ describe("attach-endpoint vmKind", () => {
     expect(await websocketKind(personalVm, CREATOR, CREATOR)).toBe("owner");
   });
 
-  test("a team machine is team, for its creator too", async () => {
+  test("a team machine with no membership answer is team, for its creator too", async () => {
     expect(await cmuxRemoteKind(teamVm, CREATOR, TEAM)).toBe("team");
     expect(await websocketKind(teamVm, CREATOR, TEAM)).toBe("team");
   });
@@ -149,14 +149,19 @@ describe("attach-endpoint vmKind", () => {
     expect(solo.asked).toEqual(["team-solo", "team-solo"]);
   });
 
-  test("a second member makes the same machine team on the next attach", async () => {
+  test("the creator stays owner when their team grows to three members", async () => {
     const answer: { members: readonly string[] } = { members: [CREATOR] };
     const { teamDirectory } = directory(answer);
     expect(await cmuxRemoteKind(teamVm, CREATOR, TEAM, teamDirectory)).toBe("owner");
-    answer.members = [CREATOR, MEMBER];
+    answer.members = [CREATOR, MEMBER, "user-third"];
+    expect(await cmuxRemoteKind(teamVm, CREATOR, TEAM, teamDirectory)).toBe("owner");
+    expect(await websocketKind(teamVm, CREATOR, TEAM, teamDirectory)).toBe("owner");
+    expect(await websocketKind(teamVm, CREATOR, TEAM, directory({ members: [MEMBER, CREATOR] }).teamDirectory)).toBe("owner");
+    expect(await cmuxRemoteKind(teamVm, MEMBER, TEAM, teamDirectory)).toBe("team");
+    expect(await websocketKind(teamVm, MEMBER, TEAM, teamDirectory)).toBe("team");
+    answer.members = [MEMBER, "user-third"];
     expect(await cmuxRemoteKind(teamVm, CREATOR, TEAM, teamDirectory)).toBe("team");
     expect(await websocketKind(teamVm, CREATOR, TEAM, teamDirectory)).toBe("team");
-    expect(await websocketKind(teamVm, CREATOR, TEAM, directory({ members: [MEMBER, CREATOR] }).teamDirectory)).toBe("team");
   });
 
   test("a teammate on the creator's one-member team is never owner, and Stack is not asked", async () => {
@@ -207,7 +212,7 @@ describe("vmKindForCaller", () => {
     expect(vmKindForCaller({ userId: CREATOR, ownerTeamId: CREATOR }, CREATOR)).toBe("owner");
   });
 
-  test("anyone else, any team, and a blank caller get team", () => {
+  test("anyone else, an unread team, and a blank caller get team", () => {
     expect(vmKindForCaller({ userId: CREATOR, ownerTeamId: CREATOR }, MEMBER)).toBe("team");
     expect(vmKindForCaller({ userId: CREATOR, ownerTeamId: TEAM }, CREATOR)).toBe("team");
     expect(vmKindForCaller({ userId: CREATOR, ownerTeamId: TEAM }, MEMBER)).toBe("team");
@@ -228,11 +233,13 @@ describe("vmKindForCaller", () => {
     expect(vmKindForCaller({ userId: CREATOR, ownerTeamId: "" }, CREATOR, { memberIds: [CREATOR] })).toBeNull();
   });
 
-  test("a team machine is owner only for its creator, on a member list of exactly them", () => {
+  test("a team machine is owner only for its creator on the member list, at any team size", () => {
     const solo = { userId: CREATOR, ownerTeamId: TEAM };
     expect(vmKindForCaller(solo, CREATOR, { memberIds: [CREATOR] })).toBe("owner");
-    expect(vmKindForCaller(solo, CREATOR, { memberIds: [CREATOR, MEMBER] })).toBe("team");
-    expect(vmKindForCaller(solo, CREATOR, { memberIds: [CREATOR, CREATOR] })).toBe("team");
+    expect(vmKindForCaller(solo, CREATOR, { memberIds: [CREATOR, MEMBER, "user-third"] })).toBe("owner");
+    expect(vmKindForCaller(solo, MEMBER, { memberIds: [CREATOR, MEMBER, "user-third"] })).toBe("team");
+    expect(vmKindForCaller(solo, CREATOR, { memberIds: [CREATOR, CREATOR] })).toBe("owner");
+    expect(vmKindForCaller(solo, CREATOR, { memberIds: [MEMBER, "user-third"] })).toBe("team");
     expect(vmKindForCaller(solo, CREATOR, { memberIds: [] })).toBe("team");
     expect(vmKindForCaller(solo, CREATOR, { memberIds: null })).toBe("team");
     expect(vmKindForCaller(solo, CREATOR, { error: "error" })).toBe("team");

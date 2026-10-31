@@ -65,20 +65,15 @@ export async function resolveVmGuestKind(
 
 /**
  * The kind the attach endpoint tells the signed-in caller (`vmKind`). The Mac
- * app gives up the local sandbox for its own session only on `owner`, so
- * `owner` means the caller created the machine and nobody else can reach it:
+ * app gives up the local sandbox for its own session only on `owner`: the
+ * caller created the machine and still belongs to its owner team, regardless
+ * of that team's member count. Personal-account machines need no team lookup.
  *
- * - a machine on the caller's own personal account (owner_team_id is the
- *   caller's user id); or
- * - a machine on a Stack team whose member list, read for this request
- *   (`members`, the same bounded read resolveVmGuestKind uses), is exactly the
- *   caller. A second member makes it `team` on the next attach.
- *
- * Everything else is `team`: a machine the caller reaches but did not create,
- * a team with any other member, a team that no longer exists, and a member
- * list that was not read, failed or timed out (fail closed: never `owner` on
- * an unknown list). A row with no usable billing owner is null. Ids compare
- * exactly. Computed per request, never stored.
+ * A different caller, a missing team, a creator who left the team, or a member
+ * list that was not read, failed or timed out gets `team`. A row with no usable
+ * billing owner is null. Ids compare exactly. Computed per request, never stored.
+ * This caller-specific answer does not change teammates' existing access or
+ * the guest-wide kind returned by resolveVmGuestKind.
  */
 export function vmKindForCaller(
   row: VmGuestKindRow,
@@ -89,7 +84,7 @@ export function vmKindForCaller(
   // Exact ids, no trimming: a padded id is not the caller.
   if (callerUserId === "" || row.userId !== callerUserId) return "team";
   if (row.ownerTeamId === callerUserId) return "owner";
-  return members !== undefined && onlyMemberIs(members, callerUserId) ? "owner" : "team";
+  return members !== undefined && callerIsMember(members, callerUserId) ? "owner" : "team";
 }
 
 /**
@@ -104,7 +99,7 @@ export function vmKindForCallerNeedsMembers(row: VmGuestKindRow, callerUserId: s
     && row.ownerTeamId !== callerUserId;
 }
 
-function onlyMemberIs(lookup: VmTeamMemberLookup, callerUserId: string): boolean {
+function callerIsMember(lookup: VmTeamMemberLookup, callerUserId: string): boolean {
   if ("error" in lookup || lookup.memberIds === null) return false;
-  return lookup.memberIds.length === 1 && lookup.memberIds[0] === callerUserId;
+  return lookup.memberIds.includes(callerUserId);
 }

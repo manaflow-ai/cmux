@@ -83,7 +83,7 @@ export async function POST(
           // An opted-in machine's agent-update exec runs after the response.
           deferAfterResponse: (work) => runAfterResponse(() => Effect.runPromise(work)),
           modelPlane: vmModelPlaneRevoker(),
-        // vmKind: owner for the creator's machine on a team whose only member is them.
+        // vmKind: owner for the creator's machine while they remain a team member.
         teamDirectory: vmTeamDirectory(),
         }), { request, deadline: { operation: "attach", continuationKey: `attach:${id}` } });
         if (!run.ok) return run.response;
@@ -107,7 +107,7 @@ export async function POST(
         sessionTitle,
         options: { requireDaemon, sessionId, attachmentId },
         modelPlane: vmModelPlaneRevoker(),
-        // vmKind: owner for the creator's machine on a team whose only member is them.
+        // vmKind: owner for the creator's machine while they remain a team member.
         teamDirectory: vmTeamDirectory(),
       }), { request, deadline: { operation: "attach", continuationKey: `attach:${id}` } });
       if (!run.ok) return run.response;
