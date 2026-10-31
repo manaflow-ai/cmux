@@ -1,4 +1,6 @@
-// Fresh-home discovery uses the real New Tab and chat composer, with Labs left off.
+// Fresh-home discovery uses the real New Tab and chat composer, with Labs left off: the composer's
+// environment picker is not behind Labs (Leo, 2026-10-30), and with only this Mac listed it offers
+// Add Machine… and New Cloud Machine…, from a started chat too (#27083).
 // The host-call assertions prove the menu dispatch; native card/sign-in integration is separate.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { mkdirSync } from "node:fs";
@@ -39,13 +41,12 @@ await requireBrowserLane("computer-picker-onboarding.test.ts", async () => {
           await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
           const computer = page.locator('.acpmux-location-picker[data-kind="computer"] > button');
           if (!(await computer.getAttribute("aria-expanded"))?.includes("true")) await computer.click();
-          const menu = page.locator('.acpmux-location-menu[aria-label="Computer"]');
-          const add = menu.getByRole("button", { name: "Add a computer…", exact: true });
-          const cloud = menu.getByRole("button", { name: /^New Cloud Machine…/ });
+          const menu = page.locator(".acpmux-env-popover");
+          const add = menu.getByRole("option", { name: /^Add Machine…/ });
+          const cloud = menu.getByRole("option", { name: /^New Cloud Machine…/ });
           await add.waitFor();
           expect(await add.isVisible()).toBe(true);
           expect(await cloud.isVisible()).toBe(true);
-          expect(await page.locator(".acpmux-env-popover").count()).toBe(0);
           const artifacts = process.env.CMUX_COMPUTER_SETUP_ARTIFACTS;
           if (artifacts) {
             mkdirSync(artifacts, { recursive: true });

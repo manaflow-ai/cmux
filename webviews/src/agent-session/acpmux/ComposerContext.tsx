@@ -396,10 +396,9 @@ export function ComposerContext({
     : undefined;
   // A started chat's picker lists only where it runs and its move (EnvironmentPicker `offload`).
   const offload: OffloadKind | undefined = started && environments && onOffload ? offloads[0] : undefined;
-  // A first computer is discoverable without Labs, including from a started local chat.
-  // Existing machines and the preview picker keep their own connection choices.
-  const onboardingConnect =
-    !environments && !computers.some((computer) => computer.id !== "local") ? onConnect : undefined;
+  // A first computer is discoverable, including from a started local chat (#27083): with only
+  // this Mac listed the picker keeps its connect actions after the chat starts.
+  const onboardingConnect = !computers.some((computer) => computer.id !== "local") ? onConnect : undefined;
   const computerDisabled = readOnly && !offload && (started || !onConnect) && !onboardingConnect;
   // The computer control is the environment picker where the surface asks for it.
   const environmentsShown = environments && !computerDisabled;
@@ -532,7 +531,7 @@ export function ComposerContext({
               current={selectedComputer}
               onPick={pickEnvironment}
               {...(offload && onOffload ? { offload, onOffload } : {})}
-              {...(!started && onConnect ? { onConnect } : {})}
+              {...((!started || onboardingConnect) && onConnect ? { onConnect } : {})}
               {...(savedRows ? { saved: savedRows } : {})}
               {...(onRefreshMachines ? { onOpen: onRefreshMachines } : {})}
               {...(runMode && !started && !readOnly ? { runMode } : {})}
