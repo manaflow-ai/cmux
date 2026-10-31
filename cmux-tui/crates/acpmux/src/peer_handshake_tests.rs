@@ -57,8 +57,12 @@ async fn a_watch_list_too_large_with_tools_is_read_without_them() {
     let (tx, mut notices) = mpsc::channel(64);
     let peer = Peer::new("big", "ws://127.0.0.1:9", None, None, tx);
     let (ours, theirs) = tokio::io::duplex(1 << 16);
-    let client = WebSocketStream::from_raw_socket(ours, Role::Client, None).await;
-    let server = WebSocketStream::from_raw_socket(theirs, Role::Server, None).await;
+    let client =
+        WebSocketStream::from_raw_socket(ours, Role::Client, Some(crate::server::ws_config()))
+            .await;
+    let server =
+        WebSocketStream::from_raw_socket(theirs, Role::Server, Some(crate::server::ws_config()))
+            .await;
     let (asked_tx, mut asked) = mpsc::unbounded_channel();
     let fake = fake_peer(
         server,
