@@ -32,7 +32,7 @@ import Testing
         let section = SidebarSection(kind: .machine(SidebarMachine(id: MachineID("box"), name: "build-box", kind: kind, status: status)), nodes: [])
         let view = SectionHeaderRowView(key: .section(section.id))
         view.frame = NSRect(x: 0, y: 0, width: 260, height: 28)
-        view.configure(section, row: SidebarRow(key: .section(section.id), y: 0, height: 28, section: section.id, workspace: nil,
+        view.configure(section, row: SidebarRow(key: .section(section.id), y: 0, height: 28, section: section.id,
                                                 siblingIndex: 0, isLastInGroup: true, isCollapsed: false, childCount: 0))
         return view
     }

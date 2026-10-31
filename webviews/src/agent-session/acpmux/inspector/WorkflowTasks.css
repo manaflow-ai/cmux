@@ -203,6 +203,10 @@ button.acpmux-workflow-agent__button:focus-visible {
 }
 .acpmux-workflow-agent__button--compact .acpmux-workflow-agent__text {
   display: block;
+  /* One line, cut with an ellipsis at the panel's edge, never past it. */
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 .acpmux-workflow-agent__button--compact .acpmux-workflow-agent__doing {
   margin-left: 6px;

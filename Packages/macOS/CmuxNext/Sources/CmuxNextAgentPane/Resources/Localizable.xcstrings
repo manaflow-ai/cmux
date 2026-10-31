@@ -7744,7 +7744,137 @@
         }
       }
     },
-    "agentPane.pageCommand.unavailable": {
+    "agentPane.pageCommand.unavailableHere": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "غير متاح في هذه الدردشة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nije dostupno u ovom chatu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ikke tilgængelig i denne chat."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In diesem Chat nicht verfügbar."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not available in this chat."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No disponible en este chat."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non disponible dans ce chat."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non disponibile in questa chat."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このチャットでは使用できません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនមាននៅក្នុងការជជែកនេះទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 채팅에서는 사용할 수 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ikke tilgjengelig i denne chatten."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Niedostępne w tym czacie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não disponível neste chat."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Недоступно в этом чате."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ใช้ไม่ได้ในแชทนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu sohbette kullanılamıyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Недоступно в цьому чаті."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không khả dụng trong cuộc trò chuyện này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此聊天中无法使用。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此聊天中無法使用。"
+          }
+        }
+      }
+    },    "agentPane.pageCommand.unavailable": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -13373,137 +13503,6 @@
         "stringUnit": {
           "state": "translated",
           "value": "繼續：Native policy · isolation unverified"
-        }
-      }
-    }
-  },
-    "agentPane.handoff.unverified": {
-    "extractionState": "manual",
-    "localizations": {
-      "en": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Coverage unverified"
-        }
-      },
-      "ja": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "カバレッジ未検証"
-        }
-      },
-      "ar": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "التغطية غير مُتحقق منها"
-        }
-      },
-      "bs": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Nastavi: Coverage unverified"
-        }
-      },
-      "da": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Fortsæt: Coverage unverified"
-        }
-      },
-      "de": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Abdeckung nicht verifiziert"
-        }
-      },
-      "es": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Cobertura no verificada"
-        }
-      },
-      "fr": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Couverture non vérifiée"
-        }
-      },
-      "it": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Continua: Coverage unverified"
-        }
-      },
-      "km": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "បន្ត៖ Coverage unverified"
-        }
-      },
-      "ko": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "범위 확인 안 됨"
-        }
-      },
-      "nb": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Fortsett: Coverage unverified"
-        }
-      },
-      "pl": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Kontynuuj: Coverage unverified"
-        }
-      },
-      "pt-BR": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Continuar: Coverage unverified"
-        }
-      },
-      "ru": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Продолжить: Coverage unverified"
-        }
-      },
-      "th": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "ดำเนินการต่อ: Coverage unverified"
-        }
-      },
-      "tr": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Devam: Coverage unverified"
-        }
-      },
-      "uk": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Продовжити: Coverage unverified"
-        }
-      },
-      "vi": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Tiếp tục: Coverage unverified"
-        }
-      },
-      "zh-Hans": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "覆盖范围未验证"
-        }
-      },
-      "zh-Hant": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "涵蓋範圍未驗證"
         }
       }
     }
@@ -36563,6 +36562,137 @@
           "stringUnit": {
             "state": "translated",
             "value": "模型選擇器中的代理程式位置"
+          }
+        }
+      }
+    },
+    "agentPane.harnessPlacement.symbols": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Top row of harness symbols"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "صف علوي من رموز الحزم"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gornji red simbola alata"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Øverste række med harness-symboler"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Obere Reihe mit Harness-Symbolen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fila superior de símbolos de harness"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rangée de symboles de harness en haut"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Riga in alto di simboli degli harness"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上部のハーネス記号の行"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ជួរខាងលើនៃនិមិត្តសញ្ញា harness"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "상단 하네스 기호 행"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Øverste rad med harness-symboler"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Górny wiersz symboli harnessów"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Linha superior de símbolos de harness"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Верхний ряд символов харнессов"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แถวสัญลักษณ์ harness ด้านบน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Harness simgelerinden oluşan üst satır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Верхній ряд символів харнесів"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hàng ký hiệu harness ở trên cùng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顶部的 harness 图标行"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "頂部的 harness 圖示列"
           }
         }
       }

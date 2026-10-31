@@ -11,11 +11,15 @@ public nonisolated struct ActionSuggestions: Sendable, Hashable {
     public let pinned: [ActionEnumCase]
     /// Title of the palette row that takes other text (a light/dark pair).
     public let otherTitle: String?
+    /// The argument takes several values, comma-joined (a group's members): the palette keeps
+    /// its list open, each chosen value a chip in the search field, until Continue.
+    public let allowsMultiple: Bool
 
-    public init(source: String, pinned: [ActionEnumCase], otherTitle: String? = nil) {
+    public init(source: String, pinned: [ActionEnumCase], otherTitle: String? = nil, allowsMultiple: Bool = false) {
         self.source = source
         self.pinned = pinned
         self.otherTitle = otherTitle
+        self.allowsMultiple = allowsMultiple
     }
 
     /// Every Ghostty theme (the App lists them).
@@ -27,6 +31,9 @@ public nonisolated struct ActionSuggestions: Sendable, Hashable {
     public static let densities = "densities"
     /// The Home conversations a message can go to (Send Message To…, Send To…; Chiefs first).
     public static let homeRecipients = "homeRecipients"
+    /// The people and Chiefs a new group can have (New Group Chat's `members`), by participant id:
+    /// the user's Chiefs (main first), the team, then the people of their DMs.
+    public static let homeMembers = "homeMembers"
     /// The names of this Mac's layout templates (New Workspace from Template's `template`).
     public static let layoutTemplates = "layoutTemplates"
     /// Backgrounds a pane may take (`pane.setBackground`): the bundled art, by title.

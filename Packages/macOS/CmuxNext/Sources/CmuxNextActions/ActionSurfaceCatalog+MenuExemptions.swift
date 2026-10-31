@@ -30,7 +30,7 @@ nonisolated extension ActionSurfaceCatalog {
             "sidebar.profileMenu", "browser.downloads.showFolder",
             "home.show",
             "openSettings", "appearance.customize", "newWindow", "newIncognitoWindow", "closeWindow", "minimizeWindow", "toggleFullScreen",
-            "closeAllWindows", "window.closeOthers", "workspace.closeAllInAllWindows", "zoomWindow", "selectNextWindow", "selectPreviousWindow",
+            "closeAllWindows", "window.closeOthers", "window.mergeAll", "workspace.closeAllInAllWindows", "zoomWindow", "selectNextWindow", "selectPreviousWindow",
             "quit", "quitKeepSessions", "quitEndSessions", "quitEndEverything", "globalSearch", "commandPalette",
             "palette.openTaskManager", "palette.sleepyMode", "keepMacAwake", "about", "manageLayouts",
             "palette.findWork", "reopenClosedBrowserPanel", "palette.browserClearHistory", "importFromBrowser", "password.importCSV", "browser.importFromFiles", "browser.allowAgentWithExtensions",
@@ -89,7 +89,7 @@ nonisolated extension ActionSurfaceCatalog {
             "fileExplorerOpenSelectionFinderAlias", "vaultOpenSession",
             "vaultResumeInNewWorkspace", "vaultCopyResumeCommand", "vaultOpenPullRequest", "checklistEditItem",
             "checklistMarkInProgress", "checklistCompleteItem", "checklistRemoveItem", "checklistOpenAsPane",
-            "checklistAttachImages", "cloudExec", "cloudDomainList", "cloudPublicationList", "cloudListMachines",
+            "checklistAttachImages", "cloudExec", "cloudDomainList", "cloudPublicationList", "cloudAPIKeyList", "cloudAPIKeyRevoke", "cloudListMachines",
         ],
         .focusMove: [
             "history.goTo",
