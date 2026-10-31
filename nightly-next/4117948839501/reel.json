@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "build": "4117948839501",
+  "notes": "notes/4117948839501.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 27990,
+      "title": "fix(home channels): keep changing counts stable",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28748,
+      "title": "fix(setup): preserve auth uncertainty and recover rejected launches (carry #27874)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25770,
+      "title": "fix(agent-chat): cancel transcript motion on manual scroll (cx-65mwy)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27200,
+      "title": "NEXT: check:attachment-caps catches count caps too, and a Swift test drives the real upload limits",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
