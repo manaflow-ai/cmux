@@ -184,7 +184,7 @@ test("compatible Cmux routes remain provider choices, inherited default cannot u
     },
   });
   const provider = f.rows().find((row) => row.id === "providers")!;
-  expect(provider.label).toBe("Provider");
+  expect(provider.label).toBe("Account");
   expect(provider.children?.some((row) => row.label === "Cmux" && row.checked)).toBe(true);
   const fallback = provider.children![0]!;
   expect(fallback.disabled).toBe(true);
