@@ -1290,9 +1290,13 @@ export default agentPaneEntry({
         const width = popover.style.width;
         const chrome = popover.getBoundingClientRect().width - strip.clientWidth;
         try {
+          // The pseudo-locale pads every label on purpose, so only shipped locales hold the rule to its width.
+          const locale = new URLSearchParams(ctx.document.defaultView?.location.search).get("locale");
           popover.style.width = `${524 + chrome}px`;
-          if (shown() !== 3) throw new Error(`just above the icon-only width only ${shown()} labels show`);
-          if (cut().length) throw new Error(`just above the icon-only width labels are cut: ${cut().join(", ")}`);
+          if (locale !== "en-XA" && shown() !== 3)
+            throw new Error(`just above the icon-only width only ${shown()} labels show`);
+          if (locale !== "en-XA" && cut().length)
+            throw new Error(`just above the icon-only width labels are cut: ${cut().join(", ")}`);
           popover.style.width = "260px";
           if (shown() !== 0) throw new Error(`a narrow strip still shows ${shown()} labels`);
           const box = strip.getBoundingClientRect();
