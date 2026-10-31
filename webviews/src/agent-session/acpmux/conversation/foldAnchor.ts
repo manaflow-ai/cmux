@@ -19,15 +19,18 @@ import { foldMs } from "./fold";
 /// (a button or a `role="button"` line with `aria-expanded`: a tool or sent message's line, Show
 /// more, Show all lines, Raw, a file list's "+N more"), a `<summary>`, and the words of a line that
 /// toggle with its button (`data-interactive` inside an agent message's line). A menu's trigger
-/// (`aria-haspopup`) opens no body in the row and is left out.
+/// (`aria-haspopup`) opens no body in the row and is left out. An `aria-pressed` button is held only
+/// when it says it changes its block's height (`data-fold-toggle`: Wrap lines, a tool output's Raw):
+/// a reply's Pin and Read aloud are `aria-pressed` too, and holding them would stop following a
+/// reply that streams on.
 export const FOLD_TOGGLE = [
   "button[aria-expanded]:not([aria-haspopup])",
   '[role="button"][aria-expanded]:not([aria-haspopup])',
   "summary",
   ".cv-agentmsg__line > [data-interactive]",
-  // Toggles that change their block's height in place and say so (Wrap lines, a diagram's chart or
-  // code). Not every aria-pressed button: Pin and Read aloud change no height and must not hold.
-  "button[data-fold-toggle]",
+  // Toggles that change their block's height in place: Wrap lines, Raw, a diagram's chart or code.
+  "button[aria-pressed][data-fold-toggle]",
+  "button.cv-diagram__toggle",
 ].join(", ");
 /// The controls a click lands on: one inside a toggle is its own, not the toggle's.
 const NESTED_CONTROL =
@@ -38,7 +41,9 @@ export const ANCHORED_COLLAPSE_EVENT = "cmux:anchored-collapse";
 /// How long a hold outlasts its fold: the last frame's measure, and rows a "Worked for" inserts.
 export const FOLD_SETTLE_MS = 150; // motion-allow: a hold timer after the fold, not an animation
 /// The shortest hold, so a toggle with no fold (Reduce Motion, a body that lays out late) is still
-/// held while what it opened is measured and placed. The reader's own scroll lets go of it sooner.
+/// held while what it opened is measured and placed. A hold that kept extending while its line moved
+/// re-placed a tall prompt under the pointer and its Show less missed the click. The reader's own
+/// scroll lets go of it sooner.
 export const FOLD_HOLD_MIN_MS = 400; // motion-allow: a hold timer, not an animation
 
 export type FoldAnchor = {
@@ -66,10 +71,16 @@ const HEADER_TOGGLE =
 /// What a click on `toggle` holds in place. A line that opens a body under itself holds itself. Any
 /// other control (Show more, Show all lines, "+N more", Raw) may sit under or beside the body it
 /// opens or closes, so its row holds by its top: the body grows and shrinks downward and nothing
-/// above it moves, the control with it.
-export function foldHoldTarget(toggle: HTMLElement): HTMLElement {
+/// above it moves, the control with it. A row whose top is above `scroller`'s view (Show less under
+/// a long output, scrolled down to) holds the control instead: held by its top, the row would close
+/// up above the view and leave it blank, so the body shrinks up into the control, which stays where
+/// it was clicked.
+export function foldHoldTarget(toggle: HTMLElement, scroller?: HTMLElement): HTMLElement {
   if (toggle.matches(HEADER_TOGGLE)) return toggle;
-  return toggle.closest<HTMLElement>(".acpmux-row") ?? toggle;
+  const row = toggle.closest<HTMLElement>(".acpmux-row");
+  if (!row) return toggle;
+  if (scroller && row.getBoundingClientRect().top < scroller.getBoundingClientRect().top - 0.5) return toggle;
+  return row;
 }
 
 /// Holds `toggle` where it is drawn now, for its fold and a little after.
@@ -110,7 +121,9 @@ export function foldRoomFor(scrollTop: number, clientHeight: number, kept = 0): 
 /// The kept end after a scroll or a placement pass: as it is while a fold holds its line; else no
 /// further down than the view's end (`viewEnd`, the reader scrolled up), and 0 once the content
 /// would be that tall anyway: the rows' own end (`rowsEnd`) or the view's height (`viewHeight`, a
-/// scroller is never shorter than its view) reaches it, when nothing of it is room any more.
+/// scroller is never shorter than its view) reaches it, when nothing of it is room any more. Nor
+/// once the rows end above the view's top: the room would be all the reader sees, so it goes and
+/// the view comes back to the rows' end.
 export function trimmedFoldRoom(
   kept: number,
   viewEnd: number,
@@ -120,6 +133,7 @@ export function trimmedFoldRoom(
 ): number {
   if (kept <= 0) return 0;
   if (holding) return kept;
+  if (viewHeight > 0 && rowsEnd <= viewEnd - viewHeight + 0.5) return 0;
   const next = Math.min(kept, Math.ceil(viewEnd));
   return next <= Math.max(rowsEnd, viewHeight) + 0.5 ? 0 : next;
 }

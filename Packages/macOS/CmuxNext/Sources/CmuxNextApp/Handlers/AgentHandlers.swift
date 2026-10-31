@@ -5,6 +5,7 @@ import CmuxNextCompat
 import CmuxNextComputerUse
 import CmuxNextControl
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextDesign
 import CmuxNextHistory
 import CmuxNextHomeEngine
@@ -260,6 +261,7 @@ enum AgentHandlers {
             })
         }
         TerminalChatHandler.bind(into: registry, context: context)
+        AgentShareActions(host: context.services).bind(into: registry)
         AgentTeamsLaunch.bind(into: registry, context: context)
         let services = context.services
         let helper = ComputerUseHelperDaemon.shared
