@@ -116,11 +116,7 @@ impl Hub {
                         from = p.and_then(|p| p["from"].as_str()).map(str::to_owned);
                     }
                 }
-                "auto_resume_manual" if is_cut => {
-                    if !manual_recorded {
-                        manual = Some(e.msg);
-                    }
-                }
+                "auto_resume_manual" if is_cut && !manual_recorded => manual = Some(e.msg),
                 "turn_control"
                     if is_cut && e.msg.get("control").and_then(Value::as_str) == Some("web") =>
                 {
