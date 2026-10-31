@@ -394,7 +394,9 @@ any one of them, the kit branch@commit, the owner and the STATUS item that opene
 when each listed journey has a PASS and no FAIL on that exact build job; else the gate writes `open-p0.txt` in its
 out folder, naming each blocking line, and exits 75. Owners add a line when a P0 opens and remove it only when the
 fix is in the build and the journey passes. A kit whose `run.py` predates the ledger: append its `results.jsonl`
-lines to the ledger file.
+lines to the ledger file. `--build` must be the full job id. Only a PASS of a clean journeys tree in the judged mode
+(not `smoke_mode=diagnostic`) counts. A FAIL shown to be the kit's own false red is waived by a line
+`<the row's out path> <reason>` in `handoff/open-p0-waivers.txt`; the waiver is named in `open-p0.txt` and the `.pass`.
 
 ### Rounds by scheduler GO (`--go-spec`)
 

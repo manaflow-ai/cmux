@@ -1132,7 +1132,7 @@ def step_smoke_hold_path(j, step):
     for record in getattr(j, "steps", []):
         index = record.get("index", 0) - 1
         mark = specs[index].get("mark") if 0 <= index < len(specs) else None
-        if mark in step.get("held_marks", []):
+        if mark in step.get("held_marks", []) + step.get("dispatched_marks", []):
             reply = (record.get("result") or {}).get("reply") if isinstance(record.get("result"), dict) else None
             if not isinstance(reply, dict):
                 marks[mark] = {"handled_by": None, "trace": None, "held": False}
@@ -1142,13 +1142,21 @@ def step_smoke_hold_path(j, step):
             # its dispatch adds a "dispatcher: <decision>" trace line; a held key returns from capture before that.
             ran = [t for t in trace if t.startswith("dispatcher:")]
             marks[mark] = {"handled_by": str(reply.get("handled_by")), "trace": trace[:8],
-                           "held": reply.get("handled_by") == "app" and not ran}
+                           "held": reply.get("handled_by") == "app" and not ran,
+                           "dispatched": reply.get("handled_by") == "app" and bool(ran)}
     result = {"hold_path": held > 0, "held_keys": held, "lines": lines, "burst_holds": burst, "marks": marks}
     if step.get("creation_held"):
         # The creation hold's own report proves the hold path: creation N stayed pending (its reply held by the hook)
         # while the keys after it were typed, and the next creation started meanwhile. The key paths are data only.
         pending, reply = _creation_proof(j, int(step["creation_held"]))
         result.update({"creation_pending": pending, "creation_release": reply, "hold_path": pending})
+        # `dispatched_marks`: key steps whose key the router must have RUN at once (a "dispatcher:" trace), e.g. the
+        # second Cmd-D that starts creation 2 while creation 1 is held (the 1193 race).
+        late = [m for m in step.get("dispatched_marks", []) if not (marks.get(m) or {}).get("dispatched")]
+        if late:
+            result["hold_path"] = False
+            raise D.NotRun(f"hold path not proven: the key of step(s) {late} was not run at once "
+                           f"({json.dumps({m: marks.get(m) for m in late})[:300]})")
         if not pending:
             raise D.NotRun(f"hold path not proven: creation {step['creation_held']} was not held while the keys "
                            f"were typed (release reply {json.dumps(reply)[:300]}) ({json.dumps(result)[:400]})")
@@ -1176,7 +1184,7 @@ def step_smoke_creation(j, step):
     no n). Records each reply for smoke_hold_path. A build without the hook (feat, a dogfood line) cannot run the
     journey: not run, never a red."""
     method = "debug.creation." + step["action"]
-    params = {"n": step["n"]} if "n" in step else {}
+    params = {k: step[k] for k in ("n", "stand_in") if k in step}
     try:
         reply = j.app.rpc(method, params)
     except D.StepError as error:
@@ -1185,6 +1193,8 @@ def step_smoke_creation(j, step):
             raise D.NotRun(f"this build has no {method} (the creation hold of #29301): {text[:200]}")
         raise
     j.smoke_creation = {**getattr(j, "smoke_creation", {}), step["action"]: reply, step["action"] + "_at": D.now()}
+    if step["action"] == "hold" and "stand_in" in step:
+        j.smoke_creation["want_shown"] = list(step["stand_in"])
     return {"reply": reply}
 
 
@@ -1227,6 +1237,9 @@ def _creation_proof(j, n):
     # "started" >= N + 1: creation N and the next one (the second Cmd-D) both started after the hold was armed.
     started = int(reply.get("started") or 0) >= n + 1
     if "resumed" in reply:  # a hook that names the creations it really resumed: the direct proof
+        shown = seen.get("want_shown")
+        if shown is not None and sorted(ints("shown")) != sorted(shown):
+            return False, reply  # the stand-in hold (the hog state on purpose) did not hold what it was asked to
         return started and n in ints("resumed"), reply
     # Else: "released" names N even when N never waited, so the proof is that N started under the armed hold and was
     # released before the hook's own 30 s limit (it would have gone on by itself). The non-optimistic split path

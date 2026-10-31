@@ -295,16 +295,29 @@ class OpenP0(unittest.TestCase):
             mod.OPEN_P0, mod.P0_LEDGER = Path(tmp) / "list.txt", Path(tmp) / "ledger"
             mod.OPEN_P0.write_text("r3-new-tab-panel k o S1\nj-a|j-b k o S2\n")
             mod.P0_LEDGER.mkdir()
-            rows = [{"id": "r3-new-tab-panel", "status": "pass", "build_job": "J"},
-                    {"id": "j-b", "status": "pass", "build_job": "J"},
+            ok = {"kit_dirty": False, "options": {}}
+            rows = [{"id": "r3-new-tab-panel", "status": "pass", "build_job": "J", **ok},
+                    {"id": "j-b", "status": "pass", "build_job": "J", "kit_dirty": True, "options": {}},
+                    {"id": "j-a", "status": "pass", "build_job": "J", "kit_dirty": False,
+                     "options": {"smoke_mode": "diagnostic"}},
                     {"id": "r3-new-tab-panel", "status": "pass", "build_job": "OTHER"}]
             (mod.P0_LEDGER / "J.jsonl").write_text("\n".join(json.dumps(r) for r in rows) + "\nnot json\n")
+            mod.P0_WAIVERS = Path(tmp) / "waivers.txt"
+            # j-a|j-b: a dirty-kit pass and a diagnostic pass do not count
+            self.assertEqual([b[0].split()[0] for b in mod.open_p0_blockers("J")], ["j-a|j-b"])
+            with open(mod.P0_LEDGER / "J.jsonl", "a") as f:
+                f.write(json.dumps({"id": "j-b", "status": "pass", "build_job": "J", **ok}) + "\n")
             self.assertEqual(mod.open_p0_blockers("J"), [])
             with open(mod.P0_LEDGER / "J.jsonl", "a") as f:
                 f.write(json.dumps({"id": "r3-new-tab-panel", "status": "fail", "build_job": "J", "out": "/x"}) + "\n")
             blockers = mod.open_p0_blockers("J")
             self.assertEqual(len(blockers), 1)
             self.assertIn("FAILED on J", blockers[0][1])
+            mod.P0_WAIVERS.write_text("/x the kit's text reader misread the line (STATUS 1412)\n")
+            waived = []
+            self.assertEqual(mod.open_p0_blockers("J", waived), [])
+            self.assertEqual(waived[0]["out"], "/x")
+            mod.P0_WAIVERS.write_text("")
             self.assertEqual(len(mod.open_p0_blockers("NONE")), 2)  # no results on that build: both block
             mod.OPEN_P0 = Path(tmp) / "missing.txt"
             self.assertIn("cannot be read", mod.open_p0_blockers("J")[0][1])
@@ -322,7 +335,12 @@ class OpenP0(unittest.TestCase):
                 ledger, run.P0_LEDGER = run.P0_LEDGER, old
             rows = [json.loads(l) for l in (ledger / "J.jsonl").read_text().splitlines()]
             self.assertEqual([(r["id"], r["status"], r["build_job"]) for r in rows], [("x", "pass", "J")])
-            self.assertTrue(rows[0]["kit"])
+            self.assertIn("kit_dirty", rows[0])
+            in_git = subprocess.run(["git", "-C", str(HERE), "rev-parse", "HEAD"], capture_output=True).returncode == 0
+            if in_git:
+                self.assertTrue(rows[0]["kit"])
+            else:
+                self.assertTrue(rows[0]["kit_dirty"])  # no git: never counted as a clean kit
 
 
 class GoSpec(unittest.TestCase):
@@ -1407,6 +1425,31 @@ class HoldPath(unittest.TestCase):
         finally:
             self.ext.time.sleep, self.ext.D.now = sleep, now
         self.assertEqual((done["reached"], done["pane"]), (True, "B"))
+
+    def test_the_stand_in_hold_needs_shown_and_a_dispatched_second_cmd_d(self):
+        calls = []
+
+        class App:
+            def rpc(self_, method, params=None):
+                calls.append((method, params))
+                return {"debug.creation.hold": {"armed": [1], "stand_in": [2], "started": 0},
+                        "debug.creation.release": {"started": 2, "released": [1], "resumed": [1], "shown": [2]}}[method]
+        j = self._j(("echo d2", ["responder"]))
+        j.app = App()
+        j.spec = {"steps": [{"do": "key", "mark": "split2"}]}
+        j.steps = [{"index": 1, "result": {"reply": {"handled_by": "app", "trace": ["dispatcher: run(splitRight)"]}}}]
+        self.ext.step_smoke_creation(j, {"action": "hold", "n": [1], "stand_in": [2]})
+        self.ext.step_smoke_creation(j, {"action": "release"})
+        self.assertEqual(calls, [("debug.creation.hold", {"n": [1], "stand_in": [2]}), ("debug.creation.release", {})])
+        want = {"creation_held": 1, "dispatched_marks": ["split2"]}
+        self.assertTrue(self.ext.step_smoke_hold_path(j, want)["hold_path"])
+        j.steps[0]["result"]["reply"]["trace"] = []  # the second Cmd-D was held, creation 2 never raced
+        with self.assertRaises(self.NotRun):
+            self.ext.step_smoke_hold_path(j, want)
+        j.steps[0]["result"]["reply"]["trace"] = ["dispatcher: run(splitRight)"]
+        j.smoke_creation["release"] = {"started": 2, "released": [1], "resumed": [1], "shown": []}  # stand-in not held
+        with self.assertRaises(self.NotRun):
+            self.ext.step_smoke_hold_path(j, want)
 
     def test_a_burst_without_a_hold_counter_is_not_proven(self):
         with self.assertRaises(self.NotRun) as no:

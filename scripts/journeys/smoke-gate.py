@@ -305,9 +305,20 @@ def await_go(spec, hosts, used, deadline, poll=5.0):
 # exact build job: a pass by omission (the gate does not test that P0) is no pass.
 OPEN_P0 = Path(os.environ.get("SMOKE_GATE_OPEN_P0", "/Users/lawrence/fun/wt/handoff/open-p0-journeys.txt"))
 P0_LEDGER = Path(os.environ.get("JOURNEYS_P0_LEDGER", "/Users/lawrence/fun/wt/handoff/open-p0-results"))
+# A FAIL row shown to be the kit's own fault (a false red) is waived by a line "<the row's out path> <reason>"; the
+# waiver is named in open-p0.txt and the .pass. Old kits are never ignored automatically: a real red can come from any.
+P0_WAIVERS = Path(os.environ.get("SMOKE_GATE_P0_WAIVERS", "/Users/lawrence/fun/wt/handoff/open-p0-waivers.txt"))
 
 
-def open_p0_blockers(job):
+def p0_waivers():
+    try:
+        return {f[0]: f[1] for f in (l.split(None, 1) for l in P0_WAIVERS.read_text().splitlines()
+                                     if l.strip() and not l.lstrip().startswith("#")) if len(f) == 2}
+    except OSError:
+        return {}
+
+
+def open_p0_blockers(job, waived=None):
     """[(list line, why)] of the open P0 journeys that block a .pass for JOB: no PASS on JOB in the ledger, or any FAIL.
     An unreadable list blocks too (the rule cannot be checked)."""
     try:
@@ -325,18 +336,30 @@ def open_p0_blockers(job):
                 rows.append(row)
     except OSError:
         pass
-    blockers = []
+    blockers, waivers = [], p0_waivers()
     for fields in listed:
         ids = set(fields[0].split("|"))
         mine = [r for r in rows if r.get("id") in ids]
-        fails = [r for r in mine if r.get("status") == "fail"]
-        passes = [r for r in mine if r.get("status") == "pass"]
+        fails = []
+        for r in mine:
+            if r.get("status") != "fail":
+                continue
+            if str(r.get("out")) in waivers:
+                if waived is not None:
+                    waived.append({"out": r.get("out"), "id": r.get("id"), "reason": waivers[str(r.get("out"))]})
+                continue
+            fails.append(r)
+        # Only a pass of a clean kit in the judged mode counts (a diagnostic round types after the hold and does not
+        # check the key window; a dirty tree is not the kit the commit names).
+        passes = [r for r in mine if r.get("status") == "pass" and r.get("kit_dirty") is False
+                  and (r.get("options") or {}).get("smoke_mode") != "diagnostic"]
         line = " ".join(fields)
         if fails:
             blockers.append((line, f"FAILED on {job}: {len(fails)} fail(s), e.g. {fails[0].get('out')}: "
                                    f"{str(fails[0].get('reason') or '')[:160]}"))
         elif not passes:
-            blockers.append((line, f"has not passed on {job} ({len(mine)} result(s), none a pass)"))
+            blockers.append((line, f"has not passed on {job} ({len(mine)} result(s), none a pass of a clean kit in the "
+                                   "judged mode)"))
     return blockers
 
 
@@ -526,15 +549,19 @@ def main(argv=None):
         if not gate_run:
             print(f"smoke-gate: a trial PASS (--rounds {opts.rounds}, --swap-gb {opts.swap_gb:g}): no .pass file", file=sys.stderr)
             return 75
-        blockers = open_p0_blockers(opts.build)
+        waived = []
+        blockers = open_p0_blockers(opts.build, waived)
         if blockers:
             text = "\n".join([f"smoke-gate: {opts.rounds} of {opts.rounds} rounds passed, but an open P0 journey blocks the "
-                              f".pass ({OPEN_P0}):"] + [f"  {line}: {why}" for line, why in blockers])
+                              f".pass ({OPEN_P0}; --build must be the full job id):"]
+                             + [f"  {line}: {why}" for line, why in blockers]
+                             + [f"  waived FAIL {w['id']} {w['out']}: {w['reason']}" for w in waived])
             (out / "open-p0.txt").write_text(text + "\n")
             print(text, file=sys.stderr)
             return 75
         handoff = Path(opts.handoff)
         handoff.mkdir(parents=True, exist_ok=True)
+        summary["open_p0_waived"] = waived
         summary["open_p0_checked"] = [l.split()[0] for l in OPEN_P0.read_text().splitlines()
                                       if l.strip() and not l.lstrip().startswith("#")]
         (handoff / f"{opts.build}.pass").write_text(json.dumps(summary, indent=1) + "\n")
