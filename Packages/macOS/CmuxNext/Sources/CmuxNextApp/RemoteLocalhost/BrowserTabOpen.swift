@@ -4,7 +4,6 @@ import CmuxNextPages
 import CmuxNextRemoteLocalhost
 import CmuxNextRemoteLocalhostService
 import CmuxNextSettings
-import CryptoKit
 import Foundation
 
 /// `browser.tab.open` (a host action of the Cloud page, through
@@ -20,95 +19,21 @@ enum BrowserTabOpen {
     static let action = "browser.tab.open"
     /// The only page that may hand over a proxy (the Cloud page in the app).
     static let callerPage = PageDescriptor.cloud.id
-    /// The store key is `machineKey(machine:)`: 16 lowercase hex digits of
-    /// SHA-256 over this prefix and the machine id. The prefix keeps it apart
-    /// from remote-localhost keys (SHA-256 of a daemon `registry_id`).
-    static let machineKeyPrefix = "cmux.cloud.browser-store.v1:"
+    typealias Refusal = CloudBrowserRequest.Refusal
+    typealias Request = CloudBrowserRequest
+    static let machineKeyPrefix = CloudBrowserRequest.machineKeyPrefix
 
-    enum Refusal: Error, Equatable {
-        /// A machine store opens only in Chromium (`engine: "cef"`).
-        case proxyRequiresCEF
-        /// The machine store or proxy is missing or not the local HTTP proxy on 127.0.0.1.
-        case proxyInvalid
-        /// The caller may not hand over a proxy (only the Cloud page may).
-        case proxyOriginRefused
-        /// Chromium is not available, or failed to make the tab.
-        case cefUnavailable
-        /// The URL is not an http(s) loopback URL.
-        case invalidURL
-        /// No window to open the tab in.
-        case noWindow
+    static func machineKey(machine: String) -> String { CloudBrowserRequest.machineKey(machine: machine) }
 
-        var code: String {
-            switch self {
-            case .proxyRequiresCEF: "cmux.browser.proxy_requires_cef"
-            case .proxyInvalid: "cmux.browser.proxy_invalid"
-            case .proxyOriginRefused: "cmux.browser.proxy_origin_refused"
-            case .cefUnavailable: "cmux.browser.cef_unavailable"
-            case .invalidURL: "cmux.browser.invalid_url"
-            case .noWindow: "cmux.browser.no_window"
-            }
-        }
-
-        var pageError: PageError { PageError(code: code, message: code) }
-    }
-
-    struct Request: Equatable {
-        var url: URL
-        var machine: String
-        var machineName: String
-        var incarnation: UInt64
-        var generation: UInt64
-        var proxyPort: UInt16
-        var credential: ProxyCredential
-    }
-
-    static func machineKey(machine: String) -> String {
-        SHA256.hash(data: Data((machineKeyPrefix + machine).utf8)).prefix(8).map { String(format: "%02x", $0) }.joined()
-    }
-
-    /// Checks `args` from page `page` (set by the page host, never by the page).
+    /// The calling page id comes from the page host, never the request.
     static func request(args: JSONValue, page: String) throws(Refusal) -> Request {
         guard page == callerPage else { throw .proxyOriginRefused }
-        return try checked(args)
+        return try Request.checked(args)
     }
 
-    /// `cmux cloud open-browser` (CloudHandlers+Browser.swift): `route` is the `cloud.browser.open`
-    /// answer the app asked for itself, so no page hands it over and the caller page check does not
-    /// apply. The route gets every other check of a page's request.
+    /// The app requested this route itself; only its payload needs validation.
     static func request(route: JSONValue, machineName: String) throws(Refusal) -> Request {
-        try checked(.object([
-            "engine": .string("cef"), "url": route["url"] ?? .null,
-            "incarnation": route["incarnation"] ?? .null, "generation": route["generation"] ?? .null,
-            "machineStore": .object(["machine": route["machine"] ?? .null, "machineName": .string(machineName), "proxy": route["proxy"] ?? .null]),
-        ]))
-    }
-
-    private static func checked(_ args: JSONValue) throws(Refusal) -> Request {
-        guard args["engine"]?.stringValue == "cef" else { throw .proxyRequiresCEF }
-        guard let text = args["url"]?.stringValue, let url = URL(string: text),
-              ["http", "https"].contains(url.scheme?.lowercased() ?? ""),
-              LoopbackHost(url: url)?.isLoopback == true else { throw .invalidURL }
-        guard let store = args["machineStore"], let machine = store["machine"]?.stringValue, !machine.isEmpty,
-              let proxy = store["proxy"], proxy["kind"]?.stringValue == "http", proxy["host"]?.stringValue == "127.0.0.1",
-              case .number(let number)? = proxy["port"], number.rounded() == number, number >= 1, number <= 65535,
-              let username = proxy["username"]?.stringValue, !username.isEmpty, username.utf8.count <= 128,
-              let password = proxy["password"]?.stringValue, password.utf8.count >= 32, password.utf8.count <= 256,
-              case .number(let incarnation)? = args["incarnation"], incarnation.rounded() == incarnation,
-              incarnation >= 1, incarnation <= 9_007_199_254_740_991,
-              case .number(let generation)? = args["generation"], generation.rounded() == generation,
-              generation >= 1, generation <= 9_007_199_254_740_991
-        else { throw .proxyInvalid }
-        let name = store["machineName"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 } ?? machine
-        return Request(
-            url: url,
-            machine: machine,
-            machineName: name,
-            incarnation: UInt64(incarnation),
-            generation: UInt64(generation),
-            proxyPort: UInt16(number),
-            credential: ProxyCredential(username: username, password: password)
-        )
+        try Request.route(route, machineName: machineName)
     }
 }
 
@@ -121,7 +46,7 @@ extension BrowserTabOpen {
             try await open(request(args: args, page: page), services: services)
             return ["opened": .bool(true)]
         } catch {
-            throw error.pageError
+            throw PageError(code: error.code, message: error.code)
         }
     }
 
