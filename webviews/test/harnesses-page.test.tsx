@@ -21,7 +21,9 @@ const scope = globalThis as Record<string, unknown>;
 const saved = new Map<string, unknown>();
 
 function installDom(): HTMLElement {
-  dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>", { url: "http://localhost/" });
+  dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>", {
+    url: "http://localhost/",
+  });
   for (const key of ["window", "document", "navigator", "Node", "HTMLElement", "Element", "IS_REACT_ACT_ENVIRONMENT"])
     saved.set(key, scope[key]);
   Object.assign(scope, {
@@ -67,6 +69,9 @@ type Page = {
   shell?: { output: string[]; code: number; ends?: Promise<void>; endsWithOutput?: boolean };
   /// The sign-in check's answer for each harness (default: Codex signed out, the rest signed in).
   auth?: Record<string, HarnessHealth["auth"]>;
+  noLogin?: string[];
+  healthReply?: (id: string) => Promise<unknown>;
+  launch?: (method: string) => Promise<unknown>;
   update?: HarnessHealth["update"];
   checking?: boolean;
   refreshed?: string[];
@@ -80,15 +85,19 @@ async function renderPage(calls: Call[] = [], closed: string[] = [], page: Page 
   const native = (method: string, params: Record<string, unknown> = {}) => {
     calls.push({ method, params });
     if (method === "tab.open" && params.kind === "terminal" && page.openTerminal) return page.openTerminal();
+    if ((method === "tab.open" || method === "chat.new") && page.launch) return page.launch(method);
     if (method === "harness.health")
-      return Promise.resolve({
-        health: {
-          id: params.id,
-          auth: page.auth?.[String(params.id)] ?? (params.id === "codex" ? "signedOut" : "signedIn"),
-          login: `${String(params.id)} login`,
-          ...(page.update ? { update: page.update } : {}),
-        },
-      });
+      return (
+        page.healthReply?.(String(params.id)) ??
+        Promise.resolve({
+          health: {
+            id: params.id,
+            auth: page.auth?.[String(params.id)] ?? (params.id === "codex" ? "signedOut" : "signedIn"),
+            ...(page.noLogin?.includes(String(params.id)) ? {} : { login: `${String(params.id)} login` }),
+            ...(page.update ? { update: page.update } : {}),
+          },
+        })
+      );
     if (method === "shell.run") return Promise.resolve({ id: "run-1" });
     if (method === "shell.read") {
       const output = page.shell?.output ?? [];
@@ -96,7 +105,10 @@ async function renderPage(calls: Call[] = [], closed: string[] = [], page: Page 
       reads += 1;
       if (chunk !== undefined) return Promise.resolve({ output: chunk, next: reads });
       if (page.shell?.endsWithOutput)
-        return (page.shell.ends ?? Promise.resolve()).then(() => ({ output: "more\n", next: reads }));
+        return (page.shell.ends ?? Promise.resolve()).then(() => ({
+          output: "more\n",
+          next: reads,
+        }));
       return (page.shell?.ends ?? Promise.resolve()).then(() => ({
         output: "",
         next: reads,
@@ -173,7 +185,13 @@ test("Sign In runs the CLI's login in a terminal tab in the chat's folder", asyn
     {
       method: "tab.open",
       // `keep`: the page stays beside the terminal (a page with no chat yet is otherwise replaced).
-      params: { kind: "terminal", text: "codex login", cwd: "/Users/you/src/cmux", run: true, keep: true },
+      params: {
+        kind: "terminal",
+        text: "codex login",
+        cwd: "/Users/you/src/cmux",
+        run: true,
+        keep: true,
+      },
     },
   ]);
 });
@@ -235,12 +253,134 @@ test("Start Chat starts a chat on that harness in this tab", async () => {
   expect(closed).toEqual(["closed"]);
 });
 
+test("signed out without a login command offers recovery, never Start Chat", async () => {
+  const calls: Call[] = [];
+  const container = await renderPage(calls, [], {
+    auth: { claude: "signedOut" },
+    noLogin: ["claude"],
+  });
+  const claude = row(container, "Claude Code")!;
+  expect(claude.dataset.harnessStatus).toBe("signIn");
+  expect(claude.textContent).toContain("Signed out");
+  expect(claude.textContent).not.toContain("Start Chat");
+  expect(claude.querySelector("button")!.textContent).toBe("Setup guide");
+  await act(async () => claude.querySelector<HTMLButtonElement>("button")!.click());
+  expect(calls.some((call) => call.method === "chat.new")).toBe(false);
+  expect(calls.find((call) => call.method === "tab.open")?.params.kind).toBe("browser");
+});
+
+test("pending health keeps installed rows in place and does not offer Start Chat", async () => {
+  let answer!: (reply: unknown) => void;
+  const pending = new Promise<unknown>((resolve) => {
+    answer = resolve;
+  });
+  const container = await renderPage([], [], {
+    healthReply: (id) => (id === "claude" ? pending : Promise.resolve({ health: { id, auth: "signedIn" } })),
+  });
+  const names = () =>
+    [...container.querySelectorAll("[data-harness-row]")].map((element) => element.getAttribute("data-harness-row"));
+  const before = names();
+  expect(row(container, "Claude Code")!.dataset.harnessStatus).toBe("checking");
+  expect(row(container, "Claude Code")!.querySelector("button")).toBeNull();
+  await act(async () => answer({ health: { id: "claude", auth: "signedIn" } }));
+  expect(names()).toEqual(before);
+  expect(row(container, "Claude Code")!.dataset.harnessStatus).toBe("ready");
+});
+
+for (const result of ["rejected", "empty", "unknown"] as const) {
+  test(`${result} health offers recovery instead of Ready or an endless check`, async () => {
+    const container = await renderPage([], [], {
+      healthReply: (id) =>
+        result === "rejected"
+          ? Promise.reject(new Error("Health unavailable"))
+          : Promise.resolve(result === "empty" ? {} : { health: { id, auth: "unknown" } }),
+    });
+    const claude = row(container, "Claude Code")!;
+    expect(claude.dataset.harnessStatus).toBe("unavailable");
+    expect(claude.querySelector("button")).not.toBeNull();
+    expect(claude.textContent).not.toContain("Start Chat");
+    expect(claude.querySelector(".acpmux-harness-spinner")).toBeNull();
+  });
+}
+
+test("a health answer with no sign-in is unknown: never Ready or Start Chat, and offers a fix", async () => {
+  const calls: Call[] = [];
+  const closed: string[] = [];
+  const container = await renderPage(calls, closed, {
+    // acpmux answered, but said nothing about the sign-in (no `auth`).
+    healthReply: (id) =>
+      Promise.resolve({ health: id === "grok" ? { id, login: "grok login" } : { id, auth: "signedIn" } }),
+  });
+  const grok = row(container, "Grok")!;
+  expect(grok.dataset.harnessStatus).toBe("unavailable");
+  expect(grok.textContent).not.toContain("Ready");
+  expect(grok.textContent).not.toContain("Start Chat");
+  expect(grok.querySelector(".acpmux-harness-spinner")).toBeNull();
+  const fix = grok.querySelector<HTMLButtonElement>("button")!;
+  expect(["Setup guide", "Check again"]).toContain(fix.textContent ?? "");
+  await act(async () => fix.click());
+  expect(calls.some((call) => call.method === "chat.new")).toBe(false);
+  expect(closed).toEqual([]);
+  // The known cases keep their actions: signed in starts a chat, signed out signs in.
+  expect(row(container, "Claude Code")!.dataset.harnessStatus).toBe("ready");
+  expect(row(container, "Claude Code")!.querySelector("button")!.textContent).toBe("Start Chat");
+});
+
+for (const [name, method, label] of [
+  ["Codex", "tab.open", "Sign In"],
+  ["Grok", "chat.new", "Start Chat"],
+] as const) {
+  test(`${label} rejection stays visible and can be retried`, async () => {
+    const calls: Call[] = [];
+    const closed: string[] = [];
+    let fail = true;
+    const container = await renderPage(calls, closed, {
+      launch: () => (fail ? Promise.reject(new Error("Host refused launch")) : Promise.resolve({})),
+    });
+    await act(async () => row(container, name)!.querySelector<HTMLButtonElement>("button")!.click());
+    const failed = row(container, name)!;
+    expect(failed.dataset.harnessStatus).toBe("failed");
+    expect(failed.textContent).toContain("Host refused launch");
+    expect(failed.querySelector(".acpmux-harness-spinner")).toBeNull();
+    expect(closed).toEqual([]);
+    expect(failed.querySelector("button")!.textContent).toBe(label);
+    fail = false;
+    await act(async () => failed.querySelector<HTMLButtonElement>("button")!.click());
+    expect(calls.filter((call) => call.method === method).length).toBe(2);
+    if (method === "chat.new") expect(closed).toEqual(["closed"]);
+    else expect(row(container, name)!.dataset.harnessStatus).toBe("waiting");
+  });
+}
+
+test("a pending Start Chat cannot duplicate a launch or close the page early", async () => {
+  let answer!: (value: unknown) => void;
+  const launch = new Promise<unknown>((resolve) => {
+    answer = resolve;
+  });
+  const calls: Call[] = [];
+  const closed: string[] = [];
+  const container = await renderPage(calls, closed, { launch: () => launch });
+  const button = row(container, "Grok")!.querySelector<HTMLButtonElement>("button")!;
+  await act(async () => {
+    button.click();
+    button.click();
+  });
+  expect(calls.filter((call) => call.method === "chat.new").length).toBe(1);
+  expect(closed).toEqual([]);
+  expect(button.disabled).toBe(true);
+  await act(async () => answer({}));
+  expect(closed).toEqual(["closed"]);
+});
+
 test("Install… opens the setup page of a harness with no install command in a browser tab", async () => {
   const calls: Call[] = [];
   const container = await renderPage(calls);
   await act(async () => row(container, "Pi")!.querySelector<HTMLButtonElement>("button")!.click());
   expect(calls.filter((call) => call.method === "tab.open")).toEqual([
-    { method: "tab.open", params: { kind: "browser", text: "https://github.com/earendil-works/pi", keep: true } },
+    {
+      method: "tab.open",
+      params: { kind: "browser", text: "https://github.com/earendil-works/pi", keep: true },
+    },
   ]);
 });
 
@@ -275,7 +415,9 @@ test("Install runs the install command in place, shows its progress, then checks
 });
 
 test("an install acpmux still cannot find afterwards says so, never offers Install again", async () => {
-  const container = await renderPage([], [], { shell: { output: ["added 1 package in 3s\n"], code: 0 } });
+  const container = await renderPage([], [], {
+    shell: { output: ["added 1 package in 3s\n"], code: 0 },
+  });
   await act(async () => row(container, "OpenCode")!.querySelector<HTMLButtonElement>("button")!.click());
   await until(() => row(container, "OpenCode")!.dataset.harnessStatus === "failed", "the install to end");
   const after = row(container, "OpenCode")!;
@@ -316,7 +458,10 @@ test("an install that fails says why and offers one fix: the setup page", async 
   expect(buttons.length).toBe(1);
   await act(async () => buttons[0]!.click());
   expect(calls.filter((call) => call.method === "tab.open")).toEqual([
-    { method: "tab.open", params: { kind: "browser", text: "https://opencode.ai/docs", keep: true } },
+    {
+      method: "tab.open",
+      params: { kind: "browser", text: "https://opencode.ai/docs", keep: true },
+    },
   ]);
 });
 

@@ -205,9 +205,8 @@ test("a transcript-only command the registry then lists does not enter again", a
   expect(entering(container, "li.acpmux-summary-task")).toEqual(["tsc:-"]);
 });
 
-// A row's entrance plays once: after it has, the row folding away and back (View all, Show fewer)
-// shows it in place.
-test("View all and Show fewer replay no row that already entered", async () => {
+// A row's entrance plays once while the complete list stays mounted in the scrollable card.
+test("the complete list does not replay rows that already entered", async () => {
   const container = installDom();
   await act(async () => {
     root = createRoot(container);
@@ -222,11 +221,7 @@ test("View all and Show fewer replay no row that already entered", async () => {
   const rows = () => [...container.querySelectorAll<HTMLElement>("li.acpmux-summary-task")];
   expect(rows().every((row) => row.dataset.enter === "top")).toBe(true);
   for (const row of rows()) await played(row);
-  const more = () => container.querySelector<HTMLButtonElement>("button.acpmux-summary-more")!;
-  await act(async () => more().click());
   expect(rows()).toHaveLength(6);
   expect(rows().map((row) => row.dataset.enter ?? "-")).toEqual(["-", "-", "-", "-", "-", "-"]);
-  await act(async () => more().click());
-  await act(async () => more().click());
   expect(rows().map((row) => row.dataset.enter ?? "-")).toEqual(["-", "-", "-", "-", "-", "-"]);
 });
