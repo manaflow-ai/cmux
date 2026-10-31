@@ -2,14 +2,9 @@ import CmuxNextActions
 import CmuxNextDaemon
 import CmuxNextTerminal
 
-/// `tab.restart` (plans/cmux-next/ownership.md 3.2, cx-7e7b): a terminal
-/// tab whose shell ended gets a new shell under the same terminal id
-/// (`restart-tab`). On a tab whose host link failed (`terminal_state`
-/// `failed`, "cmux lost its link to the shell") it is Recover: the daemon
-/// ends the unreachable host and rehosts the same, still running shell. The dead-tab overlay's button, the tab's right-click
-/// item, the palette and `cmux tab <id> restart` all run this one action
-/// (the CLI sends the same daemon command). The store shows the result from
-/// the daemon's tree push: the tab turns live and its view re-attaches.
+/// `tab.restart` (ownership.md 3.2, cx-7e7b): an ended shell restarts under its terminal id (`restart-tab`);
+/// a failed host link is Recover (the daemon rehosts the same running shell). The overlay button, tab menu,
+/// palette and `cmux tab <id> restart` run this one action; the tree push shows the tab live again.
 enum TabRestart {
     static let action: ActionID = "tab.restart"
 
