@@ -95,6 +95,10 @@ for (const [kind, item] of [
     expect(line.getAttribute("aria-expanded")).toBe("true");
     // The label holds the whole pattern; opened, the stylesheet draws it wrapped, not cut.
     expect(line.querySelector(".cv-tool__text")!.textContent).toContain(PATTERN);
+    // It names a body only when one is drawn: a call with no output opens to its label alone.
+    const controls = line.getAttribute("aria-controls");
+    if (controls) expect(container.querySelector(`[id="${controls}"]`)).not.toBeNull();
+    else expect(kind).toBe("without output");
   });
 }
 
