@@ -4,7 +4,7 @@
 // erros for acpmux"): the cause in one human line, the way out first, the agent's own words under
 // Details with Copy. Compare arms shows the three surfaces of the `turn-error-card` experiment.
 import { agentPaneEntry } from "../../../gallery/format";
-import { assistant, chat, summary, user } from "../../../gallery/fixtures/acpmux";
+import { assistant, CATALOG, chat, summary, user } from "../../../gallery/fixtures/acpmux";
 import type { AcpmuxSnapshot } from "../model";
 import { turnErrorCard } from "./turnErrorCard.experiment";
 
@@ -34,6 +34,20 @@ const cloudFailed = (error: string) => {
     delete snapshot.summary.host;
     delete snapshot.summary.hostKind;
   }
+  return snapshot;
+};
+
+/// Claude Code's login as the harness catalog names it, so the chat has a login to run (Sign in again).
+const signedOutCatalog = CATALOG.map((entry) =>
+  entry.id === "claude" ? { ...entry, auth: { login: "claude /login" } } : entry,
+);
+const notLoggedIn = "Not logged in · Please run /login";
+const signedOut = (fields: Partial<AcpmuxSnapshot> = {}) =>
+  failed(notLoggedIn, undefined, { catalog: signedOutCatalog, ...fields });
+/// The same failure in a chat this pane only watches (View Only): it cannot send, so no Continue or Retry.
+const signedOutViewOnly = () => {
+  const snapshot = signedOut();
+  if (snapshot.summary) snapshot.summary.watching = "claude";
   return snapshot;
 };
 
@@ -100,6 +114,14 @@ export default agentPaneEntry({
     "context-full-no-compact": {
       note: "The same failure from an agent that lists no /compact: Retry stays the way out.",
       snapshot: failed(contextFull),
+    },
+    "sign-in": {
+      note: "Claude Code's login expired mid-chat: Sign in again leads (filled) and runs the login, Continue follows for once it is done, then Switch model.",
+      snapshot: signedOut(),
+    },
+    "sign-in-view-only": {
+      note: "The same expired login in a View Only chat: Sign in again leads, Switch model after it, and no Continue or Retry, since this pane cannot send.",
+      snapshot: signedOutViewOnly(),
     },
     unknown: {
       note: "An error nothing names still reads human; its words are under Details.",
