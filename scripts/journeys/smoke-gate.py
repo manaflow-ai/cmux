@@ -232,7 +232,8 @@ def main(argv=None):
         hog = pressure(round_out, opts.swap_gb)
         if row.get("status") == "pass" and not hog["ok"]:
             row = dict(row, status="not run", reason=f"no memory pressure shown by the hog log: {json.dumps(hog)}")
-        late = [st for st in typed_steps(round_out) if st.get("at_once") is not True]
+        typed = typed_steps(round_out)
+        late = [st for st in typed if st.get("at_once") is not True] or ([] if typed else [{"none": True}])
         if row.get("status") == "pass" and not opts.diagnostic and late:
             row = dict(row, status="not run", reason=f"{len(late)} smoke_type_now steps were not typed at once "
                                                       "(a diagnostic round is never a gate pass)")

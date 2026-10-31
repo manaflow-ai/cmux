@@ -44,7 +44,9 @@ if status == "fail":
               open(os.path.join(out, "smoke-dogfood", "result.json"), "w"))
 if status == "pass" and "--journey-option" not in args:
     late = os.environ.get("SMOKE_LATE") == "yes"
-    json.dump({"steps": [{"index": 7, "do": "smoke_type_now", "ok": True, "result": {"at_once": not late}}]},
+    typed = [] if os.environ.get("SMOKE_LATE") == "none" else [{"index": 7, "do": "smoke_type_now", "ok": True,
+                                                                 "result": {"at_once": not late}}]
+    json.dump({"steps": typed},
               open(os.path.join(out, "smoke-dogfood", "result.json"), "w"))
 if "--journey-option" in args:
     open(os.path.join(out, "options.txt"), "w").write(args[args.index("--journey-option") + 1])
@@ -140,6 +142,9 @@ class Verdicts(unittest.TestCase):
             code, summary = gate(["pass"] * 10, tmp, env_extra={"SMOKE_LATE": "yes"})
             self.assertEqual((code, summary["verdict"], summary["passed"]), (75, "NOT JUDGED", 0))
             self.assertIn("not typed at once", summary["rounds_detail"][0]["reason"])
+        with tempfile.TemporaryDirectory() as tmp:  # a pass with no typing step at all does not count either
+            code, summary = gate(["pass"] * 10, tmp, env_extra={"SMOKE_LATE": "none"})
+            self.assertEqual((code, summary["verdict"], summary["passed"]), (75, "NOT JUDGED", 0))
             self.assertFalse(os.path.exists(os.path.join(tmp, "handoff", "job123.pass")))
 
     def test_a_trial_never_writes_the_pass_file(self):

@@ -312,7 +312,8 @@ workspaces (ids, as recorded once the daemon confirmed them) with their output b
 the daemon's screens and a window frame (`check-NN.png`). `smoke_new_terminals` proves the keys
 went to the new terminals: each line is on exactly one terminal, that terminal is new, it is where
 it should be (its own new workspace, its own new pane, or a new tab of the focused pane, which
-gained exactly that many tabs), and the last line is on the focused terminal.
+gained exactly that many tabs), and the last line is on the focused terminal. `smoke_panes` counts the panes of
+the workspace whose terminal shows a line (the driver's `app_layout` needs a terminal it adopted itself).
 
 **Typed at once** (`smoke_type_now`): no wait for the creation hold, the case Lawrence reports
 (keys into a terminal while it is created). A capture slot's window is never key
