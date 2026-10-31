@@ -24,7 +24,10 @@ AUTHREQ_RESULT). A check with `preflight=no` after a reset is a prompt the perso
      stand-in agent that lists its folder when it starts, like a real agent) with a turn running
      and a prompt queued: the relaunch's acpmux must not start that agent until the person opens
      the chat (cmux-tui/crates/acpmux/src/hub/protected_hold.rs). Run the job with nx-remote
-     --allow-agents (else acpmux refuses the stand-in too); only the stand-in is probed.
+     --allow-agents (else acpmux refuses the stand-in too); only the stand-in is probed. Opt-in
+     (--agent-chat): making the chat starts its agent in the folder, which is the person's own
+     action and asks macOS; on an unattended host nobody answers, and session/new never returns
+     (mac26, 2026-10-30). acpmux's hold is proven by tests/hub_integration/protected_resume.rs.
 
 Fails (exit 1) when a phase logs a non-preflight check of the app (any service), or macOS
 registers a notification client of the app or its helpers (usernoted's app table, when readable:
@@ -49,7 +52,7 @@ parser.add_argument("--out", default=os.environ.get("NX_ARTIFACTS") or tempfile.
 parser.add_argument("--seconds", type=float, default=45)
 parser.add_argument("--phases", default="first,restore")
 parser.add_argument("--folder", default="~/Downloads")
-parser.add_argument("--no-agent-chat", action="store_true", help="restore phase: no acpmux chat in --folder")
+parser.add_argument("--agent-chat", action="store_true", help="restore phase: also an acpmux chat in --folder (needs a host where the setup prompt is answered: see the docstring)")
 opts = parser.parse_args()
 os.makedirs(opts.out, exist_ok=True)
 APP = os.path.abspath(opts.app.rstrip("/"))
@@ -159,7 +162,7 @@ def screenshot(phase, n):
 
 def launch():
     env = {"HOME": HOME, "CMUX_NEXT_SOCKET_MODE": "automation", "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1200,800"}
-    if not opts.no_agent_chat:
+    if opts.agent_chat:
         # The agent chat needs agent launches (nx-remote --allow-agents, which drops its deny), and
         # only the stand-in harness is probed: no real agent starts with the host's credentials.
         env["ACPMUX_PROBE_HARNESSES"] = "tcc-lister"
@@ -349,7 +352,7 @@ try:
         run_phase(phase, teardown)
         if phase == "first" and "restore" in phases[i + 1:]:
             open_terminal_in_folder()
-            if not opts.no_agent_chat:
+            if opts.agent_chat:
                 leave_agent_chat_in_folder()
         quit_app()
         # A relaunch after a restart: the terminal daemons end too, so the relaunch restores the
