@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
-"""bench-startup.py's realistic seed records its outcome even when the app made no tag folder.
+"""bench-startup.py finds the tag's state where the app keeps it: under the password database's home, not $HOME.
 
-When the seeded agent chat never loads, or cannot be placed ("The agent chat can't be split."), the app may quit before
-it saved anything, so <Application Support>/cmux/tags/<tag> does not exist. The seed then wrote its marker into that
-missing folder, raised FileNotFoundError and ended the whole launch bench (--profile realistic) on both measured
-commits (fleet jobs 67312a24fdc5aa26e7b379cd and fa5bb1cf1306deb041f97372, 2026-10-31). No app: the seed's launch,
-daemon and app clients are faked, and every app action is refused, as the fleet runs saw.
+A fleet step points $HOME at its own folder, but the app resolves Application Support from
+FileManager.homeDirectoryForCurrentUser (the password database's home), and its daemon makes
+<that>/Library/Application Support/cmux/tags/<tag>/tui at start. bench-startup used os.path.expanduser("~"), so on the
+fleet its reset, seed and marker all went to a folder the app never uses: the marker write raised FileNotFoundError
+and ended --profile realistic on both measured commits (fleet jobs 67312a24fdc5aa26e7b379cd and
+fa5bb1cf1306deb041f97372, 2026-10-31), and --profile empty did not empty anything. No app: the app and its daemon
+are faked; the fake daemon makes the tag folder under the account home, as the real one does.
 Run: python3 -I scripts/cmux-next/tests/test_bench_startup_seed_marker.py"""
 import importlib.util, io, os, shutil, sys, tempfile, types, unittest
 from contextlib import redirect_stderr
@@ -45,9 +47,14 @@ class RefusingApp:
 
 
 class SeedLaunch:
-    """The seeding launch draws a terminal, then quits; it saves nothing, so no tag folder exists."""
+    """The seeding launch draws a terminal, then quits. As the real app does, its daemon makes the tag's tui folder
+    under the ACCOUNT home (the password database's), whatever $HOME says."""
+    account_home = None
+    tag = None
+
     def __init__(self, *args, **kwargs):
-        pass
+        os.makedirs(os.path.join(self.account_home, "Library/Application Support/cmux/tags", self.tag, "tui"),
+                    exist_ok=True)
 
     def wait_for(self, *args, **kwargs):
         return True
@@ -58,28 +65,43 @@ class SeedLaunch:
 
 class SeedMarker(unittest.TestCase):
     def setUp(self):
-        self.home = tempfile.mkdtemp(prefix="seed-home-")
+        self.home = tempfile.mkdtemp(prefix="seed-step-home-")      # what a fleet step sets as $HOME
+        self.account = tempfile.mkdtemp(prefix="seed-account-home-")  # what the app resolves
         self.tag = "seedtest"
+        SeedLaunch.account_home, SeedLaunch.tag = self.account, self.tag
 
     def tearDown(self):
         shutil.rmtree(self.home, ignore_errors=True)
+        shutil.rmtree(self.account, ignore_errors=True)
 
-    def test_a_seed_with_no_tag_folder_records_a_terminals_only_seed(self):
+    def test_the_seed_marks_the_folder_the_app_uses(self):
         fake_storm = types.ModuleType("bench_cli_storm")
         fake_storm.Client = FakeDaemon
         with mock.patch.dict(os.environ, {"HOME": self.home}), mock.patch.dict(sys.modules, {"bench_cli_storm": fake_storm}), \
+                mock.patch.object(bench_startup, "account_home", lambda: self.account, create=True), \
                 mock.patch.object(bench_startup, "Launch", SeedLaunch), \
                 mock.patch.object(bench_startup, "reset_state", lambda tag: None), \
                 mock.patch.object(bench_startup, "daemon_socket", lambda tag, timeout=20: "/nonexistent.sock"), \
                 mock.patch.object(bench_startup, "app_client", lambda *a, **k: RefusingApp()), \
                 mock.patch.object(bench_startup, "app_tab_id", lambda *a, **k: "tab-1"):
-            tag_dir = bench_startup.state_directories(self.tag)[0]
-            self.assertFalse(os.path.exists(tag_dir))
             with redirect_stderr(io.StringIO()) as err:
                 bench_startup.seed_realistic(self.tag, tempfile.mkdtemp(dir=self.home), 1)
             self.assertIn("seeding without an agent chat", err.getvalue())
-            self.assertTrue(os.path.exists(bench_startup.seeded_marker(self.tag)))
+            marker = bench_startup.seeded_marker(self.tag)
+            self.assertTrue(marker.startswith(self.account), marker)  # the app's folder, not the step's $HOME
+            self.assertTrue(os.path.exists(marker))
             self.assertFalse(bench_startup.seeded_agent(self.tag))  # the next runs wait for a terminal, not a chat
+            self.assertFalse(os.path.exists(os.path.join(self.home, "Library/Application Support/cmux/tags", self.tag)))
+
+    def test_reset_state_empties_the_folder_the_app_uses(self):
+        tag_dir = os.path.join(self.account, "Library/Application Support/cmux/tags", self.tag, "tui")
+        os.makedirs(tag_dir)
+        with mock.patch.dict(os.environ, {"HOME": self.home}), \
+                mock.patch.object(bench_startup, "account_home", lambda: self.account, create=True), \
+                mock.patch.object(bench_startup, "stop", lambda *a, **k: None), \
+                mock.patch.object(bench_startup, "tag_pids", lambda tag: []):
+            bench_startup.reset_state(self.tag)
+        self.assertFalse(os.path.exists(tag_dir), "--profile empty must empty the app's own state")
 
 
 if __name__ == "__main__":
