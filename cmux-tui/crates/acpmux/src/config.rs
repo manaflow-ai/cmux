@@ -70,25 +70,85 @@ pub(crate) fn autostart_refusal(
 }
 
 /// Set once this daemon's home is gone (`daemon/home_watch.rs`); never cleared.
-static HOME_LOST: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+// 0: present, 1: the home or lock was lost, 2: only the socket was lost. A
+// socket disappearing still fences writes, but the home remains ours, so the
+// shutdown may safely end hosts whose records were not adopted yet.
+static HOME_LOST: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
 
 /// This daemon's home was removed or replaced: from now on it makes no folder and creates or
 /// opens no state file for writing under that path, which may be another daemon's home now.
 pub(crate) fn mark_home_lost() {
-    HOME_LOST.store(true, std::sync::atomic::Ordering::SeqCst);
+    HOME_LOST.store(1, std::sync::atomic::Ordering::SeqCst);
 }
 
-/// Whether [`mark_home_lost`] was called.
+/// Mark only the bound socket as lost. The state fence is still active, but
+/// the home and its host records remain this daemon's, so shutdown can clean
+/// up an unadopted host.
+pub(crate) fn mark_socket_lost() {
+    let _ = HOME_LOST.compare_exchange(
+        0,
+        2,
+        std::sync::atomic::Ordering::SeqCst,
+        std::sync::atomic::Ordering::SeqCst,
+    );
+}
+
+/// Whether the home or socket is lost, including an identity change awaiting event delivery.
 pub(crate) fn home_lost() -> bool {
-    HOME_LOST.load(std::sync::atomic::Ordering::SeqCst)
+    HOME_LOST.load(std::sync::atomic::Ordering::SeqCst) != 0
 }
 
-/// Refuses a write under a lost home ([`mark_home_lost`]): a shutdown's last saves would
-/// otherwise make a removed home again, or write this daemon's state into its replacement.
+/// Whether the home or lock itself was lost. A socket-only loss leaves the
+/// host records owned by this daemon and may be cleaned during shutdown.
+pub(crate) fn home_path_lost() -> bool {
+    HOME_LOST.load(std::sync::atomic::Ordering::SeqCst) == 1
+}
+
+/// The home this daemon holds, as the folder it locked: its device and inode (`daemon.rs`).
+static HELD_HOME: std::sync::OnceLock<(u64, u64)> = std::sync::OnceLock::new();
+
+/// The device and inode of `path` itself (never a link's target).
+#[cfg(unix)]
+fn folder_identity(path: &Path) -> Option<(u64, u64)> {
+    use std::os::unix::fs::MetadataExt;
+    std::fs::symlink_metadata(path).ok().map(|m| (m.dev(), m.ino()))
+}
+
+#[cfg(not(unix))]
+fn folder_identity(_path: &Path) -> Option<(u64, u64)> {
+    None
+}
+
+/// Records [`home`] as the folder this daemon holds, once it holds its lock. A process that
+/// never calls it (a CLI command) checks no identity.
+pub fn hold_home() {
+    if let Some(identity) = folder_identity(&home()) {
+        let _ = HELD_HOME.set(identity);
+    }
+}
+
+/// Whether the held home ([`hold_home`]) is gone or another folder now: read from the folder
+/// itself, so it does not wait for the home watch to hear of it.
+fn held_home_replaced(home: &Path) -> bool {
+    HELD_HOME.get().is_some_and(|held| folder_identity(home) != Some(*held))
+}
+
+/// Refuses a write under a lost home: one [`mark_home_lost`] marked, or one no longer the folder
+/// this daemon holds ([`hold_home`]), which it then marks. Every write under the home goes
+/// through it, so a write after the home was replaced never lands in the replacement, however
+/// late the home watch hears of it; a shutdown's last saves never make a removed home again.
+/// A replacement between this check and the write itself is not ruled out (by path, POSIX has
+/// no write-if-same-folder).
 pub(crate) fn refuse_lost_home(path: &Path) -> Result<()> {
     let home = home();
+    if !path.starts_with(&home) {
+        return Ok(());
+    }
+    if !home_path_lost() && held_home_replaced(&home) {
+        mark_home_lost();
+    }
     anyhow::ensure!(
-        !(home_lost() && path.starts_with(&home)),
+        !home_lost(),
         "the acpmux home {} is gone; {} is not written",
         home.display(),
         path.display()
@@ -459,7 +519,7 @@ mod autostart_pair_tests {
     #[test]
     fn only_the_default_home_is_created_for_a_start() {
         let dir = tempfile::tempdir().unwrap();
-        let gone = dir.path().join("tmp7uxt3tq_/removed-home");
+        let gone = dir.path().join("removed-test-home");
         let own = gone.join("acpmux.sock");
         let why = autostart_refusal(&gone, true, None, &own).expect("a missing home is refused");
         assert!(why.contains("does not exist"), "{why}");
