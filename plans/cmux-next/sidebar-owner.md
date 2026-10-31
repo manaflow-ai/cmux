@@ -836,4 +836,4 @@ Commits logged without a trailer (behavior fixes, no visual change; the card kee
 
 ## Top workspace insert lands without a cascade (2026-10-31)
 
-- PR #28205, implementation `acfee903e07`. Leo: "when you create a workspace at the top it's a huge cascade" and it "pushes all the workspaces below down pretty hard". The proposed `sidebar.insertMotion` default is `.snap`: existing rows land at once and only the new row fades. Nudge, quick and full spring remain available. The real-sidebar gallery exercises all four variants; its PNGs show settled states. Fleet recordings and macOS validation remain follow-up validation.
+- PR #28205, implementation `ac80839dcfa`. Leo: "when you create a workspace at the top it's a huge cascade" and it "pushes all the workspaces below down pretty hard". The proposed `sidebar.insertMotion` default is `.snap`: existing rows land at once and only the new row fades. Nudge, quick and full spring remain available. The real-sidebar gallery exercises all four variants; its PNGs show settled states. Fleet recordings and macOS validation remain follow-up validation.
