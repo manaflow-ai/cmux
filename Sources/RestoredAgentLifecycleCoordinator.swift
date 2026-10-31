@@ -53,6 +53,23 @@ final class RestoredAgentLifecycleCoordinator {
         replaceSnapshot(resolvedSnapshot, panelId: panelId)
     }
 
+    /// Accepts a hook publication without carrying an ended conversation into its replacement.
+    func acceptHookSnapshot(
+        _ snapshot: SessionRestorableAgentSnapshot,
+        previousBinding: SurfaceResumeBindingSnapshot?,
+        panelId: UUID
+    ) {
+        // A completed Dock transfer may retain its binding but omit the snapshot.
+        let previous = previousBinding?.managedRestorableAgentSnapshot(replacing: nil)
+            ?? snapshotsByPanelId[panelId]
+        if resumeStatesByPanelId[panelId] == .completedAgentExit,
+           let previous,
+           !Self.hasSameSessionIdentity(previous, snapshot) {
+            setResumeState(nil, panelId: panelId)
+        }
+        setSnapshot(snapshot, panelId: panelId)
+    }
+
     /// Replaces one panel's resume phase and updates only that panel's derived lifecycle state.
     func setResumeState(_ state: Workspace.RestoredAgentResumeState?, panelId: UUID) {
         replaceResumeState(state, panelId: panelId)
