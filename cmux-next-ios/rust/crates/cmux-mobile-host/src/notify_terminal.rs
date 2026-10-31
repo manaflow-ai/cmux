@@ -26,7 +26,8 @@
 //! A terminal agent's question (an agent hook's notification carrying the daemon's
 //! `question`: Claude Code AskUserQuestion, Codex `request_user_input`) pushes as kind
 //! `question` with its options, as an acpmux question does. Its other hook notifications
-//! push as what happened (`AgentEvent`): `completed`, `permission` or `failed`.
+//! push as what happened (`AgentEvent`): `completed`, `permission`, or `question` without
+//! options when its options could not be read.
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::{Duration, Instant};
@@ -99,19 +100,25 @@ pub struct TerminalClassifier {
     /// Terminal questions pushed lately, by their event id: Claude Code fires two hooks
     /// for one AskUserQuestion, and the daemon posts each.
     asked_at: HashMap<(Option<u64>, String), Instant>,
-    /// A terminal agent's events pushed lately, by tab and kind (`AgentEvent`).
-    agent_at: HashMap<(Option<u64>, &'static str), Instant>,
-    /// Per tab, when its last question pushed: a hook that reports the same ask without the
-    /// question (warning, no options) is that question's, not an approval.
+    /// A terminal agent's events pushed lately, by tab, kind and tool (`AgentEvent`).
+    agent_at: HashMap<(Option<u64>, &'static str, String), Instant>,
+    /// Per tab, when its last question with options pushed: a question hook there whose
+    /// options could not be read is that question again.
     asked_on: HashMap<Option<u64>, Instant>,
 }
 
+/// The tools an agent asks the person a question with (the daemon's notification body is
+/// the tool's name): Claude Code's AskUserQuestion, Codex's `request_user_input`.
+const QUESTION_TOOLS: [&str; 2] = ["AskUserQuestion", "request_user_input"];
+
 /// What a terminal agent's hook notification says happened, read from the level the
-/// daemon gives it (`agent_hook_notification`: info for a finished turn, warning for an
-/// approval or a plan review, error for an error). It pushes as the kind an agent chat's
-/// event of the same meaning does, so the person's choice in Settings → Notifications
-/// ("Needed and finished") reaches Claude Code and Codex in a terminal, not only agent
-/// chats and Chief. A program's own alert (OSC 9, `cmux notify`) stays `terminal`.
+/// daemon gives it and the tool it names (`agent_hook_notification`: info for a finished
+/// turn; warning for an approval, a plan review or a question, its body the tool). It
+/// pushes as the kind an agent chat's event of the same meaning does, so the person's
+/// choice in Settings → Notifications ("Needed and finished") reaches Claude Code and Codex
+/// in a terminal, not only agent chats and Chief. A program's own alert (OSC 9, `cmux
+/// notify`) stays `terminal`, and so does an error: a failed tool call while the agent works
+/// on is not the agent stopping.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct AgentEvent {
     kind: &'static str,
@@ -119,11 +126,13 @@ struct AgentEvent {
 }
 
 impl AgentEvent {
-    fn of(level: &str) -> Self {
+    fn of(level: &str, tool: &str) -> Option<Self> {
         match level {
-            "warning" => Self { kind: "permission", state: "waiting" },
-            "error" => Self { kind: "failed", state: "failed" },
-            _ => Self { kind: "completed", state: "finished" },
+            "info" => Some(Self { kind: "completed", state: "finished" }),
+            // A question whose options could not be read (an ask with them pushes before this).
+            "warning" if QUESTION_TOOLS.contains(&tool) => Some(Self { kind: "question", state: "waiting" }),
+            "warning" => Some(Self { kind: "permission", state: "waiting" }),
+            _ => None,
         }
     }
 }
@@ -176,7 +185,8 @@ impl TerminalClassifier {
             .unwrap_or_default();
         let ask = !questions.is_empty();
         let level = event.get("level").and_then(Value::as_str).unwrap_or("info");
-        let agent_event = (source == "agent" && !ask).then(|| AgentEvent::of(level));
+        let tool = event.get("body").and_then(Value::as_str).map(str::trim).unwrap_or_default();
+        let agent_event = (source == "agent" && !ask).then(|| AgentEvent::of(level, tool)).flatten();
         if let Some(surface) = surface {
             // An agent hook's and the terminal's own notification for one event.
             let echo = self.last.get(&surface).is_some_and(|(last, at)| {
@@ -200,7 +210,9 @@ impl TerminalClassifier {
             }
         }
         if let Some(agent_event) = agent_event {
-            if agent_event.kind == "permission"
+            // A question hook without readable options right after that tab's question pushed
+            // with them: the same ask.
+            if agent_event.kind == "question"
                 && self
                     .asked_on
                     .get(&surface)
@@ -209,8 +221,8 @@ impl TerminalClassifier {
                 return None;
             }
             // One event of the agent's told twice (a harness reporting one approval through two
-            // hooks): pushed once.
-            let key = (surface, agent_event.kind);
+            // hooks): pushed once. Another tool's approval is another event.
+            let key = (surface, agent_event.kind, tool.to_owned());
             if self.agent_at.get(&key).is_some_and(|at| now.saturating_duration_since(*at) < ECHO_WINDOW) {
                 return None;
             }
@@ -672,11 +684,16 @@ mod tests {
             ("permission", Some("Bash"), None, Some("waiting"))
         );
         let mut c = TerminalClassifier::default();
+        // A failed tool call while the agent works on: the terminal's alert, not "stopped".
         let error = c.handle_at(&hook(22, "Codex reported an error", "error", ""), &places(), t0).unwrap();
-        assert_eq!(
-            (error.kind.as_str(), error.agent.as_deref(), error.state.as_deref()),
-            ("failed", Some("Codex"), Some("failed"))
-        );
+        assert_eq!((error.kind.as_str(), error.state.as_deref()), ("terminal", Some("failed")));
+        // A question whose options could not be read: a question, with no options.
+        let mut c = TerminalClassifier::default();
+        let bare = c
+            .handle_at(&hook(24, "Claude asked a question", "warning", "AskUserQuestion"), &places(), t0)
+            .unwrap();
+        assert_eq!((bare.kind.as_str(), bare.title.as_deref()), ("question", None));
+        assert!(bare.questions.is_empty());
         // A program's own alert is still a terminal notification.
         let mut c = TerminalClassifier::default();
         assert_eq!(c.handle_at(&event(23, Some(7), "terminal"), &places(), t0).unwrap().kind, "terminal");
@@ -696,6 +713,11 @@ mod tests {
         assert!(
             c.handle_at(&hook(32, "Claude finished", "info", ""), &places(), t0 + Duration::from_secs(2))
                 .is_some()
+        );
+        // Another tool's approval right after the first was granted is another event.
+        let edit = t0 + Duration::from_secs(3);
+        assert!(
+            c.handle_at(&hook(34, "Claude needs approval", "warning", "Edit"), &places(), edit).is_some()
         );
         let later = t0 + ECHO_WINDOW + Duration::from_secs(1);
         assert!(
@@ -829,19 +851,22 @@ mod tests {
         osc["title"] = json!("claude-code asks a question");
         osc["level"] = json!("warning");
         assert!(c.handle_at(&osc, &places(), t0).is_some());
-        let mut hook = event(61, Some(7), "agent");
-        hook["title"] = json!("Claude asked a question");
-        hook["question"] = json!({"harness":"claude","questions":[
+        let mut asked = event(61, Some(7), "agent");
+        asked["title"] = json!("Claude asked a question");
+        asked["question"] = json!({"harness":"claude","questions":[
             {"question":"Which branch?","header":"Branch","multiSelect":false,
              "options":[{"label":"main"},{"label":"dev"},{"label":"release"}]}]});
-        let e = c.handle_at(&hook, &places(), t0 + Duration::from_secs(1)).expect("the question pushes");
+        let e = c.handle_at(&asked, &places(), t0 + Duration::from_secs(1)).expect("the question pushes");
         assert_eq!(e.kind, "question");
         assert_eq!(e.questions[0].options.len(), 3);
-        // The same ask reported by a hook without the question is that question's, not an approval.
-        let mut bare = event(62, Some(7), "agent");
-        bare["title"] = json!("Claude asked a question");
-        bare["level"] = json!("warning");
+        // The same ask from a hook whose options could not be read is that question again.
+        let bare = hook(62, "Claude asked a question", "warning", "AskUserQuestion");
         assert!(c.handle_at(&bare, &places(), t0 + Duration::from_secs(2)).is_none());
+        // An approval the person is asked for after answering it is a new event.
+        let approval = hook(64, "Claude needs approval", "warning", "Bash");
+        let pushed =
+            c.handle_at(&approval, &places(), t0 + Duration::from_secs(8)).expect("the approval pushes");
+        assert_eq!(pushed.kind, "permission");
         // The turn that follows still reports its end.
         assert!(c.handle_at(&hook_n(63), &places(), t0 + Duration::from_secs(40)).is_some());
     }

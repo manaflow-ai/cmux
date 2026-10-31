@@ -29,13 +29,24 @@ import UserNotifications
         #expect(approval.category == .terminal)
         #expect(PushActions().plan(for: approval).map(\.action) == [.answer])
         #expect(PushBanner(payload: approval).title == "Claude needs permission")
+        // An error from a terminal agent stays the terminal's notification on the Mac; one
+        // that arrives as `failed` (an older Mac) still takes no Reply.
         let error = payload(.failed)
         #expect(error.category == .terminal && PushActions().plan(for: error).isEmpty)
     }
 
+    @Test func aTerminalQuestionWithoutOptionsOpensItsTab() {
+        let bare = payload(.question)
+        #expect(bare.fromTerminalAgent && bare.category == .terminal)
+        #expect(PushActions().plan(for: bare).map(\.action) == [.answer])
+        #expect(!PushForm(payload: bare).hasComposer)
+    }
+
     @Test func questionsChiefAndProgramAlertsKeepTheirCategories() {
         #expect(payload(.terminal).category == .terminal)
-        #expect(!payload(.question).fromTerminalAgent)
+        var asked = payload(.question)
+        asked.questions = [PushQuestion(question: "Which branch?", options: [.init(label: "main"), .init(label: "dev")])]
+        #expect(!asked.fromTerminalAgent && asked.category == .question)
         #expect(!payload(.chief, session: "turn-1", notification: nil).fromTerminalAgent)
     }
 

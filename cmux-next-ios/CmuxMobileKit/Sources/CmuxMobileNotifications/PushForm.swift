@@ -119,7 +119,7 @@ public struct PushForm: Sendable, Equatable {
     public var hasComposer: Bool {
         switch payload.kind {
         case .permission: false
-        case .question: payload.questions.count <= 1 && (payload.questions.first?.allowsOther ?? true)
+        case .question: !payload.fromTerminalAgent && payload.questions.count <= 1 && (payload.questions.first?.allowsOther ?? true)
         case .completed, .failed: !payload.fromTerminalAgent
         case .chief: true
         // Text into a terminal from a notification waits for the #13742 decision (PR B).
