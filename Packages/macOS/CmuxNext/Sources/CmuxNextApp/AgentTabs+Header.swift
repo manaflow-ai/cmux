@@ -85,12 +85,30 @@ extension AgentTabStore {
     }
 
     private func openSubagent(_ agent: String, of session: String, focus: Bool, beside provisional: String) -> Bool { // the tracker (AgentSubagentPanes) decides; the app opens and moves the tab
-        AgentSubagentPanes.session(session).open(agent, focus: focus, chat: provisional, hooks: .init(isOpen: { [weak self] in self?.locate($0) != nil }, focus: { [weak self] key, script in _ = self?.actionRegistry?.perform("tab.focus", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: self?.resolve(key) ?? key), arguments: script ? ["focus": .bool(true)] : [:], origin: script ? .script : .user)) },
+        let source = resolve(provisional)
+        // A session can have several chat tabs. Keep each chat's remembered subagent tabs local to
+        // its own right column so clicking a row never pulls the person into another workspace.
+        AgentSubagentPanes.session("\(session):\(source)").open(agent, focus: focus, chat: provisional, hooks: .init(isOpen: { [weak self] key in
+                guard let self else { return false }
+                return self.subagentTabIsBeside(source, key)
+            }, focus: { [weak self] key, script in _ = self?.actionRegistry?.perform("tab.focus", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: self?.resolve(key) ?? key), arguments: script ? ["focus": .bool(true)] : [:], origin: script ? .script : .user)) },
             // An unfocused tab in the right column is selected there (shown, focus stays); in the chat's own pane it waits in the strip.
             // openOnRight decides again in its turn (RightColumnTurns): the decision that placed it is the one passed to created.
             place: { [weak self] chat, _, created, finished in self?.openOnRight(of: chat, origin: focus ? .user : .script, open: { [weak self] pane, daemon in guard let self else { throw CancellationError() }; return try open(in: pane, of: daemon, session: session) },
                 created: { [weak self] key, decision in created(key); SubagentTabTitles.shared.bind(agent, of: session, toTab: key) { [weak self] in self?.locate($0) != nil }; self?.revealTurn(AgentSubagentPanes.reveal(agent), in: key); if case .tab(.some) = decision, !focus { self?.selectInPane(key) } }, finished: finished) ?? false },
             column: { [weak self] in self?.rightColumn(self?.resolve($0) ?? $0) ?? .init() }, again: { [weak self] request in _ = self?.openSubagent(request.agent, of: session, focus: request.focus, beside: request.chat) })) }
+
+    /// Whether a remembered subagent tab is still in the clicked chat's pane or its current right
+    /// column. Pane keys are scoped to a daemon/workspace, so compare both the pane and its owner.
+    private func subagentTabIsBeside(_ source: String, _ candidate: String) -> Bool {
+        guard let sourceLocation = locate(source), let candidateLocation = locate(resolve(candidate)),
+              ObjectIdentifier(sourceLocation.daemon) == ObjectIdentifier(candidateLocation.daemon) else { return false }
+        if sourceLocation.pane == candidateLocation.pane { return true }
+        return rightColumn(source).panes.contains { key in
+            guard let location = locatePane(source, key), ObjectIdentifier(location.daemon) == ObjectIdentifier(candidateLocation.daemon) else { return false }
+            return location.pane == candidateLocation.pane
+        }
+    }
     /// What chat tab `provisional` opens on its right, in its turn beside the chat (``RightColumnTurns``,
     /// with every other open there): it decides its place from the column as it is then (``RightColumnPlacement``), and
     /// `created` hears the new tab with that decision. `finished` (or a refusal) ends the turn. An open asked for while
