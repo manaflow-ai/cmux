@@ -259,23 +259,27 @@ export const SubagentTray = memo(function SubagentTray({
     }
     return { "data-enter": "bottom" as const, ref };
   };
-  const cards = [
-    ...items.map((item) => (
-      <li key={itemKey(item)} {...arriving(itemKey(item))}>
-        {line(item)}
-      </li>
-    )),
-    ...finished.slice(0, showFinished ? finished.length : TRAY_OPEN_MAX).map((item, index) => (
-      <li
-        key={itemKey(item)}
-        data-finished=""
-        data-first-finished={index === 0 || undefined}
-        {...arriving(itemKey(item))}
-      >
-        {line(item)}
-      </li>
-    )),
-  ];
+  // A fully folded tray has only its header. Avoid building hundreds of hidden row
+  // elements on each header clock tick; keep them while a close animation still plays.
+  const cards = fold.present
+    ? [
+        ...items.map((item) => (
+          <li key={itemKey(item)} {...arriving(itemKey(item))}>
+            {line(item)}
+          </li>
+        )),
+        ...finished.slice(0, showFinished ? finished.length : TRAY_OPEN_MAX).map((item, index) => (
+          <li
+            key={itemKey(item)}
+            data-finished=""
+            data-first-finished={index === 0 || undefined}
+            {...arriving(itemKey(item))}
+          >
+            {line(item)}
+          </li>
+        )),
+      ]
+    : [];
   // The header's spinner is a running line's: it turns while anything under it runs.
   const runs = running > 0 || commands > 0;
   // View all sits under the list, outside its scroller, so it never scrolls away either.
