@@ -166,11 +166,13 @@ export type HarnessTarget = { id: string; name: string };
 export function continueTargets<T extends HarnessTarget>(
   catalog: readonly (T & { pickable?: boolean; unavailable?: string; family?: string })[],
   currentHarness: string | undefined,
+  sourceFamily?: string,
 ): T[] {
   if (!currentHarness) return [];
   const familyOf = (entry: { id: string; family?: string }) => entry.family ?? entry.id;
-  const current = catalog.find((entry) => entry.id === currentHarness);
-  const currentFamily = current ? familyOf(current) : currentHarness;
+  // A running session keeps its family when its catalog profile is reloaded. Match the
+  // daemon's persisted-family fallback, rather than inferring from the mutable catalog.
+  const currentFamily = sourceFamily ?? currentHarness;
   return catalog.filter(
     (target) =>
       target.id !== currentHarness &&

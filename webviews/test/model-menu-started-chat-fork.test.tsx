@@ -523,7 +523,7 @@ test("another profile of the chat's own family is no Fork to target (the daemon 
     { id: "codex", name: "Codex", family: "codex" },
   ];
   expect(continueTargets(catalog, "claude").map((target) => target.id)).toEqual(["codex"]);
-  expect(continueTargets(catalog, "cmux").map((target) => target.id)).toEqual(["codex"]);
+  expect(continueTargets(catalog, "cmux", "claude").map((target) => target.id)).toEqual(["codex"]);
   expect(continueTargets(catalog, "codex").map((target) => target.id)).toEqual(["claude", "cmux"]);
 });
 

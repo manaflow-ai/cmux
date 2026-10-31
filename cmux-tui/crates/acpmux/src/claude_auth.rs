@@ -200,13 +200,20 @@ pub fn direct_sign_in() -> bool {
     find(&env).signed_in()
 }
 
-static SPAWNED: Mutex<Option<HashMap<String, BTreeMap<String, String>>>> = Mutex::new(None);
+#[derive(Clone)]
+struct Spawned {
+    env: BTreeMap<String, String>,
+    routed: bool,
+}
+
+static SPAWNED: Mutex<Option<HashMap<String, Spawned>>> = Mutex::new(None);
 
 /// Remember a Claude agent's spawn environment for its session: the
 /// Claude home, HOME, the endpoint and shell as they are, and only the
-/// presence of credential keys (their values are replaced). Logs a warning
+/// presence of credential keys (their values are replaced), plus whether a route supplied
+/// the environment. Logs a warning
 /// when it has no sign-in at all.
-pub fn remember(session_id: &str, env: &[(String, String)]) {
+pub fn remember(session_id: &str, env: &[(String, String)], routed: bool) {
     let mut kept = BTreeMap::new();
     for (k, v) in env {
         if REMEMBERED.contains(&k.as_str()) || PROVIDER_KEYS.iter().any(|(p, _)| p == k) {
@@ -220,7 +227,8 @@ pub fn remember(session_id: &str, env: &[(String, String)]) {
         tracing::info!(session = session_id, home = %found.home.display(), "Claude agent starts with no sign-in in its env, settings or credentials file (a keychain sign-in is not checked)");
     }
     let mut map = SPAWNED.lock().unwrap_or_else(|e| e.into_inner());
-    map.get_or_insert_with(HashMap::new).insert(session_id.to_owned(), kept);
+    map.get_or_insert_with(HashMap::new)
+        .insert(session_id.to_owned(), Spawned { env: kept, routed });
 }
 
 /// The session now runs another harness: its Claude spawn env no longer applies.
@@ -275,14 +283,20 @@ pub fn explain(session_id: &str, original: &str) -> Option<String> {
     if !explains(original) {
         return None;
     }
-    let agent_env =
+    let spawned =
         SPAWNED.lock().unwrap_or_else(|e| e.into_inner()).as_ref()?.get(session_id)?.clone();
     // File reads block: off a multi-thread runtime's workers.
     let work = || {
-        let agent = find(&agent_env);
+        let agent = find(&spawned.env);
         let terminal_env = terminal_env();
         let terminal = find(&terminal_env);
-        compose(&agent, &terminal, terminal_env.get("SHELL").map(String::as_str), original)
+        compose(
+            &agent,
+            &terminal,
+            terminal_env.get("SHELL").map(String::as_str),
+            original,
+            spawned.routed,
+        )
     };
     let multi_thread = tokio::runtime::Handle::try_current()
         .is_ok_and(|h| h.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread);
@@ -305,7 +319,13 @@ fn rc_file(shell: Option<&str>) -> &'static str {
     }
 }
 
-fn compose(agent: &Found, terminal: &Found, shell: Option<&str>, original: &str) -> String {
+fn compose(
+    agent: &Found,
+    terminal: &Found,
+    shell: Option<&str>,
+    original: &str,
+    routed: bool,
+) -> String {
     let mut out = String::from("Claude is not signed in here.");
     let with_endpoint = |f: &Found| match &f.endpoint {
         Some(host) => format!(" through a custom API endpoint ({host}, ANTHROPIC_BASE_URL)"),
@@ -332,8 +352,11 @@ fn compose(agent: &Found, terminal: &Found, shell: Option<&str>, original: &str)
     } else {
         out.push_str(" Your terminal has no Claude sign-in either.");
     }
-    let fix = if agent.endpoint.is_none() && agent.env_keys.iter().any(|k| k == "ANTHROPIC_API_KEY")
-    {
+    let api_key = agent.env_keys.iter().any(|k| k == "ANTHROPIC_API_KEY");
+    let fix = if routed && api_key {
+        "Replace the credential in the selected model route, or select another route, then start a new chat."
+            .to_owned()
+    } else if agent.endpoint.is_none() && api_key {
         // Claude Code prefers ANTHROPIC_API_KEY over a `claude /login` sign-in, so logging in
         // again does not help while a rejected key is set. Not with an endpoint: a route or a
         // proxy set that key (routes.rs), and removing it would break the route.
@@ -412,16 +435,34 @@ mod tests {
             env_keys: vec!["ANTHROPIC_API_KEY".to_owned()],
             ..Found::default()
         };
-        let text =
-            compose(&agent, &agent, Some("/bin/zsh"), "Failed to authenticate. API Error: 401");
+        let text = compose(
+            &agent,
+            &agent,
+            Some("/bin/zsh"),
+            "Failed to authenticate. API Error: 401",
+            false,
+        );
         assert!(text.contains("remove ANTHROPIC_API_KEY from ~/.zshrc"), "{text}");
         assert!(!text.contains("Run `claude /login`"), "{text}");
 
         // Review of #25950: a route's key (with its endpoint) is not the person's to remove.
         let routed = Found { endpoint: Some("router.example:443".to_owned()), ..agent };
-        let text =
-            compose(&routed, &routed, Some("/bin/zsh"), "Failed to authenticate. API Error: 401");
+        let text = compose(
+            &routed,
+            &routed,
+            Some("/bin/zsh"),
+            "Failed to authenticate. API Error: 401",
+            false,
+        );
         assert!(!text.contains("remove ANTHROPIC_API_KEY"), "{text}");
+    }
+
+    #[test]
+    fn a_subscription_route_without_a_key_keeps_login_advice() {
+        let agent = Found::default();
+        let text = compose(&agent, &agent, None, "Not logged in", true);
+        assert!(text.contains("Run `claude /login`"), "{text}");
+        assert!(!text.contains("selected model route"), "{text}");
     }
 
     #[test]
