@@ -1248,98 +1248,102 @@ impl Hub {
         // The end is written from here with no wait, under the shutdown's lock: a shutdown that
         // settled the turn meanwhile wrote its end (Quit Everything) or handed it on, and its
         // sweep finds this one either written or still to settle (`shutdown.rs` `settle_ends`).
-        let ends = self.settled_by_shutdown.lock().unwrap_or_else(|e| e.into_inner());
-        if ends.contains(turn_id) {
-            drop(ends);
-            if self.hands_off(session) {
-                super::digest::forget_joined(joined);
+        // In a block of its own: a guard only dropped would still count as held at the awaits
+        // below, and the prompt futures that end here are spawned (`Send`).
+        {
+            let ends = self.settled_by_shutdown.lock().unwrap_or_else(|e| e.into_inner());
+            if ends.contains(turn_id) {
+                drop(ends);
+                if self.hands_off(session) {
+                    super::digest::forget_joined(joined);
+                }
+                return result;
             }
-            return result;
-        }
-        ending.clear();
-        // A Stop kept the prompt from the fallback a failover started (`stopped_before_prompt`),
-        // or the agent of a turn a Stop was stopping ended it with an error (it exited, its
-        // cancel failed, or it reported one): the turn ends as the Stop's, cancelled, and holds
-        // no queue as a failure does; the prompt's caller still hears why.
-        let stopped_early = result
-            .as_ref()
-            .err()
-            .filter(|e| is_stopped_before_prompt(e) || (was_stopping && !carries_on))
-            .cloned();
-        if stopped_early.is_some() {
-            result = Ok(stopped_answer());
-        }
-        match &result {
-            Ok(v) => {
-                self.note_reply_refusal(session);
-                let stop = v.get("stopReason").cloned().unwrap_or(Value::Null);
-                self.append(
-                    session,
-                    "mux",
-                    "turn_end",
-                    json!({"stopReason": stop, "turnId": turn_id, "turnSeq": turn_seq}),
-                );
-                // A turn a Stop was stopping ended as the Stop's, whatever stop reason its agent
-                // gave: an adapter that answers the cancel `end_turn` still stopped, so clients
-                // offer Continue on it. Not one whose agent runs on into the next turn.
-                let stopped = stop.as_str() == Some("cancelled") || (was_stopping && !carries_on);
-                let status = if stopped { "cancelled" } else { "completed" };
-                let mut msg = json!({"status": status, "stopReason": stop, "turnSeq": turn_seq, "turnId": turn_id, "promptId": prompt_id});
-                if let Some(o) = msg.as_object_mut() {
-                    o.extend(self.turn_error_fields(session, None));
-                    // acpmux ended a turn whose agent did not answer the cancel (`cancel`).
-                    if v.pointer("/_meta/acpmux/cancelForced") == Some(&Value::Bool(true)) {
-                        o.insert("cancelForced".into(), Value::Bool(true));
+            ending.clear();
+            // A Stop kept the prompt from the fallback a failover started (`stopped_before_prompt`),
+            // or the agent of a turn a Stop was stopping ended it with an error (it exited, its
+            // cancel failed, or it reported one): the turn ends as the Stop's, cancelled, and holds
+            // no queue as a failure does; the prompt's caller still hears why.
+            let stopped_early = result
+                .as_ref()
+                .err()
+                .filter(|e| is_stopped_before_prompt(e) || (was_stopping && !carries_on))
+                .cloned();
+            if stopped_early.is_some() {
+                result = Ok(stopped_answer());
+            }
+            match &result {
+                Ok(v) => {
+                    self.note_reply_refusal(session);
+                    let stop = v.get("stopReason").cloned().unwrap_or(Value::Null);
+                    self.append(
+                        session,
+                        "mux",
+                        "turn_end",
+                        json!({"stopReason": stop, "turnId": turn_id, "turnSeq": turn_seq}),
+                    );
+                    // A turn a Stop was stopping ended as the Stop's, whatever stop reason its agent
+                    // gave: an adapter that answers the cancel `end_turn` still stopped, so clients
+                    // offer Continue on it. Not one whose agent runs on into the next turn.
+                    let stopped =
+                        stop.as_str() == Some("cancelled") || (was_stopping && !carries_on);
+                    let status = if stopped { "cancelled" } else { "completed" };
+                    let mut msg = json!({"status": status, "stopReason": stop, "turnSeq": turn_seq, "turnId": turn_id, "promptId": prompt_id});
+                    if let Some(o) = msg.as_object_mut() {
+                        o.extend(self.turn_error_fields(session, None));
+                        // acpmux ended a turn whose agent did not answer the cancel (`cancel`).
+                        if v.pointer("/_meta/acpmux/cancelForced") == Some(&Value::Bool(true)) {
+                            o.insert("cancelForced".into(), Value::Bool(true));
+                        }
+                        o.extend(super::turn_usage::turn_usage(session, v));
+                        if let Some(to) = carried_to() {
+                            o.insert("carriedTo".into(), to);
+                        }
                     }
-                    o.extend(super::turn_usage::turn_usage(session, v));
-                    if let Some(to) = carried_to() {
-                        o.insert("carriedTo".into(), to);
+                    self.write_turn_result(session, msg, git);
+                    // The chat works again: agent messages a failed turn held go in (`digest.rs`).
+                    // Not while a person's Stop that came after this turn began holds them
+                    // (`cancel.rs`): only a turn begun under that hold, or a resume, ends it.
+                    let hold = session.stop_hold.load(Ordering::SeqCst);
+                    if status == "completed"
+                        && (hold == 0 || hold == session.turn_hold.load(Ordering::SeqCst))
+                    {
+                        self.release_held_agent_messages(session, hold);
                     }
                 }
-                self.write_turn_result(session, msg, git);
-                // The chat works again: agent messages a failed turn held go in (`digest.rs`).
-                // Not while a person's Stop that came after this turn began holds them
-                // (`cancel.rs`): only a turn begun under that hold, or a resume, ends it.
-                let hold = session.stop_hold.load(Ordering::SeqCst);
-                if status == "completed"
-                    && (hold == 0 || hold == session.turn_hold.load(Ordering::SeqCst))
-                {
-                    self.release_held_agent_messages(session, hold);
+                Err(e) => {
+                    let mut record = json!({"error": e.message, "code": e.code, "turnId": turn_id, "turnSeq": turn_seq});
+                    if let Some(o) = record.as_object_mut() {
+                        o.extend(crate::recovery::fields(e));
+                    }
+                    self.append(session, "mux", "turn_error", record);
+                    self.note_model_refusal(session, &e.message);
+                    if !detached {
+                        self.pause_queue(session, turn_id);
+                    }
+                    let mut msg = json!({"status": "failed", "error": e.message, "code": e.code, "turnSeq": turn_seq, "turnId": turn_id, "promptId": prompt_id});
+                    if let Some(o) = msg.as_object_mut() {
+                        let agent_error =
+                            (!harness_failed).then(|| (e.message.as_str(), json!(e.code)));
+                        o.extend(self.turn_error_fields(session, agent_error));
+                        if let Some(Value::Object(info)) = &route_info {
+                            o.extend(info.clone());
+                        }
+                        o.extend(crate::recovery::fields(e));
+                        if let Some(to) = carried_to() {
+                            o.insert("carriedTo".into(), to);
+                        }
+                        // Ended by acpmux, not the agent (`stalled_turn.rs`).
+                        if let Some(data) = e.data.as_ref().filter(|d| d["detail"] == "stalled") {
+                            o.insert("detail".into(), data["detail"].clone());
+                            o.insert("stalledMs".into(), data["stalledMs"].clone());
+                            o.insert("errorSource".into(), json!("acpmux"));
+                        }
+                    }
+                    self.write_turn_result(session, msg, git);
                 }
             }
-            Err(e) => {
-                let mut record = json!({"error": e.message, "code": e.code, "turnId": turn_id, "turnSeq": turn_seq});
-                if let Some(o) = record.as_object_mut() {
-                    o.extend(crate::recovery::fields(e));
-                }
-                self.append(session, "mux", "turn_error", record);
-                self.note_model_refusal(session, &e.message);
-                if !detached {
-                    self.pause_queue(session, turn_id);
-                }
-                let mut msg = json!({"status": "failed", "error": e.message, "code": e.code, "turnSeq": turn_seq, "turnId": turn_id, "promptId": prompt_id});
-                if let Some(o) = msg.as_object_mut() {
-                    let agent_error =
-                        (!harness_failed).then(|| (e.message.as_str(), json!(e.code)));
-                    o.extend(self.turn_error_fields(session, agent_error));
-                    if let Some(Value::Object(info)) = &route_info {
-                        o.extend(info.clone());
-                    }
-                    o.extend(crate::recovery::fields(e));
-                    if let Some(to) = carried_to() {
-                        o.insert("carriedTo".into(), to);
-                    }
-                    // Ended by acpmux, not the agent (`stalled_turn.rs`).
-                    if let Some(data) = e.data.as_ref().filter(|d| d["detail"] == "stalled") {
-                        o.insert("detail".into(), data["detail"].clone());
-                        o.insert("stalledMs".into(), data["stalledMs"].clone());
-                        o.insert("errorSource".into(), json!("acpmux"));
-                    }
-                }
-                self.write_turn_result(session, msg, git);
-            }
         }
-        drop(ends);
         self.reset_stream(session);
         // Nobody showing it: the sidebar dot and `wait --until done` see it.
         if !self.shown(session) {
