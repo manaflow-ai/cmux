@@ -33,6 +33,13 @@
 //! - **I5, idempotency.** [`apply_once`] with a [`Ledger`]: replaying an op
 //!   with the same key has no further effect; reusing a key for another op is
 //!   [`Reject::IdempotencyConflict`].
+//! - **R3b, a new column takes new space.** An op that creates a column
+//!   ([`LayoutOpKind::creates_column`]) leaves every column that existed
+//!   before at its width exactly ([`resized_columns`]); the new column adds
+//!   its own width to the screen, which then scrolls. A screen's split tree
+//!   is one full-width column, so the first column beside it leaves the tree
+//!   full width too. Lawrence 2026-10-31: "creating new columns must never
+//!   resize existing columns".
 //!
 //! Focus (active screen, pane and tab) is per-client view state and is not
 //! part of the model; ops name their destination explicitly.
@@ -112,6 +119,9 @@ pub struct Screen {
 pub struct Column {
     pub id: ColumnId,
     pub panes: Vec<PaneId>,
+    /// Width in thousandths of the viewport. A screen's split tree (no
+    /// strip columns) is one column of 1000: it fills the viewport.
+    pub width_permille: u16,
     /// Rows partitioning `panes` top to bottom; empty is one implicit row
     /// ([`rows`] module).
     pub rows: Vec<Row>,
@@ -170,6 +180,20 @@ pub enum LayoutOpKind {
         new_pane: PaneId,
         new_column: ColumnId,
         base_column: ColumnId,
+    },
+    /// A new column `new_column` holding pane `new_pane` with the new tab
+    /// `new_tab` (New Column, `new-pane-right`): right of `anchor`'s column,
+    /// or left of it when `before` (`column-left-v1`), `width_permille`
+    /// thousandths of the viewport wide. A screen without columns turns its
+    /// split tree into the column `base_column` first, at full width.
+    InsertColumn {
+        anchor: PaneId,
+        before: bool,
+        width_permille: u16,
+        new_pane: PaneId,
+        new_column: ColumnId,
+        base_column: ColumnId,
+        new_tab: NewTab,
     },
     /// Move `tab` into a new workspace at `index` (default: the end).
     /// Sidebar groups are personal state outside this model.
@@ -256,8 +280,39 @@ impl LayoutOpKind {
         match self {
             Self::MoveTabToSplit { respawn: Some(respawn), .. }
             | Self::MoveTabToRow { respawn: Some(respawn), .. } => BTreeSet::from([respawn.tab]),
-            Self::InsertRow { new_tab, .. } => BTreeSet::from([new_tab.tab]),
+            Self::InsertRow { new_tab, .. } | Self::InsertColumn { new_tab, .. } => {
+                BTreeSet::from([new_tab.tab])
+            }
             _ => BTreeSet::new(),
+        }
+    }
+
+    /// Whether this op creates a column, so R3b holds for it: every column
+    /// that existed before keeps its width ([`resized_columns`]). Every op
+    /// is listed, so a new op decides.
+    pub fn creates_column(&self) -> bool {
+        self.column_anchor().is_some()
+    }
+
+    /// The pane beside which this op creates a column: the new column opens
+    /// on that pane's screen, the one screen R3b is about. A move that
+    /// empties a column elsewhere may resize that screen's columns (its
+    /// close sizing), which is not a create resizing a column.
+    pub fn column_anchor(&self) -> Option<PaneId> {
+        match self {
+            Self::MoveTabToColumn { anchor, .. } | Self::InsertColumn { anchor, .. } => {
+                Some(*anchor)
+            }
+            Self::MoveTab { .. }
+            | Self::MoveTabToSplit { .. }
+            | Self::MoveTabToNewWorkspace { .. }
+            | Self::MoveTabToWorkspace { .. }
+            | Self::InsertRow { .. }
+            | Self::MoveTabToRow { .. }
+            | Self::SetRowHeights { .. }
+            | Self::FlattenRows { .. }
+            | Self::CloseTab { .. }
+            | Self::RuntimeExited { .. } => None,
         }
     }
 }
@@ -388,6 +443,9 @@ pub enum Violation {
     EmptyPane { pane: PaneId },
     /// R1/R2/R4: a column's rows do not partition its panes.
     RowLayout { column: ColumnId },
+    /// R3b: a column that existed before a column was created changed its
+    /// width (thousandths of the viewport).
+    ColumnResized { column: ColumnId, screen: ScreenId, before: u16, after: u16 },
 }
 
 impl fmt::Display for Violation {
@@ -413,6 +471,11 @@ impl fmt::Display for Violation {
             Self::RowLayout { column } => {
                 write!(f, "column {column}'s rows do not partition its panes")
             }
+            Self::ColumnResized { column, screen, before, after } => write!(
+                f,
+                "creating a column resized column {column} of screen {screen} from \
+                 {before}\u{2030} to {after}\u{2030}"
+            ),
         }
     }
 }
@@ -544,6 +607,60 @@ pub fn introduced_violations_creating(
     violations
 }
 
+/// R3b from `before` to `after` for an op that creates a column beside
+/// `anchor`: every column of the anchor's screen in `before` that is still
+/// there in `after` has the same width ([`resized_screen_columns`]). Other
+/// screens are not checked: a tab moved out of one may close its column,
+/// and that screen's close sizing is not a create resizing a column.
+pub fn resized_columns(
+    before: &LayoutState,
+    after: &LayoutState,
+    anchor: PaneId,
+) -> BTreeSet<Violation> {
+    let screen_of = |layout: &LayoutState| {
+        layout
+            .workspaces
+            .iter()
+            .flat_map(|workspace| &workspace.screens)
+            .find(|screen| screen.columns.iter().any(|column| column.panes.contains(&anchor)))
+            .cloned()
+    };
+    match (screen_of(before), screen_of(after)) {
+        (Some(old), Some(new)) if old.id == new.id => {
+            resized_screen_columns(&old, &new).into_iter().collect()
+        }
+        _ => BTreeSet::new(),
+    }
+}
+
+/// [`resized_columns`] for one screen, `before` and `after` the change: the
+/// check a store runs on the screen a create changed, without projecting the
+/// rest of the session.
+pub fn resized_screen_columns(before: &Screen, after: &Screen) -> Vec<Violation> {
+    let mut violations = Vec::new();
+    for column in &before.columns {
+        let kept = if before.columns_active {
+            after.columns.iter().find(|candidate| candidate.id == column.id)
+        } else {
+            after
+                .columns
+                .iter()
+                .find(|candidate| candidate.panes.iter().any(|pane| column.panes.contains(pane)))
+        };
+        if let Some(kept) = kept
+            && kept.width_permille != column.width_permille
+        {
+            violations.push(Violation::ColumnResized {
+                column: kept.id,
+                screen: before.id,
+                before: column.width_permille,
+                after: kept.width_permille,
+            });
+        }
+    }
+    violations
+}
+
 /// Where a tab is: workspace, screen, pane, and index in the pane's strip.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Placement {
@@ -626,8 +743,8 @@ pub fn placement_mismatches(model: &LayoutState, live: &LayoutState) -> Vec<Plac
 }
 
 /// Apply `op` to `state`, ignoring its key. The result never introduces a
-/// violation: an op whose result would is rejected with
-/// [`Reject::Invariant`].
+/// violation (I1-I3, and R3b for an op that creates a column): an op whose
+/// result would is rejected with [`Reject::Invariant`].
 pub fn apply(
     state: &LayoutState,
     op: &LayoutOp,
@@ -635,12 +752,15 @@ pub fn apply(
     let mut next = state.clone();
     let mut events = Vec::new();
     apply_kind(&mut next, &op.kind, &mut events)?;
-    let violations = introduced_violations_creating(
+    let mut violations = introduced_violations_creating(
         state,
         &next,
         &op.kind.closed_tabs(),
         &op.kind.created_tabs(),
     );
+    if let Some(anchor) = op.kind.column_anchor() {
+        violations.extend(resized_columns(state, &next, anchor));
+    }
     if !violations.is_empty() {
         return Err(Reject::Invariant(violations.into_iter().collect()));
     }
@@ -835,18 +955,35 @@ fn apply_kind(
             } else {
                 state.ensure_fresh(&[*new_pane, *new_column, *base_column])?;
             }
-            let screen = state.screen_mut(slot);
-            if !screen.columns_active {
-                screen.columns_active = true;
-                screen.columns[0].id = *base_column;
-                events.push(LayoutEvent::ColumnCreated { column: *base_column, screen: screen.id });
-            }
-            screen.columns.insert(position, Column::single(*new_column, vec![*new_pane]));
-            let screen_id = screen.id;
+            let column = Column::sized(*new_column, vec![*new_pane], *width_permille);
+            state.screen_mut(slot).insert_column(position, column, *base_column, events);
             state.insert_pane(*new_pane);
-            events.push(LayoutEvent::ColumnCreated { column: *new_column, screen: screen_id });
-            events.push(LayoutEvent::PaneCreated { pane: *new_pane, screen: screen_id });
             state.move_tab(*tab, source, *new_pane, 0, events)?;
+        }
+        LayoutOpKind::InsertColumn {
+            anchor,
+            before,
+            width_permille,
+            new_pane,
+            new_column,
+            base_column,
+            new_tab,
+        } => {
+            if !COLUMN_WIDTH_PERMILLE.contains(width_permille) {
+                return Err(Reject::InvalidWidth(*width_permille));
+            }
+            let slot = state.require_pane(*anchor)?;
+            if state.screen_mut(slot).columns_active {
+                state.ensure_fresh(&[*new_pane, *new_column, new_tab.tab])?;
+            } else {
+                state.ensure_fresh(&[*new_pane, *new_column, *base_column, new_tab.tab])?;
+            }
+            let position = if *before { slot.column } else { slot.column + 1 };
+            let column = Column::sized(*new_column, vec![*new_pane], *width_permille);
+            state.screen_mut(slot).insert_column(position, column, *base_column, events);
+            state.tabs.insert(new_tab.tab, new_tab.content.clone());
+            state.panes.insert(*new_pane, vec![new_tab.tab]);
+            events.push(LayoutEvent::TabCreated { tab: new_tab.tab, pane: *new_pane });
         }
         LayoutOpKind::MoveTabToNewWorkspace { tab, index, new_workspace, new_screen, new_pane } => {
             let source = state.pane_of(*tab).ok_or(Reject::UnknownTab(*tab))?;
@@ -937,6 +1074,32 @@ fn apply_kind(
     Ok(())
 }
 
+impl Screen {
+    /// Insert `column`, holding one new pane, at `position`. A screen without
+    /// strip columns turns its split tree into the column `base_column`
+    /// first; the tree keeps its full width (R3b), so the new column is new
+    /// space beside it.
+    fn insert_column(
+        &mut self,
+        position: usize,
+        column: Column,
+        base_column: ColumnId,
+        events: &mut Vec<LayoutEvent>,
+    ) {
+        if !self.columns_active {
+            self.columns_active = true;
+            self.columns[0].id = base_column;
+            events.push(LayoutEvent::ColumnCreated { column: base_column, screen: self.id });
+        }
+        let (id, pane) = (column.id, column.panes.first().copied());
+        self.columns.insert(position.min(self.columns.len()), column);
+        events.push(LayoutEvent::ColumnCreated { column: id, screen: self.id });
+        if let Some(pane) = pane {
+            events.push(LayoutEvent::PaneCreated { pane, screen: self.id });
+        }
+    }
+}
+
 fn single_pane_screen(screen: ScreenId, pane: PaneId) -> Screen {
     Screen { id: screen, columns: vec![Column::single(0, vec![pane])], columns_active: false }
 }
@@ -946,6 +1109,9 @@ mod tests;
 
 #[cfg(test)]
 mod exhaustive_tests;
+
+#[cfg(test)]
+mod column_widths_tests;
 
 #[cfg(test)]
 mod rows_tests;

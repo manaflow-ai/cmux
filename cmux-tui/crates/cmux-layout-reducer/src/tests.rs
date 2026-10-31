@@ -38,7 +38,9 @@ fn build(layout: &[Vec<Vec<Vec<usize>>>]) -> (LayoutState, u64) {
                     state.panes.insert(pane, pane_tabs);
                     built_panes.push(pane);
                 }
-                built_columns.push(Column::single(column, built_panes));
+                // Strip columns of uneven widths, so a resize (R3b) shows.
+                let width = if columns_active { 300 + (column % 7) as u16 * 100 } else { 1000 };
+                built_columns.push(Column::sized(column, built_panes, width));
             }
             built.push(Screen { id: screen, columns: built_columns, columns_active });
         }
@@ -387,6 +389,12 @@ enum Step {
         pane: usize,
         after: Option<usize>,
     },
+    /// A new terminal column beside a pane's column (`InsertColumn`).
+    NewColumn {
+        pane: usize,
+        before: bool,
+        width: u16,
+    },
     NewWorkspace {
         tab: usize,
         index: Option<usize>,
@@ -423,6 +431,8 @@ fn step() -> impl Strategy<Value = Step> {
             .prop_map(|(tab, pane, edge, respawn)| Step::Split { tab, pane, edge, respawn }),
         2 => (pick.clone(), pick.clone(), prop::option::of(pick.clone()))
             .prop_map(|(tab, pane, after)| Step::Column { tab, pane, after }),
+        2 => (pick.clone(), any::<bool>(), 100..=1000u16)
+            .prop_map(|(pane, before, width)| Step::NewColumn { pane, before, width }),
         1 => (pick.clone(), prop::option::of(0..4usize))
             .prop_map(|(tab, index)| Step::NewWorkspace { tab, index }),
         2 => (pick.clone(), pick.clone())
@@ -503,6 +513,21 @@ fn concrete(
                 base_column: fresh(),
             }
         }
+        Step::NewColumn { pane: p, before, width } => {
+            let new_tab = fresh();
+            LayoutOpKind::InsertColumn {
+                anchor: pane(*p)?,
+                before: *before,
+                width_permille: *width,
+                new_pane: fresh(),
+                new_column: fresh(),
+                base_column: fresh(),
+                new_tab: NewTab {
+                    tab: new_tab,
+                    content: TabContent { runtime: new_tab * 10, terminal: None, dead: false },
+                },
+            }
+        }
         Step::NewWorkspace { tab: t, index } => LayoutOpKind::MoveTabToNewWorkspace {
             tab: tab(*t)?,
             index: *index,
@@ -581,6 +606,12 @@ proptest! {
                     // A respawning split keeps the source pane, holding the fresh tab.
                     if let (false, LayoutOpKind::MoveTabToSplit { pane, respawn: Some(respawn), .. }) = (replayed, &op.kind) {
                         prop_assert_eq!(next.panes.get(pane), Some(&vec![respawn.tab]));
+                    }
+                    // R3b: a new column takes new space; every column that
+                    // was there keeps its width.
+                    if let Some(anchor) = op.kind.column_anchor() {
+                        let resized = resized_columns(&state, &next, anchor);
+                        prop_assert!(resized.is_empty(), "{resized:?}");
                     }
                     // I5: a replay changes nothing and reports nothing.
                     if replayed {
