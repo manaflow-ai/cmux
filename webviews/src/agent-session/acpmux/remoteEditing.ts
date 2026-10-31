@@ -22,9 +22,7 @@ export type RemoteComposer = {
 /// the person's own Cloud machine (`ownerCloud`, the app's wire) sends: that machine is a
 /// disposable sandbox of their own, and its daemon starts the chat only on the Cloud API's owner
 /// answer.
-export function remoteComposer(
-  snapshot: Pick<AcpmuxSnapshot, "origin" | "summary" | "ownerCloud">,
-): RemoteComposer {
+export function remoteComposer(snapshot: Pick<AcpmuxSnapshot, "origin" | "summary" | "ownerCloud">): RemoteComposer {
   const family = snapshot.summary?.family || snapshot.summary?.harness;
   if (!family || !REMOTE_REFUSED_FAMILIES.includes(family)) return { canSend: true };
   if (snapshot.origin === "remote" && snapshot.ownerCloud === true) return { canSend: true };
