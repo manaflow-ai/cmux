@@ -40,7 +40,8 @@
 //! A chat whose agent cannot read an inbox has none either ([`reads_inbox`]): one started with no
 //! cmux tools (`agent_tools::left_out`: a remote origin, `ACPMUX_AGENT_TOOLS=0`,
 //! `--strict-mcp-config`). Another agent's message queues for it as before the inbox, so its agent
-//! reads every word. Nothing here waits on Labs `meshRelay.teamMessaging`: an agent reads its inbox
+//! reads every word; a notice that goes to such an agent anyway (messages the inbox took before
+//! it respawned without the tools, or before a restart's first spawn) carries each one whole. Nothing here waits on Labs `meshRelay.teamMessaging`: an agent reads its inbox
 //! with `inbox_read`, in a shell with `acpmux session inbox`, and, while team messaging is off,
 //! with the team mailbox's `team_inbox` and `acpmux inbox` too (`inbox_team_page.rs`), which an
 //! agent started before the inbox has instead of `inbox_read`.
@@ -856,7 +857,7 @@ impl Hub {
     /// and answers their waiting `session/prompt`s with how it went in.
     fn deliver_notice(self: &Arc<Self>, session: &Arc<Session>, steer: bool) {
         let notice_id = format!("inbox-notice-{}", uuid::Uuid::now_v7());
-        let (text, parts, ids) = {
+        let (text, whole, parts, ids) = {
             let mut inbox = session.inbox.lock().unwrap_or_else(|e| e.into_inner());
             if inbox.in_flight.is_some() {
                 return;
@@ -870,6 +871,7 @@ impl Hub {
             }
             let new: Vec<&Item> = inbox.items.iter().filter(|i| !i.noticed).collect();
             let (text, parts) = render(&new);
+            let whole = team_page::whole_notice(&new);
             let ids: Vec<String> = new.iter().map(|i| i.prompt_id.clone()).collect();
             let mut waiters = Vec::new();
             for item in inbox.items.iter_mut().filter(|i| !i.noticed) {
@@ -881,7 +883,7 @@ impl Hub {
             inbox.in_flight = Some((notice_id.clone(), ids.clone()));
             let carry = Carry { notice: notice_id.clone(), ids: ids.clone(), steer, waiters };
             inbox.carrying.push(carry);
-            (text, parts, ids)
+            (text, whole, parts, ids)
         };
         let provenance = json!({"kind": NOTICE_KIND, "noticeId": notice_id, "threads": parts});
         let opts = PromptOptions {
@@ -893,6 +895,8 @@ impl Hub {
         };
         let (hub, s) = (self.clone(), session.clone());
         tokio::spawn(async move {
+            // An agent that can open no thread gets each message whole (`inbox_team_page.rs`).
+            let text = if hub.notice_reader_has_tools(&s).await { text } else { whole };
             let blocks = vec![json!({"type": "text", "text": text})];
             let result = Box::pin(hub.run_prompt(&s, blocks, CLIENT, steer, opts)).await;
             // In once its prompt was written to the agent (`inbox_prompt_written`), as a steer

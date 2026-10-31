@@ -11,6 +11,12 @@
 //! whole as its `body`, under its `messageId` (its prompt id). As in the mailbox, a page marks
 //! nothing read (`acpmux inbox` shows each one's first line only); a read marks what it gives
 //! read, as `inbox_read` does, and an ack marks one message read.
+//!
+//! An agent with no cmux tools has no reader at all, so its notice carries each new message whole
+//! ([`whole_notice`]) instead of the one-line previews. That is decided as the notice goes
+//! ([`Hub::notice_reader_has_tools`]), not when its messages came: a chat whose agent respawned
+//! without the tools, or that has not started one since a restart, may hold messages the inbox
+//! took while it had them (router review of #28707).
 
 use super::*;
 
@@ -85,6 +91,18 @@ impl Hub {
         Ok(json!({"messageId": id, "state": "acked", "to": {"sessionId": session.id}}))
     }
 
+    /// Whether the agent that reads the next notice can open a thread: neither the agent this
+    /// daemon last launched for the chat nor the one its profile spawns now lacks cmux's tools.
+    /// A notice to one that cannot carries its messages whole ([`whole_notice`]).
+    pub(super) async fn notice_reader_has_tools(&self, session: &Session) -> bool {
+        let m = session.meta();
+        let switch = std::env::var_os(crate::agent_tools::SWITCH_ENV);
+        !m.remote_origin
+            && switch.is_none_or(|v| v != "0")
+            && session.launched_with_tools.load(Ordering::SeqCst) != 2
+            && self.spawn_gives_tools(&m).await
+    }
+
     /// The `inbox_read` records of what a read or an ack marked read, one per thread.
     fn log_read(&self, session: &Session, marked: Vec<(String, Vec<String>)>) {
         for (thread, ids) in marked {
@@ -96,6 +114,27 @@ impl Hub {
             );
         }
     }
+}
+
+/// The notice of `items` for an agent with no cmux tools: each message whole, oldest first, under
+/// its sender and thread, as it can read no thread.
+pub(super) fn whole_notice(items: &[&Item]) -> String {
+    let n = items.len();
+    let mut text = format!(
+        "[inbox] {n} new message{} from other agents, each whole (this chat's agent has no inbox \
+         tools). They need no turn of your own.",
+        if n == 1 { "" } else { "s" }
+    );
+    for item in items {
+        text.push_str(&format!(
+            "\n\n--- From {} ({}, thread {}):\n{}",
+            item.from,
+            kind_of(item.class),
+            item.thread,
+            item.text
+        ));
+    }
+    text
 }
 
 /// One inbox message in the team mailbox's shape (`mesh::InMessage`).
