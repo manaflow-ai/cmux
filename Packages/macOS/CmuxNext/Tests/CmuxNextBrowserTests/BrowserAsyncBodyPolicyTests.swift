@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextBrowser
+import Foundation
 import JavaScriptCore
 import Observation
 import Testing
@@ -24,7 +25,7 @@ import Testing
         #expect(tab.evaluations == 1)
     }
 
-    @Observable private final class Tab: BrowserTab {
+    @Observable final class Tab: BrowserTab {
         let id = BrowserTabID(rawValue: "async-body-test")
         let engineKind = BrowserEngineKind.cef
         let profileID = BrowserProfileID(rawValue: UUID())
