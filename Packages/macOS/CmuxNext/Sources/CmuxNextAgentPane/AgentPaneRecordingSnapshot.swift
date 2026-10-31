@@ -84,7 +84,10 @@ nonisolated struct AgentPaneRecordingSnapshot: Sendable {
             guard read > 0 else { return false }
             var written = 0
             while written < read {
-                let wrote = buffer.withUnsafeBytes { write(output, $0.baseAddress! + written, read - written) }
+                let wrote = buffer.withUnsafeBytes { bytes -> Int in
+                    guard let base = bytes.baseAddress else { return -1 }
+                    return write(output, base + written, read - written)
+                }
                 guard wrote > 0 else { return false }
                 written += wrote
             }
