@@ -96,7 +96,6 @@ public struct ChiefSettingsView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(removing: .title)
         .toolbar(.visible, for: .navigationBar)
-        .toolbar(.hidden, for: .tabBar)
         .toolbar {
             // Messages' Edit: Chief's name and avatar, on a Mac that sets them.
             if hasControl {

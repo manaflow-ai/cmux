@@ -283,7 +283,10 @@ export function withoutInlineTokens(text: string, known: InlineKnownIds = () => 
   return text.includes(INLINE_ATTACHMENT_MARK) ? wordsOf(inlineRuns(text, known)) : text;
 }
 
-export type OrderedDraftPart = { type: "text"; text: string } | { type: "attachment"; attachment: ComposerAttachment };
+/// `strip`: an attachment the person left in the strip, which goes after the text, not in it.
+export type OrderedDraftPart =
+  | { type: "text"; text: string }
+  | { type: "attachment"; attachment: ComposerAttachment; strip?: true };
 
 /** Anthropic's per-image limit; a preview past it is scaled down further (composer/imageWork.ts). */
 export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
@@ -442,7 +445,8 @@ export function orderedDraftParts(
       placed.add(run.id);
       return { type: "attachment", attachment: byId.get(run.id)! };
     });
-    for (const attachment of chips) if (!placed.has(attachment.id)) parts.push({ type: "attachment", attachment });
+    for (const attachment of chips)
+      if (!placed.has(attachment.id)) parts.push({ type: "attachment", attachment, strip: true });
     return parts;
   }
   if (!legacyMarks(input, chips)) {
@@ -468,7 +472,7 @@ export function orderedDraftParts(
   const tail = input.slice(start);
   if (tail) parts.push({ type: "text", text: tail });
   // The attachments not placed in the text (the strip's) go after it, in their order.
-  for (const attachment of chips) if (!attachment.inline) parts.push({ type: "attachment", attachment });
+  for (const attachment of chips) if (!attachment.inline) parts.push({ type: "attachment", attachment, strip: true });
   return parts;
 }
 
@@ -633,8 +637,9 @@ export function recordingAttachment(
 /// the WAV it wrote, from its own disk, to that chat's machine (`dictation.recording.upload`, which
 /// takes only a recording the host itself gave this page), and the chip links the copy there, so
 /// the chat's agent opens it. The page never reads the bytes. Undefined when the host could not send
-/// it (an older host, an upload that failed): the composer's pending chip for it (Composer.tsx
-/// `attachLater`) then fails with Retry, and a prompt sent meanwhile gets the transcript.
+/// it (an older host, an upload that failed or a stager that refused it): the composer's pending
+/// chip for it (Composer.tsx `attachLater`) then fails with Retry, and a prompt sent meanwhile keeps
+/// waiting for it until Retry makes it or its × takes the recording out.
 export async function remoteRecordingAttachment(
   audio: DictationRecording,
   name: string,
