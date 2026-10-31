@@ -83,7 +83,8 @@ impl Mux {
                 return Ok(());
             }
             entry.ended.insert(child.to_owned());
-            if entry.running.remove(child).is_none() || !entry.running.is_empty() {
+            entry.running.remove(child);
+            if !entry.running.is_empty() {
                 return Ok(());
             }
             entry.held.clone()
@@ -111,10 +112,14 @@ impl Mux {
     ) -> FinishGate {
         let mut children = self.agent_hook_children.lock().unwrap_or_else(|e| e.into_inner());
         match kind {
-            "agent.session.started" | "agent.session.ended" => children
-                .remove(terminal_id)
-                .and_then(|entry| entry.held)
-                .map_or(FinishGate::Notify, FinishGate::Release),
+            "agent.session.started" | "agent.session.ended" => {
+                if let Some(held) = children.get(terminal_id).and_then(|entry| entry.held.clone()) {
+                    FinishGate::Release(held)
+                } else {
+                    children.remove(terminal_id);
+                    FinishGate::Notify
+                }
+            }
             "agent.turn.started" => {
                 if let Some(entry) = children.get_mut(terminal_id) {
                     // This turn's own end decides; foreground children of the last one ended
@@ -137,6 +142,25 @@ impl Mux {
             }
             _ => FinishGate::Notify,
         }
+    }
+
+    /// Reset a session's child state only after its held finish posts. A failed
+    /// post leaves the lifecycle hook retryable with the original finish key.
+    pub(super) fn release_held_agent_session_finish(
+        &self,
+        terminal_id: &TerminalPublicId,
+        held: &HeldFinish,
+    ) -> anyhow::Result<()> {
+        self.post_held_agent_finish(terminal_id, held)?;
+        let mut children = self.agent_hook_children.lock().unwrap_or_else(|e| e.into_inner());
+        if children
+            .get(terminal_id)
+            .and_then(|entry| entry.held.as_ref())
+            .is_some_and(|current| current.sequence == held.sequence)
+        {
+            children.remove(terminal_id);
+        }
+        Ok(())
     }
 
     /// Posts a held finish under its turn's key, so a replay never posts it twice.

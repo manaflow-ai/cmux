@@ -151,10 +151,8 @@ impl Mux {
         // (`agent_hook_children.rs`).
         let gate =
             self.gate_agent_finish(&terminal_id, &ingress.kind, sequence, notification.as_ref());
-        if let agent_hook_children::FinishGate::Release(held) = &gate
-            && self.post_held_agent_finish(&terminal_id, held).is_err()
-        {
-            self.report_internal_diagnostic("held agent finish could not post");
+        if let agent_hook_children::FinishGate::Release(held) = &gate {
+            self.release_held_agent_session_finish(&terminal_id, held)?;
         }
         let held = matches!(gate, agent_hook_children::FinishGate::Hold);
         if let Some((title, body, level)) = notification.filter(|_| !held) {
