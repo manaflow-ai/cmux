@@ -248,12 +248,15 @@ class Journey:
         finally:
             server.shutdown()
 
-        found = self.call("palette.query", {"query": "Settings"})
-        rows = json.dumps(found)
-        self.step("palette", "error" not in found and "Settings" in rows, {"rows": rows[:300]})
+        # palette.query needs a scope; a ranked row's own title must name Settings (the reply echoes the
+        # query, so matching the whole reply would pass with no row at all).
+        found = self.call("palette.query", {"scope": "root", "query": "Settings", "limit": 8})
+        titles = [str(item.get("title") or "") for item in found.get("items") or [] if isinstance(item, dict)]
+        self.step("palette", "error" not in found and any("Settings" in title for title in titles),
+                  {"titles": titles, "error": found.get("error")})
 
         opened = self.call("settings.open", {"focus": True})
-        self.step("settings", opened.get("opened") is True or ("error" not in opened and bool(opened)), {"run": opened})
+        self.step("settings", opened.get("opened") is True, {"run": opened})
 
         hidden = self.run_action("toggleSidebar")
         shown = self.run_action("toggleSidebar")
