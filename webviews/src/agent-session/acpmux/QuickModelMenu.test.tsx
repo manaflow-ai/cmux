@@ -807,3 +807,86 @@ test("an empty harness list does not claim an empty search had no matches", asyn
   expect(text).toBe("No models yet. Refresh to ask the agent again.");
   expect(text).not.toBe("No matching models");
 });
+
+// Leo 2026-10-31: "WHY THE FUCK IS THERE NO FUCKING FAST MODE FOR FUCKIGN CODEX". Another tab's
+// models get the same Fast mode row and effort column as the chat's own: the row holds the choice
+// (off as the menu opens) and a model picked there lands with it.
+test("another tab whose models honor Fast mode draws the Fast row and lands its pick with it", async () => {
+  const container = installDom();
+  await loadQuickModelMenu();
+  const picks: QuickModel[] = [];
+  function OtherTabHarness() {
+    const trigger = useRef<HTMLButtonElement | null>(null);
+    const [open, setOpen] = useState(false);
+    return (
+      <QuickModelMenu
+        open={open}
+        onOpenChange={setOpen}
+        trigger={trigger}
+        chip={{ "data-menu": "model", label: "Model", title: "Model" }}
+        onMore={() => {}}
+        menu={{
+          inlineEffort: true,
+          models: [],
+          current: "opus",
+          onModel() {},
+          fast: { checked: false, onChange() {} },
+          families: {
+            current: "claude",
+            onPick: (model) => picks.push(model),
+            list: [
+              {
+                id: "claude",
+                name: "Claude",
+                more: [],
+                models: [{ id: "opus", name: "Opus", family: "claude", efforts: ["low", "medium"], canFast: true }],
+              },
+              {
+                id: "codex",
+                name: "Codex",
+                more: [],
+                models: [
+                  {
+                    id: "sol",
+                    name: "Sol",
+                    family: "codex",
+                    efforts: ["low", "medium", "high"],
+                    defaultEffort: "medium",
+                    canFast: true,
+                  },
+                ],
+              },
+            ],
+          },
+        }}
+      >
+        Model
+      </QuickModelMenu>
+    );
+  }
+  await act(async () => {
+    root = createRoot(container);
+    root.render(<OtherTabHarness />);
+  });
+  await act(async () => container.querySelector<HTMLButtonElement>("button[data-menu='model']")!.click());
+  await settle();
+  await act(async () => document.querySelector<HTMLElement>('.acpmux-quick-rail-tab[aria-label="Codex"]')!.click());
+  await settle();
+  // The effort column names the level a pick lands, at rest.
+  const row = [...document.querySelectorAll<HTMLElement>(".acpmux-quick-model-effort")].find((node) =>
+    node.textContent?.includes("Sol"),
+  )!;
+  expect(row.hasAttribute("data-held")).toBe(true);
+  expect(row.querySelector(".acpmux-quick-effort-now")?.textContent).toContain("Medium");
+  const fast = document.querySelector<HTMLElement>(".acpmux-quick-fast")!;
+  expect(fast.getAttribute("aria-checked")).toBe("false");
+  await act(async () => fast.click());
+  await settle();
+  expect(document.querySelector(".acpmux-quick-fast")?.getAttribute("aria-checked")).toBe("true");
+  const sol = [...document.querySelectorAll<HTMLElement>('.acpmux-quick-item[role="menuitemradio"]')].find((node) =>
+    node.textContent?.includes("Sol"),
+  )!;
+  await act(async () => sol.click());
+  await settle();
+  expect(picks.map(({ id, fast }) => ({ id, fast }))).toEqual([{ id: "sol", fast: true }]);
+});
