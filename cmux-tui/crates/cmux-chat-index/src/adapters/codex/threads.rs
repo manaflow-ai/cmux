@@ -196,11 +196,12 @@ impl Query {
         Ok(children)
     }
 
-    /// The tables' schema as SQLite keeps it: the text of every table and index on them.
+    /// The tables' schema as SQLite keeps it: the text of every table and index on them, the
+    /// names matched without case as SQLite resolves them.
     fn schema(conn: &Connection) -> rusqlite::Result<String> {
         let mut stmt = conn.prepare(
             "SELECT group_concat(coalesce(sql, ''), char(10)) FROM (SELECT sql FROM sqlite_master
-             WHERE tbl_name IN ('threads', 'thread_spawn_edges') ORDER BY type, name)",
+             WHERE lower(tbl_name) IN ('threads', 'thread_spawn_edges') ORDER BY type, name)",
         )?;
         stmt.query_row([], |row| row.get::<_, Option<String>>(0)).map(Option::unwrap_or_default)
     }
@@ -219,10 +220,11 @@ pub(super) fn query_threads(db: &Path) -> rusqlite::Result<Vec<ChatEntry>> {
     // Taken out for this read: a read that fails leaves none, and the next one reads whole.
     let known = KNOWN.lock().ok().and_then(|mut known| known.remove(&root));
     let conn = open_read_only(db)?;
-    let query = Query::new(&conn)?;
-    // One snapshot for the keys and the rows: a write between them is read on its own burst.
+    // One snapshot for the schema, the queries built from it, the keys and the rows: a write
+    // between them is read on its own burst.
     let snapshot = conn.unchecked_transaction()?;
     let schema = Query::schema(&conn)?;
+    let query = Query::new(&conn)?;
     let keys = query.keys(&conn)?;
     let children = query.children(&conn)?;
     let known = known.filter(|known| {
