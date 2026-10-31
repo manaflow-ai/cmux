@@ -50,6 +50,22 @@ import Testing
         try expectKeptForPerson(vault)
     }
 
+    @Test(arguments: [Int.max, Int.min, -1])
+    func anUntrustedUsageCountCannotCrashAnAllowedRead(uses: Int) throws {
+        let vault = vault()
+        try vault.set("PROD_DB", value: "postgres://private-value", scope: [.user], note: nil, by: person)
+        var document = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: vault.indexURL)) as? [String: Any])
+        var entries = try #require(document["secrets"] as? [String: [String: Any]])
+        var entry = try #require(entries["PROD_DB"])
+        entry["uses"] = uses
+        entries["PROD_DB"] = entry
+        document["secrets"] = entries
+        try JSONSerialization.data(withJSONObject: document).write(to: vault.indexURL, options: .atomic)
+
+        #expect(try vault.resolve(["PROD_DB"], for: person, command: nil)["PROD_DB"] == "postgres://private-value")
+        #expect(try vault.list()["PROD_DB"]?.uses == (uses == Int.max ? Int.max : 1))
+    }
+
     @Test func aMissingCacheEntryNeverLetsAddReplaceAProtectedSecret() throws {
         let vault = vault()
         try vault.set("PROD_DB", value: "postgres://private-value", scope: [.user], note: nil, by: person)

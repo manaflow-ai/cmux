@@ -658,6 +658,24 @@ mod tests {
         }
     }
 
+    #[test]
+    fn exec_no_mask_preserves_child_arguments_through_global_parsing() {
+        let (global, args) = super::super::parse_globals(&words(
+            "vault exec --env K --no-mask -- echo --json --socket /child.sock",
+        ))
+        .unwrap();
+        assert_eq!(global.output, OutputMode::Human);
+        assert_eq!(global.socket, None);
+        assert_eq!(
+            parse(&args[1..]),
+            Ok(Command::Exec {
+                env: vec![("K".into(), "K".into())],
+                mask: false,
+                argv: words("echo --json --socket /child.sock"),
+            })
+        );
+    }
+
     fn mask_in_chunks(secrets: &[(&str, &str)], input: &str, chunk: usize) -> String {
         let mut masker = Masker::new(
             secrets.iter().map(|(v, n)| (v.as_bytes().to_vec(), (*n).to_owned())).collect(),
