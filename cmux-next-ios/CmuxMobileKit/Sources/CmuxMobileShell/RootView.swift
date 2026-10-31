@@ -510,6 +510,18 @@ struct ShellView: View {
             if shell.open(route) { NotificationRouter.shared.opened() }
         }
         .modifier(NotificationRouteObserver(shell: shell))
+        // A named Home conversation link may arrive before the Mac's Home
+        // rows or Cloud Chief are loaded; continue the pending route as those
+        // owners publish their identities, instead of opening another Chief.
+        .onChange(of: MacHomeFeed.shared.rows) { _, _ in
+            if let route = NotificationRouter.shared.pending, shell.open(route) { NotificationRouter.shared.opened() }
+        }
+        .onChange(of: ChiefSources.shared.cloud.conversationID) { _, _ in
+            if let route = NotificationRouter.shared.pending, shell.open(route) { NotificationRouter.shared.opened() }
+        }
+        .onChange(of: ChiefSources.shared.mac.conversationID) { _, _ in
+            if let route = NotificationRouter.shared.pending, shell.open(route) { NotificationRouter.shared.opened() }
+        }
         // Design/terminal P10: remember where the user is; finish a launch
         // restore once the workspace is listed (or its Mac says it is gone).
         // Back to the workspace and tab that were open (P10), once, on the
