@@ -681,6 +681,16 @@
       "owner": "Performance Lead",
       "receipt": "Review (independent exception reviewer, audit-rh): SHIP at 2391c5ec903a544620ccb6179e4c948adaec9143",
       "expiry": "2026-11-30"
+    },
+    {
+      "date": "2026-10-31",
+      "row": "app_lines",
+      "allow": 24,
+      "why": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/TabHandlers+More.swift moveToSpace and the tab.moveToSpace bind (+24 lines): Move Tab to Space moves only the tab (a lone tab pins its workspace; a tab with siblings goes to a new workspace through TabMoves.toNewWorkspace, then that workspace is pinned to the space). It reads App-only types (TabMoves, WindowProfiles, TabPromotion, AppServices, AppActionContext), so it cannot move to a package until those do; the handler folder's destination-map row owns that move.",
+      "author": "aid-68ba07270dde07b96ff4",
+      "owner": "aid-68ba07270dde07b96ff4",
+      "receipt": "Review (codex gpt-6-astra high fast): SHIP at 75ee0affe9dc80b0a7550cc2533d46b54538403b",
+      "expiry": "2026-12-31"
     }
   ],
   "escape_reviews": [

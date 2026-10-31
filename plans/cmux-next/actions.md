@@ -39,7 +39,7 @@ Declare its placements (menu, group, rank) and whether the CLI offers it, or nam
 - `workspace`: 185
 - `pane`: 88
 - `screen`: 65
-- `tab`: 105
+- `tab`: 106
 - `terminal`: 37
 - `browser`: 242
 - `sidebar`: 91
@@ -159,7 +159,7 @@ Palette 1229, CLI verbs 757, right-click 596, MCP tools 675.
 
 **minimalMenu** (4): `space.newWindow`, `space.setDefaults`, `space.clearDefaults`, `browserProfile.clearSpaceDefault`
 
-**pointerMenuTrim** (14): `copyWorkspaceSSHError`, `revealWorkspaceInFinder`, `palette.copyWorkspaceIDAndRef`, `palette.openWorkspacePullRequests`, `workspace.copyPath`, `workspace.showResources`, `workspace.setRemoteLocalhost`, `workspace.setTint`, `workspace.dockLeft`, `workspace.dockRight`, `workspace.dockTop`, `workspace.dockBottom`, `workspace.undock`, `workspace.toggleDockFloating`
+**pointerMenuTrim** (15): `copyWorkspaceSSHError`, `revealWorkspaceInFinder`, `palette.copyWorkspaceIDAndRef`, `palette.openWorkspacePullRequests`, `workspace.copyPath`, `workspace.showResources`, `workspace.setRemoteLocalhost`, `workspace.setTint`, `tab.moveToSpace`, `workspace.dockLeft`, `workspace.dockRight`, `workspace.dockTop`, `workspace.dockBottom`, `workspace.undock`, `workspace.toggleDockFloating`
 
 ## Exemptions: mcp
 

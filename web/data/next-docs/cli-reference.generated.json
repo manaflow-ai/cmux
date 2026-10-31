@@ -4184,6 +4184,13 @@
           "mcpTool": "app_tab_move_to_previous_pane"
         },
         {
+          "command": "cmux tab move-to-space",
+          "title": "Move Tab to Space…",
+          "id": "tab.moveToSpace",
+          "mcp": true,
+          "mcpTool": "app_tab_move_to_space"
+        },
+        {
           "command": "cmux tab move-to-workspace",
           "title": "Move Tab to Workspace…",
           "id": "tab.moveToWorkspace",
