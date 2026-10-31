@@ -3,12 +3,14 @@
 //! about 85 live terminals, and new terminals then failed with "PTY capacity
 //! exhausted". Every host process holds one PTY of the Mac's 511.
 //!
-//! The rule: after any number of daemon kills, every terminal host the
-//! session's daemons started is either a terminal the restarted daemon
-//! serves (it has a discovery record the next start adopts) or the current
-//! daemon's one spare (R81). A host nobody can adopt again holds its PTY
-//! until its orphan grace ends (10 min in DEV builds, never in a release),
-//! and a new terminal must still open.
+//! The cause was not orphaned hosts (every host stayed adoptable, as the
+//! second test proves) but terminals the session itself kept: a closed
+//! workspace's terminals live until the reap grace ends, and each daemon
+//! start counted that grace again from zero, so under frequent restarts
+//! none was ever reaped (`mux/terminal_reap.rs`). The rule: after any
+//! number of daemon kills, every host is one a terminal of the session
+//! still needs (or the current daemon's one spare, R81), closed terminals
+//! end within the grace counted from their close, and a new terminal opens.
 
 use super::*;
 
@@ -136,27 +138,64 @@ impl Drop for EndHosts {
     }
 }
 
-/// `kill -9` of a daemon that serves M terminals, N times, each time after
-/// the restarted daemon adopted them: no host is left that no daemon serves.
+/// The leak row h found: a plain workspace close keeps its terminals until
+/// the reap grace ends, and each daemon start used to count that grace
+/// again from zero. With restarts faster than the grace (a crash loop, or
+/// the fuzz's kill every ~14 s against a 30 s grace) no closed terminal was
+/// ever reaped, and their PTYs ran out. The grace runs across restarts:
+/// closed terminals end, the placed one keeps running, and a new terminal
+/// opens.
 #[test]
-fn repeated_daemon_kills_leave_only_the_hosts_the_session_serves() {
+fn daemon_restarts_faster_than_the_reap_grace_still_reap_closed_terminals() {
     let _exclusive = exclusive_process_test();
-    let mut harness = RecoveryHarness::start("restart-host-leak");
+    let mut harness = RecoveryHarness::start_with_args(
+        "restart-reap-grace",
+        &["--terminal-reap-grace-seconds", "4"],
+    );
     let mut daemons = EndHosts(vec![daemon_pid(&harness)]);
-    for index in 0..6 {
-        try_run_cat(&harness.socket, 100 + index, &format!("stable-{index}"))
-            .expect("create a terminal");
+    let (placed, _) = run_cat_workspace(&harness.socket, 1, "placed");
+    let closed: Vec<String> = (0..3)
+        .map(|index| run_cat_workspace(&harness.socket, 10 + index, &format!("closed-{index}")).0)
+        .collect();
+    wait_for_host_records(&harness.host_root(), 4);
+    let tree = request(&harness.socket, serde_json::json!({"id": 20, "cmd": "list-workspaces"}));
+    for workspace in tree["workspaces"].as_array().unwrap() {
+        if workspace["name"].as_str().is_some_and(|name| name.starts_with("closed-")) {
+            request(
+                &harness.socket,
+                serde_json::json!({"id": 21, "cmd": "close-workspace", "key": workspace["key"]}),
+            );
+        }
     }
-    wait_for_host_records(&harness.host_root(), 6);
-    for kill in 0..6 {
+    // Every daemon lives 2 s, half the grace, for 16 s: four graces.
+    for _ in 0..8 {
+        std::thread::sleep(Duration::from_secs(2));
         harness.sigkill();
         harness.restart();
         daemons.0.push(daemon_pid(&harness));
-        wait_until_adopted(&harness);
-        assert_no_unrecorded_hosts(&harness, &daemons.0, &format!("after kill {}", kill + 1));
     }
-    assert_eq!(recorded_hosts(&harness).len(), 6, "the 6 terminals survive the kills");
-    try_run_cat(&harness.socket, 900, "after-kills").expect("a new terminal opens");
+    // Checked within a quarter of the grace after the last start: a grace
+    // counted from that start is not over yet.
+    let deadline = Instant::now() + Duration::from_secs(1);
+    loop {
+        let recorded: std::collections::BTreeSet<String> =
+            recorded_hosts(&harness).into_values().collect();
+        let left: Vec<&String> = closed.iter().filter(|id| recorded.contains(*id)).collect();
+        if left.is_empty() {
+            assert!(recorded.contains(&placed), "the placed terminal was reaped: {recorded:?}");
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "{} of 3 terminals closed 16 s ago (reap grace 4 s, 8 daemon restarts) still \
+             hold a host and a PTY: {left:?}",
+            left.len()
+        );
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    wait_until_adopted(&harness);
+    assert_no_unrecorded_hosts(&harness, &daemons.0, "after the restarts");
+    try_run_cat(&harness.socket, 900, "after-restarts").expect("a new terminal opens");
 }
 
 /// The fuzz's case: each `kill -9` lands while terminals are being created
