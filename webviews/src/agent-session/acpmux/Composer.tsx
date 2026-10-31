@@ -1980,7 +1980,7 @@ export function Composer({
     </button>
   ) : null;
   // A draft of attachments alone is still a draft: it gets Send, never Stop alone.
-  const sendControl =
+  const sendOrStop =
     stop && !hasDraft ? (
       stopButton
     ) : remote.canSend && (!quietActions || shell || hasDraft) ? (
@@ -2018,6 +2018,17 @@ export function Composer({
         {quietActions && !shell ? <ReturnIcon /> : <ArrowUpIcon />}
       </button>
     ) : null;
+  // The Quick Composer's Esc hides its panel, so Esc cannot stop a turn there: with a draft typed it
+  // keeps Stop beside its one Send (one stop and one send, never two sends).
+  const sendControl =
+    onOpenInWindow && running && hasDraft && sendOrStop ? (
+      <>
+        {stopButton}
+        {sendOrStop}
+      </>
+    ) : (
+      sendOrStop
+    );
   // Why a failed turn paused the queue: the paused note names it (queuePause.ts).
   const pauseReason = snapshot.summary?.queuePaused === true ? queuePauseReason(snapshot.rows) : undefined;
   return (

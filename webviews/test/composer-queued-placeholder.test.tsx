@@ -235,6 +235,19 @@ test("mid-turn with a draft typed, Esc still stops the turn and keeps the draft"
   });
 });
 
+test("the Quick Composer, whose Esc hides its panel, keeps Stop beside its one Send while a draft is typed", async () => {
+  let handle: ComposerHandle | null = null;
+  await render(steering({ isWorking: true }), undefined, {
+    onOpenInWindow: () => {},
+    handle: (value) => void (handle = value),
+  });
+  await act(async () => handle!.restore("Use the cache", []));
+  expect({
+    sends: host.querySelectorAll(".acpmux-send:not(.acpmux-cancel)").length,
+    stops: host.querySelectorAll(".acpmux-cancel").length,
+  }).toEqual({ sends: 1, stops: 1 });
+});
+
 test("mid-turn with an empty prompt, the send slot is Stop alone", async () => {
   await render(steering({ isWorking: true }));
   expect({
