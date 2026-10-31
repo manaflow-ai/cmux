@@ -337,11 +337,15 @@ type EarlyAttach = {
 /// A settled promise's value, unread: the race waits on the settling only.
 const ignore = () => undefined;
 
-/// The session row an attach reply carries, when it is `sessionId`'s on this machine (no `peer`).
+/// The session row an attach reply carries, when it is `sessionId`'s on this machine. A reply
+/// acpmux forwarded from a peer names that peer at its top level (`server/peer_forward.rs`), and
+/// its `session` is the peer daemon's own detail, with no `peer`: either name makes it another
+/// machine's chat.
 export function attachedLocalRow(result: unknown, sessionId: string): Session | undefined {
-  const row = (result as { session?: unknown } | undefined)?.session as Session | undefined;
+  const reply = result as { session?: unknown; peer?: unknown } | undefined;
+  const row = reply?.session as Session | undefined;
   if (!row || typeof row !== "object" || row.sessionId !== sessionId) return undefined;
-  return typeof row.peer === "string" ? undefined : row;
+  return typeof row.peer === "string" || typeof reply?.peer === "string" ? undefined : row;
 }
 
 /// The opener of the turn an attach page starts inside, as the reply names it (acpmux reads it
