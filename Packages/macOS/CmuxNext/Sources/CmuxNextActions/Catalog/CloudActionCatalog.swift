@@ -176,7 +176,7 @@ nonisolated enum CloudActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "cloudProvisionAPI",
                 title: String(localized: "action.cloudProvisionAPI", defaultValue: "Provision API on Machine…", table: "ActionCatalog", bundle: .module),
-                keywords: ["cloud", "api", "endpoint", "publish", "port", "key", "url"], category: .cloud, symbol: "key.horizontal",
+                keywords: ["cloud", "api", "endpoint", "publish", "port", "key", "url"], category: .cloud, symbol: "square.and.arrow.up",
                 surfaces: [.palette, .contextMenu], arguments: [CatalogArgument.portInt, CatalogArgument.apiKeyNameString], targets: [.machine],
                 cliName: "cloud provision-api"
             ),
