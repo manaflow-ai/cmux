@@ -41,6 +41,8 @@ struct Fake {
     caller: Option<Value>,
     /// The app's `beside` with `caller`: the column right of the chat.
     beside: Value,
+    /// Every `.list` read answers no items (with `resource_result` set).
+    empty_lists: bool,
     /// `Backend::identity` fails, as with no app on the socket.
     identity_fails: bool,
     /// What `Backend::caller_terminal` answers (none by default, whatever
@@ -209,8 +211,12 @@ impl Backend for Fake {
         if request["operation"] != "session.snapshot"
             && let Some(result) = &self.resource_result
         {
-            // A list answers an array: the record as its one item.
+            // A list answers an array: the record as its one item, or none when the
+            // test says lists are empty.
             let list = request["operation"].as_str().is_some_and(|op| op.ends_with(".list"));
+            if list && self.empty_lists {
+                return Ok(json!([]));
+            }
             return Ok(if list && result.is_object() { json!([result]) } else { result.clone() });
         }
         let mut live = self.live.borrow_mut();
@@ -1896,6 +1902,24 @@ fn a_tab_moves_to_a_pane_named_alone() {
     let second = &moves[1]["request"]["params"];
     assert_eq!(second["destination_screen"], "current", "{}", moves[1]);
     assert_eq!(second["destination_pane"], "current", "{}", moves[1]);
+    drop(sent);
+
+    // A workspace made empty has no pane: the move is refused before it is sent, and
+    // the message names how to make one.
+    let empty = Fake {
+        resource_result: Some(json!({"id": workspace})),
+        empty_lists: true,
+        ..Fake::default()
+    };
+    let mut server = Server::new(empty, None);
+    let result = server
+        .call(&json!({"name": "tab_move",
+                       "arguments": {"tab": tab, "destination_workspace": workspace}}))
+        .expect("a tool result");
+    assert_eq!(result["isError"], true, "{result}");
+    assert!(result.to_string().contains("pane_create"), "{result}");
+    let sent = server.backend.sent.borrow();
+    assert!(!sent.iter().any(|s| s["request"]["operation"] == "tab.move"), "{sent:?}");
 }
 
 /// A history read answers the scrollback as lines of plain text, unstyled, where the

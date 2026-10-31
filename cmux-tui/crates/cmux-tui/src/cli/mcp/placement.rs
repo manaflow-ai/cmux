@@ -228,7 +228,28 @@ impl<B: Backend> Server<B> {
         let mut filled = arguments.clone();
         filled.entry("index").or_insert(json!(u32::MAX));
         if !filled.contains_key("destination_pane") {
-            if filled.contains_key("destination_workspace") {
+            if let Some(workspace) = filled.get("destination_workspace").cloned() {
+                // A workspace made with no content has no pane to take the tab: say so,
+                // where the daemon answered "no current screen" (tests/tool-evals r14a:
+                // GPT 6 Astra spent 3 steps after it).
+                let mut list = Map::new();
+                if let Some(session) = arguments.get("session") {
+                    list.insert("session".into(), session.clone());
+                }
+                list.insert("workspace".into(), workspace);
+                list.insert("limit".into(), json!(1));
+                let panes = self.read(v2_tools::find("pane_list"), &list)?;
+                if panes.get("items").and_then(Value::as_array).is_some_and(Vec::is_empty) {
+                    return Err(tool_error(envelope(
+                        v2_tools::invalid(
+                            "tab_move: that workspace has no pane to take the tab (it was \
+                             made empty); pane_create {workspace} makes one, then pass its \
+                             destination_pane",
+                        ),
+                        "not_run",
+                        None,
+                    )));
+                }
                 filled.entry("destination_screen").or_insert(json!("current"));
                 filled.insert("destination_pane".into(), json!("current"));
             }
