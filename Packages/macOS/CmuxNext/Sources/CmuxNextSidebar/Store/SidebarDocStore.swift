@@ -117,6 +117,36 @@ public final class SidebarDocStore {
     /// Whether this build and the daemon can use the document at all.
     public var isSupported: Bool { mirror != nil && (remote?.isAvailable ?? false) }
 
+    /// The document shown is the launch snapshot's (`loadProvisional`), not yet the daemon's: the first
+    /// `sidebar.get` replaces it.
+    public private(set) var isProvisional = false
+
+    /// Shows the document the daemon's launch snapshot saved (`sidebar_doc`) before the daemon answers, so
+    /// the pinned band draws in the first sidebar frame instead of after the daemon's restore (seconds on a
+    /// large registry). Only before the first load; a refresh while the daemon is not up keeps it, and
+    /// the daemon's first load replaces it. Changes made meanwhile are refused as before the load
+    /// (the remote is not available). False when not used.
+    @discardableResult
+    public func loadProvisional(_ data: Data) -> Bool {
+        guard !isActive, !loading, let mirror, let records = try? SidebarDocRecords(document: data), mirror.load(data) != nil else { return false }
+        self.records = records
+        groupFolds = records.items.compactMapValues(\.body.groupCollapsed)
+        isProvisional = true
+        isActive = true
+        bump()
+        return true
+    }
+
+    /// The daemon answered without the document (it does not serve `sidebar-doc-v1`): the launch
+    /// snapshot's document stops showing, and the older path draws.
+    public func dropProvisional() {
+        guard isProvisional else { return }
+        isProvisional = false
+        isActive = false
+        shown = nil
+        bump()
+    }
+
     // MARK: Following the daemon
 
     /// Fetches the whole document (the first load, a reconnect, a stream
@@ -124,7 +154,8 @@ public final class SidebarDocStore {
     public func refresh() {
         if loading { refetchAgain = true; return }
         guard isSupported, let remote, let mirror else {
-            if isActive, !isSupported { isActive = false; shown = nil; bump() }
+            // The launch snapshot's document stays until the daemon is up (`dropProvisional` if it never serves one).
+            if isActive, !isSupported, !isProvisional { isActive = false; shown = nil; bump() }
             return
         }
         loading = true
@@ -140,7 +171,11 @@ public final class SidebarDocStore {
             guard let data = try? await remote.get(), let records = try? SidebarDocRecords(document: data), let self,
                   let dropped = mirror.load(data) else {
                 // Unanswered changes wait for a load: ask again (a bounded number of times; a reconnect loads anyway).
-                if let self, !answering.isEmpty, self.failedLoads < Self.unsettledAsks {
+                // So does a sidebar with no daemon document yet: a first `sidebar.get` that timed out under the
+                // launch's load (2 s, a 41 GB registry restoring) left the pinned band missing until some later
+                // reconnect, minutes after launch (Lawrence 2026-10-29). Each ask is paced by its own reply or timeout.
+                let firstLoad = self.map { !$0.isActive || $0.isProvisional } ?? false
+                if let self, !answering.isEmpty || firstLoad, self.failedLoads < (firstLoad ? Self.firstLoadAsks : Self.unsettledAsks) {
                     self.failedLoads += 1
                     self.refetchAgain = true
                 }
@@ -161,6 +196,7 @@ public final class SidebarDocStore {
             self.unanswered.subtract(answering)
             self.records = records
             self.groupFolds = records.items.compactMapValues(\.body.groupCollapsed)
+            self.isProvisional = false
             self.isActive = true
             self.bump()
             let early = self.earlyBatches
@@ -172,7 +208,8 @@ public final class SidebarDocStore {
     /// One `session.events` batch of document changes (JSON, with its
     /// revision and idempotency key).
     public func receive(batch data: Data) {
-        guard isActive, let mirror else {
+        // The launch snapshot's document is not the chain a batch extends: batches wait for the first load.
+        guard isActive, !isProvisional, let mirror else {
             if loading, mirror != nil, earlyBatches.count < 512 { earlyBatches.append(data) }
             return
         }
@@ -210,7 +247,7 @@ public final class SidebarDocStore {
     /// Asks the daemon to place live workspaces the document lacks (each once).
     public func adopt(_ refs: [SidebarDocWorkspaceRef]) {
         let fresh = refs.filter { !adopting.contains($0) }
-        guard isActive, !fresh.isEmpty, let remote else { return }
+        guard isActive, !isProvisional, !fresh.isEmpty, let remote else { return } // adopts wait for the daemon's document
         adopting.formUnion(fresh)
         // task-owner: one sidebar.adopt; its batch places the rows. A failed adopt is
         // tried again on the next structural change.
@@ -420,6 +457,8 @@ public final class SidebarDocStore {
 
     /// How many times one change is sent under its key before an unanswered change counts as refused.
     private static let unsettledAsks = 4
+    /// How many times the first load is asked for before it waits for the next connection change.
+    static let firstLoadAsks = 30
 
     /// `key`'s outcome is not known from a reply: the next document load settles it (now, or after a reconnect).
     private func settleByLoad(_ key: String) {
