@@ -31,15 +31,18 @@ pub mod app_caller;
 pub mod caller;
 pub mod connect_info;
 pub mod dial;
+pub mod elapsed;
 pub mod entry_path;
 pub mod keyset;
+pub mod native_token;
 pub mod overlay_addr;
 pub mod owner_session;
 pub mod pairing;
 pub mod registration;
-#[cfg(any(test, target_os = "macos"))]
-mod sign_clone;
+#[cfg(target_os = "linux")]
+pub mod root_bootstrap;
 pub mod stamp;
+pub mod stream_lease;
 pub mod token;
 
 /// The overlay TCP port of the link service (transport.md 3.1).

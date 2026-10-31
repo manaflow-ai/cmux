@@ -92,6 +92,7 @@ export type CloudConnectInfo = {
   readonly host: HostId
   readonly epoch: number
   readonly state: CloudMachineStatus
+  readonly network?: CloudVmNetwork
   readonly peer: {
     readonly wg_public_key: string
     readonly overlay_address: string
@@ -240,6 +241,48 @@ export type CloudSnapshot = {
   readonly status: "creating" | "ready" | "deleting" | "failed"
   readonly created_at: number
   readonly revision: Revision
+}
+
+export type CloudVmNetwork = {
+  readonly tenant: NativeTenantId
+  readonly mesh: NativeMeshId
+  readonly ipv4_cidr: string
+  readonly ipv4: string | null
+}
+
+export type CloudVmNetworkPolicyView = {
+  readonly schema_version: 2
+  readonly machine: MachineId
+  readonly host: HostId
+  readonly epoch: number
+  readonly receiver_generation: string | null
+  readonly user: UserId
+  readonly install: InstallId
+  readonly team: TeamId
+  readonly origin: string
+  readonly tenant: NativeTenantId
+  readonly mesh: NativeMeshId
+  readonly vm: string
+  readonly ipv4: string | null
+  readonly wg_public_key: WgPublicKey
+  readonly install_public_key: string
+  readonly authority_version: string
+  readonly checked_at: number
+  readonly expires_at: number
+  readonly acl_version: number
+  readonly policy_digest: string
+  readonly peers: ReadonlyArray<CloudVmReceiverPeer>
+}
+
+export type CloudVmReceiverPeer = {
+  readonly host: HostId
+  readonly user: UserId
+  readonly install: InstallId
+  readonly device: NativeDeviceId
+  readonly wg_public_key: WgPublicKey
+  readonly install_public_key: string
+  readonly authority_version: string
+  readonly services: ReadonlyArray<"daemon" | "ssh">
 }
 
 export type CodeRef = {
@@ -757,6 +800,48 @@ export type Host = {
 export type HostId = string
 
 export type HostKind = "device" | "server"
+
+export type HostNetworkPeer = {
+  readonly host: HostId
+  readonly user: UserId
+  readonly install: InstallId
+  readonly device: NativeDeviceId
+  readonly wg_public_key: WgPublicKey
+  readonly install_public_key: string
+  readonly authority_version: string
+  readonly inbound: ReadonlyArray<{
+    readonly protocol: "tcp" | "udp"
+    readonly port?: number
+  } | {
+    readonly protocol: "any" | "icmp"
+  }>
+  readonly outbound: ReadonlyArray<{
+    readonly protocol: "tcp" | "udp"
+    readonly port?: number
+  } | {
+    readonly protocol: "any" | "icmp"
+  }>
+}
+
+export type HostNetworkPolicyView = {
+  readonly schema_version: 1
+  readonly host: HostId
+  readonly user: UserId
+  readonly install: InstallId
+  readonly team: TeamId
+  readonly origin: string
+  readonly tenant: NativeTenantId
+  readonly mesh: NativeMeshId
+  readonly device: NativeDeviceId
+  readonly wg_public_key: WgPublicKey
+  readonly install_public_key: string
+  readonly authority_version: string
+  readonly checked_at: number
+  readonly expires_at: number
+  readonly acl_version: number
+  readonly policy_digest: string
+  readonly peers: ReadonlyArray<HostNetworkPeer>
+}
 
 export type Install = {
   readonly id: InstallId
@@ -1711,6 +1796,7 @@ export interface CloudOps {
     readonly params: {
       readonly host: HostId
       readonly services: ReadonlyArray<"daemon" | "ssh">
+      readonly native_proof?: ServerNetworkProof
     }
     readonly result: {
       readonly token: string
@@ -1860,6 +1946,27 @@ export interface CloudOps {
     }
     readonly result: {
       readonly delivered: boolean
+    }
+  }
+  /** Read the bound VM's current receiving identities and daemon/SSH permissions, joined to original live install grants, team policy and Native service rules. The lease is at most 30 seconds and never outlives an included grant. This hidden VM-only read does not activate a listener or mint a dial credential. VM installs only (kind vm, grant vm-self, its own bound machine). */
+  readonly "cloud.vm.network_policy": {
+    readonly params: {
+      readonly machine: MachineId
+    }
+    readonly result: CloudVmNetworkPolicyView
+  }
+  /** Record the bound VM's receiver incarnation. read takes only machine and phase; begin needs expected generation and a 32-hex attempt ID; ready/end need expected generation. Begin/ready require running; retirement remains available through park. Retries preserve terminal state. No idempotency key: every call rechecks current VM authority instead of replaying a response. VM installs only (kind vm, grant vm-self, own bound machine). Listener and token consumers require separate wiring. */
+  readonly "cloud.vm.receiver.lifecycle": {
+    readonly params: {
+      readonly machine: MachineId
+      readonly phase: "read" | "begin" | "ready" | "end"
+      readonly expected?: string
+      readonly attempt?: string
+    }
+    readonly result: {
+      readonly machine: MachineId
+      readonly generation: string
+      readonly phase: "idle" | "starting" | "ready" | "stopped"
     }
   }
   /** The VM's own machine record (the public machine view). VM installs only (kind vm, grant vm-self, its own bound machine). */
@@ -2551,6 +2658,28 @@ export interface CloudOps {
     readonly result: {
       readonly host: HostId
       readonly network: ServerNetworkBinding
+    }
+  }
+  /** Read the calling host's current directed Native peer policy with a fresh install-key proof. Peers are joined to live backend hosts, owners, installs and original grants; unmatched peers grant no access. This bounded identity snapshot is not a dial credential or a serving-role activation. Receivers still need current authority and service authentication. */
+  readonly "host.network.policy": {
+    readonly params: {
+      readonly host: HostId
+      readonly proof: ServerNetworkProof
+    }
+    readonly result: HostNetworkPolicyView
+  }
+  /** Discover the configured Native origin and canonical team tenant for an active client install with read and mutate-own grants. Verify the requested mesh or select the tenant's sole mesh. This read creates no tenant, mesh, device or serving grant and returns no service credential. */
+  readonly "host.network.target": {
+    readonly params: {
+      readonly mesh?: NativeMeshId
+    }
+    readonly result: {
+      readonly team: TeamId
+      readonly tenant: NativeTenantId
+      readonly project: string
+      readonly origin: string
+      readonly mesh: NativeMeshId
+      readonly ipv4_cidr: string
     }
   }
   /** Remove a host from the team directory (its owner or a team admin). */
@@ -3810,6 +3939,8 @@ export const cloudOpMeta = {
   "cloud.snapshot.list": { class: "read", owner: "cloud:CloudDO", risk: "read" },
   "cloud.snapshot.restore": { class: "mutation", owner: "cloud:CloudDO", risk: "money" },
   "cloud.vm.event.emit": { class: "mutation", owner: "cloud:CloudDO", risk: "execute" },
+  "cloud.vm.network_policy": { class: "read", owner: "cloud:CloudDO", risk: "read" },
+  "cloud.vm.receiver.lifecycle": { class: "mutation", owner: "cloud:CloudDO", risk: "execute" },
   "cloud.vm.self.get": { class: "read", owner: "cloud:CloudDO", risk: "read" },
   "cloud.vm.status.report": { class: "mutation", owner: "cloud:CloudDO", risk: "execute" },
   "conversation.create": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },
@@ -3858,6 +3989,8 @@ export const cloudOpMeta = {
   "home.settings.set": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
   "host.enroll": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },
   "host.network.bind": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-own" },
+  "host.network.policy": { class: "read", owner: "cloud:TeamDO", risk: "read" },
+  "host.network.target": { class: "read", owner: "cloud:TeamDO", risk: "read" },
   "host.remove": { class: "mutation", owner: "cloud:TeamDO", risk: "destructive" },
   "host.replica.purge": { class: "mutation", owner: "cloud:TeamDO", risk: "destructive" },
   "inbox.archive": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },

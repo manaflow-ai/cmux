@@ -28,9 +28,6 @@ export const isPersonalMarker = (value: unknown): value is PersonalTenantMarker 
 export const samePersonalMarker = (a: unknown, b: PersonalTenantMarker): boolean => isPersonalMarker(a) &&
   a.project === b.project && a.team === b.team && a.user === b.user && a.stack_user === b.stack_user && a.nonce === b.nonce
 
-/** How long a sent create is looked for before a later explicit create may start over. */
-export const PERSONAL_TENANT_CREATE_WINDOW_MS = 24 * 3600_000
-
 /** TeamDO's private external-effect ledger; no table is created by a read or an unknown owner. */
 export class PersonalTenantStore {
   constructor(private readonly sql: SqlStore) {}
@@ -68,23 +65,9 @@ export class PersonalTenantStore {
     if (!row || row.phase !== "ready" || row.tenant !== tenant || !samePersonalMarker(row.marker, intent.marker)) throw new Error("personal tenant receipt conflict")
   }
   retry(intent: PersonalTenantIntent, now: number, definitelyUnsent = false): void {
-    const deadline = intent.createdAt + PERSONAL_TENANT_CREATE_WINDOW_MS
+    const deadline = intent.createdAt + 24 * 3600_000
     const next = now >= deadline ? null : Math.min(deadline, now + Math.min(3600_000, 5000 * 2 ** Math.min(intent.attempts, 10)))
     this.sql.exec("UPDATE team_vm_api_personal SET phase=?, attempts=attempts+1, next_at=? WHERE id=1 AND marker=? AND phase=? AND attempts=? AND phase<>'ready'", definitelyUnsent ? "prepared" : intent.phase, next, JSON.stringify(intent.marker), intent.phase, intent.attempts)
   }
   parkPrepared(): void { this.sql.exec("UPDATE team_vm_api_personal SET next_at=NULL WHERE id=1 AND phase='prepared'") }
-  /** Clears a due wake time; the next explicit create resumes the intent. */
-  park(): void { this.sql.exec("UPDATE team_vm_api_personal SET next_at=NULL WHERE id=1 AND phase<>'ready'") }
-  /**
-   * After the create window, an intent whose create was never found starts over under a fresh nonce
-   * (a create that answers later carries the old nonce and is never adopted).
-   */
-  renew(intent: PersonalTenantIntent, marker: PersonalTenantMarker, now: number): PersonalTenantIntent {
-    return this.sql.transaction(() => {
-      this.sql.exec("UPDATE team_vm_api_personal SET marker=?, phase='prepared', attempts=0, created_at=?, next_at=NULL WHERE id=1 AND marker=? AND phase='creating' AND attempts=?", JSON.stringify(marker), now, JSON.stringify(intent.marker), intent.attempts)
-      const row = this.read()
-      if (!row || row.phase !== "prepared" || !samePersonalMarker(row.marker, marker)) throw new Error("personal tenant renew conflict")
-      return row
-    })
-  }
 }

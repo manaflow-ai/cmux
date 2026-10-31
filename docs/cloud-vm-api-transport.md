@@ -77,3 +77,47 @@ VM access. cmux.com does not yet hide marked teams from its team and billing vie
 
 Hosted tests use fake identity/VM API responses with real owner RPCs and SQLite;
 they do not establish a live provider rollout or production billing integration.
+
+## Native receiver image
+
+New VM API machines need a guest binary with the Native receiver and an image that
+explicitly starts it. `CLOUD_VM_TRANSPORT=vm-api` alone does not activate the guest.
+The dedicated image uses root's `cmux host run --mode system --native-receiver`.
+Its receiver waits for an authorized original Cloud enrollment, lifecycle and
+network policy; the image contains no enrollment or network credentials. Existing
+edge configuration and unbound image smoke checks remain in place.
+
+1. Publish the integrated guest commit through `cmux-tui-artifacts.yml` (a push to
+   its owned branch publishes commit-addressed binaries; a helper-branch manual
+   dispatch is build-only). Pin that exact published SHA:
+   `bun images/cmux-vm/pin-cmux-tui.ts --commit GUEST_SHA --write`.
+   Review and commit the resulting lock; do not use `--latest`.
+2. Once the reviewed image changes and lock are on the branch admitted by the
+   existing development image environment, dispatch:
+
+   ```sh
+   gh workflow run cloud-vm-image-bake.yml --repo manaflow-ai/cmux \
+     --ref feat-cmux-next -f mode=bake -f native_receiver=true \
+     -f agent_tools=true -f keep_snapshot=true -f clones=2 -f probes=true
+   ```
+
+   Record the workflow's exact source SHA. The bake rejects an old binary without
+   `--native-receiver`; each smoke clone verifies root owns the running service
+   and its process has the flag. These checks do not prove an enrolled Native
+   connection or a model response.
+3. The artifact's `native-image.json` records the immutable snapshot and smoke
+   result. It deliberately does not emit `channel-dev.json`, so the direct Cloud
+   promotion workflow cannot select it. Register its snapshot as a new exact
+   revision in the VM API deployment's existing `VM_BOOT_IMAGES` catalog, scoped
+   to the Cloud service. Preserve every other catalog entry. Configure the Cloud
+   deployment's `CLOUD_VM_API_IMAGE` and `CLOUD_VM_API_IMAGE_REVISION` to that entry,
+   alongside its existing service identity and network configuration. The
+   development deployment owner applies these through its approved deployment
+   route; no provider credentials belong in this repo or in a command line.
+4. Create a fresh supported VM through Cloud and verify the returned boot image
+   revision, enrollment, Native connection and agent reply. Existing VMs keep
+   their images. Rollback changes only the VM API selectors to the prior revision.
+
+Without `native_receiver=true` / `--native-receiver`, image startup, smoke and
+direct Cloud candidate promotion are unchanged. Native images currently support
+development `bake` mode only, not `repro` or `prod-copy`.

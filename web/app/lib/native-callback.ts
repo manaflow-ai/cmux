@@ -50,6 +50,9 @@ export function isAllowedNativeScheme(
   scheme: string,
   request: NextRequest,
 ): boolean {
+  // Signed NEXT DEV authenticates against staging, so never hand production
+  // Stack tokens to that app when a callback is forged on cmux.com.
+  if (scheme === "cmux-next-dev") return isStagingRequest(request);
   if (NATIVE_SCHEMES.has(scheme)) return true;
   if (scheme === "cmux-dev") return isLocalRequest(request);
   if (!/^cmux-dev-[a-z0-9-]+$/.test(scheme)) return false;
@@ -60,6 +63,12 @@ export function isLocalRequest(request: NextRequest): boolean {
   const hostHeader = request.headers.get("host");
   const host = (hostHeader?.split(":")[0] ?? request.nextUrl.hostname).toLowerCase();
   return host === "localhost" || host === "127.0.0.1" || host === "::1";
+}
+
+function isStagingRequest(request: NextRequest): boolean {
+  const hostHeader = request.headers.get("host");
+  const host = (hostHeader?.split(":")[0] ?? request.nextUrl.hostname).toLowerCase();
+  return host === "cmux-staging.vercel.app";
 }
 
 function localAllowedNativeSchemes(): Set<string> {

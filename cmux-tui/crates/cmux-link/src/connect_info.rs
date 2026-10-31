@@ -57,10 +57,16 @@ pub struct Gateway {
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LinkTokenGrant {
     pub token: String,
-    pub expires_at: String,
+    /// Integer Unix milliseconds, as returned by `cloud.machine.link_token`.
+    pub expires_at: i64,
     pub host: String,
     pub epoch: u64,
     pub services: Vec<Service>,
+    /// The caller's fresh Cloud VM role (`owner` or `team`), when the
+    /// backend supplies it. Keep it attached to this one-use grant; never
+    /// infer a role from cached connect_info.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vm_kind: Option<String>,
 }
 
 impl std::fmt::Debug for LinkTokenGrant {
@@ -96,6 +102,15 @@ fn revision<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<u64, D:
     }
 }
 
+/// The VM's owner-confirmed membership in a Native mesh.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NativeNetwork {
+    pub tenant: String,
+    pub mesh: String,
+    pub ipv4_cidr: String,
+    pub ipv4: Option<String>,
+}
+
 /// One `cloud.machine.connect_info` result.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ConnectInfo {
@@ -104,9 +119,14 @@ pub struct ConnectInfo {
     pub epoch: u64,
     pub state: String,
     pub peer: PeerData,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub network: Option<NativeNetwork>,
     #[serde(default)]
     pub gateway: Option<Gateway>,
     pub services: Vec<Service>,
+    /// The caller's role on this machine, when returned by the Worker.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vm_kind: Option<String>,
     #[serde(deserialize_with = "revision")]
     pub revision: u64,
 }

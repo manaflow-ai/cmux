@@ -10,15 +10,14 @@ export interface PersonalTenantStack {
 export class PersonalTenantIdentityError extends Error {
   constructor(readonly definitelyUnsent: boolean) { super("personal tenant identity service unavailable") }
 }
-export const PERSONAL_TENANT_METADATA_KEY = "cmuxVmPersonalTenant"
-const KEY = PERSONAL_TENANT_METADATA_KEY
+const KEY = "cmuxVmPersonalTenant"
 const API = "https://api.stack-auth.com/api/v1"
 interface Team { readonly id?: unknown; readonly server_metadata?: Record<string, unknown> | null }
 
 /** Server-only metadata authenticates provenance. Client metadata, names and selected teams are ignored. */
 export const personalTenantStack = (env: Env, http: (request: Request) => Promise<Response> = (r) => fetch(r)): PersonalTenantStack | undefined => {
   if (!env.STACK_SECRET_SERVER_KEY) return undefined
-  const call = async <T>(method: string, path: string, body?: unknown, read = true): Promise<T> => {
+  const call = async <T>(method: string, path: string, body?: unknown): Promise<T> => {
     let response: Response
     try {
       response = await http(new Request(`${API}${path}`, { method, headers: { "content-type": "application/json", "x-stack-access-type": "server", "x-stack-project-id": env.STACK_PROJECT_ID, "x-stack-secret-server-key": env.STACK_SECRET_SERVER_KEY! }, ...(body === undefined ? {} : { body: JSON.stringify(body) }), redirect: "manual", signal: AbortSignal.timeout(10_000) }))
@@ -27,7 +26,6 @@ export const personalTenantStack = (env: Env, http: (request: Request) => Promis
       await response.body?.cancel().catch(() => undefined)
       throw new PersonalTenantIdentityError([400, 401, 403, 404, 429].includes(response.status))
     }
-    if (!read) { await response.body?.cancel().catch(() => undefined); return undefined as T }
     try { return await response.json() as T } catch { throw new PersonalTenantIdentityError(false) }
   }
   const receipt = (team: Team): PersonalTenantReceipt => {
@@ -57,17 +55,7 @@ export const personalTenantStack = (env: Env, http: (request: Request) => Promis
       }
       throw new PersonalTenantIdentityError(false)
     },
-    // No creator_user_id: Stack grants a creator its admin defaults (invites included). The owner joins as a
-    // plain member instead; a team the owner could not join is deleted so a later create starts clean.
-    create: async (marker) => {
-      const created = receipt(await call<Team>("POST", "/teams", { display_name: "Personal", server_metadata: { [KEY]: marker } }))
-      try { await call("POST", `/team-memberships/${encodeURIComponent(created.id)}/${encodeURIComponent(marker.stack_user)}`, {}, false) }
-      catch {
-        const removed = await call("DELETE", `/teams/${encodeURIComponent(created.id)}`, undefined, false).then(() => true, () => false)
-        throw new PersonalTenantIdentityError(removed)
-      }
-      return created
-    },
+    create: async (marker) => receipt(await call<Team>("POST", "/teams", { display_name: "Personal", creator_user_id: marker.stack_user, server_metadata: { [KEY]: marker } })),
     members: async (tenant) => {
       const out: string[] = [], seen = new Set<string>()
       let cursor: string | undefined

@@ -1192,7 +1192,84 @@ test("Labs: with Sandboxed picked the control names it, no machine is checked, a
   await openPicker();
   await press(doc().body, { key: "Alt", altKey: true });
   expect(doc().querySelector('.acpmux-env-popover [data-mode="sandboxed"]')).toBeNull();
-  const cloud = rows().find((row) => row.querySelector('[data-kind="cloud"]'))!;
+  // New Cloud Machine, not the Cloud row (#26801) that heads the Cloud section.
+  const cloud = rows().find((row) => row.querySelector('.acpmux-env-new[data-kind="cloud"]:not([data-mode])'))!;
   await act(async () => cloud.click());
   expect(calls).toEqual([["mode", "persistent"]]);
+});
+
+test("Auto shows its destination before opening and keeps explicit machines available", async () => {
+  const calls = await mount(true, {
+    auto: { detail: "gpu-box", kind: "ssh", selected: true, onPick: () => undefined },
+  });
+  // The scope line (`auto-scope-look` default arm `dot`): one "Auto · gpu-box" label, which is also
+  // its accessible value.
+  expect(computerButton()?.querySelector(".acpmux-location-label")?.textContent).toBe(
+    `${t("composer.auto")} · gpu-box`,
+  );
+  expect(computerButton()?.querySelector(".acpmux-location-tag")).toBeNull();
+  expect(computerButton()?.getAttribute("aria-label")).toBe(
+    `${t("composer.environment")}: ${t("composer.auto")} · gpu-box`,
+  );
+  await openPicker();
+  const machine = machineRows().find((row) => rowText(row).includes("gpu-box"));
+  expect(machine).toBeTruthy();
+  await act(async () => machine!.click());
+  expect(calls).toContainEqual(["project", "/home/dev/model", "gpu-box"]);
+});
+
+test("searching a machine skips Auto even when Auto would choose that machine", async () => {
+  const calls = await mount(true, {
+    auto: { detail: "gpu-box", kind: "ssh", selected: true, onPick: () => undefined },
+  });
+  await openPicker();
+  const field = await typeKeys("gpu");
+  expect(newRows().some((row) => rowText(row).includes("Auto"))).toBe(false);
+  await press(field, { key: "Enter" });
+  expect(calls).toContainEqual(["project", "/home/dev/model", "gpu-box"]);
+});
+
+test("searching Auto and pressing Enter selects it without an empty-state message", async () => {
+  let picked = false;
+  await mount(true, {
+    auto: {
+      detail: "This Mac",
+      selected: false,
+      onPick: () => {
+        picked = true;
+      },
+    },
+  });
+  await openPicker();
+  const field = await typeKeys("auto");
+  expect(doc().querySelector(".acpmux-location-empty")).toBeNull();
+  await press(field, { key: "Enter" });
+  expect(picked).toBe(true);
+});
+
+test("Auto over the folder's Cloud default: Auto is checked, not Cloud; Auto keeps the default and Cloud is a pick", async () => {
+  const calls: unknown[][] = [];
+  const runMode = {
+    mode: "cloud",
+    onMode: (mode: string) => calls.push(["mode", mode]),
+    onDefault: () => calls.push(["default"]),
+  };
+  await mount(true, {
+    runMode,
+    auto: { detail: t("composer.cloud"), kind: "cloud", selected: true, onPick: () => calls.push(["auto"]) },
+  });
+  expect(computerButton()?.querySelector(".acpmux-location-label")?.textContent).toBe(
+    `${t("composer.auto")} · ${t("composer.cloud")}`,
+  );
+  await openPicker();
+  expect(doc().querySelector('.acpmux-env-popover [data-mode="cloud"][data-current]')).toBeNull();
+  const auto = rows().find((row) => rowText(row).startsWith(t("composer.auto")))!;
+  expect(auto.querySelector("[data-current]")).toBeTruthy();
+  await act(async () => auto.click());
+  // Auto never turns the folder's Cloud into a Persistent pick.
+  expect(calls).toEqual([["default"], ["auto"]]);
+  calls.length = 0;
+  await openPicker();
+  await act(async () => (doc().querySelector('.acpmux-env-popover [data-mode="cloud"]') as HTMLElement).click());
+  expect(calls).toEqual([["mode", "cloud"]]);
 });

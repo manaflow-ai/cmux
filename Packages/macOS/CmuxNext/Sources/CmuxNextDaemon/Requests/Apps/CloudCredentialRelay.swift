@@ -63,6 +63,9 @@ public nonisolated struct CloudCredentialRelay: Sendable {
     let post: Post
     /// A valid install token; throws when no user is signed in or the mint fails.
     let token: @Sendable () async throws -> String
+    /// The current install generation. Link calls fence the answer to the
+    /// same install/team that was signed in when the request began.
+    let installID: @Sendable () async -> String?
     /// The Worker refused the token (401): the next ``token`` mints again.
     let invalidate: @Sendable () async -> Void
     let session: @Sendable () async -> Session
@@ -71,9 +74,11 @@ public nonisolated struct CloudCredentialRelay: Sendable {
 
     public init(post: @escaping Post, token: @escaping @Sendable () async throws -> String,
                 invalidate: @escaping @Sendable () async -> Void, session: @escaping @Sendable () async -> Session,
-                allowedOps: @escaping @Sendable () async -> Set<String>) {
+                allowedOps: @escaping @Sendable () async -> Set<String>,
+                installID: (@Sendable () async -> String?)? = nil) {
         self.post = post
         self.token = token
+        self.installID = installID ?? { nil }
         self.invalidate = invalidate
         self.session = session
         self.allowedOps = allowedOps
@@ -93,6 +98,58 @@ public nonisolated struct CloudCredentialRelay: Sendable {
         default:
             return Self.failure("operation.unsupported", "\(call.op) is not a credential op")
         }
+    }
+
+    /// Answers the private link transport. This path is deliberately separate
+    /// from `answer`: it has no app/manifest input and is called only by the
+    /// authenticated cmux-tui link socket. In particular, keeping
+    /// `refusedOps` in the app-provider path means an app server can never
+    /// acquire a dial token.
+    func linkConnectInfo(host: String, expectedInstall: String? = nil) async -> Answer {
+        await linkRequest(op: "cloud.machine.connect_info", params: .object(["host": .string(host)]), expectedInstall: expectedInstall)
+    }
+
+    func linkToken(host: String, services: [String], expectedInstall: String? = nil) async -> Answer {
+        await linkRequest(op: "cloud.machine.link_token", params: .object([
+            "host": .string(host),
+            "services": .array(services.map(JSONValue.string)),
+        ]), expectedInstall: expectedInstall)
+    }
+
+    private func linkRequest(op: String, params: JSONValue, expectedInstall: String? = nil) async -> Answer {
+        let initialSession = await session()
+        let initialInstall = await installID()
+        guard initialSession.signedIn else { return Self.notSignedIn }
+        guard let initialInstall, expectedInstall == nil || expectedInstall == initialInstall else { return Self.notSignedIn }
+        guard await sameLinkGeneration(session: initialSession, install: initialInstall) else { return Self.notSignedIn }
+        var envelope: [String: JSONValue] = ["op": .string(op), "params": params]
+        if op == "cloud.machine.link_token" { envelope["origin"] = .string("cli") }
+        guard let body = try? JSONEncoder().encode(JSONValue.object(envelope)) else { return Self.failure("validation.invalid", "link request is not JSON") }
+        do {
+            guard await sameLinkGeneration(session: initialSession, install: initialInstall) else { return Self.notSignedIn }
+            let bearer = try await token()
+            guard await sameLinkGeneration(session: initialSession, install: initialInstall) else { return Self.notSignedIn }
+            var reply = try await post("v1/\(op.hasSuffix("connect_info") ? "read" : "ops")", body, bearer)
+            if reply.status == 401 {
+                await invalidate()
+                guard await sameLinkGeneration(session: initialSession, install: initialInstall) else { return Self.notSignedIn }
+                let retryBearer = try await token()
+                guard await sameLinkGeneration(session: initialSession, install: initialInstall) else { return Self.notSignedIn }
+                reply = try await post("v1/\(op.hasSuffix("connect_info") ? "read" : "ops")", body, retryBearer)
+            }
+            guard await sameLinkGeneration(session: initialSession, install: initialInstall) else { return Self.notSignedIn }
+            return Self.answer(status: reply.status, body: reply.body)
+        } catch {
+            if await !session().signedIn { return Self.notSignedIn }
+            return Self.failure("owner.unreachable", "the cmux API did not answer", retryable: true)
+        }
+    }
+
+    private func sameLinkGeneration(session initial: Session, install initialInstall: String?) async -> Bool {
+        let current = await session()
+        guard current.signedIn, current.team == initial.team else { return false }
+        guard let initialInstall else { return false }
+        return await installID() == initialInstall
     }
 
     private func relay(_ params: JSONValue) async -> Answer {

@@ -25,11 +25,21 @@
 //! loop),
 //! `role` (the Linux worker).
 
+#[cfg(target_os = "linux")]
+mod bootstrap_role;
 pub mod client;
 pub mod github;
 #[cfg(unix)]
 pub mod github_minter;
 pub mod handoff;
+pub mod private_bootstrap;
+pub mod receiver;
+#[cfg(target_os = "linux")]
+pub mod receiver_agent;
+#[cfg(target_os = "linux")]
+mod receiver_files;
+#[cfg(target_os = "linux")]
+mod receiver_lifecycle;
 #[cfg(target_os = "linux")]
 pub mod role;
 pub mod sender;
@@ -42,3 +52,12 @@ mod github_tests;
 mod handoff_tests;
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod receiver_client_tests;
+#[cfg(all(test, target_os = "linux"))]
+mod receiver_files_tests;
+#[cfg(test)]
+mod receiver_read_tests;
+#[cfg(test)]
+mod receiver_reply_tests;

@@ -1,3 +1,7 @@
+import { cloudVmReceiverPolicy } from "./cloud-vm-receiver-policy.ts"
+import { cloudVmReceiverLifecycle } from "./cloud-vm-receiver-lifecycle.ts"
+import { VmReceiverGenerations } from "./cloud-vm-receiver-generations.ts"
+import { cloudDriverFor } from "./cloud-vm-api-driver.ts"
 import type { OwnerFrame, Principal } from "@cmux/ownership"
 import type { ReadResult } from "./owner-do.ts"
 import { personalTeamIdFor } from "./domains/user.ts"
@@ -19,6 +23,10 @@ import { acpmuxKeyedStartOn, acpmuxPersonHoldsOn, type AcpmuxHost, type AcpmuxRe
 import type { MachineExecReply } from "./automation-machine.ts"
 import { ClientIdentityStore, mintClientSessionOn, sweepClientIdentities, type ClientSessionReply } from "./cloud-client-session.ts"
 import { teamPlan } from "./domains/cloud-plan.ts"
+import { CloudNetworkObservation } from "./cloud-network-observation.ts"
+import type { NativeLinkAuthority } from "./cloud-connect.ts"
+import { vmApiConnection } from "./cloud-vm-api-config.ts"
+import { readVmReceiverPermit, sameVmReceiverPermit, type VmReceiverPermit } from "./cloud-vm-receiver-authority.ts"
 
 /** How often connect_info and link_token may read a machine's real state from the provider. */
 const STATE_CHECK_EVERY_MS = 30_000
@@ -39,10 +47,35 @@ export class CloudDO extends CloudIdle {
     // G8 (cx-wb5.65): the person's own session reads the exact Cloud request it is asked to approve.
     if (op === "integration.approval.get") return ((r) => (r.ok ? { ...r, revision: String(this.boundEngine?.currentSeq ?? 0) } : r))(readCloudApproval(this.ctx.storage.sql, principal, params))
     if (op === "cloud.vm.self.get") return ((r) => (r.ok ? { ...r, revision: String(this.boundEngine?.currentSeq ?? 0) } : r))(vmSelfGet(entity, principal, params, this.isBound(entity) ? this.bind(entity).rows : undefined))
+    if (op === "cloud.vm.network_policy") {
+      const result = await cloudVmReceiverPolicy({ team: entity, now: () => Date.now() + this.skewMs,
+        connection: () => vmApiConnection(this.env), revision: () => String(this.boundEngine?.currentSeq ?? 0), http: (r) => fetch(r),
+        rows: this.isBound(entity) ? this.bind(entity).rows : undefined,
+        generation: (machine, scope) => {
+          const current = new VmReceiverGenerations(this.sqlStore).current(machine, scope)
+          return current.phase === "starting" || current.phase === "ready" ? current.generation : null
+        },
+        own: (user, install, grant, machine) => this.env.USER_DO.get(this.env.USER_DO.idFromName(user)).vmNetworkIdentity(user, install, grant, entity, machine),
+        peers: (target) => this.env.TEAM_DO.get(this.env.TEAM_DO.idFromName(entity)).vmReceiverPeers(entity, target),
+        allocation: async (row, signal) => {
+          const driver = await cloudDriverFor(this.env, this.sqlStore, entity, row, "operate", (input, init) => {
+            const r = new Request(input, init)
+            return fetch(new Request(r, { signal: AbortSignal.any([r.signal, signal]) }))
+          })
+          if (!driver || signal.aborted) return null
+          const found = await driver.peek(row.provider_name)
+          return found?.state === "running" && found.tag.cmux_next_team === entity && found.tag.cmux_next_machine === row.id ? found.id : null
+        }
+      }, principal, params)
+      if (this.isBound(entity)) this.audit.record({ op: "vm_network_policy", machine: principal.bound_machine ?? null, user: principal.user ?? null,
+        install: principal.install ?? null, at: Date.now() + this.skewMs, outcome: result.ok ? "ok" : "refused" })
+      return result
+    }
     if (op === "cloud.machine.connect_info") {
       if (principal.kind !== "session" && !principal.grant_classes?.includes("read")) return { ok: false, code: "auth.forbidden", message: "grant does not cover read" }
       if (!this.isBound(entity)) return { ok: false, code: "cloud.machine.not_found", message: "no such machine in this team" }
       await this.checkRealState(entity, (params ?? {}) as { machine?: string; host?: string })
+      if (!await this.checkNetwork(entity, (params ?? {}) as { machine?: string; host?: string })) return { ok: false, code: "owner.unreachable", message: "the machine network is unavailable" }
       const r = await connectInfo(entity, this.bind(entity).rows, principal, params, () => this.teamConnectServices(entity), () => this.audit)
       return r.ok ? { ...r, revision: String(this.boundEngine?.currentSeq ?? 0) } : r
     }
@@ -155,6 +188,21 @@ export class CloudDO extends CloudIdle {
    * a VM that is gone failed; a failed read keeps the record.
    */
   private readonly stateChecks = new Map<string, number>()
+  private readonly networkObservation = new CloudNetworkObservation(
+    () => Date.now() + this.skewMs,
+    (entity, id) => this.isBound(entity) ? this.bind(entity).rows.get<MachineRow>(TABLE_MACHINE, id)?.row : undefined,
+    async (row) => {
+      const driver = await this.driverFor(row)
+      if (!driver || !row.network) throw new Error("network unavailable")
+      return driver.networkOf(row.provider_name, { team: this.boundEntity() ?? "", machine: row.id }, row.network)
+    },
+    (row, binding, network) => statusApplied(this.submitSystem("cloud.machine.network_observed", { machine: row.id, binding, network }, `network:${crypto.randomUUID()}`).frames)
+  )
+  private async checkNetwork(entity: string, sel: { machine?: string; host?: string }): Promise<boolean> {
+    if (!this.isBound(entity)) return false
+    const row = machineBySelector(this.bind(entity).rows, sel)
+    return !row || await this.networkObservation.check(entity, row)
+  }
   private async checkRealState(entity: string, sel: { machine?: string; host?: string }): Promise<void> {
     const row = sel.machine !== undefined || sel.host !== undefined ? machineBySelector(this.bind(entity).rows, sel) : undefined
     if (row?.status !== "running") return
@@ -176,6 +224,11 @@ export class CloudDO extends CloudIdle {
   async vmOp(entity: string, principal: Principal, op: string, params: unknown): Promise<VmReply> {
     const rows = this.isBound(entity) ? this.bind(entity).rows : undefined
     const now = Date.now() + this.skewMs
+    if (op === "cloud.vm.receiver.lifecycle") return cloudVmReceiverLifecycle({ team: entity, rows, now: () => Date.now() + this.skewMs,
+      sql: () => this.sqlStore,
+      own: (user, install, grant, machine) => this.env.USER_DO.get(this.env.USER_DO.idFromName(user)).vmNetworkIdentity(user, install, grant, entity, machine),
+      audit: (entry) => { if (this.isBound(entity)) this.audit.record({ op: "vm_receiver_lifecycle", user: principal.user ?? null, install: principal.install ?? null, at: Date.now() + this.skewMs, ...entry }) }
+    }, principal, params)
     if (op === "cloud.vm.status.report") {
       let applied: { machine: string; report: unknown } | undefined
       const r = vmStatusReport(entity, principal, params, rows, this.vmStatus, (machine, report) => {
@@ -202,11 +255,41 @@ export class CloudDO extends CloudIdle {
     if (rows && principal.install && limit && !(await limit.limit({ key: `cloud-link:${principal.install}` })).success) return { ok: false, code: "cloud.rate_limited", message: "too many link tokens; retry in a minute" }
     // After the limiter (review P2-3).
     if (rows && principal.kind === "install") await this.checkRealState(entity, { host: (params as { host?: string } | null)?.host })
+    if (rows && principal.kind === "install" && !await this.checkNetwork(entity, { host: (params as { host?: string } | null)?.host })) return { ok: false, code: "owner.unreachable", message: "the machine network is unavailable" }
     const keys = parseSigningKeys(this.testLinkKeys ?? this.env.CLOUD_LINK_SIGNING_KEYS)
     // Review P3-b: never sign an iss this deployment cannot name.
     const environment = this.envTag()
     if (!environment) return { ok: false, code: "owner.unreachable", message: "this deployment has no Cloud environment tag" }
-    return mintLinkToken({ entity, rows, p: principal, params, request, environment, keys }, () => this.teamConnectServices(entity), () => this.audit)
+    return mintLinkToken({ entity, rows, p: principal, params, request, environment, keys, native: this.nativeLinkAuthority(entity) }, () => this.teamConnectServices(entity), () => this.audit)
+  }
+
+  /** Native VM API links are authorized against the current TeamDO identity/policy and receiver generation. */
+  private nativeLinkAuthority(entity: string): NativeLinkAuthority {
+    const receiver = (machine: string): Promise<VmReceiverPermit | null> => readVmReceiverPermit({
+      team: entity,
+      rows: this.isBound(entity) ? this.bind(entity).rows : undefined,
+      sql: this.sqlStore,
+      now: () => Date.now() + this.skewMs,
+      own: (user, install, grant, id) => this.env.USER_DO.get(this.env.USER_DO.idFromName(user)).vmNetworkIdentity(user, install, grant, entity, id)
+    }, machine)
+    const team = this.env.TEAM_DO.get(this.env.TEAM_DO.idFromName(entity))
+    return {
+      receiver: (row) => receiver(row.id),
+      recheckReceiver: async (permit) => sameVmReceiverPermit(permit, await receiver(permit.machine)),
+      authorize: async (row, p, proof, services) => {
+        try {
+          const connection = vmApiConnection(this.env)
+          const driver = connection && row.network ? await this.driverFor(row) : null
+          const found = driver ? await driver.peek(row.provider_name) : null
+          if (!connection || !row.network || !found || found.tag.cmux_next_team !== entity || found.tag.cmux_next_machine !== row.id) {
+            return { ok: false, code: "auth.forbidden", message: "no matching owned network allocation" }
+          }
+          return await team.authorizeCloudDial(entity, p, { vm: found.id, origin: connection.origin, network: row.network }, proof, services)
+        } catch { return { ok: false, code: "owner.unreachable", message: "current network authorization is unavailable" } }
+      },
+      recheck: (p, permit) => vmApiConnection(this.env)?.origin === permit.origin
+        ? team.recheckCloudDial(entity, p, permit).catch(() => false) : Promise.resolve(false)
+    }
   }
 
   /**

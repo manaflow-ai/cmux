@@ -1,6 +1,8 @@
 import { Schema } from "effect"
 import { def, mutationErrors } from "./op-def.ts"
 import { HostId, Revision, TeamId, UserId } from "./schemas.ts"
+import { CloudVmNetwork } from "./cloud-network.ts"
+import { ServerNetworkProof } from "./server-network.ts"
 import { isPattern } from "./json-checks.ts"
 
 /**
@@ -92,6 +94,8 @@ export const CloudConnectInfo = Schema.Struct({
   /** A restore or re-bind raises it; the link refuses a hello from a lower epoch. */
   epoch: Schema.Int,
   state: CloudMachineStatus,
+  /** Native VM membership only; current tunnel, peer policy and serving permissions are separate. */
+  network: Schema.optionalKey(CloudVmNetwork),
   peer: Schema.Struct({
     wg_public_key: Schema.String,
     overlay_address: Schema.String,
@@ -230,7 +234,7 @@ export const CloudMachineLinkToken = def({
   risk: "execute",
   target: "team",
   principals: ["install"],
-  params: Schema.Struct({ host: HostId, services: LinkServices }),
+  params: Schema.Struct({ host: HostId, services: LinkServices, native_proof: Schema.optionalKey(ServerNetworkProof) }),
   result: Schema.Struct({
     /** Secret: shown once to the caller, checked by the VM daemon on `hello`. */
     token: Schema.String,

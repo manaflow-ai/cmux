@@ -45,7 +45,7 @@ const RUST_KEYWORDS = new Set(
   "as async await break const continue crate dyn else enum extern false fn for if impl in let loop match mod move mut pub ref return self static struct super trait true type unsafe use where while abstract become box do final macro override priv try typeof unsized virtual yield gen".split(" ")
 )
 /** Idents of the hand-written crate items a generated name must not shadow. */
-const RESERVED = new Set(["Op", "OpVisitor", "WireClass", "WireError", "WireIdempotency", "WirePrincipal", "OpRequest", "OpResponse", "ReadResponse", "OpError", "HttpError", "Origin", "BoolLit", "WireNumber", "Value", "BTreeMap", "Option", "String", "Vec", "Result", "Self"])
+const RESERVED = new Set(["Op", "OpVisitor", "WireClass", "WireError", "WireIdempotency", "WirePrincipal", "OpRequest", "OpResponse", "ReadResponse", "OpError", "HttpError", "Origin", "BoolLit", "IntLit", "WireNumber", "Value", "BTreeMap", "Option", "String", "Vec", "Result", "Self"])
 
 const words = (s: string): Array<string> =>
   s
@@ -162,7 +162,8 @@ const enumType = (t: T, name: string, into: Array<Item>, inUnion: boolean): stri
     if (values.length !== 1) return "bool"
     return `BoolLit<${values[0]}>`
   }
-  if (!values.every((v) => typeof v === "string")) fail(`${name}: enum values must all be strings or booleans`)
+  if (values.length === 1 && typeof values[0] === "number" && Number.isSafeInteger(values[0])) return `IntLit<${values[0]}>`
+  if (!values.every((v) => typeof v === "string")) fail(`${name}: enum values must be strings, booleans or a single safe integer`)
   if (values.length === 1) return literal(values[0] as string)
   // An open enum would accept any string, so a union member must be a literal.
   if (inUnion) fail(`${name}: a multi-value enum as a union member is not supported`)
@@ -429,7 +430,7 @@ const mod = [
   "//! The catalog types, literals and ops (`types_*`, `literals_*`, `ops_*`) and the op index.",
   "",
   "#[allow(unused_imports)]",
-  "use crate::{BoolLit, WireNumber};",
+  "use crate::{BoolLit, IntLit, WireNumber};",
   "#[allow(unused_imports)]",
   "use serde_json::Value;",
   "#[allow(unused_imports)]",

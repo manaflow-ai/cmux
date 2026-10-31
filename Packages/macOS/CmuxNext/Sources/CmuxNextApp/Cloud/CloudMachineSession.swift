@@ -212,7 +212,7 @@ final class CloudMachineSession {
                 let message = await self?.endAppLink(error, ticket: ticket.id) ?? String(describing: error)
                 throw DaemonError.endpointBlocked(message)
             }
-        }, admit: { [weak self] identity in
+        }, requiredCapabilities: DaemonCapability.nativeRemoteRequired, admit: { [weak self] identity in
             do {
                 try CloudAppLinks.checkNotLocal(remote: identity, local: localIdentity())
             } catch {

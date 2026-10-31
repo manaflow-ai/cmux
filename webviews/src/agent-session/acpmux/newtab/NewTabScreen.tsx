@@ -4,7 +4,9 @@ import { useWebSwapHold } from "../../../pages/shared/useWebSwapHold";
 import { WEB_SWAP_KEPT_TEXT } from "../../../pages/shared/webSwap";
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
-import type { ConnectKind } from "../environments";
+import { chooseAutoEnvironment } from "../autoEnvironment";
+import { folderRunLocation } from "../runLocationDefault";
+import { knownMachines, type ConnectKind, type Environment } from "../environments";
 import type { DictationField } from "../dictation";
 import { FOCUS_LOCATION_EVENT, type NewTabHost } from "../NewTabPage";
 import type { AcpmuxSnapshot } from "../model";
@@ -16,7 +18,7 @@ import { firstProject, isAgentHome, mostRecentProject, projectLabel } from "../s
 import { WorktreeFailure } from "../startFolder";
 import { errorMessage } from "../transportErrors";
 import type { SavedEnvironment, SavedEnvironmentHost } from "../environments";
-import { sandboxFailureKey, type RunModeRows } from "../sandboxRun";
+import { sandboxFailureKey, type RunMode, type RunModeRows } from "../sandboxRun";
 import { SavedEnvironmentPanel } from "../SavedEnvironmentPanel";
 import { useSavedEnvironments } from "./savedEnvironments";
 import type { ComposerAttachment, DroppedKind, LinkItem } from "../attachments";
@@ -171,6 +173,23 @@ export type NewTabScreenActions = NewTabCommandActions & {
   /// Answers true when the send started, false when nothing did (an empty prompt, already sent), or
   /// a refusal code the page shows itself (attachments, an agent a sandbox can't run).
   onSandbox?(harness: string, text: string, attachments: ComposerAttachment[]): boolean | string;
+  /// Cloud is the mode (cloudRun.ts): Enter hands the prompt, its folder and model to `onCloud`,
+  /// which opens the chat on a Cloud machine; a string is a refusal said over the box.
+  onCloud?(
+    harness: string,
+    text: string,
+    cwd: string | undefined,
+    model: string | undefined,
+    attachments: ComposerAttachment[],
+  ): boolean | string;
+  /// How a Cloud send from here goes (CloudStartView): shown over the box while Cloud is the mode.
+  cloudStatus?: React.ReactNode;
+  /// A Cloud start from this page is out (App): every send waits, so an edited prompt never also
+  /// starts somewhere else while the first goes to Cloud.
+  cloudStarting?: boolean;
+  /// Cloud is offered now (App `sandboxOffered`): Auto may send to the Cloud row. `onCloud` alone
+  /// says nothing, since it also takes a Cloud pick that is not offered (to refuse it).
+  cloudOffered?: boolean;
   /// The page goes with an unsent draft (a typed prompt, staged attachments): handed over so the
   /// view that replaces it can keep it (the tab's Sandboxed run taking the chat view).
   onLeaveDraft?(text: string, attachments: ComposerAttachment[]): void;
@@ -280,6 +299,7 @@ const NO_DEVICE_CHATS: ReturnType<typeof useDeviceChats> = [];
 /// (cx-e2aa), and the recent chats as cards. A key typed anywhere on the page goes to the field.
 export function NewTabScreen(props: Props) {
   const nt = useNt();
+  const t = useT();
   // What the page shows or opens appears at once; exits keep their fades (noEntryMotion.ts).
   useNoEntryMotion();
   const { snapshot, omnibar = EMPTY_OMNIBAR, location, lastAgent, home, now, inputToken } = props;
@@ -322,6 +342,10 @@ export function NewTabScreen(props: Props) {
   // Another machine acpmux lists, picked in the location row's machine list: the chat starts there
   // (screenActions onAsk with its `peer`), in a folder on it once one is picked.
   const [machine, setMachine] = useState<{ peer: string; folder?: string }>();
+  // New chats begin in Auto: the folder's run location (runLocationDefault.ts), moved only by a
+  // prompt that asks for a destination (autoEnvironment.ts). An explicit machine, saved environment
+  // or Run as row clears it; a folder pick keeps it, since the folder is what Auto reads.
+  const [autoEnvironment, setAutoEnvironment] = useState(true);
   const folderless = !props.cwd || props.cwd === home || isAgentHome(props.cwd);
   const startsRecent = !picked && folderless && !props.startCwd;
   const candidate = useMemo(
@@ -494,11 +518,67 @@ export function NewTabScreen(props: Props) {
   const envFolder = none
     ? undefined
     : (askFolder ?? (props.cwd && !folderless && !homeOrAbove(props.cwd) ? props.cwd : undefined));
+  // Cloud copies a folder on this Mac (cloudRun.ts): picking it drops a saved environment or a
+  // machine picked before, so the folder it sends is the one the chip names.
+  const runMode = props.runMode && {
+    ...props.runMode,
+    onMode: (mode: RunMode) => {
+      // Any Run as row is a pick of its own: Auto no longer chooses.
+      setAutoEnvironment(false);
+      if (mode === "cloud") {
+        saved.pick(undefined);
+        setMachine(undefined);
+      }
+      props.runMode?.onMode(mode);
+    },
+  };
+  const autoEnvironments = useMemo<Environment[]>(() => {
+    const peers = snapshot.peers ?? [];
+    return [
+      { id: "local", label: props.machineName ?? t("composer.thisMac"), kind: "local" },
+      ...knownMachines(
+        peers,
+        snapshot.sessions,
+        snapshot.peerKinds ?? {},
+        [],
+        snapshot.peerConnected ?? {},
+        snapshot.peerStates ?? {},
+      ).filter((environment) => environment.kind === "local" || peers.includes(environment.id)),
+    ];
+  }, [
+    props.machineName,
+    snapshot.peers,
+    snapshot.sessions,
+    snapshot.peerKinds,
+    snapshot.peerConnected,
+    snapshot.peerStates,
+    t,
+  ]);
+  // Auto routes only in the environment picker (preview), and never over a Sandboxed pick. Its
+  // fallback is the run location of the folder the chip names (runLocationDefault.ts), read here
+  // so a folder picked on this page counts at once; Run as under Auto is no pick, so it is not read.
+  const autoOn = !!props.environments && autoEnvironment && props.runMode?.mode !== "sandboxed";
+  const cloudRow = !!props.cloudOffered && !!props.onCloud;
+  const autoFolder = useMemo(
+    () => (cloudRow ? folderRunLocation(envFolder, snapshot.sessions, snapshot.peerKinds) : undefined) ?? "local",
+    [cloudRow, envFolder, snapshot.sessions, snapshot.peerKinds],
+  );
+  const chooseAuto = (prompt: string) =>
+    chooseAutoEnvironment({
+      prompt,
+      folder: autoFolder,
+      cloudRow,
+      ...(project ? { project } : {}),
+      environments: autoEnvironments,
+      sessions: snapshot.sessions,
+    });
+  const autoChoice = chooseAuto(text);
   // A prompt's chat, in no project when that was the pick.
   // The images and files pasted or dropped on the page go with the first prompt.
-  /// A Sandboxed send refused here (attachments, an agent a sandbox can't run): said over the box,
-  /// and the prompt stays.
-  const [sandboxRefusal, setSandboxRefusal] = useState<string>();
+  /// A Sandboxed or Cloud send refused here (attachments, an agent a sandbox can't run): said over
+  /// the box, and the prompt stays. Tagged with the run it refused: Auto may send to Cloud while the
+  /// Run as mode is Persistent.
+  const [sandboxRefusal, setSandboxRefusal] = useState<{ run: "cloud" | "sandboxed"; code: string }>();
   const [startError, setStartError] = useState<string>();
   const asking = useRef(false);
   const requestChat = (...args: Parameters<NewTabScreenActions["onAsk"]>) => {
@@ -524,12 +604,25 @@ export function NewTabScreen(props: Props) {
   const askChat = (agent: string, prompt: string, cwd?: string, model?: string): boolean | void => {
     if (targetAuthPending || authBlocksSend(targetAuth)) return false;
     if (command.intercept(prompt, agent, attachments.length)) return false;
+    if (props.cloudStarting) return false;
+    const auto = autoOn ? chooseAuto(prompt) : undefined;
+    if (auto ? auto.to === "cloud" : props.runMode?.mode === "cloud" && props.onCloud) {
+      // The folder the chip names (envFolder), never the raw `cwd` a caller passes: a tab that
+      // inherited home with a start folder elsewhere shows and copies the start folder.
+      const started = props.onCloud!(agent, prompt, envFolder, model, attachments);
+      setSandboxRefusal(typeof started === "string" ? { run: "cloud", code: started } : undefined);
+      return started === true;
+    }
     if (props.runMode?.mode === "sandboxed" && props.onSandbox) {
       const started = props.onSandbox(agent, prompt, attachments);
-      setSandboxRefusal(typeof started === "string" ? started : undefined);
+      setSandboxRefusal(typeof started === "string" ? { run: "sandboxed", code: started } : undefined);
       return started === true;
     }
     if (environment) return askInEnvironment(environment, agent, prompt, model);
+    if (auto?.to === "machine")
+      return requestChat(agent, prompt, auto.cwd, model, undefined, attachments.length ? attachments : undefined, {
+        peer: auto.environment.id,
+      });
     if (machine)
       return requestChat(
         agent,
@@ -642,7 +735,6 @@ export function NewTabScreen(props: Props) {
     const row = rows[index];
     setSelected(row ? rowKey(row) : NO_ROW);
   };
-  const t = useT();
   const targetAuthText = authText(targetAuth, t);
   const chrome = useComposerChrome();
   // The chat composer's footer look (composerSettings.ts plainFooter): the New Tab row draws the
@@ -1176,10 +1268,17 @@ export function NewTabScreen(props: Props) {
   };
   // A machine picked in the location row: the chat starts there, and the prompt takes the keyboard
   // back, as after a folder pick (the picker returns no focus itself).
+  // A machine or saved environment picked here: Auto ends, and Run as is a Persistent pick (App), so
+  // the folder's Cloud default, now or later, never takes the prompt elsewhere.
+  const pickedHere = () => {
+    setAutoEnvironment(false);
+    props.runMode?.onMode("persistent");
+  };
   const pickMachine = (next?: { peer: string; folder?: string }) => {
     // A newer choice than any worktree still on its way (`projectChoice`).
     projectChoice.current += 1;
     saved.pick(undefined);
+    pickedHere();
     touch();
     setMachine(next);
     field.current?.focus();
@@ -1204,6 +1303,7 @@ export function NewTabScreen(props: Props) {
       return requestChat(agent, prompt, picked.folder, model, undefined, extra, {});
     if (worktreePending.current) return;
     worktreePending.current = true;
+    const choice = ++projectChoice.current;
     setWorktreeError(undefined);
     // No chat started: the page's create buttons work again (startChat set `created`).
     const unstarted = () => {
@@ -1212,13 +1312,14 @@ export function NewTabScreen(props: Props) {
     };
     void props.onNewWorktree(picked.folder).then(
       (folder) => {
-        if (!folder) return unstarted();
+        if (!folder || choice !== projectChoice.current) return unstarted();
         worktreePending.current = false;
         requestChat(agent, prompt, folder, model, undefined, extra, {});
       },
       (error: unknown) => {
         unstarted();
-        setWorktreeError((error instanceof Error && error.message) || String(error));
+        if (choice === projectChoice.current)
+          setWorktreeError((error instanceof Error && error.message) || String(error));
       },
     );
   }
@@ -1321,11 +1422,13 @@ export function NewTabScreen(props: Props) {
         summary={{
           ...chipSnapshot.summary,
           sessionId: chipSnapshot.summary?.sessionId ?? "",
-          ...(machine
-            ? { peer: machine.peer, cwd: machine.folder }
-            : askFolder
-              ? { cwd: askFolder }
-              : { cwd: undefined }),
+          ...(autoOn && autoChoice.to === "machine"
+            ? { peer: autoChoice.environment.id, cwd: autoChoice.cwd }
+            : machine
+              ? { peer: machine.peer, cwd: machine.folder }
+              : askFolder
+                ? { cwd: askFolder }
+                : { cwd: undefined }),
         }}
         // Every machine acpmux lists (`_acpmux/status`), as the chat composer lists them: a pick
         // starts the chat there (screenActions onAsk with its `peer`).
@@ -1337,6 +1440,25 @@ export function NewTabScreen(props: Props) {
         {...(snapshot.peerResources ? { peerResources: snapshot.peerResources } : {})}
         {...(props.onRefreshMachines ? { onRefreshMachines: props.onRefreshMachines } : {})}
         onComputer={(computer) => pickMachine(computer === "local" ? undefined : { peer: computer })}
+        {...(props.environments
+          ? {
+              auto: {
+                detail: autoChoice.to === "cloud" ? t("composer.cloud") : autoChoice.environment.label,
+                kind: autoChoice.to === "cloud" ? ("cloud" as const) : autoChoice.environment.kind,
+                selected: autoOn,
+                onPick: () => {
+                  projectChoice.current += 1;
+                  saved.pick(undefined);
+                  setMachine(undefined);
+                  // The picker's Auto row has already asked App for the folder's default
+                  // (RunModeRows.onDefault), which Auto reads.
+                  setAutoEnvironment(true);
+                  touch();
+                  requestAnimationFrame(() => field.current?.focus());
+                },
+              },
+            }
+          : {})}
         {...(props.machineName ? { localName: props.machineName } : {})}
         projectChoices={props.projects ?? []}
         onProject={(cwd, peer) => (peer ? pickMachine({ peer, folder: cwd }) : pickProject(cwd))}
@@ -1346,7 +1468,7 @@ export function NewTabScreen(props: Props) {
         {...(props.environments ? { environments: true } : {})}
         {...(newWorktreeHere ? { onNewWorktree: newWorktreeHere } : {})}
         {...(props.onConnect ? { onConnect: props.onConnect, connectOnlyWhenEmpty: !props.environments } : {})}
-        {...(props.environments && props.runMode ? { runMode: props.runMode } : {})}
+        {...(props.environments && runMode ? { runMode } : {})}
         {...(saved.on
           ? {
               saved: {
@@ -1354,6 +1476,7 @@ export function NewTabScreen(props: Props) {
                 ...(environment ? { current: environment.id } : {}),
                 onPick: (id: string) => {
                   touch();
+                  pickedHere();
                   saved.pick(id);
                   requestAnimationFrame(() => field.current?.focus());
                 },
@@ -1389,7 +1512,10 @@ export function NewTabScreen(props: Props) {
       machines={sshMachines}
       machineFolders={machineFolders}
       {...(props.onConnect ? { onConnectSSH: () => props.onConnect!("ssh") } : {})}
-      onSave={saved.save}
+      onSave={async (draft) => {
+        await saved.save(draft);
+        pickedHere();
+      }}
       onRemove={saved.remove}
       onClose={() => {
         saved.edit(undefined);
@@ -1508,9 +1634,9 @@ export function NewTabScreen(props: Props) {
           </p>
         )}
         {worktreeError && <WorktreeFailure error={worktreeError} onDismiss={() => setWorktreeError(undefined)} />}
-        {sandboxRefusal && props.runMode?.mode === "sandboxed" && (
+        {sandboxRefusal?.run === "sandboxed" && props.runMode?.mode === "sandboxed" && (
           <output className="acpmux-switch-notice">
-            <span role="alert">{t(sandboxFailureKey(sandboxRefusal) ?? "sandbox.error.failed")}</span>
+            <span role="alert">{t(sandboxFailureKey(sandboxRefusal.code) ?? "sandbox.error.failed")}</span>
           </output>
         )}
         {plusRefused && (
@@ -1518,6 +1644,12 @@ export function NewTabScreen(props: Props) {
             <span role="alert">{t("composer.offloadNotRun", { action: plusRefused })}</span>
           </output>
         )}
+        {sandboxRefusal?.run === "cloud" && (autoOn ? autoChoice.to === "cloud" : props.runMode?.mode === "cloud") && (
+          <output className="acpmux-switch-notice">
+            <span role="alert">{sandboxRefusal.code}</span>
+          </output>
+        )}
+        {(autoOn ? autoChoice.to === "cloud" : props.runMode?.mode === "cloud") && props.cloudStatus}
         {/* Above the box: the project and machine strip, in every look (Cards draws it under the
             field). Leo 2026-10-29: "project and cloudness at the top ... and stop making them take
             up so much space"; the quiet row under the box keeps the mode and the model. */}
