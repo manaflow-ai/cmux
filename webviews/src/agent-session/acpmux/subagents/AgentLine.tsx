@@ -166,6 +166,9 @@ export function AgentLine({
         )}
         <span className="acpmux-summary-agent__name">{name}</span>
         {detail && detail !== name && <span className="acpmux-summary-agent__kind">{detail}</span>}
+        {progress && trayColumns && progressAt === "meta" && (
+          <span className="acpmux-agent-line__stats">{progress}</span>
+        )}
         {progress && !(trayColumns && progressAt === "meta") && (
           <span className="acpmux-agent-line__progress">{progress}</span>
         )}
@@ -176,7 +179,6 @@ export function AgentLine({
               track for quiet (Running/Done/Cancelled) rows prevents a missing state from pulling
               the duration toward the title or moving the Stop and chevron columns. */}
           <span className="acpmux-summary-meta acpmux-agent-line__meta" data-tray-status>
-            {progress && progressAt === "meta" && <span className="acpmux-agent-line__stats">{progress}</span>}
             <Tick className="acpmux-summary-agent__state" text={state} />
           </span>
           <span className="acpmux-summary-meta acpmux-agent-line__time" aria-hidden={time === undefined}>
