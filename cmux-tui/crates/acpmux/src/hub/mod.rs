@@ -63,12 +63,14 @@ mod locate;
 pub mod media_handles;
 pub mod media_read;
 mod mesh_rows;
+pub(crate) mod native_history;
 pub(crate) mod subagent_transcript;
 mod team_information;
 mod team_sent;
 pub(crate) mod workflow_index;
 pub use handoff::{HANDOFF_OPERATIONS, MAX_CAPSULE_BYTES};
 pub use media_read::FEATURE as MEDIA_READ_FEATURE;
+pub use native_history::FEATURE as NATIVE_HISTORY_FEATURE;
 pub use subagent_transcript::FEATURE as SUBAGENT_TRANSCRIPT_FEATURE;
 mod hosts;
 mod lifecycle;
@@ -515,6 +517,9 @@ pub struct Hub {
     /// launcher checks) in the background. Session creation and agent
     /// spawns wait for it; every other request is answered at once.
     pub(super) startup_ready: tokio::sync::watch::Sender<bool>,
+    /// False while the daemon's startup task runs (`daemon.rs`: logs, adoption,
+    /// `finish_startup`, the chat index's start). `_acpmux/status` `loading.startupDone`.
+    pub(super) startup_work_done: tokio::sync::watch::Sender<bool>,
     store_load: store_load::StoreLoad,
     /// False from a deferred start (`Hub::new_deferred`) until `load_logs` read every
     /// chat log. A request for one chat waits for that chat's log only (`session_log`).
@@ -760,6 +765,7 @@ impl Hub {
             live_models: StdMutex::new(HashMap::new()),
             refused_models: StdMutex::new(HashMap::new()),
             startup_ready: tokio::sync::watch::channel(true).0,
+            startup_work_done: tokio::sync::watch::channel(true).0,
             store_load: store_load::StoreLoad::new(loading),
             logs_ready: tokio::sync::watch::channel(true).0,
             load_plan: Default::default(),
@@ -1664,6 +1670,7 @@ impl Hub {
                 | "dequeued"
                 | "queue_removed"
                 | "queue_order"
+                | "queue_restored"
                 | "queue_paused"
                 | "queue_resumed"
                 | "created"

@@ -33,6 +33,9 @@ public final class HomeSidebarView: NSView {
     /// A teammate from the search section or a teammate row was chosen: start (or open) the DM.
     public var onStartTeammate: (HomeContact) -> Void = { _ in }
     public var onNewMessage: () -> Void = {}
+    /// The x on the New Message draft row (shown while the pointer is over it, as in Messages)
+    /// was clicked: the page discards the draft (`home.closeNewMessage`).
+    public var onCloseDraft: () -> Void = {}
     /// The compose button's right-click menu (New Chief, Invite), or nil for none.
     public var composeMenu: () -> NSMenu? = { nil }
     /// The Message Requests button was clicked (`showRequests`).
@@ -134,6 +137,11 @@ public final class HomeSidebarView: NSView {
                 CmuxSidebarSearchResult(id: $0.id.rawValue, title: $0.name, initials: Self.initials($0.name))
             })
         }
+        list.closeTitle = HomeConversationStrings.closeNewMessage
+        list.onClose = { [weak self] id in
+            guard let self, id == Self.draftRowID.rawValue else { return }
+            onCloseDraft()
+        }
         list.onSelectSearchResult = { [weak self] id in
             guard let self, let person = teammates(list.searchQuery).first(where: { $0.id.rawValue == id }) else { return }
             onStartTeammate(person)
@@ -172,10 +180,12 @@ public final class HomeSidebarView: NSView {
     var onContentChange: () -> Void = {}
 
     /// Shows or removes the New Message draft row (first under the pinned
-    /// grid, no time, as in Messages).
+    /// grid, no time, as in Messages). The row shows an x while the pointer
+    /// is over it (``onCloseDraft``).
     public func setDraftRow(_ title: String?) {
         guard title != draftRowTitle else { return }
         draftRowTitle = title
+        list.closableID = title == nil ? nil : Self.draftRowID.rawValue
         reshow()
     }
 
@@ -207,6 +217,13 @@ public final class HomeSidebarView: NSView {
     /// Each pinned tile's and row's frame in window points from the top-left (`debug.home page`).
     public var itemFramesInWindow: [(id: ConversationID, pinned: Bool, frame: NSRect)] {
         list.itemFramesInWindow.map { (ConversationID($0.id), $0.pinned, $0.frame) }
+    }
+
+    /// The New Message row's centre in window base coordinates, or nil without the row (a
+    /// synthesized hover over it shows its x: `debug.home.sidebar_fixture hover_draft`).
+    public var draftRowCenterInWindow: NSPoint? {
+        guard let window, let frame = itemFramesInWindow.first(where: { $0.id == Self.draftRowID })?.frame else { return nil }
+        return NSPoint(x: frame.midX, y: (window.contentView?.bounds.height ?? window.frame.height) - frame.midY)
     }
 
     /// Selects `id` without reporting it (the page already shows it).

@@ -48,6 +48,10 @@ import CmuxNextTabs
 final class AppServices {
     /// The app's theme store (the one ``ThemeScope/app`` roots on), handed to the App's theme owners.
     let themeStore = ThemeScope.app.store
+    /// The one scope that keeps every window backdrop's glass in its key look (ActiveLookScope), passed to each window.
+    let activeLook = ActiveLookScope()
+    /// The batch closes of selected sidebar rows under way, read by every batch close and Close Workspace.
+    let selectionCloses = WorkspaceSelectionCloseFlow.Running()
     /// The recovery-draft backstop of unsaved documents (R96).
     let recoveryDrafts = RecoveryDraftStore(directory: RecoveryDraftFiles.defaultDirectory)
     /// The quit hook's unsaved-document participants; drafts go to ``recoveryDrafts``.
@@ -83,8 +87,11 @@ final class AppServices {
     /// Brings a window forward for a jump (`revealTab`, a `cmux://` link).
     /// Tests replace it to record the intent without ordering windows in.
     var showJumpWindow: @MainActor (NSWindow, WindowActivation.Intent) -> Void = { WindowActivation.show($0, $1) }
-    /// The app's key window. Tests and `debug.key` replace it: a window only becomes key in a running, active app.
-    var keyWindowSource: @MainActor () -> NSWindow? = { NSApp.keyWindow }
+    /// The app's key window, from the composition root (AppServices never reads the global `NSApp`, nil in a
+    /// test process). Tests and `debug.key` replace it: a window only becomes key in a running, active app.
+    var keyWindowSource: @MainActor () -> NSWindow?
+    /// Whether the app is active, from the composition root (never the global `NSApp`); tests replace it.
+    var appActiveSource: @MainActor () -> Bool
     /// Restart CLI Listener: binds the control socket again. Set once the
     /// app's control socket starts; nil while it has none (tests, socket off).
     var restartControlListener: (@MainActor () throws -> Void)?
@@ -92,6 +99,8 @@ final class AppServices {
     var errorJournal: ErrorJournalService?
     /// Agents' and scripts' Cloud machine creates waiting on the person in every window's sidebar card.
     let machineAsks = SidebarAsks()
+    /// Set and Clear Space Terminal Defaults…: one run at a time per space.
+    let roomDefaults = RoomDefaultsUpdates()
     /// Auto-archive of idle workspaces (plans/cmux-next/auto-archive-DESIGN.md); started at launch.
     private(set) lazy var autoArchive = AutoArchiveCoordinator(host: self, ledgerStore: AutoArchiveLedgerStore(defaults: .standard))
     /// Each window's own Home (cmux#27880).
@@ -104,7 +113,8 @@ final class AppServices {
     private(set) lazy var feed: FeedService = FeedService(
         auth: cloud.auth,
         showcase: environment.showcase,
-        acpmuxEnvironment: QuitAgents.environment(self)
+        acpmuxEnvironment: QuitAgents.environment(self),
+        appActive: { [weak self] in self?.appActiveSource() ?? false }
     )  // first read in init (no IUO)
     var showcase = ShowcaseState()
     /// The wide Inbox page, backed by `feed.model`.
@@ -118,14 +128,28 @@ final class AppServices {
     private(set) lazy var addDevice = AddDeviceCard(services: .app(self))
     private(set) lazy var devices = DeviceDirectory.app(self)
     #if DEBUG
-    /// `debug.joined_machines`: the joined machines' calls in place of the CLI while set (captures).
-    var debugJoinedMachines: MachineJoinService?
+    /// The `debug.*` capture fixtures this app reads while set (a test's services hold their own).
+    let debugFixtures = DebugFixtures()
+    /// One app's DEBUG capture fixtures: each set by its debug call, read where a Release build reads the live state.
+    final class DebugFixtures {
+        /// `debug.cloud_machine_fixture`: the registry context holds `cloudWorkspace` (AppServices+Cloud).
+        var holdsCloudWorkspace = false
+        /// `debug.add_device`: what Add Device shows (``AddDeviceServices/app(_:)``).
+        var addDevice: DebugAddDevice.Listing?
+        /// `debug.joined_machines`: the joined machines' calls in place of the CLI.
+        var joinedMachines: MachineJoinService?
+        /// `debug.join_consent`: the join status the app reads (``JoinConsentServices/app(_:)``), and its person line.
+        var joinStatus: JoinStatus?
+        let joinLine = DebugJoinConsent.FixtureLine()
+        /// `debug.object_menu`: the tab or pane menu it opened last; nil after a workspace menu.
+        weak var objectMenu: NSMenu?
+    }
     #endif
     /// The Machines section's joined machines (Labs `labs.machineJoin`); empty while it is off.
     private(set) lazy var joinedMachines = JoinedMachineStore(service: { [weak self] in
         guard let self, self.settings?.snapshot.machineJoin == true else { return nil }
         #if DEBUG
-        if let fixture = self.debugJoinedMachines { return fixture }
+        if let fixture = self.debugFixtures.joinedMachines { return fixture }
         #endif
         return MachineJoinService.app(self)
     })
@@ -173,6 +197,8 @@ final class AppServices {
     let tabMirrors = TabMirrors()
     private(set) lazy var cache: TabContentCache = TabContentCache(daemon: daemon, cef: CEFEngine(source: chromiumRuntime.source, stores: browserStores, signInCallbacks: signInCallbacks, lifecycleTrace: .shared, contextMenus: self.contextMenus), fileInput: openPanel, resizes: resizes)  // first read in init (no IUO)
     #if DEBUG || CMUX_BENCH_HOOKS
+    /// `debug.window_record` and `--record-launch`'s recordings.
+    let windowRecord = DebugWindowRecord()
     /// `debug.terminal_final_grid`: a split's or close's terminal grids, sent, drawn and announced.
     private(set) lazy var finalGridTrace: TerminalFinalGridTrace = {
         let trace = TerminalFinalGridTrace { [weak self] in self?.cache.terminals.map { ($0.key, $0.value.session, ObjectIdentifier($0.value.io)) } ?? [] }
@@ -470,8 +496,9 @@ final class AppServices {
     /// The app's one set of blocking-work lanes: file I/O, sync system calls and long CPU work run there,
     /// never on the cooperative pool (PATTERNS P14). Built once here and passed to each consumer's init.
     let work: BackgroundWork
-    /// The last quit's agent pages and chat composers, read off the main thread since the launch began.
-    let launchImages: AgentPaneLaunchImages, relaunchWake: AgentPaneRelaunchWake
+    /// The last quit's agent pages and chat composers, read off the main thread since the launch began, and
+    /// this app's peer-route approver key (``PeerApprovalsApp/approver()``, made at launch; nil in tests).
+    let launchImages: AgentPaneLaunchImages, relaunchWake: AgentPaneRelaunchWake, peerApprover: AgentPanePeerApprover?
     /// The burst bench's record of refusals, designed no-op Cmd-W presses and terminal grids (`debug.burst`).
     let burstTrace = BurstTrace()
     /// The inline VS Code server (`serve-web`) behind VS Code (Inline); starts on first use.
@@ -492,12 +519,16 @@ final class AppServices {
     ///   instance unless a test passes its own.
     /// - Parameter mainWork: The app's main-thread scheduler (`AppDelegate` passes the one its control
     ///   socket uses); tests get one of their own, with no pending-input check.
-    init(environment: AppEnvironment, launchReveal: LaunchReveal = .shared, agentPaneEnvironment: [String: String]? = nil,
+    init(environment: AppEnvironment, keyWindowSource: @escaping @MainActor () -> NSWindow?, appActiveSource: @escaping @MainActor () -> Bool,
+         launchReveal: LaunchReveal = .shared, agentPaneEnvironment: [String: String]? = nil,
          work: BackgroundWork = BackgroundWork(), mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget()),
-         launchImages: AgentPaneLaunchImages = AgentPaneLaunchImages(directory: nil), relaunchWake: AgentPaneRelaunchWake = AgentPaneRelaunchWake(file: nil)) {
+         launchImages: AgentPaneLaunchImages = AgentPaneLaunchImages(directory: nil), relaunchWake: AgentPaneRelaunchWake = AgentPaneRelaunchWake(file: nil), peerApprover: AgentPanePeerApprover? = nil) {
         self.work = work
-        (self.launchImages, self.relaunchWake) = (launchImages, relaunchWake)
+        (self.launchImages, self.relaunchWake, self.keyWindowSource, self.appActiveSource, self.peerApprover) = (launchImages, relaunchWake, keyWindowSource, appActiveSource, peerApprover)
         actionBudget = ActionBudgetMonitor(board: mainWork.budget.board)
+        // Before the updater's What's New tracker writes its record: an install that ran before
+        // never sees the Browser tip (AgentPaneFeatureTipRecords.settleInstall).
+        AgentPaneFeatureTipRecords().settleInstall(launchedBefore: WhatsNewSeenStore(defaults: .standard).hasRecord)
         updater = UpdaterService(work: work)
         registry = ActionRegistry.standard(runTiming: SignpostActionRunTiming(monitor: actionBudget))
         DaemonService.launchMark = { DebugTimings.markLaunch($0) }  // before any daemon service starts
@@ -509,7 +540,7 @@ final class AppServices {
         sidebarSnapshots = SidebarSnapshotStore(file: environment.sidebarSnapshotFile)
         let contextMenus = BrowserContextMenuBuilder.shared
         self.contextMenus = contextMenus
-        popups = BrowserPopupWindows(contextMenus: contextMenus)
+        popups = BrowserPopupWindows(contextMenus: contextMenus, activeLook: activeLook)
         self.environment = environment; self.agentPaneEnvironment = agentPaneEnvironment
         crashRecovery = CrashRecoveryService(bundleID: environment.launch.bundleID, marksRun: environment.marksRun)
         // After the run marker's handlers: Sentry calls them after its report.
@@ -550,6 +581,8 @@ final class AppServices {
         cache.machineBadge = { [weak self] key, url in self?.browserMachineBadge(key: key, url: url) }
         cache.crashedPages = crashRecovery.recovery.crashedPages
         cache.onRestoredPageStart = { [weak crashRecovery] key in crashRecovery?.marker?.notePageStarted(key) }
+        // Any browser tab, by any path, is a use of the browser: its tip never shows (feature tips).
+        cache.onBrowserTab = { AgentPaneFeatureTipRecords().noteFeatureUsed(AgentPaneFeatureTipRecords.browserFeature) }
         crashRecovery.observe(cache.cef.crashLog)
         AppRunMarker.keepSignalHandlers(crashRecovery.marker, across: cache.cef, reporter: crashReporting.reporter)
         cache.cef.openURLWithoutWindow = { [weak self] url, disposition, profile in
@@ -660,6 +693,10 @@ final class AppServices {
         WorkspaceClose.willClose = { [weak self] workspace in self?.remoteTerminals.workspaceClosing(workspace) }
         let registry = registry
         daemon.workTracker = { registry.track($0) }
+        // A pane verb on a pane still opening was not sent: the refusal path logs it and shows it (P0 rule a; every
+        // machine's daemon copies this hook, as `workTracker`).
+        daemon.paneNotReadyText = { MiscHandlerStrings.paneNotReady }
+        daemon.onPaneNotReady = { [weak registry] reason in registry?.refuse(reason) }
         _ = palette  // built here, as before
         terminalDelegate.services = self
         _ = configActions  // built here, as before
