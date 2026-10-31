@@ -40,7 +40,22 @@ struct SecondCreationKeysTests {
             let window = try #require(content.layoutView.window)
             let first = try await splitToTerminal("first", services: services, content: content, window: window)
             let second = try await splitToTerminal("second", services: services, content: content, window: window)
+            // The workspace's create chain is quiet before the test types: a create pressed later waits for it.
+            let chain = await Self.settles(content.pendingCreate, within: .seconds(10))
+            try #require(chain, "the setup's create chain did not end within 10 s after both panes showed: \(describe(content, window, services))")
             try await body(Panes(services: services, connection: connection, content: content, window: window, first: first, second: second))
+        }
+    }
+
+    /// Whether `work` ends within `bound` (no work: true).
+    private static func settles(_ work: ActionWork?, within bound: Duration) async -> Bool {
+        guard let work else { return true }
+        return await withTaskGroup(of: Bool.self) { group in
+            group.addTask { _ = await work.value; return true }
+            group.addTask { try? await Task.sleep(for: bound); return false }
+            let first = await group.next() ?? false
+            group.cancelAll()
+            return first
         }
     }
 
@@ -432,7 +447,8 @@ struct SecondCreationKeysTests {
             let second = await Self.screen(p.second.surface, in: p)
             let first = await Self.screen(p.first.surface, in: p)
             // What the replayed Cmd-D did, for a failure report: the router's last action, refusals, the hold and the panes.
-            let replay = "last action \(String(describing: p.services.keyRouter.lastInterception.map { "\($0.action.rawValue) ran \($0.ran)" })), "
+            let splitEnded = await Self.settles(p.content.pendingCreate, within: .seconds(1))
+            let replay = "the held split's create work ended: \(splitEnded), "
                 + "refusals \(refusals), holding \(coordinator.isHolding(in: p.window)), \(Self.describe(p.content, p.window, p.services)), "
                 + "first terminal: \(first.suffix(200))"
             // The outcome the person sees first.
