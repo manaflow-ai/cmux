@@ -284,6 +284,7 @@ extension AgentPaneRequest {
             }
         case "project.browse": self = .browseProject
         case "sandbox.state": self = .sandboxState(wait: params?["wait"] as? Bool == true)
+        case "cloud.startChat": self = AgentPaneCloudStart(params: params).map(Self.cloudStartChat) ?? .unsupported(method)
         case "sandbox.run":
             // The task is the person's prompt (never logged); the server checks the agent by name.
             let agent = params?["agent"] as? String
