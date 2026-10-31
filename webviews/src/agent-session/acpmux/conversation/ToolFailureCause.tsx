@@ -60,7 +60,7 @@ function FailureCard({ failure }: { failure: ToolFailure }) {
   return (
     <div className="cv-tool-error-card" data-failure-kind={failure.kind} data-find-skip>
       <span className="cv-tool-error-card__cause">
-          {failure.cause}
+        {failure.cause}
       </span>
       {failure.detail && (
         <CopyButton

@@ -228,3 +228,10 @@ export function shellOutput(tool: Tool): string | undefined {
   const output = toolFailure(tool)?.output ?? tool.output;
   return output === undefined ? undefined : stripAnsi(output);
 }
+
+/// A call's result as its opened row draws it: a hook's block without the harness's
+/// "PreToolUse:… hook error:" envelope (Find in Chat counts the same text, chatFind.ts), any other
+/// call's result as it came.
+export function callOutput(tool: Tool, failure: ToolFailure | undefined = toolFailure(tool)): string | undefined {
+  return failure?.kind === "hook" ? (failure.output ?? tool.output) : tool.output;
+}

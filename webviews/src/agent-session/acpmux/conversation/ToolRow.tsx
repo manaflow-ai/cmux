@@ -23,7 +23,7 @@ import { toolResult } from "./toolResult";
 import { ToolOutput } from "./ToolOutputBody";
 import { WriteLabel, writeCall } from "./WriteLabel";
 import { ToolLabel } from "./ToolVerb";
-import { rowFailed, toolFailure } from "./toolFailure";
+import { callOutput, rowFailed, toolFailure } from "./toolFailure";
 import { failureWord, InlineFailureCause, ToolFailureCause } from "./ToolFailureCause";
 import { Check, ChevronRight, Globe, Magnifier, OpenBook, Pencil, TerminalSquare, ToolGroup } from "./icons";
 
@@ -105,7 +105,7 @@ export const ToolRow = memo(function ToolRow({ item }: { item: AcpmuxActivity })
   // A finished call's envelope images show in its strip instead of its text (toolImages.ts).
   const strip = stripsEnvelopeImages(tool);
   // A hook's block shows the hook's words, without the harness's "PreToolUse:… hook error:" envelope.
-  const source = failure?.kind === "hook" ? failure.output : tool.output;
+  const source = callOutput(tool, failure);
   const result = useMemo(() => {
     if (shell || !source || !fold.present) return undefined;
     return toolResult(source, cleanText, strip, {

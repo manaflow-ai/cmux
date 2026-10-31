@@ -2373,6 +2373,9 @@ pre.cv-math-source {
   min-height: 20px;
   margin-left: 8px;
 }
+.cv-step-thought.is-open > .cv-tool__chevron {
+  margin-inline-start: 0;
+}
 :root:is([data-tool-steps-look="card"], [data-tool-steps-look="tree"], [data-tool-steps-look="zebra"]) .cv-step-thought.is-open {
   grid-template-columns: var(--cv-disclosure-slot);
 }
