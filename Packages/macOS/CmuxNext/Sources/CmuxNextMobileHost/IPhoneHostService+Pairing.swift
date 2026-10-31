@@ -47,6 +47,10 @@ extension IPhoneHostService {
         showPairDialog()
         if prompts.pending.isEmpty { quietAttention() }
         pairedStore.forget(id: id)
+        // Now, not from the store's observer task: a hostd that restarts before that task runs
+        // must start with the list that no longer has this phone.
+        paired = pairedStore.current
+        pushPaired()
         let supervisor = supervisor
         // task-owner: one hop to the supervisor actor; dropping a phone with no link is a no-op
         Task { await supervisor.drop(phoneDeviceIDs: [id]) }

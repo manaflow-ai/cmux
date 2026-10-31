@@ -1,7 +1,7 @@
 import AppKit
 import CmuxNextDesign
 import CmuxNextCompat
-import CmuxNextMobile
+@testable import CmuxNextMobile
 @testable import CmuxNextMobileHost
 import Foundation
 import Testing
@@ -257,6 +257,22 @@ import Testing
             try #require(center.press(record.id, button: "deny"))
         }
         #expect(result == .deny)
+    }
+
+    /// Revoking a phone hands the next hostd the list without it at once, before the store's
+    /// observer task runs: a hostd restart in between must not trust the revoked phone again.
+    @Test func revokeUpdatesTheNextHostdsListAtOnce() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = await Self.store(at: directory)
+        let hostd = MobileHostPairRequest(phoneDeviceID: "hostd-phone", name: "iOS", identityKey: "i", approvalKey: "a")
+        try await store.change(for: "one") { $0.approve(hostd, at: Date()) }
+        let host = IPhoneHostService(pairedStore: store)
+        host.revokePhone(id: hostd.phoneDeviceID)
+        let line = try #require(host.supervisor.devicesForNextHostd(), "no list for the next hostd")
+        let object = try #require(try JSONSerialization.jsonObject(with: line) as? [String: Any])
+        let ids = (object["devices"] as? [[String: Any]])?.compactMap { $0["id"] as? String } ?? []
+        #expect(!ids.contains(hostd.phoneDeviceID), "the next hostd still trusts the revoked phone: \(object)")
     }
 
     @Test func removalCancelsPendingRekeyAndRejectsLateAllow() async throws {
