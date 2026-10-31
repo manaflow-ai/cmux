@@ -80,7 +80,7 @@ function PullRequestPills({ prs }: { prs: readonly SummaryPullRequest[] }) {
   }, [reportHost]);
   const { pullRequest: live } = useHeaderState();
   const [open, setOpen] = useState(false);
-  const [plan, setPlan] = useState<PullRequestChipPlan>({ count: Math.min(2, prs.length), titled: true });
+  const [plan, setPlan] = useState<PullRequestChipPlan>({ count: Math.min(2, prs.length), titled: false, short: [] });
   const row = useRef<HTMLSpanElement>(null);
   const measure = useRef<HTMLSpanElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
@@ -100,13 +100,20 @@ function PullRequestPills({ prs }: { prs: readonly SummaryPullRequest[] }) {
         gap: parseFloat(getComputedStyle(node).columnGap) || 0,
         numbers: width("[data-measure=number]"),
         titles: width("[data-measure=title]"),
-        more: width("[data-measure=more]")[0] ?? 0,
+        more: width("[data-measure=more]"),
         minTitle: width("[data-measure=min]")[0] ?? 0,
         limit,
         total: prs.length,
         withTitles,
       });
-      setPlan((previous) => (previous.count === next.count && previous.titled === next.titled ? previous : next));
+      setPlan((previous) =>
+        previous.count === next.count &&
+        previous.titled === next.titled &&
+        previous.short.length === next.short.length &&
+        previous.short.every((short, index) => short === next.short[index])
+          ? previous
+          : next,
+      );
     };
     fit();
     const observer = new ResizeObserver(fit);
@@ -122,11 +129,15 @@ function PullRequestPills({ prs }: { prs: readonly SummaryPullRequest[] }) {
         {prs.slice(0, limit).map((pr) => (
           <MeasureChip key={pr.url} pr={pr} live={live} />
         ))}
-        <span data-measure="more">+{prs.length - 1}</span>
+        {prs.slice(0, limit).map((pr, index) => (
+          <span key={pr.url} data-measure="more">
+            +{prs.length - index - 1}
+          </span>
+        ))}
         <span data-measure="min" />
       </span>
-      {prs.slice(0, visible).map((pr) => (
-        <PullRequestChip key={pr.url} pr={pr} live={live} titled={plan.titled} />
+      {prs.slice(0, visible).map((pr, index) => (
+        <PullRequestChip key={pr.url} pr={pr} live={live} titled={plan.titled} short={plan.short[index]} />
       ))}
       {rest > 0 && (
         <button
@@ -181,11 +192,14 @@ function PullRequestChip({
   pr,
   live,
   titled,
+  short = false,
   listed = false,
 }: {
   pr: SummaryPullRequest;
   live: LivePullRequest;
   titled: boolean;
+  /// The whole title fits within the readable minimum (the planner's measurement).
+  short?: boolean;
   /// A row of the overflow list: with no title, it names the repository instead.
   listed?: boolean;
 }) {
@@ -195,7 +209,7 @@ function PullRequestChip({
     <PullRequestBar pr={pr} state={state} title={title}>
       <span className="acpmux-pr-dock__number">#{pr.number}</span>
       {titled && title && (
-        <span className="acpmux-pr-dock__title" data-short={title.length <= MIN_TITLE_CHARS || undefined}>
+        <span className="acpmux-pr-dock__title" data-short={short || undefined}>
           {title}
         </span>
       )}

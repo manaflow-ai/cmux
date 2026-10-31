@@ -13,7 +13,7 @@ const sizes = (overrides: Partial<PullRequestChipSizes>): PullRequestChipSizes =
   gap: 8,
   numbers: [56, 56],
   titles: [220, 180],
-  more: 30,
+  more: [30, 30],
   minTitle: 88,
   limit: 2,
   total: 55,
@@ -22,18 +22,18 @@ const sizes = (overrides: Partial<PullRequestChipSizes>): PullRequestChipSizes =
 
 test("two titled chips when both readable titles fit beside the overflow", () => {
   // 56 + 88 + 8 + 56 + 88 + 8 + 30 = 334 <= 360
-  expect(planPullRequestChips(sizes({}))).toEqual({ count: 2, titled: true });
+  expect(planPullRequestChips(sizes({}))).toMatchObject({ count: 2, titled: true });
 });
 
 test("one titled chip before two chips with stub titles", () => {
   // Two titled chips need 334; one titled chip needs 56 + 88 + 8 + 30 = 182.
-  expect(planPullRequestChips(sizes({ room: 300 }))).toEqual({ count: 1, titled: true });
+  expect(planPullRequestChips(sizes({ room: 300 }))).toMatchObject({ count: 1, titled: true });
 });
 
 test("numbers alone when not even one readable title fits", () => {
   // One titled chip needs 182; two numbers need 56 + 8 + 56 + 8 + 30 = 158.
-  expect(planPullRequestChips(sizes({ room: 170 }))).toEqual({ count: 2, titled: false });
-  expect(planPullRequestChips(sizes({ room: 120 }))).toEqual({ count: 1, titled: false });
+  expect(planPullRequestChips(sizes({ room: 170 }))).toMatchObject({ count: 2, titled: false });
+  expect(planPullRequestChips(sizes({ room: 120 }))).toMatchObject({ count: 1, titled: false });
 });
 
 test("a title is never cut below its readable minimum", () => {
@@ -47,11 +47,11 @@ test("a title is never cut below its readable minimum", () => {
 
 test("a short title counts at its own width", () => {
   // A 40px title needs only 40, so two titled chips fit in 56 + 40 + 8 + 56 + 40 + 8 + 30 = 238.
-  expect(planPullRequestChips(sizes({ room: 240, titles: [40, 40] }))).toEqual({ count: 2, titled: true });
+  expect(planPullRequestChips(sizes({ room: 240, titles: [40, 40] }))).toMatchObject({ count: 2, titled: true });
 });
 
 test("chips with no titles draw numbers", () => {
-  expect(planPullRequestChips(sizes({ titles: [0, 0] }))).toEqual({ count: 2, titled: false });
+  expect(planPullRequestChips(sizes({ titles: [0, 0] }))).toMatchObject({ count: 2, titled: false });
 });
 
 test("the overflow is counted only while something is left out", () => {
@@ -62,10 +62,22 @@ test("the overflow is counted only while something is left out", () => {
 });
 
 test("numbers-only and one-chip treatments", () => {
-  expect(planPullRequestChips(sizes({ withTitles: false }))).toEqual({ count: 2, titled: false });
-  expect(planPullRequestChips(sizes({ limit: 1 }))).toEqual({ count: 1, titled: true });
+  expect(planPullRequestChips(sizes({ withTitles: false }))).toMatchObject({ count: 2, titled: false });
+  expect(planPullRequestChips(sizes({ limit: 1 }))).toMatchObject({ count: 1, titled: true });
+});
+
+test("+N is measured for the count it would follow", () => {
+  // 11 PRs: one chip leaves +10 (wider), two leave +9. Two titled chips fit only with the narrower +9.
+  const eleven = sizes({ total: 11, more: [40, 30], room: 56 + 88 + 8 + 56 + 88 + 8 + 30 });
+  expect(planPullRequestChips(eleven)).toMatchObject({ count: 2, titled: true });
+  expect(pullRequestChipsWidth(eleven, 1, true)).toBe(56 + 88 + 8 + 40);
+});
+
+test("a title is short by its measured width, the rule the width counts with", () => {
+  expect(planPullRequestChips(sizes({ titles: [60, 200] })).short).toEqual([true, false]);
+  expect(planPullRequestChips(sizes({ titles: [88, 89] })).short).toEqual([true, false]);
 });
 
 test("at least one chip always shows", () => {
-  expect(planPullRequestChips(sizes({ room: 0 }))).toEqual({ count: 1, titled: false });
+  expect(planPullRequestChips(sizes({ room: 0 }))).toMatchObject({ count: 1, titled: false });
 });

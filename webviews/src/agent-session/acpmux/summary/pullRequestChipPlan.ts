@@ -8,6 +8,9 @@ export type PullRequestChipPlan = {
   count: number;
   /// Whether the drawn chips show their titles beside their numbers.
   titled: boolean;
+  /// Per drawn chip: its whole title is no wider than the readable minimum, so it keeps its own
+  /// width instead of the minimum (the same rule pullRequestChipsWidth counts with).
+  short: readonly boolean[];
 };
 
 export type PullRequestChipSizes = {
@@ -19,8 +22,8 @@ export type PullRequestChipSizes = {
   numbers: readonly number[];
   /// Each candidate chip's title width (its gap before the title included), or 0 with no title.
   titles: readonly number[];
-  /// The overflow button's width.
-  more: number;
+  /// The overflow button's width with `count` chips drawn (`+{total - count}`), at index count - 1.
+  more: readonly number[];
   /// The least title width that still reads (about 12 characters).
   minTitle: number;
   /// The most chips the row may draw.
@@ -40,7 +43,7 @@ export function pullRequestChipsWidth(sizes: PullRequestChipSizes, count: number
     if (titled && title > 0) width += Math.min(title, sizes.minTitle);
     if (index > 0) width += sizes.gap;
   }
-  if (sizes.total > count) width += sizes.gap + sizes.more;
+  if (sizes.total > count) width += sizes.gap + (sizes.more[count - 1] ?? sizes.more.at(-1) ?? 0);
   return width;
 }
 
@@ -48,12 +51,17 @@ export function pullRequestChipsWidth(sizes: PullRequestChipSizes, count: number
 /// then one number and the overflow. At least one chip always shows.
 export function planPullRequestChips(sizes: PullRequestChipSizes): PullRequestChipPlan {
   const most = Math.max(1, Math.min(sizes.limit, sizes.total, sizes.numbers.length));
+  const plan = (count: number, titled: boolean): PullRequestChipPlan => ({
+    count,
+    titled,
+    short: sizes.titles.slice(0, count).map((title) => title <= sizes.minTitle),
+  });
   if (sizes.withTitles !== false)
     for (let count = most; count >= 1; count--) {
       const anyTitle = sizes.titles.slice(0, count).some((title) => title > 0);
-      if (anyTitle && pullRequestChipsWidth(sizes, count, true) <= sizes.room) return { count, titled: true };
+      if (anyTitle && pullRequestChipsWidth(sizes, count, true) <= sizes.room) return plan(count, true);
     }
   for (let count = most; count > 1; count--)
-    if (pullRequestChipsWidth(sizes, count, false) <= sizes.room) return { count, titled: false };
-  return { count: 1, titled: false };
+    if (pullRequestChipsWidth(sizes, count, false) <= sizes.room) return plan(count, false);
+  return plan(1, false);
 }

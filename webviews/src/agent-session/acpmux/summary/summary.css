@@ -175,7 +175,8 @@ html[data-pr-dock="tight"] .acpmux-pr-dock{gap:4px}
   white-space: nowrap;
 }
 /* A chip's title: it truncates, but never below a readable 12 characters (pullRequestChipPlan.ts
-   draws the number alone when that much does not fit). A short title keeps its own width. */
+   draws the number alone when that much does not fit). A title the planner measured as no wider
+   than that minimum (data-short) keeps its own width, the same rule the planner counts with. */
 .acpmux-pr-dock__title {
   flex: 0 1 auto;
   min-width: 12ch;
@@ -256,6 +257,7 @@ html[data-pr-dock="tight"] .acpmux-pr-dock{gap:4px}
   font-size: var(--text-detail);
 }
 .acpmux-pr-dock__popover .acpmux-pr-dock__title,
+.acpmux-pr-dock__popover .acpmux-pr-dock__title[data-short],
 .acpmux-pr-dock__popover .acpmux-pr-dock__repo {
   flex: 0 1 auto;
   min-width: 0;
@@ -289,6 +291,7 @@ html[data-pr-dock="tight"] .acpmux-pr-dock{gap:4px}
 .cv-received__line:has(>.acpmux-pr-dock)>.cv-received__name{flex:0 1 auto;min-width:0}
 /* A received line's hover box sizes to its content, so titled chips would widen it past the row:
    cap the dock as the inline tail does, and the planner fits chips to that. */
+.cv-received__line > .acpmux-pr-dock,
 .cv-received__hover > .acpmux-pr-dock {
   max-width: min(320px, 45vw);
 }
