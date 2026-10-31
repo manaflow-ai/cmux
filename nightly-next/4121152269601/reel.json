@@ -1,0 +1,77 @@
+{
+  "version": 1,
+  "build": "4121152269601",
+  "notes": "notes/4121152269601.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 29457,
+      "title": "cloud: harden fs remove path checks",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29401,
+      "title": "nightly: unread runners queue the app build on the owned pool, not Blacksmith macOS",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29436,
+      "title": "ci(nightly-next): the nightly's light Linux-hop jobs take a free mini, Blacksmith last",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27799,
+      "title": "cmux NEXT: a stale acpmux whose file an update deleted still shows its chats, never a refusal",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28921,
+      "title": "fix(cloud): associate network policy add errors with controls",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29220,
+      "title": "risk tier: the Computer Use helper's socket servers, its per-launch secret and the acpmux executable choice grade high (stacked on #29173)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29272,
+      "title": "Fix desync after Cmd-N: a late Chromium page gets the keys through the focus model; G1 counts cmux pages",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29307,
+      "title": "fix(bench): instant-new-surfaces' warm arm counts the idle phase of a --workspaces run",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29332,
+      "title": "ci(signing): trust glaeda runner hook df0e90b4",
+      "author": "cmux-bot[bot]",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29020,
+      "title": "measure: devtools-calls.sh, main-thread time of large Chromium DevTools calls in a real app (A/B)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29431,
+      "title": "acpmux: session move --host auto skips hosts it cannot reach or that lack disk",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
