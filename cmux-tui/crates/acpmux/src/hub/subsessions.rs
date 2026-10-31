@@ -816,10 +816,10 @@ impl Hub {
     /// One family row for the tools: the session's place, state and last reply.
     pub fn subsession_row(&self, s: &Session, with_reply: bool) -> Value {
         let mut summary = self.session_summary(s);
-        // Masked before their cut (`TurnInfo::masked_preview`, `doing`), for `turn` and `doing`.
+        // Masked before its cut (`TurnInfo::masked_preview`), for `turn` and `doing`; the turn's
+        // activity and plan step are masked in every summary (`activity.rs`).
         if let Some(t) = s.turn().filter(|t| summary["turn"]["turnId"] == t.turn_id.as_str()) {
             summary.set_path(&["turn", "prompt"], json!(t.masked_preview));
-            t.doing.mask_into(&mut summary["turn"]);
         }
         if summary["waitingPrompt"].is_string() {
             summary.set("waitingPrompt", json!(super::subsession_send::masked_waiting_prompt(s)));

@@ -49,7 +49,7 @@ enum HomeMapping {
         return { root in
             if let hit = mapped.entries[root] { return hit }
             let entry = found.value(for: root).map { (id($0, aliases: aliases), projectedParts($0, summary: summary, media: media, links: links).owners) }
-            mapped.entries[root] = .some(entry)
+            mapped.entries.updateValue(entry, forKey: root) // a miss (nil) is cached too
             return entry
         }
     }
@@ -75,6 +75,9 @@ enum HomeMapping {
         return PartRef(messageId: r.id, partIndex: homePart == 0 ? last : r.owners.firstIndex(of: homePart) ?? last)
     }
 
+    /// The client id prefix of Chief's first-launch welcome messages (CmuxNext `ChiefWelcome`).
+    static let welcomeKeyPrefix = "chief-welcome-"
+
     static func message(_ item: TranscriptItem, aliases: [IdempotencyKey: ID], me: ParticipantID,
                         summary: ConversationSummary?, media: Media = { _ in nil }, links: Links = { _ in nil },
                         roots: Roots = { _ in nil }) -> Message {
@@ -91,6 +94,8 @@ enum HomeMapping {
                 reactions: item.reactions.map { reaction($0, partIndex: projectedIndex($0.partIndex, owners)) }, format: format)
         // ThreadMode.tree: the message a nested reply answers (HomeMapping+Tree.swift).
         message.parent = parent(item, roots: roots)
+        // Chief's first-launch welcome (CmuxNext ChiefWelcome, client ids "chief-welcome-…"): each bubble its own group.
+        if item.key.rawValue.hasPrefix(welcomeKeyPrefix) { message.cmuxStandsAlone = true }
         if !item.isRetracted, !item.parts.isEmpty, parts.isEmpty {
             // Nothing to read (a Chief turn's done marker, a work part with no preview): kept so
             // its seq still moves the read cursor, drawn as no row and counted as no reply.
@@ -388,15 +393,6 @@ enum HomeMapping {
 
     static func title(_ summary: ConversationSummary?, me: ParticipantID) -> String {
         summary?.displayTitle(me: me) ?? ""
-    }
-
-    /// The other participant's initials (the header avatar); a group shows
-    /// the title's.
-    static func initials(_ summary: ConversationSummary?, me: ParticipantID) -> String {
-        let others = (summary?.participants ?? []).filter { $0.id != me }
-        if others.count == 1, let other = others.first { return other.initials }
-        let words = title(summary, me: me).split(separator: " ").prefix(2).compactMap(\.first)
-        return String(words).uppercased()
     }
 
     /// The loaded window's place in the history: (messages before it, total).

@@ -242,16 +242,22 @@ export default componentEntry<Props>({
         surface: "popover",
         data: {
           ...base,
-          items: [{
-            id: "transcript-reading", category: "improved",
-            title: "Let transcript reading surfaces follow chat text size",
-            pr: "https://github.com/manaflow-ai/cmux/pull/26875",
-          }],
-          rest: [{
-            id: "inline-messages", category: "improved",
-            title: "Other sessions' messages are one inline line each, then open when opened",
-            pr: "https://github.com/manaflow-ai/cmux/pull/27312",
-          }],
+          items: [
+            {
+              id: "transcript-reading",
+              category: "improved",
+              title: "Let transcript reading surfaces follow chat text size",
+              pr: "https://github.com/manaflow-ai/cmux/pull/26875",
+            },
+          ],
+          rest: [
+            {
+              id: "inline-messages",
+              category: "improved",
+              title: "Other sessions' messages are one inline line each, then open when opened",
+              pr: "https://github.com/manaflow-ai/cmux/pull/27312",
+            },
+          ],
           moreCount: 1,
         },
       },

@@ -40,7 +40,13 @@ export function ChangePullRequest({ pr, title }: { pr: number | string; title: s
   return <ValidChangePullRequest ref={ref} title={title} />;
 }
 
-function ValidChangePullRequest({ ref, title }: { ref: { href: string; repo: string; number: number }; title: string }) {
+function ValidChangePullRequest({
+  ref,
+  title,
+}: {
+  ref: { href: string; repo: string; number: number };
+  title: string;
+}) {
   const hover = useHoverCard();
   const [anchor, setAnchor] = useState<HTMLAnchorElement | null>(null);
   const href = ref.href;

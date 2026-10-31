@@ -41,6 +41,9 @@ pub struct Session {
     /// message acceptance/recovery touches this, never streamed tokens.
     /// Dedupe key is message id plus the target session for sender copies.
     pub(super) message_ids: StdMutex<Option<std::collections::HashSet<String>>>,
+    /// Tool output snapshots held back from the log while a newer one may replace them
+    /// (`store/deferred.rs`); taken only under `append_lock`.
+    pub(super) log_deferral: StdMutex<crate::store::Deferral>,
     pub(super) loading: AtomicBool,
     /// The generations of the agents whose `session/load` (or Claude fork prime) replays
     /// history: from the load's start until the inbound loop reaches that agent's
@@ -217,6 +220,11 @@ pub struct Session {
     /// Last stderr lines of the current turn, quoted when the agent
     /// process dies without an answer ("Not logged in", a launcher error).
     pub(super) stderr_tail: StdMutex<std::collections::VecDeque<String>>,
+    /// The agent processes' stderr as streams (`SessionStderr`): each carries a string control that
+    /// runs across lines, so a payload never reaches `stderr_tail`. Kept across turns, as the
+    /// process is. Not persisted: after a daemon restart, a line that continues a control opened
+    /// before it reads as text.
+    pub(super) stderr_stream: StdMutex<SessionStderr>,
     /// All pending client prompt ids and a bounded cache of completed outcomes,
     /// newest last: retries wait for the original prompt while it is pending.
     pub(super) prompts: StdMutex<std::collections::VecDeque<(String, PromptOutcome)>>,
@@ -461,4 +469,30 @@ pub(crate) fn newest_first(sessions: Vec<Arc<Session>>) -> Vec<Arc<Session>> {
         .collect();
     keyed.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.id.cmp(&b.1.id)));
     keyed.into_iter().map(|(_, s)| s).collect()
+}
+
+/// A session's agent output streams, one per agent generation and pipe (`Inbound::Stderr`). Only a
+/// stream inside a string control is kept (a closed one is the same as a new one), and it is kept
+/// until its own terminator arrives, after its agent exited too: its reader may still be draining,
+/// and a late line read as a fresh stream would show payload. Nothing is evicted: an entry is a
+/// source and one control kind, left only by an agent that stopped inside a control.
+#[derive(Debug, Default)]
+pub(crate) struct SessionStderr {
+    open: std::collections::HashMap<(u64, crate::agent::StderrPipe), crate::stderr::StderrStream>,
+}
+
+impl SessionStderr {
+    /// `line` from `source` (an agent generation and its pipe), cleaned in that source's stream.
+    pub(crate) fn clean_line(
+        &mut self,
+        source: (u64, crate::agent::StderrPipe),
+        line: &str,
+    ) -> String {
+        let mut stream = self.open.remove(&source).unwrap_or_default();
+        let clean = stream.clean_line(line);
+        if stream.is_open() {
+            self.open.insert(source, stream);
+        }
+        clean
+    }
 }

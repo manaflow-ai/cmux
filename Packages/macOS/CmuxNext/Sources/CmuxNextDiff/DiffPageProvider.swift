@@ -406,9 +406,11 @@ public final class DiffPageProvider: PageProvider {
                 status == "deleted" ? nil : new)
     }
 
-    private static func hunkCounts(_ header: String) -> (old: Int, new: Int)? {
-        guard let end = header.range(of: " @@") else { return nil }
-        let ranges = header[header.index(header.startIndex, offsetBy: 3)..<end.lowerBound]
+    /// The counts in a `@@ -a,b +c,d @@` header; nil when it has no two ranges (a remote patch is untrusted).
+    static func hunkCounts(_ header: String) -> (old: Int, new: Int)? {
+        guard let start = header.index(header.startIndex, offsetBy: 3, limitedBy: header.endIndex),
+              let end = header[start...].range(of: " @@") else { return nil }
+        let ranges = header[start..<end.lowerBound]
             .split(separator: " ")
         guard ranges.count >= 2,
               let old = hunkCount(ranges[0], prefix: "-"),

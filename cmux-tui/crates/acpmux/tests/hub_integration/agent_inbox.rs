@@ -160,49 +160,52 @@ async fn three_hundred_agent_messages_go_in_as_one_notice_at_the_next_tool_step(
     }
 }
 
-/// An idle chat is woken by a blocker, as ONE turn that carries every new message, and by the
-/// first message of a chat that never ran a turn (its first work); an action from a session that
-/// neither started it nor gave it its first work, and an FYI, wake no one. A sender that waits
-/// for its reply gets the reply of the turn that carried its message.
+/// A chat's first work from another agent runs as that prompt, never as a notice of it, and its
+/// sender gets that turn's reply. After it, an idle chat is woken by a blocker, as ONE turn that
+/// carries every new message; an action from a session that neither started it nor gave it its
+/// first work, and an FYI, wake no one. A sender that waits for its reply gets the reply of the
+/// turn that carried its message.
 #[tokio::test]
-async fn an_idle_chat_wakes_for_a_blocker_and_for_its_first_work_only() {
+async fn an_idle_chat_runs_its_first_work_and_wakes_for_a_blocker_only() {
     let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
     let id = new_session(&mut c, "lane").await;
 
-    // Its first work wakes it, and the waiting send gets that turn's reply.
+    // Its first work runs as its prompt, and the waiting send gets that turn's reply.
     let task = from_agent(&id, "t-1", "coord", "do the thing", json!({}));
     let reply = c.request(method::SESSION_PROMPT, task).await.unwrap();
     assert_eq!(reply["stopReason"], "end_turn", "{reply}");
-    let turn_id = reply["_meta"]["acpmux"]["turnId"].as_str().unwrap().to_owned();
-    let notice = notices(&hub, &id);
-    assert_eq!(notice.len(), 1, "one turn: {:?}", prompts(&hub, &id));
-    assert_eq!(notice[0]["turnId"], turn_id);
-    assert_eq!(carried(&notice[0]), ["t-1"]);
+    assert_ne!(reply["_meta"]["acpmux"]["inbox"], true, "{reply}");
+    let all = prompts(&hub, &id);
+    assert!(notices(&hub, &id).is_empty(), "no notice of its brief: {all:?}");
+    assert_eq!(all.len(), 1, "{all:?}");
+    assert_eq!(all[0]["promptId"], "t-1", "{all:?}");
 
     // Idle again: an action and an FYI from another lane wait.
     let action =
         c.send(method::SESSION_PROMPT, from_agent(&id, "a-1", "lane-b", "merged", json!({}))).await;
+    let accepted = c.wait_for(method::MUX_PROMPT_ACCEPTED, |p| p["promptId"] == "a-1").await;
+    assert_eq!(accepted["inbox"], true, "a message after the first goes to the inbox: {accepted}");
     let fyi = from_agent(&id, "f-1", "lane-c", "CI is slow", json!({"class": "fyi"}));
     let fyi = c.send(method::SESSION_PROMPT, fyi).await;
     tokio::time::sleep(Duration::from_millis(3_000)).await;
-    assert_eq!(notices(&hub, &id).len(), 1, "no wake: {:?}", prompts(&hub, &id));
+    assert!(notices(&hub, &id).is_empty(), "no wake: {:?}", prompts(&hub, &id));
 
     // A blocker wakes it: ONE turn carries all three.
     let blocker = from_agent(&id, "b-1", "lane-d", "blocked on #12", json!({"class": "blocker"}));
     let blocker = c.send(method::SESSION_PROMPT, blocker).await;
     let answered = answers(&mut c, &[action, fyi, blocker]).await;
     let notices = notices(&hub, &id);
-    assert_eq!(notices.len(), 2, "{:?}", prompts(&hub, &id));
-    let mut ids = carried(&notices[1]);
+    assert_eq!(notices.len(), 1, "{:?}", prompts(&hub, &id));
+    let mut ids = carried(&notices[0]);
     ids.sort();
     assert_eq!(ids, ["a-1", "b-1", "f-1"]);
-    let text = notices[1]["text"].as_str().unwrap();
+    let text = notices[0]["text"].as_str().unwrap();
     assert!(
         text.contains("\n- [blocker] 1 new in #12 from lane-d: blocked on #12"),
         "blockers first: {text}"
     );
     for answer in answered.values() {
-        assert_eq!(answer["_meta"]["acpmux"]["turnId"], notices[1]["turnId"], "{answer}");
+        assert_eq!(answer["_meta"]["acpmux"]["turnId"], notices[0]["turnId"], "{answer}");
     }
 }
 
@@ -461,8 +464,9 @@ async fn a_review_box_takes_no_inbox_message_and_no_steer_during_its_review() {
     assert!(turns[0] != turns[1] && turns[1] != turns[2], "{all:?}");
     assert_eq!(answered[&stop]["stopReason"], "end_turn", "{}", answered[&stop]);
 
-    // Any other chat: the same message goes to its inbox.
+    // Any other chat that ran a turn: the same message goes to its inbox.
     let lane = new_session(&mut c, "lane").await;
+    c.request(method::SESSION_PROMPT, prompt(&lane, "hello", None)).await.unwrap();
     let msg = from_agent(&lane, "r-3", "coord", "any news on #9?", json!({"class": "fyi"}));
     c.send(method::SESSION_PROMPT, msg).await;
     let accepted = c.wait_for(method::MUX_PROMPT_ACCEPTED, |p| p["promptId"] == "r-3").await;
@@ -547,4 +551,52 @@ async fn an_inbox_message_from_before_the_review_tag_never_steers_into_the_revie
     for path in [gate, review_gate] {
         let _ = std::fs::remove_file(path);
     }
+}
+
+/// A message that comes while a chat's first work waits or runs is no first work: it goes to the
+/// inbox, and only the first runs as a prompt.
+#[tokio::test]
+async fn only_the_first_message_to_a_new_chat_runs_as_its_prompt() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let id = new_session(&mut c, "lane").await;
+    let gate = fifo("first");
+    let brief = from_agent(&id, "t-1", "coord", &format!("gate: {}", gate.display()), json!({}));
+    let first = c.send(method::SESSION_PROMPT, brief).await;
+    c.wait_for(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == "before-gate").await;
+    let next = from_agent(&id, "t-2", "coord", "and this too", json!({"class": "fyi"}));
+    c.send(method::SESSION_PROMPT, next).await;
+    let accepted = c.wait_for(method::MUX_PROMPT_ACCEPTED, |p| p["promptId"] == "t-2").await;
+    assert_eq!(accepted["inbox"], true, "{accepted}");
+    open(&gate).await;
+    let reply = answers(&mut c, &[first]).await;
+    assert_eq!(reply[&first]["stopReason"], "end_turn", "{}", reply[&first]);
+    let all = prompts(&hub, &id);
+    assert_eq!(all[0]["promptId"], "t-1", "{all:?}");
+    let _ = std::fs::remove_file(gate);
+}
+
+/// Two messages that come at once to a chat that never ran a turn: only one is its first work
+/// and runs as its prompt; the other goes to the inbox (the first work's hold, `inbox.rs`).
+#[tokio::test]
+async fn of_two_first_messages_at_once_only_one_runs_as_the_prompt() {
+    let (_hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let id = new_session(&mut c, "lane").await;
+    let a = from_agent(&id, "x-1", "coord", "do the thing", json!({}));
+    let b = from_agent(&id, "x-2", "lane-b", "and this", json!({"class": "fyi"}));
+    let sent = [c.send(method::SESSION_PROMPT, a).await, c.send(method::SESSION_PROMPT, b).await];
+    let mut inbox = BTreeMap::new();
+    while inbox.len() < 2 {
+        let p = c
+            .wait_for(method::MUX_PROMPT_ACCEPTED, |p| {
+                p["promptId"] == "x-1" || p["promptId"] == "x-2"
+            })
+            .await;
+        inbox.insert(p["promptId"].as_str().unwrap().to_owned(), p["inbox"] == true);
+    }
+    let taken = inbox.values().filter(|v| **v).count();
+    assert_eq!(taken, 1, "one first work, one inbox item: {inbox:?}");
+    // The first work's turn answers; the inbox item waits for a notice, so its answer is not read.
+    let ran = if inbox["x-1"] { sent[1] } else { sent[0] };
+    let reply = answers(&mut c, &[ran]).await;
+    assert_eq!(reply[&ran]["stopReason"], "end_turn", "{}", reply[&ran]);
 }

@@ -14,10 +14,13 @@
 //! | [`Tier::Serving`] | the daemon | disk I/O at `IOPOL_UTILITY`; CPU unchanged | unchanged |
 //! | [`Tier::Agent`] | agent hosts, background-task runners, and everything they start | CPU clamped to utility (priority 20) and disk I/O at `IOPOL_UTILITY` | nice +5 |
 //! | [`Tier::Background`] | housekeeping inside the daemon that holds no lock other work waits on (probe cleanup at start) | the thread in `PRIO_DARWIN_BG` for the pass (CPU and I/O throttled) | unchanged |
+//! | [`Tier::OnScreen`] | the daemon's reads for a chat being opened on screen (a visible `_acpmux/attach`: its log load and its first page) | the thread at `QOS_CLASS_USER_INITIATED` and disk I/O at `IOPOL_IMPORTANT` for the read, then back | unchanged |
 //!
 //! The daemon keeps its CPU priority: the app waits on it for every streamed
 //! frame, so demoting it would put a person's own stream behind agent
-//! compiles. Its disk work (journals, the store) still yields to the app's.
+//! compiles. Its disk work (journals, the store) still yields to the app's,
+//! except the reads a person is waiting on to open a chat ([`on_screen`]):
+//! those would otherwise queue behind agent compiles at the utility I/O tier.
 //!
 //! macOS gives no call that clamps a running process, and a thread's QoS does
 //! not survive exec into another program (a probe on a fleet mini: a child's
@@ -56,6 +59,8 @@ pub enum Tier {
     Agent,
     /// Work nobody waits for: sweeps, retention, cleanup.
     Background,
+    /// A read the person at the screen is waiting on: opening a chat.
+    OnScreen,
 }
 
 /// What a process is, for [`tier`].
@@ -65,6 +70,8 @@ pub enum Role {
     AgentHost,
     BackgroundTaskRunner,
     Housekeeping,
+    /// A daemon thread reading for a chat being opened on screen.
+    VisibleOpen,
 }
 
 /// The one policy: the tier of each role. Exhaustive, so a new role cannot
@@ -74,6 +81,7 @@ pub const fn tier(role: Role) -> Tier {
         Role::Daemon => Tier::Serving,
         Role::AgentHost | Role::BackgroundTaskRunner => Tier::Agent,
         Role::Housekeeping => Tier::Background,
+        Role::VisibleOpen => Tier::OnScreen,
     }
 }
 
@@ -109,8 +117,8 @@ pub fn enter(role: Role) {
             imp::clamp_cpu_utility();
         }
         // A whole background process is not in the policy yet; threads use
-        // [`background`].
-        Tier::Background => {}
+        // [`background`]. On-screen reads are per thread too ([`on_screen`]).
+        Tier::Background | Tier::OnScreen => {}
     }
 }
 
@@ -118,6 +126,15 @@ pub fn enter(role: Role) {
 /// the thread back: blocking-pool threads are reused for other work.
 pub fn background<T>(work: impl FnOnce() -> T) -> T {
     let _guard = enabled().then(imp::ThreadBackground::enter);
+    work()
+}
+
+/// Run `work` (blocking) with this thread in [`Tier::OnScreen`], then put the
+/// thread back as it was: the reads for a chat being opened on screen, which
+/// the person is waiting on, ahead of agent work's CPU and disk. Tokio worker
+/// and blocking-pool threads are reused, so the guard restores what it found.
+pub fn on_screen<T>(work: impl FnOnce() -> T) -> T {
+    let _guard = enabled().then(imp::ThreadOnScreen::enter);
     work()
 }
 
@@ -138,6 +155,8 @@ mod imp {
 
     const IOPOL_TYPE_DISK: libc::c_int = 0;
     const IOPOL_SCOPE_PROCESS: libc::c_int = 0;
+    const IOPOL_SCOPE_THREAD: libc::c_int = 1;
+    const IOPOL_IMPORTANT: libc::c_int = 1;
     const IOPOL_UTILITY: libc::c_int = 4;
     const PRIO_DARWIN_THREAD: libc::c_int = 3;
     const PRIO_DARWIN_BG: libc::c_int = 0x1000;
@@ -152,6 +171,7 @@ mod imp {
             scope: libc::c_int,
             policy: libc::c_int,
         ) -> libc::c_int;
+        fn getiopolicy_np(iotype: libc::c_int, scope: libc::c_int) -> libc::c_int;
     }
 
     /// `int posix_spawnattr_set_qos_clamp_np(posix_spawnattr_t *, uint64_t)`.
@@ -272,6 +292,56 @@ mod imp {
             unsafe { libc::setpriority(PRIO_DARWIN_THREAD, 0, 0) };
         }
     }
+
+    /// This thread at user-initiated QoS with important disk I/O until dropped,
+    /// then back to the class and thread I/O policy it had.
+    pub(super) struct ThreadOnScreen {
+        qos: libc::qos_class_t,
+        io: libc::c_int,
+    }
+
+    /// This thread's QoS class (unspecified when none was ever set).
+    pub(super) fn thread_qos() -> libc::qos_class_t {
+        let mut qos = libc::qos_class_t::QOS_CLASS_UNSPECIFIED;
+        let mut rel = 0;
+        // SAFETY: reads the calling thread's own class into locals.
+        unsafe { libc::pthread_get_qos_class_np(libc::pthread_self(), &mut qos, &mut rel) };
+        qos
+    }
+
+    /// This thread's own disk I/O policy (`IOPOL_DEFAULT`, 0, when it follows the process's).
+    pub(super) fn thread_io() -> libc::c_int {
+        // SAFETY: plain syscall on the calling thread.
+        unsafe { getiopolicy_np(IOPOL_TYPE_DISK, IOPOL_SCOPE_THREAD) }
+    }
+
+    impl ThreadOnScreen {
+        pub(super) fn enter() -> Self {
+            let guard = ThreadOnScreen { qos: thread_qos(), io: thread_io().max(0) };
+            // SAFETY: plain calls on the calling thread with constant arguments.
+            unsafe {
+                libc::pthread_set_qos_class_self_np(libc::qos_class_t::QOS_CLASS_USER_INITIATED, 0);
+                setiopolicy_np(IOPOL_TYPE_DISK, IOPOL_SCOPE_THREAD, IOPOL_IMPORTANT);
+            }
+            guard
+        }
+    }
+
+    impl Drop for ThreadOnScreen {
+        fn drop(&mut self) {
+            // An unspecified class cannot be set again; default is what such a thread runs at.
+            let qos = match self.qos {
+                libc::qos_class_t::QOS_CLASS_UNSPECIFIED => libc::qos_class_t::QOS_CLASS_DEFAULT,
+                qos => qos,
+            };
+            // SAFETY: plain calls on the calling thread; IOPOL_DEFAULT at thread scope
+            // makes the thread follow the process's policy again.
+            unsafe {
+                libc::pthread_set_qos_class_self_np(qos, 0);
+                setiopolicy_np(IOPOL_TYPE_DISK, IOPOL_SCOPE_THREAD, self.io);
+            }
+        }
+    }
 }
 
 #[cfg(target_os = "linux")]
@@ -300,6 +370,13 @@ mod imp {
             ThreadBackground
         }
     }
+
+    pub(super) struct ThreadOnScreen;
+    impl ThreadOnScreen {
+        pub(super) fn enter() -> Self {
+            ThreadOnScreen
+        }
+    }
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "linux")))]
@@ -316,6 +393,13 @@ mod imp {
             ThreadBackground
         }
     }
+
+    pub(super) struct ThreadOnScreen;
+    impl ThreadOnScreen {
+        pub(super) fn enter() -> Self {
+            ThreadOnScreen
+        }
+    }
 }
 
 #[cfg(test)]
@@ -328,6 +412,33 @@ mod tests {
         assert_eq!(tier(Role::AgentHost), Tier::Agent);
         assert_eq!(tier(Role::BackgroundTaskRunner), Tier::Agent);
         assert_eq!(tier(Role::Housekeeping), Tier::Background);
+        assert_eq!(tier(Role::VisibleOpen), Tier::OnScreen);
+    }
+
+    #[test]
+    fn an_on_screen_read_returns_its_value() {
+        assert_eq!(on_screen(|| 7), 7);
+    }
+
+    /// The read runs at user-initiated QoS with important disk I/O, and the
+    /// thread goes back to what it had: tokio reuses it for other work.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn an_on_screen_read_raises_the_thread_and_puts_it_back() {
+        if !enabled() {
+            return;
+        }
+        // `qos_class_t` has no `PartialEq` in libc, so the classes compare as their numbers.
+        let class = |qos: libc::qos_class_t| qos as u32;
+        let (qos, io) = (imp::thread_qos(), imp::thread_io());
+        let inside = on_screen(|| (class(imp::thread_qos()), imp::thread_io()));
+        assert_eq!(inside, (class(libc::qos_class_t::QOS_CLASS_USER_INITIATED), 1));
+        let after = (class(imp::thread_qos()), imp::thread_io());
+        let expected_qos = match qos {
+            libc::qos_class_t::QOS_CLASS_UNSPECIFIED => libc::qos_class_t::QOS_CLASS_DEFAULT,
+            qos => qos,
+        };
+        assert_eq!(after, (class(expected_qos), io.max(0)));
     }
 
     /// The clamp takes effect: a child spawned under it, and the shell it

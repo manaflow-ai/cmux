@@ -580,7 +580,7 @@ extension PaneController {
     /// draw (a daemon-rendered or app browser tab) lists no mirror.
     var liveMirrors: [(id: String, tab: TabModel)] {
         services.tabMirrors[paneKey].compactMap { id in
-            guard let (tab, holder) = services.locateTab(id), holder !== pane, Self.mirrorable(tab) else { return nil }
+            guard let (tab, holder) = services.locateTab(id, onMachine: services.machines.daemon(forPane: pane).machineID), holder !== pane, Self.mirrorable(tab) else { return nil }
             return (id, tab)
         }
     }
@@ -616,7 +616,7 @@ extension PaneController {
     /// pane and move the page view each frame. It shows the page again on its next show once that
     /// pane stops drawing it (its workspace parked).
     func mirroredContent(for key: String) -> TabContent? {
-        guard services.tabMirrors.mirrors(key, in: paneKey), let (tab, holder) = services.locateTab(key), holder !== pane,
+        guard services.tabMirrors.mirrors(key, in: paneKey), let (tab, holder) = services.locateTab(key, onMachine: services.machines.daemon(forPane: pane).machineID), holder !== pane,
               Self.mirrorable(tab) else { return nil }
         if let owner = services.cache.presenter(of: key), owner !== self, services.cache.isRendering(key) { return nil }
         return services.cache.browser(for: tab).map(TabContent.browser)

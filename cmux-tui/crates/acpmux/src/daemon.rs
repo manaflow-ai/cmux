@@ -31,6 +31,7 @@ pub(crate) mod login_session;
 #[cfg(unix)]
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 mod cloud_handoff;
+mod dev_orphan;
 mod handover;
 mod home_watch;
 mod notify;
@@ -204,12 +205,26 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     // The home and lock this daemon holds, read as soon as it holds them: one replaced during
     // the startup below is then a loss, never the watch's baseline (`daemon/home_watch.rs`).
     let owned_home = home_watch::Owned::now(&[&home(), &lock]);
+    // Record the held home before any startup write, and start its watcher immediately. The
+    // watcher marks a replacement before the later startup and shutdown paths can write there.
+    crate::config::hold_home();
+    let startup_home_gone =
+        tokio::spawn(home_watch::watch(owned_home.clone(), None, &home(), &socket_path()));
+    let _startup_home_watch = AbortOnDrop(startup_home_gone.abort_handle());
     // Gone already (removed between taking the lock and here): stop before the startup makes
     // anything there. A relative home is never watched (it reads as missing from the home cwd),
     // and there is no watch off Unix (`Owned::now` is always `None` there).
     if cfg!(unix) && owned_home.is_none() && home().is_absolute() {
         anyhow::bail!("the acpmux home {} went away as this daemon started", home().display());
     }
+    // Deterministic startup replacement seam for the daemon lifecycle test. The held-home
+    // identity fence rejects writes even before the asynchronous watcher receives its event.
+    #[cfg(debug_assertions)]
+    if std::env::var_os("ACPMUX_TEST_HOLD_AFTER_LOCK").is_some() {
+        println!("acpmux-test-lock-held");
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    }
+    crate::config::refuse_lost_home(&home())?;
     // The local CodeRouter relay (crate cmux-coderouter): `cmux-router` and `local-coderouter`
     // routes read its port and mint keys from it. Opt-in (the cmux app sets ACPMUX_LOCAL_ROUTER=1).
     // Its owner ties the router's life to this daemon (daemon/router_owner.rs: the owner FIFO,
@@ -516,6 +531,9 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     };
     #[cfg(not(unix))]
     let ctrl_c = tokio::signal::ctrl_c();
+    // A DEV build's daemon whose app is gone (`daemon/dev_orphan.rs`); its
+    // bundle is read before the ready line.
+    let dev_orphan = dev_orphan::watch();
     // Before the ready line: a launcher may remove the home as soon as it reads it
     // (`daemon/home_watch.rs`). Its own task, so it keeps watching through a shutdown that began
     // on a signal: a home replaced while the agents drain is still marked lost before their last
@@ -558,6 +576,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         let hub = hub.clone();
         tokio::spawn(async move { hub.load_store_async().await })
     };
+    hub.begin_startup_work();
     let startup = {
         let hub = hub.clone();
         tokio::spawn(async move {
@@ -600,6 +619,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
             {
                 tracing::warn!("{e}");
             }
+            hub.end_startup_work();
         })
     };
     tokio::spawn(notify::notify_loop(hub.clone()));
@@ -620,6 +640,13 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
                 },
                 _ = next_signal(int.as_mut()) => {},
                 _ = hub.shutdown.notified() => {},
+                // Its build is gone too: nothing is left to adopt its agents, so they end with
+                // it. An app that only quit keeps them, as its Quit does (`daemon/dev_orphan.rs`).
+                executable_gone = dev_orphan => {
+                    if executable_gone {
+                        let _ = hub.end_agents_at_shutdown(Default::default());
+                    }
+                },
                 // A normal stop, not a restart handoff: nothing can reach this daemon again.
                 Ok(why) = &mut home_gone => tracing::warn!("stopping: {why}"),
                 why = &mut unused => tracing::info!("stopping: {why}"),
@@ -630,6 +657,13 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
             tokio::select! {
                 _ = ctrl_c => {},
                 _ = hub.shutdown.notified() => {},
+                // Its build is gone too: nothing is left to adopt its agents, so they end with
+                // it. An app that only quit keeps them, as its Quit does (`daemon/dev_orphan.rs`).
+                executable_gone = dev_orphan => {
+                    if executable_gone {
+                        let _ = hub.end_agents_at_shutdown(Default::default());
+                    }
+                },
                 Ok(why) = &mut home_gone => tracing::warn!("stopping: {why}"),
                 why = &mut unused => tracing::info!("stopping: {why}"),
             }
@@ -682,10 +716,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     #[cfg(all(unix, feature = "tailnet"))]
     tailnet.shutdown().await;
     // Keep encrypted bridges alive until WebSocket close/restart frames have drained.
-    if let Some(transport) = wireguard
-        && tokio::time::timeout(SHUTDOWN_BUDGET, transport.shutdown()).await.is_err()
-    {
-        tracing::warn!("WireGuard did not close within {SHUTDOWN_BUDGET:?}");
+    if let Some(transport) = wireguard {
+        transport.shutdown(tokio::time::Instant::now() + SHUTDOWN_BUDGET).await;
     }
     // A node a person started closes with the daemon; its saved login stays.
     // The controller is made here if no request made it (it holds no node

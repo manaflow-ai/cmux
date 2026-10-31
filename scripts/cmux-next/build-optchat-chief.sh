@@ -30,6 +30,12 @@ Environment:
                                  so a commit that changes none of them reuses the binary;
                                  keeps the 8 most recently used entries (and at
                                  most 8 commit-keyed fallback entries)
+  CMUX_NEXT_OPTCHAT_CHIEF_INPUT_KEY  portable source key computed by the Linux
+                                 resolver; when set, Mac does not recompute source inputs
+  CMUX_NEXT_OPTCHAT_CHIEF_REQUIRE_IDENTITY=1  require a cache record to match
+                                 the source and Mac environment identities
+  CMUX_NEXT_OPTCHAT_CHIEF_RESULT_FILE  file this writes "reused" or "built" to,
+                                 so the nightly saves only an entry it rebuilt
 USAGE
 }
 
@@ -67,19 +73,31 @@ done
 cache_root="${CMUX_NEXT_OPTCHAT_CHIEF_CACHE:-$crate/target/hosted}"
 cache_dir="$cache_root/$commit/${archs// /-}"
 input_key=""
+environment_key=""
 if [[ "${CMUX_NEXT_OPTCHAT_CHIEF_INPUT_KEYED:-0}" == 1 ]]; then
   # A commit that changes none of the Chief's inputs (most cmux-next pushes)
   # reuses the binary an earlier commit built from the same inputs. The key
   # script exits nonzero when it cannot read them; the commit key stays then.
   key_toolchain="$(sed -n 's/^channel *= *"\(.*\)"/\1/p' "$repo_root/cmux-tui/rust-toolchain.toml")"
-  if input_key="$(python3 "$repo_root/scripts/cmux-next/optchat-chief-input-key.py" --archs "$archs" --toolchain "$key_toolchain")" \
-     && [[ "$input_key" =~ ^[0-9a-f]{64}$ ]]; then
-    cache_dir="$cache_root/inputs-$input_key/${archs// /-}"
+  input_key="${CMUX_NEXT_OPTCHAT_CHIEF_INPUT_KEY:-}"
+  if [[ -z "$input_key" ]]; then
+    input_key="$(python3 "$repo_root/scripts/cmux-next/optchat-chief-input-key.py" --archs "$archs" --toolchain "$key_toolchain")" || input_key=""
+  fi
+  if [[ "$input_key" =~ ^[0-9a-f]{64}$ ]]; then
+    environment_key="${CMUX_NEXT_OPTCHAT_CHIEF_ENVIRONMENT_KEY:-}"
+    if [[ -z "$environment_key" ]]; then
+      environment_key="$(python3 "$repo_root/scripts/cmux-next/optchat-chief-input-key.py" --environment --archs "$archs" --toolchain "$key_toolchain")" || environment_key=""
+    fi
+    [[ "$environment_key" =~ ^[0-9a-f]{64}$ ]] || environment_key=""
+    suffix=""
+    [[ -n "$environment_key" ]] && suffix="-$environment_key"
+    cache_dir="$cache_root/inputs-$input_key$suffix/${archs// /-}"
   else
     input_key=""
   fi
 fi
 cache_bin="$cache_dir/optchat-chief"
+[[ -z "${CMUX_NEXT_OPTCHAT_CHIEF_RESULT_FILE:-}" ]] || rm -f "$CMUX_NEXT_OPTCHAT_CHIEF_RESULT_FILE"
 
 # In the input-keyed cache, which a trusted worker keeps between runs, entries
 # are touched on use and only the 8 most recently used stay; so do at most 8
@@ -88,7 +106,7 @@ prune_input_keyed() {
   [[ "${CMUX_NEXT_OPTCHAT_CHIEF_INPUT_KEYED:-0}" == 1 ]] || return 0
   [[ -d "$cache_dir" ]] && touch "${cache_dir%/*}"
   local pattern entry count
-  for pattern in 'inputs-[0-9a-f]{64}' '[0-9a-f]{40}'; do
+  for pattern in 'inputs-[0-9a-f]{64}(-[0-9a-f]{64})?' '[0-9a-f]{40}'; do
     count=0
     while IFS= read -r entry; do
       [[ "${entry##*/}" =~ ^${pattern}$ ]] || continue
@@ -99,11 +117,24 @@ prune_input_keyed() {
   return 0
 }
 
+# Tells the caller whether the cache entry was reused or rebuilt. An entry
+# that failed validation is rebuilt, so the nightly saves it as a new
+# generation instead of restoring the bad one again (cache keys are immutable).
+report_result() {
+  local file="${CMUX_NEXT_OPTCHAT_CHIEF_RESULT_FILE:-}"
+  [[ -n "$file" ]] || return 0
+  mkdir -p "$(dirname "$file")"
+  rm -f "$file"
+  printf '%s\n' "$1" > "$file"
+}
+
 # Copies the cached binary to --output (when given) and reports where it is.
 deliver() {
   local found="$cache_bin" verb="$1"
   if [[ -n "$output" && "$output" != "$cache_bin" ]]; then
     mkdir -p "$(dirname "$output")"
+    # cp follows a link at the destination; remove links before copying.
+    rm -f "$output" "$output.ref"
     cp -f "$cache_bin" "$output"
     cp -f "$cache_bin.ref" "$output.ref" 2>/dev/null || true
     chmod 755 "$output"
@@ -112,10 +143,34 @@ deliver() {
   if [[ "$print_path" -eq 1 ]]; then printf '%s\n' "$found"; else echo "optchat-chief $verb at $found"; fi
 }
 
-if [[ -x "$cache_bin" ]]; then
-  prune_input_keyed
-  deliver "already cached"
-  exit 0
+# A restored entry may hold links in place of its directories. Drop them (the
+# links, never their targets) so every read, removal and write below stays
+# inside the cache root; the build recreates the directories.
+for entry_dir in "${cache_dir%/*}" "$cache_dir"; do
+  [[ ! -L "$entry_dir" ]] || rm -f "$entry_dir"
+done
+if [[ -f "$cache_bin" && -x "$cache_bin" ]]; then
+  if [[ "${CMUX_NEXT_OPTCHAT_CHIEF_REQUIRE_IDENTITY:-0}" == 1 ]]; then
+    ref="$cache_bin.ref"
+    actual_sha=""
+    [[ -L "$cache_bin" || -L "$ref" ]] || actual_sha="$(shasum -a 256 "$cache_bin" | awk '{print $1}')"
+    if [[ ! -f "$ref" || ! -r "$ref" ]] || [[ -L "$cache_bin" || -L "$ref" ]] || ! grep -Fxq "inputs=$input_key" "$ref" || ! grep -Fxq "environment=$environment_key" "$ref" || ! grep -Fxq "archs=$archs" "$ref" || ! grep -Fxq "sha256=$actual_sha" "$ref"; then
+      echo "cached optchat-chief identity does not match; rebuilding" >&2
+      # Remove links themselves (or a directory in the file's place) before
+      # the rebuild writes its provenance.
+      rm -rf "$cache_bin" "$ref"
+    else
+      prune_input_keyed
+      deliver "already cached"
+      report_result reused
+      exit 0
+    fi
+  else
+    prune_input_keyed
+    deliver "already cached"
+    report_result reused
+    exit 0
+  fi
 fi
 if [[ "$cached_only" -eq 1 ]]; then
   [[ "$print_path" -eq 1 ]] || echo "error: no cached optchat-chief at $cache_bin" >&2
@@ -155,6 +210,12 @@ if command -v rustup >/dev/null 2>&1; then
 fi
 
 mkdir -p "$cache_dir"
+# Every rebuild path writes the binary and its provenance fresh. A restored or
+# reused entry may hold links in their place (a missing binary skips the
+# identity check above), so remove the links themselves, never their targets,
+# and any directory in a file's place, before anything is written. The entry
+# directories are not links (checked above), so this stays inside the cache.
+rm -rf "$cache_bin" "$cache_bin.ref"
 slices=()
 for target in "${targets[@]}"; do
   echo "==> building optchat-chief ($commit, $target)"
@@ -173,9 +234,16 @@ for target in "${targets[@]}"; do
   slices+=("$slice")
 done
 staged="$cache_bin.tmp.$$"
+rm -f "$staged"
 if [[ ${#slices[@]} -eq 1 ]]; then cp "${slices[0]}" "$staged"; else lipo -create "${slices[@]}" -output "$staged"; fi
 chmod 755 "$staged"
 mv -f "$staged" "$cache_bin"
-printf '%s\n' "commit=$commit" "archs=$archs" ${input_key:+"inputs=$input_key"} "sha256=$(shasum -a 256 "$cache_bin" | awk '{print $1}')" > "$cache_bin.ref"
+# Write the provenance to a new file and rename it into place: a rename
+# replaces a link that appeared since, and never writes through it.
+staged_ref="$cache_bin.ref.tmp.$$"
+rm -f "$staged_ref"
+printf '%s\n' "commit=$commit" "archs=$archs" ${input_key:+"inputs=$input_key"} ${environment_key:+"environment=$environment_key"} "sha256=$(shasum -a 256 "$cache_bin" | awk '{print $1}')" > "$staged_ref"
+mv -f "$staged_ref" "$cache_bin.ref"
 prune_input_keyed
 deliver built
+report_result built
