@@ -458,6 +458,30 @@ describe("the tray", () => {
     }
   });
 
+  test("a lone line gaining a header folds the list; focus on the line moves to the header", async () => {
+    const now = Date.now();
+    const tray = (agents: Subagent[]) =>
+      createElement(SubagentTray, {
+        items: trayItems(agents, [], NONE, true),
+        working: true,
+        waiting: new Set<string>(),
+        onOpen: () => {},
+      });
+    const first = agent("Reviewer", { startedAt: now - 5000 });
+    const { root, show, done } = await render(tray([first]));
+    try {
+      const line = root.querySelector<HTMLButtonElement>(".acpmux-agent-line__button")!;
+      line.focus();
+      expect(dom.window.document.activeElement).toBe(line);
+      await show(tray([first, agent("Tester", { startedAt: now - 1000 })]));
+      const head = root.querySelector<HTMLButtonElement>(".acpmux-running-tray__head")!;
+      expect(head.getAttribute("aria-expanded")).toBe("false");
+      expect(dom.window.document.activeElement).toBe(head);
+    } finally {
+      await done();
+    }
+  });
+
   test("tray rows reserve the time, status and stop tracks when values are missing", async () => {
     const running = agent("Reviewer", { startedAt: Date.now() - 5_000 });
     const chat: StartedSession = { sessionId: "child", title: "Started chat", state: "running" };

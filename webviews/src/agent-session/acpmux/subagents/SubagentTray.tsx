@@ -176,6 +176,13 @@ export const SubagentTray = memo(function SubagentTray({
   // A fold while the page is away (hidden, or in its first frames back) applies at once: the shared
   // page-reveal gate (shared/pageReveal.ts), read only when the fold changes.
   const fold = useFold(open, entranceMayRun, false);
+  // A fold the person did not ask for (a lone line gaining a header) makes the list inert under a
+  // focused line or Stop: focus moves to the header that folded it, never to the page's body.
+  const head = useRef<HTMLButtonElement | null>(null);
+  useLayoutEffect(() => {
+    const focused = trayNode.current?.ownerDocument.activeElement;
+    if (!open && focused && focused !== head.current && trayNode.current?.contains(focused)) head.current?.focus();
+  }, [open]);
   // A line that joins the open list rises in (ui/popupSurface.css `data-enter`); the lines it was
   // drawn with, and lines a fold or View all brings back, are simply there. With no motion (Reduce
   // Motion, the host's switch, a page away: hidden, or in its first frames back, shared/pageReveal.ts)
@@ -313,6 +320,7 @@ export const SubagentTray = memo(function SubagentTray({
       {headed && (
         <button
           type="button"
+          ref={head}
           className="acpmux-summary-row acpmux-summary-link acpmux-running-tray__head"
           aria-expanded={open}
           aria-controls={open ? listId : undefined}

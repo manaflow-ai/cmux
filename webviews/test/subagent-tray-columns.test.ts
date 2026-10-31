@@ -7,6 +7,7 @@ import { chromium, type Browser } from "playwright";
 import { GALLERY_NOW } from "../src/gallery/clock";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { openRunningTray } from "./support/openRunningTray";
 
 await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
   setDefaultTimeout(180_000);
@@ -127,6 +128,8 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
           );
           await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
           await page.waitForFunction(() => document.querySelector(".acpmux-running-tray[data-narrow]"));
+          // A headed tray starts folded; View all is under its open list.
+          await openRunningTray(page);
           // Keep the longest format present while measuring: the gallery clock otherwise
           // advances from 12h 59m 59s to the much shorter 13h during a slow capture.
           await page.clock.setFixedTime(new Date(GALLERY_NOW));
