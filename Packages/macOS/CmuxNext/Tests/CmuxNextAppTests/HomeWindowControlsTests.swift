@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 @testable import CmuxNextHome
+import CmuxNextTestSupport
 @testable import MessagesLabSidebar
 import Testing
 
@@ -11,6 +12,7 @@ import Testing
 /// on the row below. The chat's compose button, under the lights while the list is folded,
 /// starts after them.
 @MainActor
+@Suite(.closesItsWindows)
 struct HomeWindowControlsTests {
     /// A titled window with a full-size content view, as the app's: its traffic lights sit over
     /// the top-left of the content.

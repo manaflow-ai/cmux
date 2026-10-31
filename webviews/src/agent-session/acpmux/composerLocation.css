@@ -1315,8 +1315,12 @@
    the 28 px controls 8 px off the bottom edge), an 11 px radius, + drawn 16 px in from the left
    edge, the text 45 px in, the mic 16 px in from the right. Menus over the box are absolute and
    keep its padding box. The strip's or the queue's first mark stands over the + glyph and its last
-   over Send's, the box's content columns here. */
-.acpmux-composer-box:has(> .acpmux-chrome-area > .acpmux-composer-inner) {
+   over Send's, the box's content columns here.
+   ComposerBox marks this look on the box and Composer on its form (`data-composer-grid`), rather
+   than a `:has(> .acpmux-chrome-area > .acpmux-composer-inner)` the box and the pane would test: a
+   pane-level `:has()` made every node inserted in the pane (a streamed row, a rail tick) restyle the
+   whole pane (pane-has-restyle.browser.test.ts). */
+.acpmux-composer-box[data-composer-grid] {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: end;
@@ -1326,12 +1330,12 @@
   --acpmux-prompt-control-bottom: max(0px, calc(var(--acpmux-prompt-inset) + var(--text-content--line-height) / 2 - 14px + 1px));
 }
 /* The strip and the queue over the box take its corners. */
-.acpmux-composer:has(.acpmux-composer-box > .acpmux-chrome-area > .acpmux-composer-inner) {
+.acpmux-composer[data-composer-grid] {
   --acpmux-strip-radius: 11px;
 }
 /* The box's corner, which the trust bar in the stack over it shares. */
-.acpmux-composer-box:has(> .acpmux-chrome-area > .acpmux-composer-inner),
-.acpmux-dock:has(.acpmux-composer-box > .acpmux-chrome-area > .acpmux-composer-inner) > .acpmux-asks-stack {
+.acpmux-composer-box[data-composer-grid],
+.acpmux-dock > .acpmux-asks-stack:has(~ .acpmux-composer[data-composer-grid]) {
   --acpmux-composer-radius: 11px;
 }
 /* The bar is the grid's own items, not one box in it: styles.css gives .acpmux-composer-bar a flex
@@ -1339,7 +1343,7 @@
    composer-alignment-measure.test.ts showed the bar as one 102 px flex item in row 1). */
 .acpmux-composer-bar.acpmux-composer-inner { display: contents; }
 .acpmux-composer-box > .acpmux-attachments { grid-column: 1 / -1; grid-row: 1; }
-.acpmux-composer-box:has(> .acpmux-chrome-area > .acpmux-composer-inner) > .acpmux-composer-field-menu > * {
+.acpmux-composer-box[data-composer-grid] > .acpmux-composer-field-menu > * {
   grid-column: 2;
   grid-row: 2;
 }
@@ -1357,7 +1361,7 @@
   margin: 0 8px var(--acpmux-prompt-control-bottom) 0;
 }
 /* The right inset less the minimal scroller's reserved lane (markdownField.css). */
-.acpmux-composer-box:has(> .acpmux-chrome-area > .acpmux-composer-inner) .acpmux-md-field {
+.acpmux-composer-box[data-composer-grid] .acpmux-md-field {
   padding: calc(11px * var(--cmux-interface-scale, 1))
     max(0px, calc(8px * var(--cmux-interface-scale, 1) - var(--cmux-scroller-size, 8px)))
     calc(11px * var(--cmux-interface-scale, 1)) calc(7px * var(--cmux-interface-scale, 1));
@@ -1372,7 +1376,7 @@
    Other placements (the lane beside the text, outside the box as Codex, the box's full height) are
    the gallery's agent-pane.composer-scrollbar variants. New Tab's box is its own textarea
    (.nt-field, newtab/screen.css) with the system scroller and keeps its placement. */
-.acpmux-composer-box:has(> .acpmux-chrome-area > .acpmux-composer-inner) > .acpmux-composer-field-menu > .acpmux-md-field {
+.acpmux-composer-box[data-composer-grid] > .acpmux-composer-field-menu > .acpmux-md-field {
   grid-column: 2 / -1;
   /* The lane sits just inside the box's hairline rim, never on it. */
   margin-right: calc(2px * var(--cmux-interface-scale, 1));
@@ -1383,14 +1387,14 @@
      scroller's end inset, scrollers.ts). */
   --cmux-minimal-scroller-inset-end: calc(40px * var(--cmux-interface-scale, 1));
 }
-.acpmux-composer-box:has(> .acpmux-chrome-area > .acpmux-composer-inner) > .acpmux-composer-field-menu > .acpmux-md-field .acpmux-md-placeholder {
+.acpmux-composer-box[data-composer-grid] > .acpmux-composer-field-menu > .acpmux-md-field .acpmux-md-placeholder {
   right: calc(var(--acpmux-actions-width, 64px) + 8px + 8px * var(--cmux-interface-scale, 1));
 }
 .acpmux-composer-inner > .acpmux-composer-actions {
   position: relative;
   z-index: var(--layer-raised);
 }
-.acpmux-composer-box:has(> .acpmux-chrome-area > .acpmux-composer-inner) .acpmux-md-placeholder {
+.acpmux-composer-box[data-composer-grid] .acpmux-md-placeholder {
   left: calc(7px * var(--cmux-interface-scale, 1));
   top: calc(11px * var(--cmux-interface-scale, 1));
   right: calc(8px * var(--cmux-interface-scale, 1));
@@ -1399,7 +1403,7 @@
    gives the prompt: the 44 px row's 11 px above and below, the 7 px the placeholder starts at, and
    the 8 px right. The glyph then stands on the caret's column and the command keeps the prompt's
    line, at every chrome size. */
-.acpmux-composer-box:has(> .acpmux-chrome-area > .acpmux-composer-inner) {
+.acpmux-composer-box[data-composer-grid] {
   --acpmux-shell-inset-top: var(--acpmux-prompt-inset);
   --acpmux-shell-inset-right: calc(8px * var(--cmux-interface-scale, 1));
   --acpmux-shell-inset-bottom: var(--acpmux-prompt-inset);
@@ -1408,13 +1412,13 @@
 /* Under the attachments' band the prompt starts one gap down, as in the other look
    (composerAttachments.css), at this look's specificity. Shell mode takes the band there, through
    the one inset it draws from, for this look too. */
-.acpmux-composer-box:has(> .acpmux-chrome-area > .acpmux-composer-inner)
+.acpmux-composer-box[data-composer-grid]
   > .acpmux-attachments
   ~ .acpmux-composer-field-menu
   .acpmux-md-field {
   padding-top: var(--acpmux-attach-gap);
 }
-.acpmux-composer-box:has(> .acpmux-chrome-area > .acpmux-composer-inner)
+.acpmux-composer-box[data-composer-grid]
   > .acpmux-attachments
   ~ .acpmux-composer-field-menu
   .acpmux-md-placeholder {
