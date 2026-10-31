@@ -27,7 +27,10 @@ pub struct ConnectionStats {
     accepted: AtomicU64,
     hung_up: AtomicU64,
     reclaimed: AtomicU64,
-    leases: std::sync::Mutex<Vec<loom_arc::Weak<ConnectionLease>>>,
+    // A loom lock: the list is held across `Weak::upgrade` (a loom atomic, so
+    // a switch point). A std lock here blocked the one OS thread loom runs
+    // every model thread on (the hang of jobs 8af2d10a and f86438ee).
+    leases: loom::sync::Mutex<Vec<loom_arc::Weak<ConnectionLease>>>,
 }
 
 impl ConnectionStats {
@@ -39,7 +42,7 @@ impl ConnectionStats {
             accepted: AtomicU64::new(0),
             hung_up: AtomicU64::new(0),
             reclaimed: AtomicU64::new(0),
-            leases: std::sync::Mutex::new(Vec::new()),
+            leases: loom::sync::Mutex::new(Vec::new()),
         }
     }
 }
