@@ -87,11 +87,12 @@ import Testing
         #expect(shown.services.linkOpener.target(from: shown.chat, besideChat: true, kind: .browser) == .pane(shown.upper.layoutPaneID))
         #expect(shown.services.linkOpener.target(from: shown.chat, besideChat: true, kind: .terminal) == .splitBelow(of: shown.upper.layoutPaneID))
         var moves = true
-        #expect(ChatColumnPlacement.openTool(from: shown.chat, services: shown.services, kind: .browser) { pane, placed in
+        let opened = ChatColumnPlacement.openTool(from: shown.chat, services: shown.services, kind: .browser) { pane, placed in
             #expect(pane === shown.upper)
             moves = placed != nil
             return false
-        })
+        }
+        #expect(opened)
         #expect(!moves)
     }
 
