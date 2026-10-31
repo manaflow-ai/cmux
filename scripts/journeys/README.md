@@ -424,9 +424,11 @@ must be a new folder. Writes `summary.json` and `summary.txt`. Test:
 and the responder chain, so a bug there (with the command palette open, a real Ctrl-` made no terminal, STATUS
 1456) cannot fail the gate. So each gate run types at least 2 of its 10 rounds (rounds 1 and 6) with REAL key
 events: `--journey-option key_path=real` makes the smoke journey's `smoke_key`, `smoke_type` and `smoke_type_now`
-steps send each key through one CuaDriver MCP session (`press_key` / `hotkey`, `delivery_mode` foreground: a
-genuine HID key transition to the app's main window), Cmd-N, Ctrl-`, Cmd-D, Cmd-T, Cmd-W and every typed line
-included. Real keys need a whole-host lease (`--whole-host`); without one a run has no real-key rounds and is a
+steps send each key through one CuaDriver MCP session (`press_key` / `hotkey` with scope desktop: a key event
+posted to the window server's HID stream, which goes to the frontmost app as a keyboard's does; about 11 ms a key,
+where the window-targeted modes front and restore the window for every key, about 0.4 s), Cmd-N, Ctrl-`, Cmd-D,
+Cmd-T, Cmd-W and every typed line included. Before each key or line the app must be the frontmost app
+(lsappinfo); another app in front is not run (the host's limit). Real keys need a whole-host lease (`--whole-host`); without one a run has no real-key rounds and is a
 trial. Each step's `key_path` in result.json says which path its keys took (`real_hid` or `debug.key`; relaunch's
 Cmd-Q stays `debug.key`). A real-key round whose basic keys did not all take `real_hid` is not run; a .pass needs
 the real-key rounds to pass. A key CuaDriver refuses is not run, never a red of the build. `--real-key-rounds N`

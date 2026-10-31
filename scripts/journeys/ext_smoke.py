@@ -146,6 +146,7 @@ def step_smoke_type_now(j, step):
     j.hold_from = None  # at once (or, diagnostic, the hold already waited out above)
     sent, replies = D.now(), []
     if _key_path(j) == "real_hid":
+        _realkey().require_front(j)
         for char in text:
             _realkey().press_char(j, char)
         _realkey().press(j, "return")
@@ -184,6 +185,7 @@ def step_smoke_key(j, step):
     if _key_path(j) == "debug.key":
         return dict(j.step_key(step), key_path="debug.key")
     held = j.before_keys()
+    _realkey().require_front(j)
     if step.get("mark"):
         j.marks[step["mark"]] = D.now()
     t = D.now()
@@ -199,6 +201,7 @@ def step_smoke_type(j, step):
         return dict(j.step_type(step), key_path="debug.key")
     text = j.sub(step["text"])
     held = j.before_keys()
+    _realkey().require_front(j)
     if step.get("mark") and not step.get("enter"):
         j.marks[step["mark"]] = D.now()
     t = D.now()

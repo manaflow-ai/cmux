@@ -244,12 +244,40 @@ _SHIFTED = {"~": "`", "!": "1", "@": "2", "#": "3", "$": "4", "%": "5", "^": "6"
 _NAMED = {" ": "space", "\r": "return", "\n": "return", "\t": "tab"}
 
 
+def front_pid():
+    """The pid of the Mac's frontmost app (/usr/bin/lsappinfo, no privacy grant), or None."""
+    try:
+        asn = subprocess.run(["/usr/bin/lsappinfo", "front"], capture_output=True, text=True, timeout=5).stdout.strip()
+        out = subprocess.run(["/usr/bin/lsappinfo", "info", "-only", "pid", asn], capture_output=True, text=True,
+                             timeout=5).stdout if asn else ""
+    except (OSError, subprocess.SubprocessError):
+        return None
+    for line in out.splitlines():
+        key, sep, value = line.partition("=")
+        if sep and value.strip().strip('"').isdigit():
+            return int(value.strip().strip('"'))
+    return None
+
+
+def require_front(j):
+    """Real keys go where a keyboard's go: to the frontmost app. Before a key or a line, the app must be frontmost
+    (the whole-host launch activates it, smoke_make_key makes its window key); another app in front (a host prompt)
+    is the host's limit: not run, never a red."""
+    pid = front_pid()
+    if pid != j.app.pid:
+        raise D.NotRun(f"real keys: the app (pid {j.app.pid}) is not the frontmost app (front pid {pid}): a real key "
+                       "would go to that app (known gap of the host)")
+
+
 def press(j, key, modifiers=()):
-    """One real key (with MODIFIERS held) to the app's main window through CuaDriver's foreground HID path."""
+    """One real key (with MODIFIERS held) as a keyboard sends it: CuaDriver's desktop-scope key event, posted to the
+    window server's HID event stream, so it reaches the frontmost app (this one: require_front before each key or
+    line) through AppKit, the menu's key equivalents and the responder chain. Measured on cmux17 (12:3xZ): ~11 ms a
+    key; the window-targeted modes front, guard and restore the window for every key (~0.4 s a key: no line could be
+    typed at once)."""
     mods = [MODIFIERS.get(m, m) for m in modifiers]
-    wid = _main_window(j)
     j.last_key_at = D.now()
-    args = {"pid": j.app.pid, "window_id": wid, "delivery_mode": "foreground"}
+    args = {"scope": "desktop"}
     if mods:
         bad, data, raw = _session(j).call("hotkey", dict(args, keys=mods + [key]))
     else:

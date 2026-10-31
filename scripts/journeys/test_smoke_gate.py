@@ -356,14 +356,24 @@ class RealKeySteps(unittest.TestCase):
         j.marks, j.vars, j.cua_session = {}, {}, self.session
         j.sub = lambda x: x
         j.before_keys = lambda: None
+        self.rk.front_pid = lambda: 7
         j.step_key = lambda step: {"key": step["key"], "reply": {"handled_by": "app"}}
         j.step_type = lambda step: {"typed": step["text"]}
         return j
 
-    def test_a_key_goes_to_the_apps_main_window_as_a_foreground_hid_key(self):
+    def test_a_key_is_a_desktop_hid_key_event_to_the_frontmost_app(self):
         done = self.ext.step_smoke_key(self.journey("real"), {"key": "`", "modifiers": ["control"], "mark": "m"})
         self.assertEqual(done["key_path"], "real_hid")
-        self.assertEqual(self.sent, [("hotkey", {"pid": 7, "window_id": 9, "delivery_mode": "foreground", "keys": ["ctrl", "`"]})])
+        self.assertEqual(self.sent, [("hotkey", {"scope": "desktop", "keys": ["ctrl", "`"]})])
+
+    def test_no_real_key_while_another_app_is_in_front(self):
+        j = self.journey("real")
+        self.rk.front_pid = lambda: 406  # a Terminal window or a host prompt in front
+        with self.assertRaises(self.NotRun):
+            self.ext.step_smoke_key(j, {"key": "d", "modifiers": ["cmd"]})
+        with self.assertRaises(self.NotRun):
+            self.ext.step_smoke_type(j, {"text": "x"})
+        self.assertEqual(self.sent, [])
 
     def test_typing_uses_shift_for_shifted_characters_and_return(self):
         self.ext.step_smoke_type(self.journey("real"), {"text": "a$(B", "enter": True})
