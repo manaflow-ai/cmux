@@ -77,16 +77,14 @@ final class AgentChatSplitToggles {
                       store: DaemonStore, actions: AgentChatTabActions) {
         // Preview opens the chat's page; a click with none (its page closed elsewhere) opens nothing.
         if id == Self.preview, url == nil { return }
-        let splits = splits(in: tabs, chat: chat)
-        // Split Down splits the chat itself; the panels right of it line up after the last one of theirs.
-        let anchor = id == Self.splitDown ? nil : opened.indices.reversed().lazy
-            .filter { self.opened[$0].id != Self.splitDown }
-            .compactMap { splits[$0] }
-            .first { Self.beside(chat, $0, in: store) }
-        // Open mode adds one per click: keep the recent ones, enough to find the last split beside the chat.
+        // Split Down splits the chat itself. Every other header open is measured from the chat so
+        // RightColumnPlacement can keep one right-side pane and put later opens below it (or in
+        // its lower pane), even when the user opened or moved the earlier pane themselves.
+        let anchor: String? = nil
+        // Open mode adds one per click: keep the recent ones, enough to identify each button's tab.
         opened = AgentChatTerminalAdds().room(in: opened, limit: Self.remembered) { $0.id }
         opened.append((id: AgentChatTerminalAdds().logged(id), baseline: Set(tabs.map(\.id))))
-        Self.run(id, cwd: cwd, url: url, extra: extra, chat: chat, store: store, on: anchor?.id, actions: actions)
+        Self.run(id, cwd: cwd, url: url, extra: extra, chat: chat, store: store, on: anchor, actions: actions)
     }
 
     /// Runs header action `id` on tab `target` (the last panel beside the chat), or on the chat.

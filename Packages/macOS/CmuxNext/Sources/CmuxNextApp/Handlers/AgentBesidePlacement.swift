@@ -1,5 +1,6 @@
 import CmuxNextCompat
 import CmuxNextActions
+import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextLayout
@@ -145,13 +146,47 @@ enum AgentBesidePlacement {
                 await revealMoved(tab.id, from: anchor, services: services)
                 return nil
             }
-            let after = newColumn(beside: anchor, in: services.daemon(for: anchor).store)
+            // Decide against the right column as it exists now. This is deliberately measured
+            // after the tab is listed: an earlier open may have just landed, and two concurrent
+            // opens must not both decide to split the same pane (RightColumn.serially handles the
+            // callers that go through LinkOpener; this path also re-measures its source).
+            let source = controller ?? services.paneController(for: anchor)
+            let measured = source.map { RightColumn.measure(beside: $0) } ?? RightColumnPlacement.Column()
+            let decision = RightColumnPlacement.decide(measured)
+            let destination: PaneController? = {
+                guard case .tab(let id) = decision, let id else { return nil }
+                return source?.workspace?.panes[LayoutPaneID(rawValue: id)]
+            }()
             moved = await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
-                TabMoves.toNewColumn(tab, anchor: anchor, afterColumn: after, services: services) { done.resume(returning: $0) }
+                switch decision {
+                case .splitRight:
+                    // The first right-side item is a pane beside the chat. Keeping this as a
+                    // split (rather than the daemon's after-last-column default) also makes the
+                    // right column visible while the chat keeps focus.
+                    TabMoves.toNewSplit(tab, pane: anchor, edge: .right, services: services, keepFocus: true) {
+                        done.resume(returning: $0)
+                    }
+                case .splitBelow(let id):
+                    let right = source?.workspace?.panes[LayoutPaneID(rawValue: id)]
+                    guard let right else { return done.resume(returning: false) }
+                    TabMoves.toNewSplit(tab, pane: right.pane, edge: .bottom, services: services, keepFocus: true) {
+                        done.resume(returning: $0)
+                    }
+                case .tab:
+                    let right = destination ?? source
+                    guard let right else { return done.resume(returning: false) }
+                    TabMoves.move(tab, to: right.pane, index: right.pane.tabs.count, services: services) {
+                        done.resume(returning: $0)
+                    }
+                }
             }
-            guard moved else { return "beside-caller: the move into a new column failed (see the app log)" }
+            guard moved else { return "beside-caller: the move into the right pane failed (see the app log)" }
             if let clicked { focus(surface, returningTo: from, awayFrom: away, in: clicked, generation: intent, services: services) }
-            await revealMoved(tab.id, from: anchor, services: services)
+            if case .tab = decision, let right = destination ?? source,
+               !(personActed() && right.workspace?.focusedPane === right) {
+                right.selectWhenReportedKeepingFocus(surface: surface)
+            }
+            if case .splitRight = decision { await revealMoved(tab.id, from: anchor, services: services) }
             return nil
         })
         return { surface in
