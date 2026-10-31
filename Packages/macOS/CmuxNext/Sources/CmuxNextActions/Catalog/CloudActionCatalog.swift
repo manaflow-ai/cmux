@@ -352,6 +352,8 @@ nonisolated enum CloudActionCatalog: ActionCatalogGroup {
             // caller hears a failure instead of OK, and can name the result in the next command.
             "palette.cloud.fork", "palette.cloud.restore", "newCloudWorkspace", "cloudRenameMachine", "cloudKillMachine",
             "cloudResizeMachine", "cloudApplyMachineConfig", "cloudDeliverSecrets",
+            // The stored policy's mode and whether the server applied it (a PUT can take a while).
+            "cloudSetNetworkAccess",
         ]
         for index in actions.indices where waitsForResult.contains(actions[index].id) {
             actions[index].waitsForResult = true

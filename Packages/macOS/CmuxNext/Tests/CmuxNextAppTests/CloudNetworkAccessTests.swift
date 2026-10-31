@@ -100,6 +100,7 @@ struct CloudNetworkAccessTests {
         let descriptor = try #require(services.registry.descriptor(for: "cloudSetNetworkAccess"))
         #expect(descriptor.cliName == "cloud set-network-access")
         #expect(descriptor.targets == [.machine])
+        #expect(descriptor.waitsForResult, "a CLI or MCP call waits for the server's answer, not the 2 s default")
         #expect(descriptor.surfaces.contains(.contextMenu))
         let argument = try #require(descriptor.arguments.first)
         #expect(argument.name == "access")
