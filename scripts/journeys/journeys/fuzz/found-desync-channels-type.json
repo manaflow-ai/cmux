@@ -1,0 +1,207 @@
+{
+ "id": "found-desync-channels-type",
+ "priority": "P1",
+ "first_in_app": true,
+ "title": "Home dock Channels, first open in a fresh launch: after its Chromium page attaches, the keyboard is with the Chromium page (its window is key), not with the hidden WebKit stand-in",
+ "why": "Found while covering the FIX case of #29272's review (coordinator, 2026-10-31; STATUS 1582). Whole host, app active, mini scheduler (spec desync-g1w1w4-journeys, 12:09-12:20Z): the same state on feat base f2f3083bac80ab71101d03ac (cmux19), on #29272 at 976b215 (build 568ad9fbd033e4ba0ac995fb, cmux19) and #29272's head ad21c67 (build ed24b7b111a5fe9b44eaf569, cmux20): Channels in Chromium, its page window visible over the dock and not key, key window ShellWindow, first responder PageWKWebView (the hidden WebKit stand-in), for 10 s: Channels never gets the keyboard at its first open. Cause: TabContent.childWindowTab saw only a page tab whose content IS a page, so for the docked Home (an internal page whose content is HomeDockView) the focus applier found no Chromium page: it took the page window's key change as unchosen, applied the model again, blurred Chromium pages and reclaimed the keys for the cmux window. The fix names the shown page through PageWebViewContainer (PageWebView.shown(in:)). The journey reads the focus state, not typed keys: debug.key's sequence mode has no event timestamp on the capture minis. Needs run.py --whole-host (the app launched active). The frame check (not blank) and the closing daemon check are the harness's required evidence kinds, not the claim. The journey harness (scripts/journeys) lands with #29071; this file is ready for it.",
+ "source": "#29272 review finding 1; #29274 review (FIX at c5cba01aa64, comment 6542986147); webviews/src/pages/home-channels/ConversationList.tsx (.lg-search) and Palette.tsx",
+ "budget_seconds": 200,
+ "steps": [
+  {
+   "do": "fresh_app"
+  },
+  {
+   "do": "smoke_ready",
+   "timeout": 60
+  },
+  {
+   "do": "smoke_remember_workspaces"
+  },
+  {
+   "do": "smoke_make_key"
+  },
+  {
+   "do": "rpc",
+   "method": "settings.set",
+   "params": {
+    "path": "home.channelsEnabled",
+    "value": true
+   }
+  },
+  {
+   "do": "rpc",
+   "method": "action.run",
+   "params": {
+    "action": "home.show",
+    "args": {},
+    "focus": true
+   }
+  },
+  {
+   "do": "expect",
+   "title": "the docked Home shows, with Channels enabled",
+   "timeout": 20,
+   "all": [
+    {
+     "app_rpc": {
+      "method": "debug.home",
+      "path": "dock.visible",
+      "equals": true
+     }
+    },
+    {
+     "app_rpc": {
+      "method": "debug.home",
+      "path": "dock.channels_enabled",
+      "equals": true
+     }
+    }
+   ]
+  },
+  {
+   "do": "rpc",
+   "method": "action.run",
+   "params": {
+    "action": "home.switchView",
+    "args": {
+     "view": "channels"
+    },
+    "focus": true
+   }
+  },
+  {
+   "do": "expect",
+   "title": "Channels shows, in Chromium, painted",
+   "timeout": 30,
+   "all": [
+    {
+     "app_rpc": {
+      "method": "debug.home",
+      "path": "dock.mode",
+      "equals": "channels"
+     }
+    },
+    {
+     "app_rpc": {
+      "method": "debug.home",
+      "path": "dock.channels_visible",
+      "equals": true
+     }
+    },
+    {
+     "app_rpc": {
+      "method": "debug.page",
+      "params": {
+       "page": "cmux.home-channels",
+       "action": "state"
+      },
+      "path": "engine",
+      "equals": "chromium"
+     }
+    },
+    {
+     "app_rpc": {
+      "method": "debug.page",
+      "params": {
+       "page": "cmux.home-channels",
+       "action": "state"
+      },
+      "path": "painted",
+      "equals": true
+     }
+    }
+   ]
+  },
+  {
+   "do": "wait",
+   "seconds": 2
+  },
+  {
+   "do": "rpc",
+   "method": "debug.focus"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.window_list"
+  },
+  {
+   "do": "expect",
+   "title": "the keyboard is with the Channels page in Chromium: a Chromium page window is key and the hidden WebKit stand-in is not the first responder; the window is not blank",
+   "timeout": 10,
+   "all": [
+    {
+     "app_rpc": {
+      "method": "debug.focus",
+      "path": "app_active",
+      "equals": true
+     }
+    },
+    {
+     "app_rpc": {
+      "method": "debug.focus",
+      "path": "key_window",
+      "equals": "CefNSWindow"
+     }
+    },
+    {
+     "app_rpc": {
+      "method": "debug.focus",
+      "path": "windows.0.appkit.first_responder",
+      "not_equals": "PageWKWebView"
+     }
+    },
+    {
+     "smoke_frame": {
+      "min_lines": 1
+     }
+    }
+   ]
+  },
+  {
+   "do": "fuzz_run",
+   "sequence": [
+    {
+     "a": "new_workspace",
+     "t": "slow"
+    }
+   ],
+   "set": "full",
+   "fresh": false,
+   "shrink": false,
+   "budget_s": 60
+  },
+  {
+   "do": "expect",
+   "title": "afterwards (a health check, not the claim) the daemon agrees with the app",
+   "timeout": 20,
+   "all": [
+    {
+     "fuzz_daemon_agrees": {}
+    }
+   ]
+  }
+ ],
+ "finally": [
+  {
+   "do": "rpc",
+   "method": "action.run",
+   "params": {
+    "action": "home.switchView",
+    "args": {
+     "view": "messages"
+    },
+    "focus": true
+   }
+  },
+  {
+   "do": "rpc",
+   "method": "settings.unset",
+   "params": {
+    "path": "home.channelsEnabled"
+   }
+  },
+  {
+   "do": "smoke_close_all"
+  }
+ ]
+}
