@@ -163,7 +163,7 @@ Registry rule for the new palette: one row below = one registered action with a 
 | toggleBrowserFocusMode | Browser Focus Mode | ⌥⌘↩ | PKMC | KSS:220, CWV:1672 |
 | toggleBrowserDesignMode | Browser Design Mode | ⌃⌥⌘D | KM | KSS:221 |
 | toggleReactGrab | React Grab | ⇧⌘G | PKM | KSS:222 |
-| splitBrowserRight / Down | Split Browser Right / Down | ⌥⌘D / ⇧⌥⌘D | PKM | KSS:175-176 |
+| splitBrowserRight / Down | Split Browser Right / Down | ⌃⌥⌘B / ⇧⌥⌘D | PKM | KSS:175-176 |
 | palette.browserOpenDefault / ToggleOmnibar / ClearHistory | Open in Default Browser / Omnibar / Clear History | — | P(M) | CV:8196-8297 |
 | importFromBrowser | Import Browser Data… | — | MC | cmuxApp:1187 |
 | palette.enableBrowser / disableBrowser | Enable / Disable cmux Browser | — | P | CV:7873 |
