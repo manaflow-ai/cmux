@@ -269,7 +269,7 @@ extension NewTabPage {
             Self.page(services, selected: pane.selectedTab, window: pane.view.window, pane: pane, paletteActions: false)
         }
         let actions = nativeActions(key, cwd: page.cwd, pane: pane)
-        let list: @MainActor () -> [AgentPaneOmnibar.Action] = { [weak services] in services.map(Self.paletteActions) ?? [] }
+        let list: @MainActor () -> [AgentPaneOmnibar.Action] = { [weak services] in services.map { Self.paletteActions($0) } ?? [] }
         // Cmd-T took the prepared page: it takes this tab's context, already laid out.
         if let spare = services.newTabSpares.claimNative(key), let model = spare.model {
             model.adopt(page: page, actions: actions, paletteActions: list)
