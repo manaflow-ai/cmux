@@ -51,7 +51,11 @@ struct WireParams {
     chat: Option<WireChat>,
 }
 
-#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "negatives are filtered out; `as` drops the fraction and saturates past u64::MAX"
+)]
 fn whole(number: Number) -> Option<u64> {
     number.0.filter(|value| *value >= 0.0).map(|value| value as u64)
 }
@@ -63,7 +67,10 @@ impl Line {
         let message: WireMessage = serde_json::from_slice(bytes).ok()?;
         if let (Some(id), Some(page)) = (message.id.0, message.result) {
             // The watch is request 2; every later list is 3 or more.
-            #[allow(clippy::cast_possible_truncation)]
+            #[allow(
+                clippy::cast_possible_truncation,
+                reason = "a JSON-RPC request id is a small whole number; `as` saturates anything else"
+            )]
             let id = id as i64;
             if id == 2 || id >= 3 {
                 let chats = page.chats.unwrap_or_default().into_iter().filter_map(Chat::from_wire);

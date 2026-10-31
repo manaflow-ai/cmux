@@ -75,7 +75,10 @@ impl Chat {
             created_ms: wire.created_ms.0.or(wire.created_at.0),
             updated_ms: wire.updated_ms.0.or(wire.updated_at.0).unwrap_or(0.0),
             // NSNumber.intValue truncates; the index sends whole counts.
-            #[allow(clippy::cast_possible_truncation)]
+            #[allow(
+                clippy::cast_possible_truncation,
+                reason = "matches NSNumber.intValue: the index sends whole counts; `as` saturates"
+            )]
             message_count: wire.message_count.0.map(|count| count as i64),
             accounts: boxed(wire.accounts.0),
             roots: boxed(wire.roots.0),
