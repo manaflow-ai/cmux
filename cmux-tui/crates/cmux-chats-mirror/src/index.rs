@@ -140,7 +140,10 @@ impl Index {
             let Some(cwd) = chat.cwd.as_deref().filter(|cwd| cwd.starts_with('/')) else {
                 continue;
             };
-            #[allow(clippy::cast_possible_truncation)]
+            #[allow(
+                clippy::cast_possible_truncation,
+                reason = "a millisecond timestamp fits i64; `as` saturates and maps NaN to 0"
+            )]
             let used = chat.updated_ms.round() as i64;
             let newest = projects.entry(&chat.harness).or_default().entry(cwd).or_insert(i64::MIN);
             *newest = (*newest).max(used);
