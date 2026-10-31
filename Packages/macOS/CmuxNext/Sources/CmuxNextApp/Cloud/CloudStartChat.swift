@@ -76,8 +76,8 @@ struct CloudStartChat {
                                     home: String? = NSHomeDirectory()) -> Bool {
         guard start.cwd != nil else {
             guard folder.subpath.isEmpty else { return false }
-            let canonicalHome = home.flatMap(AcpmuxPathPolicy.canonical) ?? home
-            for path in [folder.root, AcpmuxPathPolicy.canonical(folder.root)].compactMap({ $0 })
+            let canonicalHome = home.flatMap(AgentHome.canonical) ?? home
+            for path in [folder.root, AgentHome.canonical(folder.root)].compactMap({ $0 })
             where AgentHome.isHomeOrAbove(path, home: canonicalHome) || AgentHome.isHomeOrAbove(path, home: home) {
                 return false
             }
