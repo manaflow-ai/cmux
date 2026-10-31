@@ -525,6 +525,661 @@
         }
       }
     },
+    "screenshots.open.background" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Opened Screenshots in the background. It shows your screenshots only after you click Show Screenshots in it."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "تم فتح لقطات الشاشة في الخلفية. لا تظهر لقطات الشاشة إلا بعد أن تنقر على «عرض لقطات الشاشة» فيها."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Snimci ekrana su otvoreni u pozadini. Snimci se prikazuju tek kada u njima kliknete „Prikaži snimke ekrana“."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Skærmbilleder blev åbnet i baggrunden. Dine skærmbilleder vises først, når du klikker på “Vis skærmbilleder” i den."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bildschirmfotos wurde im Hintergrund geöffnet. Deine Bildschirmfotos erscheinen erst, nachdem du darin auf „Bildschirmfotos anzeigen“ klickst."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Capturas de pantalla se abrió en segundo plano. Solo muestra tus capturas después de que hagas clic en «Mostrar capturas de pantalla» en ella."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Captures d’écran s’est ouvert en arrière-plan. Vos captures ne s’affichent qu’après un clic sur « Afficher les captures d’écran » dans l’onglet."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Istantanee schermo è stato aperto in background. Le istantanee compaiono solo dopo che fai clic su “Mostra istantanee schermo” al suo interno."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "スクリーンショットをバックグラウンドで開きました。その中の「スクリーンショットを表示」をクリックするまで、スクリーンショットは表示されません。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "បានបើករូបថតអេក្រង់នៅផ្ទៃខាងក្រោយ។ វាបង្ហាញរូបថតអេក្រង់របស់អ្នកតែបន្ទាប់ពីអ្នកចុច «បង្ហាញរូបថតអេក្រង់» នៅក្នុងវាប៉ុណ្ណោះ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "스크린샷을 백그라운드에서 열었습니다. 그 안에서 ‘스크린샷 표시’를 클릭해야 스크린샷이 표시됩니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Skjermbilder ble åpnet i bakgrunnen. Skjermbildene dine vises først når du klikker på «Vis skjermbilder» i den."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Otwarto Zrzuty ekranu w tle. Zrzuty pojawią się dopiero po kliknięciu w nich „Pokaż zrzuty ekranu”."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Capturas de Tela foi aberto em segundo plano. Ele só mostra suas capturas depois que você clica em “Mostrar Capturas de Tela” nele."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Снимки экрана открыты в фоновом режиме. Снимки появятся только после того, как вы нажмёте в них «Показать снимки экрана»."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "เปิดภาพหน้าจอในพื้นหลังแล้ว ภาพหน้าจอของคุณจะแสดงหลังจากที่คุณคลิก “แสดงภาพหน้าจอ” ในแท็บนั้นเท่านั้น"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ekran Görüntüleri arka planda açıldı. Ekran görüntüleriniz yalnızca içinde “Ekran Görüntülerini Göster”e tıkladıktan sonra görünür."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Знімки екрана відкрито у фоновому режимі. Знімки з’являться лише після того, як ви натиснете в них «Показати знімки екрана»."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Đã mở Ảnh chụp màn hình ở chế độ nền. Ảnh chỉ hiển thị sau khi bạn bấm “Hiển thị ảnh chụp màn hình” trong đó."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已在后台打开截屏。只有在其中点按“显示截屏”后，才会显示你的截屏。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已在背景開啟截圖。只有在其中按一下「顯示截圖」後，才會顯示你的截圖。"
+          }
+        }
+      }
+    },
+    "screenshots.open.existing" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Screenshots is already open. It shows your screenshots only after you click Show Screenshots in it."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "لقطات الشاشة مفتوحة بالفعل. لا تظهر لقطات الشاشة إلا بعد أن تنقر على «عرض لقطات الشاشة» فيها."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Snimci ekrana su već otvoreni. Snimci se prikazuju tek kada u njima kliknete „Prikaži snimke ekrana“."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Skærmbilleder er allerede åben. Dine skærmbilleder vises først, når du klikker på “Vis skærmbilleder” i den."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bildschirmfotos ist bereits geöffnet. Deine Bildschirmfotos erscheinen erst, nachdem du darin auf „Bildschirmfotos anzeigen“ klickst."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Capturas de pantalla ya está abierta. Solo muestra tus capturas después de que hagas clic en «Mostrar capturas de pantalla» en ella."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Captures d’écran est déjà ouvert. Vos captures ne s’affichent qu’après un clic sur « Afficher les captures d’écran » dans l’onglet."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Istantanee schermo è già aperto. Le istantanee compaiono solo dopo che fai clic su “Mostra istantanee schermo” al suo interno."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "スクリーンショットはすでに開いています。その中の「スクリーンショットを表示」をクリックするまで、スクリーンショットは表示されません。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "រូបថតអេក្រង់បានបើករួចហើយ។ វាបង្ហាញរូបថតអេក្រង់របស់អ្នកតែបន្ទាប់ពីអ្នកចុច «បង្ហាញរូបថតអេក្រង់» នៅក្នុងវាប៉ុណ្ណោះ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "스크린샷이 이미 열려 있습니다. 그 안에서 ‘스크린샷 표시’를 클릭해야 스크린샷이 표시됩니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Skjermbilder er allerede åpen. Skjermbildene dine vises først når du klikker på «Vis skjermbilder» i den."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zrzuty ekranu są już otwarte. Zrzuty pojawią się dopiero po kliknięciu w nich „Pokaż zrzuty ekranu”."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Capturas de Tela já está aberto. Ele só mostra suas capturas depois que você clica em “Mostrar Capturas de Tela” nele."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Снимки экрана уже открыты. Снимки появятся только после того, как вы нажмёте в них «Показать снимки экрана»."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ภาพหน้าจอเปิดอยู่แล้ว ภาพหน้าจอของคุณจะแสดงหลังจากที่คุณคลิก “แสดงภาพหน้าจอ” ในแท็บนั้นเท่านั้น"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ekran Görüntüleri zaten açık. Ekran görüntüleriniz yalnızca içinde “Ekran Görüntülerini Göster”e tıkladıktan sonra görünür."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Знімки екрана вже відкрито. Знімки з’являться лише після того, як ви натиснете в них «Показати знімки екрана»."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ảnh chụp màn hình đã được mở. Ảnh chỉ hiển thị sau khi bạn bấm “Hiển thị ảnh chụp màn hình” trong đó."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "截屏已经打开。只有在其中点按“显示截屏”后，才会显示你的截屏。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "截圖已經開啟。只有在其中按一下「顯示截圖」後，才會顯示你的截圖。"
+          }
+        }
+      }
+    },
+    "screenshots.prompt.body" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your screenshots are saved on your Desktop or in another folder that macOS protects. cmux reads them only after you click."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "تُحفظ لقطات الشاشة على سطح المكتب أو في مجلد آخر يحميه macOS. لا يقرأها cmux إلا بعد أن تنقر."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vaši snimci ekrana se čuvaju na radnoj površini ili u drugom folderu koji macOS štiti. cmux ih čita tek kada kliknete."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dine skærmbilleder gemmes på dit skrivebord eller i en anden mappe, som macOS beskytter. cmux læser dem først, når du klikker."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deine Bildschirmfotos liegen auf deinem Schreibtisch oder in einem anderen Ordner, den macOS schützt. cmux liest sie erst, nachdem du klickst."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tus capturas de pantalla se guardan en el escritorio o en otra carpeta que macOS protege. cmux solo las lee después de que hagas clic."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vos captures d’écran sont enregistrées sur votre bureau ou dans un autre dossier que macOS protège. cmux ne les lit qu’après votre clic."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le tue istantanee schermo sono salvate sulla scrivania o in un’altra cartella protetta da macOS. cmux le legge solo dopo il tuo clic."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "スクリーンショットはデスクトップ、またはmacOSが保護する別のフォルダに保存されています。cmuxはクリックした後でのみそれらを読み込みます。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "រូបថតអេក្រង់របស់អ្នកត្រូវបានរក្សាទុកនៅលើផ្ទៃតុ ឬក្នុងថតផ្សេងទៀតដែល macOS ការពារ។ cmux អានវាតែបន្ទាប់ពីអ្នកចុចប៉ុណ្ណោះ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "스크린샷은 데스크탑 또는 macOS가 보호하는 다른 폴더에 저장되어 있습니다. cmux는 클릭한 후에만 스크린샷을 읽습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Skjermbildene dine lagres på skrivebordet eller i en annen mappe som macOS beskytter. cmux leser dem først når du klikker."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Twoje zrzuty ekranu są zapisane na biurku lub w innym folderze chronionym przez macOS. cmux odczytuje je dopiero po Twoim kliknięciu."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Suas capturas de tela ficam na Mesa ou em outra pasta que o macOS protege. O cmux só as lê depois que você clica."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ваши снимки экрана хранятся на рабочем столе или в другой папке, которую защищает macOS. cmux читает их только после вашего нажатия."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ภาพหน้าจอของคุณบันทึกอยู่บนเดสก์ท็อปหรือในโฟลเดอร์อื่นที่ macOS ปกป้อง cmux จะอ่านภาพเหล่านั้นหลังจากที่คุณคลิกเท่านั้น"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ekran görüntüleriniz masaüstünüzde veya macOS’in koruduğu başka bir klasörde kayıtlı. cmux bunları yalnızca siz tıkladıktan sonra okur."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ваші знімки екрана зберігаються на робочому столі або в іншій папці, яку захищає macOS. cmux читає їх лише після вашого натискання."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ảnh chụp màn hình của bạn được lưu trên màn hình nền hoặc trong một thư mục khác mà macOS bảo vệ. cmux chỉ đọc chúng sau khi bạn bấm."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "你的截屏存储在桌面或 macOS 保护的其他文件夹中。只有在你点按后，cmux 才会读取它们。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "你的截圖儲存在桌面或 macOS 保護的其他檔案夾中。只有在你按一下後，cmux 才會讀取它們。"
+          }
+        }
+      }
+    },
+    "screenshots.prompt.button" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show Screenshots"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "عرض لقطات الشاشة"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Prikaži snimke ekrana"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vis skærmbilleder"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bildschirmfotos anzeigen"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mostrar capturas de pantalla"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Afficher les captures d’écran"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mostra istantanee schermo"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "スクリーンショットを表示"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "បង្ហាញរូបថតអេក្រង់"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "스크린샷 표시"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vis skjermbilder"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pokaż zrzuty ekranu"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mostrar Capturas de Tela"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Показать снимки экрана"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "แสดงภาพหน้าจอ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ekran Görüntülerini Göster"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Показати знімки екрана"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hiển thị ảnh chụp màn hình"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "显示截屏"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "顯示截圖"
+          }
+        }
+      }
+    },
+    "screenshots.prompt.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show your screenshots?"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "هل تريد عرض لقطات الشاشة؟"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Prikazati vaše snimke ekrana?"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vil du vise dine skærmbilleder?"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deine Bildschirmfotos anzeigen?"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "¿Mostrar tus capturas de pantalla?"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Afficher vos captures d’écran ?"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mostrare le tue istantanee schermo?"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "スクリーンショットを表示しますか？"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "បង្ហាញរូបថតអេក្រង់របស់អ្នកឬ?"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "스크린샷을 표시할까요?"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vil du vise skjermbildene dine?"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pokazać Twoje zrzuty ekranu?"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mostrar suas capturas de tela?"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Показать ваши снимки экрана?"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "แสดงภาพหน้าจอของคุณไหม"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ekran görüntüleriniz gösterilsin mi?"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Показати ваші знімки екрана?"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hiển thị ảnh chụp màn hình của bạn?"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "显示你的截屏吗？"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "要顯示你的截圖嗎？"
+          }
+        }
+      }
+    },
     "screenshots.rename.cancel" : {
       "extractionState" : "manual",
       "localizations" : {

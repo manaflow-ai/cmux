@@ -9,18 +9,17 @@ import CmuxNextSettings
 import Foundation
 import Observation
 
-/// Opens `cmux://screenshots` and makes its pages. Every page shares one
-/// thumbnail cache and follows the `screenshots.*` settings: a change finds
-/// the folders again (off the main actor) and updates each open page.
+/// Opens `cmux://screenshots` and makes its pages: one thumbnail cache; a `screenshots.*` change finds the folders again.
 @MainActor
 final class ScreenshotsPageService {
     private weak var services: AppServices?
     /// One cache for every Screenshots page (and, later, the Finder pane's grids).
     let thumbnails = ThumbnailCache()
-    private let workspace = AppScreenshotsWorkspace()
+    private let workspace = SystemScreenshotsWorkspace()
     /// Drops, renames and trashes go through the Files pane's operations.
     private let files = FileOperator()
-    private let detector = ScreenshotSourceDetector(environment: SystemScreenshotEnvironment())
+    private let detector: ScreenshotSourceDetector
+    let gate = ScreenshotsGate() // the tabs the person unlocked (Show Screenshots)
     /// Open pages by tab key.
     private var pages: [String: ScreenshotsPageTab] = [:]
     /// The last folders found, and the settings they were found for.
@@ -28,42 +27,45 @@ final class ScreenshotsPageService {
     private var detection: Task<Void, Never>?
     private var followsSettings = false
 
-    init(services: AppServices) {
+    init(services: AppServices, environment: any ScreenshotEnvironment = SystemScreenshotEnvironment()) {
         self.services = services
+        detector = ScreenshotSourceDetector(environment: environment)
     }
 
-    /// Selects the active window's Screenshots tab, else opens one beside the
-    /// focused tab.
-    ///
-    /// - Parameter focus: select the tab (a person's run); off, an agent or the
-    ///   CLI opens it in the background and keeps the person's focus.
-    func open(focus: Bool) {
-        guard let services else { return }
-        guard let window = services.windows.active else { return services.registry.refuse(RefusalStrings.noWindowOpen) }
+    /// Selects or opens the Screenshots tab, in front only for the person's own run; any other is told (``ScreenshotsOpen``).
+    func open(_ invocation: ActionInvocation) -> ActionEffect {
+        let run = ScreenshotsOpen(personsRun: invocation.isPersonsOwnRun)
+        guard let window = services?.windows.active else { return .refused(RefusalStrings.noWindowOpen) }
+        func said(_ tab: String?) -> ActionEffect {
+            guard let said = run.result(existing: tab != nil, listing: tab.map(gate.isUnlocked) ?? false) else { return .done }
+            return .applied(result: { .success(["opened": .string(said.opened), "listing": .bool(said.listing)].merging(said.note.map { ["note": .string($0)] } ?? [:]) { $1 }) })
+        }
         for pane in window.content?.panes.values.map({ $0 }) ?? [] {
             if let tab = pane.pane.tabs.first(where: { ScreenshotsPageAddress.matches($0.url.flatMap(URL.init(string:))) }) {
-                if focus { pane.select(StripTabID(tab.id)) }
-                return
+                if run.selects { pane.select(StripTabID(tab.id)) }
+                return said(tab.id)
             }
         }
-        guard let pane = window.focusedPane else { return }
-        pane.newBrowserTab(url: ScreenshotsPageAddress.url, background: !focus)
+        return window.focusedPane.map { $0.newBrowserTab(url: ScreenshotsPageAddress.url, background: !run.selects) ? said(nil) : .done } ?? .refused(MiscHandlerStrings.noPane)
     }
 
     func makePage(key: String, engine: BrowserEngineKind, profile: BrowserProfileID) -> ScreenshotsPageTab {
-        let model = ScreenshotsModel()
+        let model = gate.model(for: key) // lists after the person's click in the tab (ScreenshotsView's prompt)
         let page = ScreenshotsPageTab(id: BrowserTabID(rawValue: key), engine: engine, profile: profile, model: model,
                                       cache: thumbnails, workspace: workspace, files: files)
         page.onClose = { [weak self] in self?.pages.removeValue(forKey: key) }
+        page.view.onShowScreenshots = { [weak self] in self?.unlock(key) }
         pages[key] = page
+        if gate.mayDetect { offer(to: model) }
+        return page
+    }
+
+    private func unlock(_ key: String) { gate.unlock(key); pages[key].map { offer(to: $0.model) } } // the person's click
+
+    private func offer(to model: ScreenshotsModel) { // the folders for the current settings, found first when needed
         followSettings()
         let settings = settings()
-        if let detected, detected.settings == settings {
-            model.setSources(detected.sources)
-        } else {
-            detect(settings)
-        }
-        return page
+        if let detected, detected.settings == settings { model.setSources(detected.sources) } else { detect(settings) }
     }
 
     private func settings() -> ScreenshotsSettings {
@@ -83,7 +85,7 @@ final class ScreenshotsPageService {
                 followsSettings = false
                 followSettings()
                 let settings = self.settings()
-                if detected?.settings != settings { detect(settings) }
+                if gate.mayDetect, detected?.settings != settings { detect(settings) }
             }
         }
     }
