@@ -340,6 +340,12 @@ class Sim(unittest.TestCase):
         rec = report["log"][-1]["recs"][0]
         self.assertEqual(len(rec["split_lines"]), 2)
 
+    def test_split_type_on_a_page_is_skipped_not_a_create_red(self):
+        seq = [{"a": "new_terminal", "t": "slow"}, {"a": "new_tab", "t": "slow"}, {"a": "split_type", "t": "slow"}]
+        report, error = run(seq=seq, shrink=False, actions="full")
+        self.assertIsNone(error, json.dumps(report["log"][-1:])[:800])
+        self.assertTrue(report["log"][-1]["recs"][0].get("skipped"))
+
     def test_both_lines_in_the_second_pane_is_a_keys_red(self):
         seq = [{"a": "new_terminal", "t": "slow"}, {"a": "split_type", "t": "slow", "down": [False, False]}]
         report, error = run(bugs={"split_keys_to_last"}, seq=seq, shrink=False, actions="layout")

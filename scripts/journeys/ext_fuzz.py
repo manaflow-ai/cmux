@@ -708,7 +708,7 @@ class Fuzz:
         want, exact = self.predict(burst, before)
         if not any(want.values()):
             return [], None, exact
-        made = [r for r in recs if ACTIONS[r["a"]].get("creates")]
+        made = [r for r in recs if ACTIONS[r["a"]].get("creates") and not r.get("skipped")]
         t_end = D.now() + CREATE_TIMEOUT
         after, got = before, {}
         old = set(before["terminals"])
@@ -1003,7 +1003,9 @@ class Fuzz:
                 gap = TIMINGS.get(item.get("t"), 0.0)
                 if gap:
                     time.sleep(gap)
-        problems, after, exact = self.creates(burst, before, recs, refused_before)
+        # A create whose action skipped itself (split_type on a page: no key pressed) predicts nothing.
+        judged = [i for i, r in zip(burst, recs) if not r.get("skipped")]
+        problems, after, exact = self.creates(judged, before, recs, refused_before) if judged else ([], None, True)
         for r in recs:
             if r.get("error") and r["a"] in ("relaunch",):
                 problems.append(("crash", f"relaunch failed: {r['error'][:200]}"))
