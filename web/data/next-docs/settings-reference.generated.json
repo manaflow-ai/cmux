@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 532,
+  "count": 533,
   "sections": [
     {
       "id": "general",
@@ -4469,6 +4469,14 @@
             "human",
             "instant"
           ]
+        },
+        {
+          "key": "browser.agentSecureStoreFill",
+          "title": "Let Agents Sign In from the Secure Store",
+          "help": "When an agent's page needs a sign-in you saved in the Secure Store, cmux fills it into the agent's own tab. The agent never sees the password, and its scripts are refused on that site from then on.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Agent Input"
         },
         {
           "key": "browser.builtInAdBlocker",
