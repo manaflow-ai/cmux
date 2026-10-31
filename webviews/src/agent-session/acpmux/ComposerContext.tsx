@@ -124,6 +124,7 @@ export function ComposerContext({
   runMode,
   closeOnTrustAsk = false,
   showMachineLoadWarnings,
+  cloudSignedIn: cloudSignedInSeam,
 }: {
   summary?: Summary;
   sessions?: Session[];
@@ -191,12 +192,15 @@ export function ComposerContext({
   closeOnTrustAsk?: boolean;
   /// Gallery seam; the persisted composer setting is used when omitted.
   showMachineLoadWarnings?: boolean;
+  /// Gallery seam; the app's Cloud account state (cloudMachines.ts) is used when omitted.
+  cloudSignedIn?: boolean;
 }) {
   const t = useT();
   const composerSettings = useComposerSettings();
   const newChat = !started && onProject !== undefined;
   const accountMachines = useCloudMachines();
-  const cloudSignedIn = useCloudSignedIn();
+  const accountSignedIn = useCloudSignedIn();
+  const cloudSignedIn = cloudSignedInSeam ?? accountSignedIn;
   const shownMachines = cloudMachines ?? accountMachines;
   // Every machine acpmux lists (`_acpmux/status` peers) and every host its chats ran on, with each
   // one's transport and state, in both the environment picker and the plain Computer menu; for a
