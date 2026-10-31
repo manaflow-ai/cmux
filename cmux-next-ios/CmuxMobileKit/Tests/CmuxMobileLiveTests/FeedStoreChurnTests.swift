@@ -99,6 +99,20 @@ import Testing
         #expect(saved.last?.first?.isRead == true)
     }
 
+    @Test func readSetNormalizationRebuildsItemIndex() throws {
+        let url = FileManager.default.temporaryDirectory.appending(path: "feed-index-\(UUID().uuidString).json")
+        let marks = FeedReadMarks(url: url)
+        defer { marks.remove() }
+        marks.save(["a"])
+        let store = FeedStore(items: [Self.item("b")], readMarks: marks)
+        // The incoming unread copy is normalized to read in `items`' didSet.
+        store.replaceAll([Self.item("a"), Self.item("b")])
+        #expect(store.item(id: "a")?.isRead == true)
+        store.markUnread("a")
+        #expect(store.item(id: "a")?.isRead == false)
+        #expect(store.item(id: "b")?.id == "b")
+    }
+
     @Test func archiveSavesInBackgroundAndRemoveWinsOverQueuedWrites() throws {
         let url = FileManager.default.temporaryDirectory.appending(path: "feed-archive-\(UUID().uuidString).json")
         let archive = FeedArchive(url: url)

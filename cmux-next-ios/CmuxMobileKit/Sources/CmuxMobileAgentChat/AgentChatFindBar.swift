@@ -72,8 +72,8 @@ struct AgentChatFindBar: View {
 }
 
 /// A searchable block of the transcript (a prompt bubble; an answer's blocks use
-/// `MessageFindMarks`): it reports
-/// its top for Find in Chat and is marked while it holds the current match.
+/// `MessageFindMarks`): it reports its top for Find in Chat and is marked while it holds
+/// the current match.
 struct FindBlockMarker: ViewModifier {
     let key: String
     let surface: AgentChatSurface?
@@ -121,4 +121,5 @@ extension View {
         modifier(FindBlockMarker(key: key, surface: surface))
     }
 }
+
 #endif
