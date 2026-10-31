@@ -59,18 +59,24 @@ struct ChatRowView: View {
     private var content: some View {
         let store = context.store
         switch row.kind {
-        case .sessionStart(let date):
-            Text("Session started \(date.formatted(date: .abbreviated, time: .shortened))")
+        case .sessionStart(let date, let earlierHistory):
+            // A chat opened on its newest history says where what is shown starts.
+            Text(ChatRow.sessionLine(date, earlierHistory: earlierHistory))
                 .font(.footnote)
                 .foregroundStyle(.tertiary)
                 .frame(maxWidth: .infinity)
                 .padding(.top, 8)
                 .padding(.bottom, 20)
         case .prompt(let text, let attachments, let at, let isLast):
-            UserBubble(prompt: text, attachments: attachments, promptAt: at, isLast: isLast) { store.send(prompt: $0) }
+            let surface = context.surface
+            let turnID = row.turnID
+            UserBubble(prompt: text, attachments: attachments, promptAt: at, isLast: isLast) {
+                if let turn = store.turns.last(where: { $0.id == turnID }) { surface.editAndResendOrAsk(turn, store: store) }
+            }
+                .findBlock(row.findKey, surface: surface, reportsFrame: false)
                 .frame(maxWidth: .infinity, alignment: .trailing)
         case .block(let messageID, let block):
-            MarkdownBlockRow(block: block) { context.messageText(messageID) }
+            MarkdownBlockRow(block: block, findKey: row.findKey, surface: context.surface) { context.messageText(messageID) }
         case .thought(let text, let isLive):
             ThoughtRow(text: text, isLive: isLive, id: row.id)
         case .tool(let call):
@@ -111,13 +117,17 @@ struct ChatRowView: View {
             EditedFilesCard(changeSet: changes)
         case .stopped:
             Text("Stopped").font(.footnote).foregroundStyle(.tertiary)
-        case .failed(let prompt, let errorText):
-            let failure = TurnFailureCopy(message: errorText, harness: store.summary.harness, harnessName: store.summary.agentName)
-            FailureCard(title: "Agent stopped", message: failure.sentence, detail: failure.detail) {
-                store.send(prompt: prompt)
+        case .failed(let turn, let canRetry):
+            let failure = TurnFailureCopy(message: turn.errorText, harness: store.summary.harness, harnessName: store.summary.agentName)
+            FailureCard(title: "Agent stopped", message: failure.sentence, detail: failure.detail,
+                        canRetry: canRetry,
+                        retryWith: RetryModelChoice(store: store, turn: turn)) {
+                store.retryFailedTurn(turn)
             }
         case .actions(let turn, let isLast):
-            AnswerActionRow(turn: turn, isLast: isLast, insetsTargets: false) { store.send(prompt: turn.prompt) }
+            AnswerActionRow(turn: turn, isLast: isLast, insetsTargets: false, retryWith: RetryModelChoice(store: store, turn: turn)) {
+                store.retry(turn)
+            }
         }
     }
 }
@@ -125,11 +135,15 @@ struct ChatRowView: View {
 /// One block of an agent message. Copy and Share take the whole message, read when chosen.
 struct MarkdownBlockRow: View {
     let block: MarkdownBlock
+    /// Find in Chat's key for this block (`AgentChatFind.blockKey`); nil outside a transcript.
+    var findKey: String?
+    var surface: AgentChatSurface?
     let message: () -> String
 
     var body: some View {
         MarkdownBlockView(block: block, margin: 20)
             .frame(maxWidth: .infinity, alignment: .leading)
+            .findBlock(findKey, surface: surface, reportsFrame: false)
             .contextMenu {
                 Button("Copy", systemImage: "doc.on.doc") { UIPasteboard.general.string = message() }
                 Button("Share", systemImage: "square.and.arrow.up") { ChatShare.present(message()) }

@@ -157,3 +157,109 @@ test("the four whole-page New Tab fixture IDs and scope are stable", () => {
   expect(direct).not.toContain("cmuxAcpmuxMockHarnessHealth");
   expect(direct).not.toContain("cmuxAcpmuxMockSessionAuth");
 });
+
+test("session preflight does not call an older daemon without sessionAuth", async () => {
+  delete scope.cmuxAcpmuxMockSessionAuth;
+  const oldLog = scope.cmuxGalleryLog;
+  const log: { method: string }[] = [];
+  scope.cmuxGalleryLog = log;
+  const client = await connected();
+  try {
+    expect(await client.sessionAuth({ target: { harness: "claude", host: "air-blue" } })).toMatchObject({
+      state: "unknown",
+      source: "none",
+      evidenceAt: null,
+    });
+    expect(log.filter((call) => call.method === "acpmux _acpmux/session/auth")).toHaveLength(0);
+  } finally {
+    client.close();
+    scope.cmuxGalleryLog = oldLog;
+  }
+});
+test("a feature-advertising daemon receives the exact prospective target", async () => {
+  scope.cmuxAcpmuxMockSessionAuth = fixture.variants.expired!.mockSessionAuth;
+  const oldLog = scope.cmuxGalleryLog;
+  const log: { method: string; params?: unknown }[] = [];
+  scope.cmuxGalleryLog = log;
+  const client = await connected();
+  try {
+    await client.sessionAuth({ target: { harness: "codex", host: "air-blue", routeId: "team-route" } }, true);
+    expect(log.filter((call) => call.method === "acpmux _acpmux/session/auth")).toEqual([
+      {
+        method: "acpmux _acpmux/session/auth",
+        params: { target: { harness: "codex", host: "air-blue", routeId: "team-route" }, refresh: true },
+      },
+    ]);
+  } finally {
+    client.close();
+    scope.cmuxGalleryLog = oldLog;
+  }
+});
+test("a same-target recheck keeps known refusal, while A-B-A discards the old selection", async () => {
+  const { createElement, act } = await import("react");
+  const { createRoot } = await import("react-dom/client");
+  const { useSessionAuth } = await import("../src/agent-session/acpmux/sessionAuth");
+  const oldAct = scope.IS_REACT_ACT_ENVIRONMENT;
+  scope.IS_REACT_ACT_ENVIRONMENT = true;
+  const root = createRoot(dom.window.document.createElement("div"));
+  const pending: { resolve: (reply: unknown) => void; reject: (error: Error) => void; refresh?: boolean }[] = [];
+  const read = (_query: unknown, refresh?: boolean) =>
+    new Promise((resolve, reject) => pending.push({ resolve, reject, refresh }));
+  let state = "";
+  let recheck = () => {};
+  function Probe({ sessionId }: { sessionId: string }) {
+    const result = useSessionAuth({ sessionId }, read);
+    state = result.auth.state;
+    recheck = result.recheck;
+    return null;
+  }
+  const render = (sessionId: string) => act(async () => root.render(createElement(Probe, { sessionId })));
+  try {
+    await render("A");
+    expect(pending[0]!.refresh).toBe(true);
+    await act(async () => pending[0]!.resolve({ state: "expired", source: "turn", evidenceAt: 1, fromSessionId: "A" }));
+    expect(state).toBe("expired");
+    await act(async () => recheck());
+    expect(state).toBe("expired");
+    expect(pending[1]!.refresh).toBe(true);
+    await act(async () => pending[1]!.reject(new Error("connection interrupted")));
+    expect(state).toBe("expired");
+    await act(async () => recheck());
+    await render("B");
+    await render("A");
+    expect(state).toBe("unknown");
+    await act(async () => pending[2]!.resolve({ state: "expired", source: "turn", evidenceAt: 1, fromSessionId: "A" }));
+    expect(state).toBe("unknown");
+    await act(async () => pending[4]!.resolve({ state: "ready", source: "turn", evidenceAt: 2, fromSessionId: "A" }));
+    expect(state).toBe("ready");
+    expect(pending[4]!.refresh).toBe(true);
+  } finally {
+    await act(async () => root.unmount());
+    scope.IS_REACT_ACT_ENVIRONMENT = oldAct;
+  }
+});
+test("old-daemon and wrong-host target replies settle unknown without blocking", async () => {
+  const { act, createElement } = await import("react");
+  const { createRoot } = await import("react-dom/client");
+  const { useSessionAuth, UNKNOWN_AUTH } = await import("../src/agent-session/acpmux/sessionAuth");
+  const oldAct = scope.IS_REACT_ACT_ENVIRONMENT;
+  scope.IS_REACT_ACT_ENVIRONMENT = true;
+  const root = createRoot(dom.window.document.createElement("div"));
+  let reply: unknown = UNKNOWN_AUTH;
+  let result: ReturnType<typeof useSessionAuth> | undefined;
+  const read = async () => reply;
+  function Probe({ epoch }: { epoch: number }) {
+    result = useSessionAuth({ target: { harness: "claude", host: "air-blue" } }, read, epoch);
+    return null;
+  }
+  try {
+    await act(async () => (root.render(createElement(Probe, { epoch: 0 })), Promise.resolve()));
+    expect([result?.auth.state, result?.pending]).toEqual(["unknown", false]);
+    reply = { state: "signedOut", source: "turn", evidenceAt: 1, host: "other" };
+    await act(async () => (root.render(createElement(Probe, { epoch: 1 })), Promise.resolve()));
+    expect([result?.auth.state, result?.pending]).toEqual(["unknown", false]);
+  } finally {
+    await act(async () => root.unmount());
+    scope.IS_REACT_ACT_ENVIRONMENT = oldAct;
+  }
+});

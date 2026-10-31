@@ -19,7 +19,11 @@ enum ChatNativeRowActions {
                     UIAction(title: "Select Text", image: UIImage(systemName: "selection.pin.in.out")) { _ in ChatSelectText.present(text) },
                 ]
                 if isLast {
-                    items.append(UIAction(title: "Edit and Resend", image: UIImage(systemName: "pencil")) { _ in store.send(prompt: text) })
+                    // Into the composer to edit and send from there (over a draft, the transcript asks first).
+                    let turnID = row.turnID
+                    items.append(UIAction(title: "Edit and Resend", image: UIImage(systemName: "pencil")) { _ in
+                        if let turn = store.turns.last(where: { $0.id == turnID }) { surface.editAndResendOrAsk(turn, store: store) }
+                    })
                 }
                 items.append(UIAction(title: "Share", image: UIImage(systemName: "square.and.arrow.up")) { _ in ChatShare.present(text) })
                 return UIMenu(children: [UIMenu(title: AgentTurn.menuTimestamp(at), options: .displayInline, children: items)])
@@ -75,16 +79,18 @@ enum ChatNativeRowActions {
         case .actions(let turn, _):
             actions.menu = { nil }
             actions.moreMenu = {
-                UIMenu(children: [UIMenu(title: AgentTurn.menuTimestamp(turn.endedAt ?? turn.promptAt), options: .displayInline, children: [
+                var items: [UIMenuElement] = [
                     UIAction(title: "Copy as Markdown", image: UIImage(systemName: "text.document")) { _ in UIPasteboard.general.string = turn.answerMarkdown },
-                    UIAction(title: "Retry", image: UIImage(systemName: "arrow.clockwise")) { _ in store.send(prompt: turn.prompt) },
-                ])])
+                    UIAction(title: "Retry", image: UIImage(systemName: "arrow.clockwise")) { _ in store.retry(turn) },
+                ]
+                if let retryWith = RetryModelChoice(store: store, turn: turn) { items.append(retryWith.uiMenu) }
+                return UIMenu(children: [UIMenu(title: AgentTurn.menuTimestamp(turn.endedAt ?? turn.promptAt), options: .displayInline, children: items)])
             }
             actions.hit = { hit in
                 switch hit {
                 case .copyAnswer: UIPasteboard.general.string = turn.answerMarkdown
                 case .shareAnswer: ChatShare.present(turn.answerMarkdown)
-                case .retry: store.send(prompt: turn.prompt)
+                case .retry: store.retry(turn)
                 default: break
                 }
             }

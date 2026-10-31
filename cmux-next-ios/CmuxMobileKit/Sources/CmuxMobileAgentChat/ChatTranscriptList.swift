@@ -105,6 +105,13 @@ final class ChatTranscriptLayout: UICollectionViewLayout {
         return (known.height, known.width)
     }
 
+    /// A row's top (after its gap) and height, in content coordinates.
+    func frame(of id: String) -> (top: CGFloat, height: CGFloat)? {
+        prepareIfNeeded()
+        guard let row = index[id], row < tops.count, row < heights.count else { return nil }
+        return (tops[row], heights[row])
+    }
+
     /// A row's top (after its gap), in content coordinates.
     func top(of id: String) -> CGFloat? {
         prepareIfNeeded()
@@ -223,6 +230,20 @@ final class ChatTranscriptLayout: UICollectionViewLayout {
 @MainActor
 final class ChatTranscriptCollectionView: UICollectionView {
     var didLayout: (() -> Void)?
+
+    /// Content insets are manual; the system top edge effect needs the same top
+    /// boundary even when the workspace host consumes the UIKit safe area.
+    var edgeTopInset: CGFloat = 0 {
+        didSet {
+            if edgeTopInset != oldValue { safeAreaInsetsDidChange() }
+        }
+    }
+
+    override var safeAreaInsets: UIEdgeInsets {
+        var insets = super.safeAreaInsets
+        insets.top = max(insets.top, edgeTopInset)
+        return insets
+    }
 
     override func layoutSubviews() {
         super.layoutSubviews()
@@ -384,6 +405,7 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
         lookup.layouts.reset()
         lookup.shownNative = [:]
         lookup.shownPool = [:]
+        lookup.markedRow = nil
         primed = false
         shownIDs = []
         shownTurns = [:]
@@ -399,6 +421,12 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
         cell.contentView.alpha = 0
         // motion: allow a 0.15 s fade of a newly arrived row; Reduce Motion skips it.
         UIView.animate(withDuration: 0.15, delay: 0, options: [.curveEaseOut, .allowUserInteraction]) { cell.contentView.alpha = 1 }
+    }
+
+    /// Find in Chat: the frame (content coordinates) of the row that draws Find block `key`.
+    func findFrame(_ key: String) -> (top: CGFloat, height: CGFloat)? {
+        guard let id = ChatRow.rowID(forFindKey: key) else { return nil }
+        return layout.frame(of: id)
     }
 
     /// The transcript controller's scroll handling (follow mode, the jump button, the keyboard).
@@ -485,6 +513,10 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
             _ = surface.holdsTranscript
             _ = surface.heldRefresh
             _ = surface.disclosures.revision
+            _ = store.retryRequested
+            _ = store.hasEarlierHistory
+            // Find in Chat's current match: its row is drawn marked.
+            _ = surface.find?.currentBlock
             _ = DiffViewedStore.shared.isViewed(Self.viewedProbe)
         } onChange: { [weak self] in
             // Called before the change lands: rebuild once it has, later in this turn.
@@ -520,10 +552,21 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
             guard let row = rows[id], case .editedFiles(let changes) = row.kind else { continue }
             if lookup.viewedShown[id] != ChatNativeRowActions.viewed(changes) { forced.insert(id) }
         }
+        // Find in Chat's current match moved: the rows it left and reached are drawn again
+        // (the marked one as SwiftUI, with its mark).
+        let marked = surface.find?.currentBlock.flatMap(ChatRow.rowID(forFindKey:))
+        if marked != lookup.markedRow {
+            for id in [lookup.markedRow, marked].compactMap({ $0 }) {
+                if let row = rows[id] { shownTurns[row.turnID] = nil }
+                forced.insert(id)
+            }
+            lookup.markedRow = marked
+        }
         let turns = store.turns
         let built = builder.build(turns: turns, pendingPermission: store.pendingPermission,
                                   askOpen: store.pendingPermission != nil || store.pendingQuestion != nil,
-                                  permissionBarHidden: surface.permissionBarHidden)
+                                  permissionBarHidden: surface.permissionBarHidden,
+                                  earlierHistory: store.hasEarlierHistory, retryPending: store.retryRequested)
         var ids: [String] = []
         var seen: Set<String> = []
         var changed: [String] = []
@@ -775,6 +818,8 @@ final class ChatRowLookup {
     var shownNative: [String: Bool] = [:]
     /// The reuse pool each row's cell came from (a reconfigure must use the same one).
     var shownPool: [String: String] = [:]
+    /// The row holding Find in Chat's current match: SwiftUI, which draws the mark.
+    var markedRow: String?
 
     /// The pool the data source dequeues `id` from now.
     func pool(for id: String) -> String {
@@ -797,6 +842,7 @@ final class ChatRowLookup {
     /// Drawn natively: a native kind in its resting state (an open tool row, group or thought
     /// shows its SwiftUI view).
     func eligible(_ row: ChatRow) -> Bool {
+        guard row.id != markedRow else { return false }
         let disclosures = context.surface.disclosures
         return ChatNativeEligibility.drawsNatively(row, accessibilitySize: layouts.environment?.category.isAccessibilityCategory ?? false) {
             disclosures.isOpen($0)

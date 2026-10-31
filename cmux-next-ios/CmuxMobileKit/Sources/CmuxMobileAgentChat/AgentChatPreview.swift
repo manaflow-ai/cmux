@@ -90,7 +90,8 @@ final class AgentChatPreviewModel {
         // The newest two turns, as the card showed before.
         let shown = Array(turns.suffix(2))
         let built = builder.build(turns: shown, pendingPermission: store.pendingPermission,
-                                  askOpen: store.pendingPermission != nil || store.pendingQuestion != nil, permissionBarHidden: false)
+                                  askOpen: store.pendingPermission != nil || store.pendingQuestion != nil, permissionBarHidden: false,
+                                  earlierHistory: store.hasEarlierHistory, retryPending: store.retryRequested)
         var out: [ChatRow] = []
         var height: CGFloat = 0
         for row in built.flatMap(\.rows).reversed() {

@@ -49,6 +49,40 @@ public final class AgentChatSurface {
     public var parityRoute: AgentParityRoute?
     /// The session's artifacts browser (a sheet).
     public var showArtifacts = false
+    /// Find in Chat while its bar is up (nil: closed).
+    public var find: AgentChatFind?
+    /// Each searchable block's frame (top, height) in the transcript's content coordinates
+    /// (Find in Chat scrolls to its current match). Written as rows lay out; never observed.
+    @ObservationIgnored var findAnchors: [String: (top: CGFloat, height: CGFloat)] = [:]
+    /// Asks the find bar's field for the keyboard (it takes it when the bar opens).
+    var findFieldFocused = false
+
+    /// Find in Chat: opens the bar with its field focused (the composer gives the keyboard up).
+    public func openFind() {
+        if find == nil { find = AgentChatFind() }
+        composerFocused = false
+        findFieldFocused = true
+    }
+
+    /// Done: the bar closes and the marks go.
+    public func closeFind() {
+        find = nil
+        findFieldFocused = false
+    }
+
+    /// Scrolls the transcript to the find bar's current match: the top of the rendered block
+    /// that holds it (a prompt bubble, or one paragraph, list, code card or table of an answer).
+    func revealFindMatch() {
+        guard let match = find?.currentMatch else { return }
+        // The transcript's rows are reused cells: their frames are the transcript layout's.
+        if scroller?.scrollTranscript(toFindBlock: match.block, position: match.position,
+                                      animated: !UIAccessibility.isReduceMotionEnabled) == true { return }
+        guard let frame = findAnchors[match.block] else { return }
+        // Within a block taller than the screen (a long paragraph or code card), its place in
+        // the block's text, as a share of the block's height.
+        let y = frame.top + max(0, frame.height * CGFloat(match.position) - 24)
+        scroller?.scrollTranscript(toContentY: y, animated: !UIAccessibility.isReduceMotionEnabled)
+    }
     public let artifacts = ArtifactsBrowserState()
     // DEBUG demo hooks for the parity screens (the screens act on them through their own paths).
     var demoCheckpointRestore: String?
@@ -72,6 +106,34 @@ public final class AgentChatSurface {
     }
     /// Mirrors the composer's focus (the composer's `@FocusState` follows it).
     public var composerFocused = false
+
+    /// Edit and Resend from a user bubble: the message goes into the composer to edit and
+    /// is sent from there. Returns false, changing nothing, while the composer holds a
+    /// draft (the bubble asks before replacing it).
+    func editAndResend(_ turn: AgentTurn, store: AgentChatStore) -> Bool {
+        guard let prompt = store.editAndResend(turn, draft: text) else { return false }
+        loadForEditing(prompt, permissionPending: store.pendingPermission != nil)
+        return true
+    }
+
+    /// Edit and Resend while the composer holds a draft: the turn whose message would replace
+    /// it, while the transcript asks (the draft is replaced only on a choice there).
+    var replacingDraftWith: AgentTurn?
+
+    /// The bubble's Edit and Resend: into the composer at once, or, over a draft, ask first.
+    func editAndResendOrAsk(_ turn: AgentTurn, store: AgentChatStore) {
+        if !editAndResend(turn, store: store) { replacingDraftWith = turn }
+    }
+
+    /// Puts a message in the composer, focused. With permission choices up, the composer
+    /// takes their place as a follow-up, as for a draft typed before the permission arrived,
+    /// never as "Reply instead", which would answer the request (an open "Reply instead" ends).
+    func loadForEditing(_ prompt: String, permissionPending: Bool) {
+        text = prompt
+        replyInsteadOfPermission = false
+        if permissionPending { permissionDeferred = true }
+        composerFocused = true
+    }
     /// Screen y of the top of the floating bottom stack (tab mode), so the
     /// transcript's bottom margin follows the composer and the keyboard.
     public internal(set) var bottomStackTop: CGFloat?
@@ -80,6 +142,10 @@ public final class AgentChatSurface {
     /// it from the keyboard layout guide in the keyboard's own animation.
     public internal(set) var stackHeight: CGFloat?
     public internal(set) var stackMaxY: CGFloat?
+    /// Window y the bottom stack may not rise above: under the transcript's header and,
+    /// for the pushed chat, inside the dock's host. The transcript sets it as it lays
+    /// out; the composer's slash-command list scrolls inside the room below it.
+    var stackCeiling: CGFloat?
     /// The live transcript's scroll view (jump to bottom, demos).
     @ObservationIgnored weak var scroller: (any ChatTranscriptScrolling)?
     /// The bottom stack's height as drawn, once per frame while it animates
@@ -241,7 +307,6 @@ public struct AgentChatScreen: View {
             .background(Color.cmuxMobileBackground)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { toolbar }
-            .toolbar(.hidden, for: .tabBar)
     }
 
     // MARK: Toolbar
@@ -256,6 +321,8 @@ public struct AgentChatScreen: View {
                     .disabled(!AgentChatSurface.hasAgentEdits(store))
                 AgentParityMenuItems(store: store, surface: surface)
                 Button("Copy Session ID", systemImage: "doc.on.doc") { UIPasteboard.general.string = store.summary.id }
+                Button("Find in Chat…", systemImage: "magnifyingglass") { surface.openFind() }
+                    .disabled(!store.hasTurns)
                 if !store.modes.isEmpty {
                     Section("Mode") {
                         Picker("Mode", selection: Binding(get: { store.currentModeID ?? "" }, set: { store.setMode($0) })) {
@@ -372,7 +439,15 @@ public struct AgentChatTranscript: View {
         // UIKit owns the safe areas and the keyboard (the controller docks
         // the stack to the keyboard layout guide).
         .ignoresSafeArea()
-        // The soft top edge under the status bar or bar is the controller's TopFadeView.
+        // Find in Chat's bar, under the header (a tab's status bar inset, or the pushed bar).
+        .overlay(alignment: .top) {
+            if let find = surface.find {
+                AgentChatFindBar(find: find, surface: surface, store: store)
+                    .padding(.top, (topInset ?? 0) + 4)
+                    .transition(.opacity)
+            }
+        }
+        // UIKit owns the native top edge and the workspace's iOS 26 gradient fallback.
         .navigationDestination(item: $surface.diffRoute) { route in
             Group {
                 if let file = route.fileID {
@@ -390,7 +465,23 @@ public struct AgentChatTranscript: View {
         .sheet(isPresented: $surface.showArtifacts) {
             SessionArtifactsSheet(store: store, surface: surface)
         }
-        .sensoryFeedback(.warning, trigger: warningTrigger)
+        // Edit and Resend while a draft is in the composer: the draft is replaced only on a
+        // choice here, and can be copied first.
+        .confirmationDialog("Replace your draft?", isPresented: Binding(get: { surface.replacingDraftWith != nil },
+                                                                       set: { if !$0 { surface.replacingDraftWith = nil } }),
+                            titleVisibility: .visible, presenting: surface.replacingDraftWith) { turn in
+            Button("Copy Draft and Replace") {
+                UIPasteboard.general.string = surface.text
+                surface.loadForEditing(turn.prompt, permissionPending: store.pendingPermission != nil)
+            }
+            Button("Replace Draft", role: .destructive) {
+                surface.loadForEditing(turn.prompt, permissionPending: store.pendingPermission != nil)
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { _ in
+            Text("Edit and Resend puts this message in the composer.")
+        }
+        .cmuxMobileSensoryFeedback(.warning, trigger: warningTrigger)
         // A live ask buzzes, and so does one a reattach caught up on (raised while the link
         // was down); one that was already waiting when the chat opened does not.
         .onChange(of: store.pendingPermission?.request.id) { _, new in
@@ -443,6 +534,7 @@ struct AgentChatEmptyState: View {
 struct AgentChatJumpButton: View {
     let store: AgentChatStore
     let surface: AgentChatSurface
+    private let metrics = CmuxMobileTheme.standard.metrics
 
     var body: some View {
         ZStack {
@@ -453,17 +545,23 @@ struct AgentChatJumpButton: View {
                     Image(systemName: "arrow.down")
                         .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(.primary)
-                        .frame(width: 36, height: 36)
-                        .overlay {
-                            if store.isRunning {
-                                PulsingRing()
-                            }
-                        }
+                        .frame(width: metrics.smallCircle, height: metrics.smallCircle)
                         .background(Color.cmuxMobileBackground.opacity(0.72), in: .circle)
                         // A tinted glass disc, so transcript text under it never reads through the arrow.
                         .glassEffect(.regular.tint(Color.cmuxMobileBackground.opacity(0.35)).interactive(), in: .circle)
                         // The 36 pt disc in a 44 pt target.
-                        .frame(width: 44, height: 44)
+                        .frame(width: metrics.glassButton, height: metrics.glassButton)
+                        .overlay(alignment: .topTrailing) {
+                            if store.isRunning {
+                                ProgressView()
+                                    .controlSize(.mini)
+                                    .tint(.primary)
+                                    .frame(width: metrics.workingIndicatorBadge, height: metrics.workingIndicatorBadge)
+                                    .background(Color.cmuxMobileBackground, in: .circle)
+                                    .allowsHitTesting(false)
+                                    .accessibilityHidden(true)
+                            }
+                        }
                         .contentShape(.circle)
                 }
                 .buttonStyle(.plain)
@@ -473,7 +571,7 @@ struct AgentChatJumpButton: View {
         }
         // The host's fixed size (`ChatTranscriptController.jumpHostSize`):
         // the circle appears in place, centered, from its first frame.
-        .frame(width: 44, height: 44)
+        .frame(width: metrics.glassButton, height: metrics.glassButton)
     }
 }
 
@@ -485,8 +583,13 @@ public struct AgentChatBottomStack: View {
     @Bindable var surface: AgentChatSurface
     var bottomPadding: CGFloat = 8
     @State private var reportedHeight: CGFloat = 0
+    /// The composer's top in the stack: what the stack shows over it (an error, plan
+    /// progress, queued prompts) and their spacing.
+    @State private var composerOffset: CGFloat = 0
+    nonisolated private static let stackSpace = "AgentChatBottomStack"
     /// The composer field's focus (a UITextView that follows it both ways).
     @State private var composerFocused = false
+    @State private var retryCount = 0
 
     public init(store: AgentChatStore, surface: AgentChatSurface) {
         self.store = store
@@ -503,19 +606,43 @@ public struct AgentChatBottomStack: View {
         VStack(spacing: 12) {
             VStack(spacing: 12) {
                 if let error = store.clientError {
-                    Button {
-                        withAnimation(.cmuxMobileSmooth) { store.clientError = nil }
-                    } label: {
-                        Label(error, systemImage: "exclamationmark.circle")
+                    if store.canRetryPrompt {
+                        HStack(spacing: 8) {
+                            Button {
+                                withAnimation(.cmuxMobileSmooth) { store.clientError = nil }
+                            } label: {
+                                Label(error, systemImage: "exclamationmark.circle")
+                                    .font(.footnote.weight(.semibold))
+                                    .foregroundStyle(.primary)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityHint("Dismiss")
+                            Button("Retry", systemImage: "arrow.clockwise") {
+                                retryCount += 1
+                            }
                             .font(.footnote.weight(.semibold))
-                            .foregroundStyle(.primary)
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 9)
+                            .buttonStyle(.plain)
+                            .disabled(surface.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && surface.attachments.isEmpty)
+                        }
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 9)
+                        .glassEffect(.regular, in: .capsule)
+                        .transition(.opacity.combined(with: .offset(y: 8)))
+                    } else {
+                        Button {
+                            withAnimation(.cmuxMobileSmooth) { store.clientError = nil }
+                        } label: {
+                            Label(error, systemImage: "exclamationmark.circle")
+                                .font(.footnote.weight(.semibold))
+                                .foregroundStyle(.primary)
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 9)
+                        }
+                        .buttonStyle(.plain)
+                        .glassEffect(.regular, in: .capsule)
+                        .transition(.opacity.combined(with: .offset(y: 8)))
+                        .accessibilityHint("Dismiss")
                     }
-                    .buttonStyle(.plain)
-                    .glassEffect(.regular, in: .capsule)
-                    .transition(.opacity.combined(with: .offset(y: 8)))
-                    .accessibilityHint("Dismiss")
                 }
                 // Pinned plan progress while a turn runs (ACP web UI parity).
                 if let progress = store.runningPlan, let entries = store.runningPlanEntries {
@@ -542,10 +669,16 @@ public struct AgentChatBottomStack: View {
                     ChatComposer(store: store, text: $surface.text, attachments: $surface.attachments, focus: $composerFocused, collapsible: store.hasTurns,
                                  expandOnAppear: surface.replyInsteadOfPermission,
                                  placeholderOverride: replying ? "Tell \(store.summary.agentName) what to do instead" : nil,
-                                 denyingPermission: replying)
+                                 denyingPermission: replying,
+                                 suggestionsCeiling: surface.stackCeiling.map { $0 + composerOffset },
+                                 retryCount: retryCount)
+                        .onGeometryChange(for: CGFloat.self, of: { $0.frame(in: .named(Self.stackSpace)).minY }) { offset in
+                            if composerOffset != offset { composerOffset = offset }
+                        }
                         .transition(.opacity)
                 }
             }
+            .coordinateSpace(.named(Self.stackSpace))
             // The transcript's bottom margin follows this top. The jump
             // button is not in this stack: counting it moved the margin,
             // which moved the distance, which toggled the button (a layout
@@ -632,19 +765,6 @@ nonisolated struct DrawnHeightReporter: ViewModifier, Animatable {
     }
 }
 
-struct PulsingRing: View {
-    @State private var on = false
-
-    var body: some View {
-        Circle()
-            .strokeBorder(Color.primary, lineWidth: 2)
-            .opacity(on ? 0.9 : 0.2)
-            .onAppear {
-                withAnimation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true)) { on = true }
-            }
-    }
-}
-
 /// Title-menu entries for the parity screens (pushed chat and workspace tab).
 public struct AgentParityMenuItems: View {
     let store: AgentChatStore
@@ -675,14 +795,17 @@ struct StreamingMarkdown: View {
     let markdown: String
     let isStreaming: Bool
     var animatesBlocks = true
+    /// Find in Chat's marks on this message's blocks.
+    var findMarks: (any MarkdownBlockMarks)?
 
     /// The parse, kept across bodies: a streamed token re-parses the message's tail only.
     @State private var parse = StreamParseBox()
 
     var body: some View {
-        // While streaming, an emphasis or code marker that has not closed yet is hidden.
+        // While streaming, an emphasis or code marker that has not closed yet is hidden (the
+        // blocks keep their ids: only the last block's inline markers change).
         MarkdownView(MarkdownDocument(blocks: parse.blocks(markdown, isStreaming: isStreaming)), isStreaming: isStreaming,
-                     animatesBlocks: animatesBlocks)
+                     animatesBlocks: animatesBlocks, marks: findMarks)
             .contextMenu {
                 Button("Copy", systemImage: "doc.on.doc") { UIPasteboard.general.string = markdown }
                 ShareLink(item: markdown) { Label("Share", systemImage: "square.and.arrow.up") }
@@ -706,7 +829,7 @@ struct UserBubble: View {
     let attachments: [AgentAttachment]
     let promptAt: Date
     let isLast: Bool
-    let resend: (String) -> Void
+    let editAndResend: () -> Void
     @State private var selecting = false
 
     var body: some View {
@@ -726,7 +849,7 @@ struct UserBubble: View {
                         Button("Copy", systemImage: "doc.on.doc") { UIPasteboard.general.string = prompt }
                         Button("Select Text", systemImage: "selection.pin.in.out") { selecting = true }
                         if isLast {
-                            Button("Edit and Resend", systemImage: "pencil") { resend(prompt) }
+                            Button("Edit and Resend", systemImage: "pencil") { editAndResend() }
                         }
                         ShareLink(item: prompt) { Label("Share", systemImage: "square.and.arrow.up") }
                     }
@@ -857,6 +980,56 @@ extension EnvironmentValues {
     @Entry var attachmentLoader = AttachmentLoader { _ in nil }
 }
 
+/// Retry with another model (the Mac's turn menu, cx-ncc.62): the chat harness's models, the
+/// one it runs checked. Shown with two or more models; a pick moves the chat and sends the
+/// prompt again, and a model the Mac refuses (a Claude chat the Mac started) says why in the
+/// chat with the Mac's words, sending nothing.
+@MainActor
+struct RetryModelChoice {
+    let store: AgentChatStore
+    let turn: AgentTurn
+
+    init?(store: AgentChatStore, turn: AgentTurn) {
+        guard !store.retryModels.isEmpty else { return nil }
+        self.store = store
+        self.turn = turn
+    }
+
+    /// The Mac's title (`turn.retryWith`).
+    static let title = "Retry with another model"
+
+    var menu: some View {
+        Menu {
+            ForEach(store.retryModels) { model in
+                Button {
+                    store.retry(turn, model: model.id)
+                } label: {
+                    if model.id == store.currentModelID {
+                        Label(model.name, systemImage: "checkmark")
+                    } else {
+                        Text(model.name)
+                    }
+                }
+            }
+        } label: {
+            Label(Self.title, systemImage: "arrow.triangle.2.circlepath")
+        }
+        .accessibilityIdentifier("chat.retryWithModel")
+    }
+
+    /// The same menu for a native row's More menu (the chat's models, the one it runs checked).
+    var uiMenu: UIMenu {
+        let store = store
+        let turn = turn
+        let current = store.currentModelID
+        return UIMenu(title: Self.title, image: UIImage(systemName: "arrow.triangle.2.circlepath"), children: store.retryModels.map { model in
+            UIAction(title: model.name, image: model.id == current ? UIImage(systemName: "checkmark") : nil) { _ in
+                store.retry(turn, model: model.id)
+            }
+        })
+    }
+}
+
 /// SPEC 4.4 action row: copy, share, retry, more; trailing duration.
 struct AnswerActionRow: View {
     let turn: AgentTurn
@@ -864,6 +1037,7 @@ struct AnswerActionRow: View {
     /// The 44 pt targets reach into the stack's spacing (a turn's stack); a transcript
     /// cell places the row with that gap itself.
     var insetsTargets = true
+    var retryWith: RetryModelChoice?
     let retry: () -> Void
     @State private var copied = false
 
@@ -877,7 +1051,9 @@ struct AnswerActionRow: View {
                     withAnimation(.cmuxMobileSnap) { copied = false }
                 }
             }
-            .sensoryFeedback(.impact(weight: .light, intensity: 0.7), trigger: copied) { _, new in new }
+            .sensoryFeedback(.impact(weight: .light, intensity: 0.7), trigger: copied) { _, new in
+                new && CmuxMobileTheme.standard.haptics.isEnabled
+            }
             ShareLink(item: turn.answerMarkdown) {
                 IconActionLabel("square.and.arrow.up")
             }
@@ -889,6 +1065,7 @@ struct AnswerActionRow: View {
                 Section(AgentTurn.menuTimestamp(turn.endedAt ?? turn.promptAt)) {
                     Button("Copy as Markdown", systemImage: "text.document") { UIPasteboard.general.string = turn.answerMarkdown }
                     Button("Retry", systemImage: "arrow.clockwise", action: retry)
+                    retryWith?.menu
                 }
             } label: {
                 IconActionLabel("ellipsis")

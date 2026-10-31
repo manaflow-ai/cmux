@@ -267,7 +267,8 @@ final class ChatNativeRowCell: UICollectionViewCell, UIContextMenuInteractionDel
             let view = symbols[index]
             let original = view.image
             view.image = UIImage(systemName: "checkmark", withConfiguration: view.image?.symbolConfiguration)
-            UIImpactFeedbackGenerator(style: .light).impactOccurred(intensity: 0.7)
+            // The in-app haptics setting and Low Power Mode, as the SwiftUI row's copy.
+            CmuxMobileTheme.standard.haptics.copy()
             UIAccessibility.post(notification: .announcement, argument: "Copied")
             copiedReset?.cancel()
             copiedReset = Task { @MainActor [weak view] in

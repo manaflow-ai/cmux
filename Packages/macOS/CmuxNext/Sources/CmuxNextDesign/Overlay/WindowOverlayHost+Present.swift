@@ -7,6 +7,15 @@ public extension WindowOverlayHost {
     func present(_ content: NSView, options: OverlayOptions) -> OverlayHandle {
         let handle = OverlayHandle(id: nextID, content: content, options: options, host: self)
         nextID += 1
+        // The window closed (a late caller got its torn-down host): nothing shows, and no view,
+        // observer, modal state or Escape monitor is installed for a window that is gone. The
+        // handle ends on the next main-actor turn, after the caller wired its `onDismiss`, so the
+        // caller's own cleanup runs as it does for an overlay whose window closes.
+        if isTearingDown {
+            handle.host = nil
+            Task { @MainActor in handle.dismiss() }
+            return handle
+        }
         if content.frame.size == .zero { content.setFrameSize(content.fittingSize) }
         let container = panel.container(for: options.effectiveLayer)
         var scrim: OverlayScrimView?
@@ -41,9 +50,13 @@ public extension WindowOverlayHost {
                 self?.updateMouseRouting()
             }
         }
+        // Before the panel attaches: ordering it in displays and commits its layers at once, and the
+        // window server showed one frame of the whole dialog and scrim before the fade began
+        // (debug.dialog_strip: half the opens, the base build too).
+        if options.kind == .dialog { hideForEntrance([scrim, content].compactMap(\.self)) }
         syncPanel()
         layout(handle)
-        if options.kind == .dialog { fadeIn([scrim, content].compactMap(\.self)) }
+        if options.kind == .dialog { animateIn(content, scrim: scrim) }
         if options.isModal { beginModal(handle) }
         updateMouseRouting()
         updateEscapeMonitor()
@@ -51,14 +64,39 @@ public extension WindowOverlayHost {
         return handle
     }
 
-    /// A dialog and its scrim fade in (POLISH: no flash): shown in one frame, the whole window
-    /// darkened at once. The fade-in token, which Reduce Motion keeps.
-    private func fadeIn(_ views: [NSView]) {
+    /// A dialog's card and scrim at their first entrance frame (transparent), with no implicit
+    /// animation, so nothing of them shows until `animateIn` fades them in. A dialog presented
+    /// again while its close still runs keeps what is on screen.
+    private func hideForEntrance(_ views: [NSView]) {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
         for view in views {
             view.wantsLayer = true
-            guard let layer = view.layer else { continue }
-            Motion.overlays.set(layer, "opacity", to: Float(1), fade: .fadeIn, from: Float(0))
+            guard let layer = view.layer, layer.animation(forKey: "sublayerTransform") == nil else { continue }
+            layer.opacity = 0
         }
+    }
+
+    /// A dialog arrives (POLISH: no flash, no cut): its card fades in and grows from
+    /// `Motion.panelOpenScale` about its center on the `appear` spring, as the palette opens, while
+    /// the scrim eases in on the `scrim` token, the one every whole-window wash uses (the
+    /// inactive-window tint that follows the dialog taking key included), so the window darkens in
+    /// one even step instead of a quick dim and then a slow one. Under Reduce Motion only the fades
+    /// remain; with animation off it shows in one frame. Presented again while its close still runs,
+    /// it continues from what is on screen.
+    private func animateIn(_ content: NSView, scrim: NSView?) {
+        content.wantsLayer = true
+        if let layer = content.layer {
+            let closing = layer.animation(forKey: "sublayerTransform") != nil
+            Motion.overlays.set(layer, "opacity", to: Float(1), fade: .fadeIn, from: closing ? nil : Float(0))
+            let center = CGPoint(x: layer.bounds.midX, y: layer.bounds.midY)
+            Motion.overlays.set(layer, "sublayerTransform", to: NSValue(caTransform3D: CATransform3DIdentity), spring: .appear,
+                                from: closing ? nil : NSValue(caTransform3D: Motion.scale(Motion.panelOpenScale, about: center, in: layer)))
+        }
+        guard let scrim else { return }
+        scrim.wantsLayer = true
+        if let layer = scrim.layer { Motion.overlays.set(layer, "opacity", to: Float(1), fade: .scrim, from: Float(0)) }
     }
 
     /// 0 for `.pane`, 1 for `.window`, 2 for `.modal` (bottom to top).
@@ -159,25 +197,42 @@ extension WindowOverlayHost {
         onBlockingChange?()
     }
 
-    /// A dialog and its scrim fade out (POLISH: no flash) where they were. The dialog is already
-    /// gone: it takes no input, and the window under it is usable at once. A view leaves only if it
-    /// is still where the fade found it: a dialog presented again meanwhile, here or in another
-    /// window (its tab moved there), stays where it went.
+    /// A dialog and its scrim fade out (POLISH: no flash) where they were: the card on `fadeOut`,
+    /// faster than it came, shrinking a little toward `Motion.panelCloseScale` (only the fade under
+    /// Reduce Motion), and the scrim on `scrim`, in step with the inactive-window tint lifting as the
+    /// window takes key back. The dialog is already gone: it takes no input, and the window under it
+    /// is usable at once. A view leaves only if it is still where the fade found it: a dialog
+    /// presented again meanwhile, here or in another window (its tab moved there), stays where it went.
     private func fadeOut(_ views: [NSView], content: NSView) {
         fadingOut += 1
         let parents = (views + [content]).map { ($0, $0.superview) }
-        Motion.overlays.animate(.fadeOut, in: views.first, {
-            views.forEach { $0.animator().alphaValue = 0 }
-        }, completion: { [weak self] in
+        let scrims = views.filter { $0 is OverlayScrimView }, cards = views.filter { !($0 is OverlayScrimView) }
+        if let layer = content.layer {
+            let center = CGPoint(x: layer.bounds.midX, y: layer.bounds.midY)
+            Motion.overlays.set(layer, "sublayerTransform", to: NSValue(caTransform3D: Motion.scale(Motion.panelCloseScale, about: center, in: layer)),
+                                movementFade: .fadeOut)
+        }
+        let finished = OverlayCountdown(scrims.isEmpty ? 1 : 2) { [weak self] in
             guard let self else { return }
             fadingOut -= 1
             let presented = handles.contains { $0.content === content }
             for (view, parent) in parents where parent != nil && view.superview === parent && !(presented && view === content) {
                 view.removeFromSuperview()
                 view.alphaValue = 1
+                if view === content, let layer = view.layer {
+                    layer.removeAnimation(forKey: "sublayerTransform")
+                    layer.sublayerTransform = CATransform3DIdentity
+                }
             }
             syncPanel()
-        })
+        }
+        Motion.overlays.animate(.fadeOut, in: cards.first, {
+            cards.forEach { $0.animator().alphaValue = 0 }
+        }, completion: { finished.done() })
+        guard !scrims.isEmpty else { return }
+        Motion.overlays.animate(.scrim, in: scrims.first, {
+            scrims.forEach { $0.animator().alphaValue = 0 }
+        }, completion: { finished.done() })
     }
 
     /// Places `handle` in panel coordinates, which are the window's own.
@@ -230,5 +285,25 @@ extension WindowOverlayHost {
         panel.setFrame(NSRect(x: screen.midX - size.width / 2, y: screen.midY - size.height / 2,
                               width: size.width, height: size.height), display: true)
         for handle in handles { handle.content.setFrameOrigin(.zero) }
+    }
+}
+
+/// Runs its body once, when the last of `count` parts calls `done()` (a dialog's card and scrim
+/// fading out on their own tokens).
+@MainActor
+final class OverlayCountdown {
+    private var left: Int
+    private var body: (() -> Void)?
+
+    init(_ count: Int, _ body: @escaping () -> Void) {
+        left = count
+        self.body = body
+    }
+
+    func done() {
+        left -= 1
+        guard left <= 0, let body else { return }
+        self.body = nil
+        body()
     }
 }

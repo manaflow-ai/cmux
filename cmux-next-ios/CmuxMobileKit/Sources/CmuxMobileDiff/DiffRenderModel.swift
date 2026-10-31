@@ -1,6 +1,7 @@
 #if os(iOS)
 import CmuxMobileDesign
 import Observation
+import SwiftUI
 import UIKit
 
 /// The look a render model is built for: changes rebuild the cell content.
@@ -51,6 +52,10 @@ final class DiffRenderModel: @unchecked Sendable {
     let texts: [NSAttributedString]
     /// Per line, wrap mode: the hanging indent in points.
     let indents: [CGFloat]
+    /// Per line: the leading characters `texts` drops (wrap mode's indent).
+    let dropped: [Int]
+    /// Each shown line's row (a split pair is the row of both its lines): a jump's target.
+    let rowByLine: [Int: Int]
     /// Unwrapped: the code column's natural width (the longest line and trailing room).
     let codeWidth: CGFloat
     let fonts: DiffFonts
@@ -78,8 +83,10 @@ final class DiffRenderModel: @unchecked Sendable {
         let unifiedCodeWidth = DiffLayout.codeViewport(width: style.width) - DiffLayout.codeTrailingPadding
         var texts: [NSAttributedString] = []
         var indents: [CGFloat] = []
+        var droppedPerLine: [Int] = []
         texts.reserveCapacity(rows.lines.count)
         indents.reserveCapacity(rows.lines.count)
+        droppedPerLine.reserveCapacity(rows.lines.count)
         for (index, display) in rows.displays.enumerated() {
             var dropped = 0
             var indent: CGFloat = 0
@@ -89,9 +96,23 @@ final class DiffRenderModel: @unchecked Sendable {
             }
             texts.append(Self.attributed(display, kind: rows.lines[index].kind, dropping: dropped, font: fonts.code))
             indents.append(indent)
+            droppedPerLine.append(dropped)
         }
         self.texts = texts
         self.indents = indents
+        dropped = droppedPerLine
+        var rowByLine: [Int: Int] = [:]
+        rowByLine.reserveCapacity(rows.lines.count)
+        for (index, row) in rows.rows.enumerated() {
+            switch row {
+            case .line(let line): rowByLine[line] = index
+            case .split(let left, let right):
+                if let left, rowByLine[left] == nil { rowByLine[left] = index }
+                if let right, rowByLine[right] == nil { rowByLine[right] = index }
+            default: break
+            }
+        }
+        self.rowByLine = rowByLine
 
         // Heights per row.
         let lineRow = DiffLayout.rowHeight(lineHeight: fonts.code.lineHeight)
@@ -119,6 +140,43 @@ final class DiffRenderModel: @unchecked Sendable {
                 return max(numberLine, sides.max() ?? codeLine)
             }
         }
+    }
+
+    /// Line `line`'s code text with Search in File's matches of `query` painted (the shown
+    /// cells only, as they are configured): the prepared text when there is no query.
+    func text(_ line: Int, search query: String) -> NSAttributedString {
+        let base = texts[line]
+        let ranges = DiffNavigation.ranges(of: query, in: rows.displays[line].text)
+        guard !ranges.isEmpty else { return base }
+        return Self.painted(base, ranges: ranges, dropping: dropped[line], color: UIColor(diffSearchMatch))
+    }
+
+    /// `ranges` (characters of the displayed line) painted on `text`, which drops the line's
+    /// first `prefix` characters.
+    static func painted(_ text: NSAttributedString, ranges: [Range<Int>], dropping prefix: Int, color: UIColor) -> NSAttributedString {
+        let string = text.string
+        let characters = Array(string)
+        let painted = NSMutableAttributedString(attributedString: text)
+        let ascii = string.utf8.count == characters.count
+        var utf16: [Int] = []
+        if !ascii {
+            utf16.reserveCapacity(characters.count + 1)
+            var offset = 0
+            for character in characters {
+                utf16.append(offset)
+                offset += character.utf16.count
+            }
+            utf16.append(offset)
+        }
+        for range in ranges {
+            let lower = max(0, range.lowerBound - prefix)
+            let upper = min(characters.count, range.upperBound - prefix)
+            guard lower < upper else { continue }
+            let start = ascii ? lower : utf16[lower]
+            let end = ascii ? upper : utf16[upper]
+            painted.addAttribute(.backgroundColor, value: color, range: NSRange(location: start, length: end - start))
+        }
+        return painted
     }
 
     /// Split: the number column (32 pt and 6 pt of padding) before each side's code.

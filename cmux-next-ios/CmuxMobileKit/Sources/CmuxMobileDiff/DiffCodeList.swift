@@ -10,6 +10,12 @@ import UIKit
 /// cells only (no SwiftUI body per pan frame, no per-row horizontal scroll view).
 struct DiffCodeList: UIViewRepresentable {
     let model: DiffRenderModel
+    /// Search in File: its matches are painted in the shown code (empty: none).
+    var search = ""
+    /// The line Search in File shows now: an accent bar at the row's leading edge.
+    var currentMatch: Int?
+    /// Next / Previous Hunk and Search: the line to bring into view.
+    var scrollTarget: DiffFileScreen.ScrollTarget?
     let onExpand: (ClosedRange<Int>) -> Void
 
     func makeCoordinator() -> DiffCodeListController { DiffCodeListController() }
@@ -21,6 +27,8 @@ struct DiffCodeList: UIViewRepresentable {
     func updateUIView(_ view: UICollectionView, context: Context) {
         context.coordinator.onExpand = onExpand
         context.coordinator.apply(model)
+        context.coordinator.setSearch(search, currentMatch: currentMatch)
+        context.coordinator.scroll(to: scrollTarget)
     }
 }
 
@@ -33,6 +41,12 @@ final class DiffCodeListController: NSObject, UICollectionViewDelegate {
     var onExpand: ((ClosedRange<Int>) -> Void)?
     /// The horizontal offset the pinned parts follow.
     private var pinnedX: CGFloat = 0
+    /// Search in File's query and current match line, as the shown cells draw them.
+    private var search = ""
+    private var currentMatch: Int?
+    /// The jump waiting for a model that shows its line (an unfolded one lands a model later).
+    private var pendingScroll: DiffFileScreen.ScrollTarget?
+    private var handledScroll: Int?
 
     private func makeCollectionView() -> UICollectionView {
         let view = UICollectionView(frame: .zero, collectionViewLayout: layout)
@@ -105,6 +119,49 @@ final class DiffCodeListController: NSObject, UICollectionViewDelegate {
             dataSource.applySnapshotUsingReloadData(snapshot)
         }
         pin(collectionView)
+        scrollPending()
+    }
+
+    // MARK: Search and jumps
+
+    /// A new query or current match redraws the shown cells only.
+    func setSearch(_ search: String, currentMatch: Int?) {
+        guard search != self.search || currentMatch != self.currentMatch else { return }
+        self.search = search
+        self.currentMatch = currentMatch
+        guard let dataSource else { return }
+        for indexPath in collectionView.indexPathsForVisibleItems {
+            if let cell = collectionView.cellForItem(at: indexPath) as? DiffCell, let id = dataSource.itemIdentifier(for: indexPath) {
+                configure(cell, id: id)
+            }
+        }
+    }
+
+    func scroll(to target: DiffFileScreen.ScrollTarget?) {
+        guard let target, target.serial != handledScroll else { return }
+        pendingScroll = target
+        scrollPending()
+    }
+
+    /// Scrolls to the waiting jump's line once the model shows it: the row's 25% point at 25%
+    /// of the visible height (SwiftUI's `scrollTo(_:anchor:)` with that anchor), in the smooth spring.
+    private func scrollPending() {
+        guard let target = pendingScroll, let model, let row = model.rowByLine[target.line] else { return }
+        pendingScroll = nil
+        handledScroll = target.serial
+        collectionView.layoutIfNeeded()
+        guard let frame = layout.layoutAttributesForItem(at: IndexPath(item: row, section: 0))?.frame else { return }
+        let inset = collectionView.adjustedContentInset
+        let visible = collectionView.bounds.height - inset.top - inset.bottom
+        let wanted = frame.minY + frame.height * 0.25 - visible * 0.25 - inset.top
+        let maxY = max(-inset.top, collectionView.contentSize.height + inset.bottom - collectionView.bounds.height)
+        let offset = CGPoint(x: collectionView.contentOffset.x, y: min(max(-inset.top, wanted), maxY))
+        if UIAccessibility.isReduceMotionEnabled {
+            collectionView.setContentOffset(offset, animated: false)
+        } else {
+            // motion: allow the .cmuxMobileSmooth spring (0.35 s, no bounce); Reduce Motion jumps.
+            UIView.animate(springDuration: 0.35, bounce: 0) { self.collectionView.contentOffset = offset }
+        }
     }
 
     // MARK: Cells
@@ -114,9 +171,11 @@ final class DiffCodeListController: NSObject, UICollectionViewDelegate {
         let viewport = collectionView.bounds.width
         switch (model.rows.rows[index], cell) {
         case (.line(let line), let cell as DiffLineCell):
-            cell.configure(line: model.rows.lines[line], text: model.texts[line], indent: model.indents[line], model: model)
+            cell.configure(line: model.rows.lines[line], text: model.text(line, search: search), indent: model.indents[line], model: model,
+                           isCurrentMatch: currentMatch == line)
         case (.split(let left, let right), let cell as DiffSplitCell):
-            cell.configure(left: left.map { (model.rows.lines[$0], model.texts[$0]) }, right: right.map { (model.rows.lines[$0], model.texts[$0]) },
+            cell.configure(left: left.map { (model.rows.lines[$0], model.text($0, search: search)) },
+                           right: right.map { (model.rows.lines[$0], model.text($0, search: search)) },
                            model: model)
         case (.header(_, let text), let cell as DiffBandCell):
             cell.configure(.header(text), pinned: model.isPinned, viewport: viewport, fonts: model.fonts)
@@ -315,6 +374,9 @@ final class DiffLineCell: UICollectionViewCell, DiffCell {
     private let newLabel = numberLabel()
     private let markerLabel = UILabel()
     private let codeLabel = UILabel()
+    /// Search in File's current match: a 3 pt accent bar at the leading edge (in the gutter
+    /// when it is pinned, so it stays in view).
+    private let matchBar = UIView()
     private var pinnedX: CGFloat = 0
     private var wraps = false
     private var indent: CGFloat = 0
@@ -330,13 +392,18 @@ final class DiffLineCell: UICollectionViewCell, DiffCell {
         gutter.addSubview(gutterBand)
         [oldLabel, newLabel, markerLabel].forEach(gutter.addSubview)
         contentView.addSubview(gutter)
+        matchBar.backgroundColor = .tintColor
+        matchBar.isUserInteractionEnabled = false
+        matchBar.isHidden = true
+        gutter.addSubview(matchBar)
         isAccessibilityElement = true
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
-    func configure(line: DiffLine, text: NSAttributedString, indent: CGFloat, model: DiffRenderModel) {
+    func configure(line: DiffLine, text: NSAttributedString, indent: CGFloat, model: DiffRenderModel, isCurrentMatch: Bool = false) {
+        matchBar.isHidden = !isCurrentMatch
         wraps = model.style.wrap
         self.indent = indent
         fonts = model.fonts
@@ -373,6 +440,7 @@ final class DiffLineCell: UICollectionViewCell, DiffCell {
         gutter.frame = CGRect(x: wraps ? 0 : pinnedX, y: 0, width: DiffLayout.gutterWidth, height: bounds.height)
         gutterRow.frame = gutter.bounds
         gutterBand.frame = CGRect(x: 0, y: 0, width: numberCell * 2, height: bounds.height)
+        matchBar.frame = CGRect(x: 0, y: 0, width: 3, height: bounds.height)
         if wraps, let fonts {
             // Top aligned: the numbers share the first line's baseline.
             let numberY = 2 + (fonts.code.ascender - fonts.number.ascender)

@@ -25,9 +25,14 @@ public nonisolated struct SettingsPageLayout: Sendable {
         case voiceInput
         /// Settings > Chief's Notices row: it opens Notifications, which holds the Chief's notices.
         case notices
+        /// Settings > Menus: every right-click menu's rows, arranged by the person (ContextMenuLayout).
+        case contextMenus
         /// Settings > Server: each server's status, version line, Restart Recommended, socket and tailnet
         /// address (plans/cmux-next/server-updates-DESIGN.md section 10).
         case server
+        /// Settings > Accounts > Cloud Environments: the team's environments, Build, Delete and Add
+        /// (plans/cmux-next/cloud-environments-DESIGN.md); `cmux.settings.environments.*`.
+        case cloudEnvironments
     }
 
     /// A group card as the layout states it: the rows of a schema group
@@ -236,6 +241,11 @@ public nonisolated struct SettingsPageLayout: Sendable {
                 group("settings.group.palette"), group("settings.group.macScreenKeyboard"),
             ],
             actions: [.keyboard], aliases: [.keyboard]),
+        // Every right-click menu: promote rows out of More, reorder, hide, separators, reset
+        // (cmux.json contextMenus). Customize Menu… at the end of each menu opens it on that menu.
+        CategorySpec(
+            id: "menus", title: SettingsText.keyed("settings.category.menus", "Menus"), symbol: "contextualmenu.and.cursorarrow",
+            groups: [], lead: [.contextMenus]),
         CategorySpec(
             id: "privacy", title: SettingsText.keyed("settings.category.privacy", "Privacy and Security"),
             symbol: "hand.raised",
@@ -254,7 +264,7 @@ public nonisolated struct SettingsPageLayout: Sendable {
             // Phone access sits beside the account it signs in with and the machines list. The
             // Machines card draws Machine Colors on its rows (a color well per machine).
             groups: [group("settings.group.phone"), group("settings.group.messagesServer"), group("settings.group.machineColors")],
-            lead: [.accounts, .machines], actions: [.accounts, .machines], aliases: [.accounts, .machines]),
+            lead: [.accounts, .machines, .cloudEnvironments], actions: [.accounts, .machines], aliases: [.accounts, .machines]),
         // Phones reaching this Mac: the iPhone host's switch, then its live status and phones.
         CategorySpec(
             id: "mobile", title: SettingsText.keyed("settings.category.mobile", "Mobile"), symbol: "iphone",

@@ -15,7 +15,9 @@ struct ChatRow: Equatable, Identifiable, Sendable {
     var gap: Double
 
     enum Kind: Equatable, Sendable {
-        case sessionStart(Date)
+        /// `earlierHistory`: the chat opened on its newest history (older records stay on the
+        /// Mac), so the line says where what is shown starts.
+        case sessionStart(Date, earlierHistory: Bool = false)
         case prompt(text: String, attachments: [AgentAttachment], at: Date, isLast: Bool)
         /// One block of the agent message `messageID` (the whole message is copied).
         case block(messageID: String, block: MarkdownBlock)
@@ -33,8 +35,38 @@ struct ChatRow: Equatable, Identifiable, Sendable {
         case working(label: String, since: Date?)
         case editedFiles(DiffChangeSet)
         case stopped
-        case failed(prompt: String, errorText: String?)
+        /// `canRetry`: the newest turn, with no retry already asked for (`AgentChatStore.canRetryFailedTurn`).
+        case failed(AgentTurn, canRetry: Bool)
         case actions(AgentTurn, isLast: Bool)
+    }
+
+    /// The first turn's line: where the session started, or, for a chat opened on its newest
+    /// history, where what is shown starts.
+    static func sessionLine(_ date: Date, earlierHistory: Bool) -> String {
+        earlierHistory
+            ? "Showing messages since \(date.formatted(date: .abbreviated, time: .shortened))"
+            : "Session started \(date.formatted(date: .abbreviated, time: .shortened))"
+    }
+
+    /// Find in Chat's key for the block this row draws (`AgentChatFind.promptKey` for a prompt,
+    /// `blockKey` for one block of an answer); nil for rows Find does not search.
+    var findKey: String? {
+        switch kind {
+        case .prompt: return AgentChatFind.promptKey(turnID)
+        case .block(_, let block):
+            guard let hash = id.firstIndex(of: "#") else { return nil }
+            return AgentChatFind.blockKey(row: String(id[..<hash]), block: block.id)
+        default: return nil
+        }
+    }
+
+    /// The row that draws Find in Chat's block `key` (the inverse of `findKey`).
+    static func rowID(forFindKey key: String) -> String? {
+        guard let bar = key.lastIndex(of: "|") else { return nil }
+        let head = key[..<bar]
+        let tail = key[key.index(after: bar)...]
+        if tail == "prompt" { return "u-\(head)" }
+        return "\(head)#\(tail)"
     }
 
     /// The answer action row draws 6 pt into the gaps around it (its 44 pt targets).
@@ -54,6 +86,10 @@ struct ChatTurnContext: Equatable, Sendable {
     var askOpen: Bool
     /// The permission whose card offers the choices (the bar is out of the composer's place).
     var choicesFor: String?
+    /// The chat opened on its newest history only (the first turn's session line).
+    var earlierHistory = false
+    /// A failed newest turn's retry was asked for and not answered yet (its Retry is off).
+    var retryPending = false
 }
 
 /// A turn's rows, built once per change to the turn.
@@ -93,7 +129,8 @@ final class ChatTranscriptBuilder {
     /// Lines the last parse of `messageID` read (tests: a token re-parses the tail only).
     func lastParsedLines(_ messageID: String) -> Int? { parses[messageID]?.lastParsedLines }
 
-    func build(turns: [AgentTurn], pendingPermission: PermissionRecord?, askOpen: Bool, permissionBarHidden: Bool) -> [ChatTurnRows] {
+    func build(turns: [AgentTurn], pendingPermission: PermissionRecord?, askOpen: Bool, permissionBarHidden: Bool,
+               earlierHistory: Bool = false, retryPending: Bool = false) -> [ChatTurnRows] {
         var out: [ChatTurnRows] = []
         out.reserveCapacity(turns.count)
         var followsActions = false
@@ -101,7 +138,8 @@ final class ChatTranscriptBuilder {
         for (index, turn) in turns.enumerated() {
             let isLast = index == turns.count - 1
             let context = ChatTurnContext(isFirst: index == 0, isLast: isLast, followsActions: followsActions,
-                                          askOpen: isLast && askOpen, choicesFor: isLast ? choicesFor : nil)
+                                          askOpen: isLast && askOpen, choicesFor: isLast ? choicesFor : nil,
+                                          earlierHistory: index == 0 && earlierHistory, retryPending: isLast && retryPending)
             let rows: ChatTurnRows
             if let memo = memos[turn.id], memo.context == context, memo.turn == turn,
                !memo.waitsForDiff || memo.diffVersion == diffs.version {
@@ -138,7 +176,7 @@ final class ChatTranscriptBuilder {
             nextGap = 10
         }
         if context.isFirst {
-            rows.append(ChatRow(id: "session-start", turnID: turnID, kind: .sessionStart(turn.promptAt), gap: 0))
+            rows.append(ChatRow(id: "session-start", turnID: turnID, kind: .sessionStart(turn.promptAt, earlierHistory: context.earlierHistory), gap: 0))
         }
         rows.append(ChatRow(id: "u-\(turnID)", turnID: turnID,
                             kind: .prompt(text: turn.prompt, attachments: turn.attachments, at: turn.promptAt, isLast: context.isLast),
@@ -197,7 +235,7 @@ final class ChatTranscriptBuilder {
         case .cancelled:
             add("x-\(turnID)", .stopped)
         case .failed:
-            add("x-\(turnID)", .failed(prompt: turn.prompt, errorText: turn.errorText))
+            add("x-\(turnID)", .failed(turn, canRetry: context.isLast && !context.retryPending))
         case .completed:
             // The row's 44 pt targets reach 6 pt into the gap above, less its 2 pt top padding.
             add("a-\(turnID)", .actions(turn, isLast: context.isLast), gap: nextGap - 4)
