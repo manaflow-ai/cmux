@@ -8,7 +8,7 @@
   "steps": [
     {"do": "smoke_remember_workspaces"},
     {"do": "smoke_make_key"},
-    {"do": "smoke_snapshot", "as": "before_workspaces"},
+    {"do": "smoke_snapshot", "name": "before_workspaces"},
     {"do": "key", "key": "n", "modifiers": ["cmd"], "mark": "ws1"},
     {"do": "expect", "title": "Cmd-N (1 of 3) makes a workspace; Ctrl-` follows as soon as it shows, at a person's speed (the frame kept: not blank)", "since": "ws1", "timeout": 20,
      "all": [
@@ -39,7 +39,7 @@
        {"smoke_key_window": {}},
        {"frame_screen": {"shows": ["w3-${nonce}-42"]}}
      ]},
-    {"do": "smoke_snapshot", "as": "before_splits"},
+    {"do": "smoke_snapshot", "name": "before_splits"},
     {"do": "key", "key": "d", "modifiers": ["cmd"], "mark": "split1"},
     {"do": "smoke_type_now", "text": "echo d1-${nonce}-$((6*7))"},
     {"do": "key", "key": "d", "modifiers": ["cmd"], "mark": "split2"},
@@ -52,7 +52,7 @@
        {"smoke_key_window": {}},
        {"frame_screen": {"shows": ["d1-${nonce}-42", "d2-${nonce}-42"]}}
      ]},
-    {"do": "smoke_snapshot", "as": "before_tabs"},
+    {"do": "smoke_snapshot", "name": "before_tabs"},
     {"do": "key", "key": "`", "modifiers": ["control"], "mark": "tab1"},
     {"do": "smoke_type_now", "text": "echo t1-${nonce}-$((6*7))"},
     {"do": "key", "key": "`", "modifiers": ["control"], "mark": "tab2"},

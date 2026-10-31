@@ -258,7 +258,7 @@ class NewTerminals(unittest.TestCase):
 
     def check(self, before, after, screens, focused, lines, placement, focused_line=None):
         j = self.journey(before, {}, focused)
-        self.ext.step_smoke_snapshot(j, {"as": "s"})
+        self.ext.step_smoke_snapshot(j, {"name": "s"})
         j2 = self.journey(after, screens, focused)
         j2.smoke_snapshots = j.smoke_snapshots
         return self.ext.cond_smoke_new_terminals(j2, {"since": "s", "lines": lines, "focused": focused_line,
@@ -300,7 +300,7 @@ class NewTerminals(unittest.TestCase):
         j = self.journey(layout, {}, "p1")
         j.topology = lambda: {"layout": layout, "workspaces": [{"id": "w0"}, {"id": "ws_1"}]}
         j.smoke_baseline = {"w0"}
-        ext.step_smoke_snapshot(j, {"as": "confirmed"})
+        ext.step_smoke_snapshot(j, {"name": "confirmed"})
         ok, detail = ext.cond_smoke_workspaces(j, {"new": 1, "same_as": "confirmed"}, {})
         self.assertTrue(ok, detail)
         j.topology = lambda: {"layout": layout, "workspaces": [{"id": "w0"}, {"id": "ws_2"}]}

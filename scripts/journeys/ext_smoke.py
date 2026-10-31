@@ -14,15 +14,15 @@ Steps (`do`):
                                       are replayed through NSApplication.sendEvent, which reaches only the key window.
                                       When the window did not become key, every later `smoke_type_now` is "not run:
                                       known gap" (the slot's limit), never a pass.
-  smoke_type_now     {text, as?}      types TEXT and Return into the terminal that was just made, at once: no wait for
+  smoke_type_now     {text, bind?}      types TEXT and Return into the terminal that was just made, at once: no wait for
                                       the creation hold (the driver's typing waits 2.5 s after a new terminal; this is
                                       the case Lawrence reports, keys into a terminal while it is created). Binds
-                                      ${AS} to the text. Needs `smoke_make_key` first in the journey; reads again
+                                      ${BIND} to the text. Needs `smoke_make_key` first in the journey; reads again
                                       that a main window is key (debug.window_list): another app window key is a
                                       fail (the app took the keys elsewhere), no app window key is "not run: known
                                       gap".
   smoke_remember_workspaces {}        keeps the workspace ids the app has now (the baseline)
-  smoke_snapshot     {as}             keeps, before the keys that make terminals, the daemon terminals of the
+  smoke_snapshot     {name}           keeps, before the keys that make terminals, the daemon terminals of the
                                       topology, each pane's tabs and the focused pane (smoke_new_terminals reads it)
   smoke_close_all    {mark?}          closes every workspace not in the baseline through the app's own
                                       closeWorkspace action, as the sidebar's close does
@@ -102,8 +102,8 @@ def step_smoke_type_now(j, step):
     for char in text:
         replies.append(j.key(char, [], j.key_window))
     replies.append(j.key("return", [], j.key_window))
-    if step.get("as"):
-        j.vars[step["as"]] = text
+    if step.get("bind"):  # never `as`: the driver names the current terminal after any step with `as`
+        j.vars[step["bind"]] = text
     return {"typed": text, "keys": len(replies), "at": round(sent, 3),
             "handled_by": sorted({str(r.get("handled_by")) for r in replies if isinstance(r, dict)})}
 
@@ -177,7 +177,7 @@ def step_smoke_snapshot(j, step):
             "panes": sorted(tabs), "tabs": tabs, "focused_pane": _focused_pane(j)}
     if not hasattr(j, "smoke_snapshots"):
         j.smoke_snapshots = {}
-    j.smoke_snapshots[step["as"]] = snap
+    j.smoke_snapshots[step["name"]] = snap
     return {"terminals": len(snap["terms"]), "panes": len(snap["panes"]), "focused_pane": snap["focused_pane"]}
 
 
