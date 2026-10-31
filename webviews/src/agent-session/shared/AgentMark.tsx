@@ -103,11 +103,7 @@ function HarnessIcon({
 }: MarkProps & { spec: Exclude<HarnessIconSpec, { kind: "brand" | "glyph" }> }) {
   const [scheme] = useSyncExternalStore(subscribe, appearance, () => "dark brand").split(" ");
   const symbols = useSyncExternalStore(subscribeHarnessIcons, harnessSymbolsSnapshot, harnessSymbolsSnapshot);
-  const symbolHostRevision = useSyncExternalStore(
-    subscribeHarnessIcons,
-    harnessSymbolHostSnapshot,
-    harnessSymbolHostSnapshot,
-  );
+  const symbolHostRevision = useSyncExternalStore(subscribeHarnessIcons, harnessSymbolHostSnapshot, harnessSymbolHostSnapshot);
   const symbolName = spec.kind === "symbol" ? spec.name : undefined;
   useEffect(() => {
     if (symbolName) loadHarnessSymbol(symbolName);
