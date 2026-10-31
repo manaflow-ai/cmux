@@ -350,7 +350,10 @@ mod watch {
                 let error = std::io::Error::last_os_error();
                 if error.kind() != std::io::ErrorKind::Interrupted {
                     // A wait that fails at once would fail again: no retry.
-                    eprintln!("cmux-tui: the owner's socket watch stopped: kevent: {error}");
+                    crate::client_log::stderr_log!(
+                        "lifecycle",
+                        "{BIN}: the owner's socket watch stopped: kevent: {error}"
+                    );
                     return false;
                 }
             }
@@ -463,7 +466,10 @@ mod watch {
                 }
                 let error = std::io::Error::last_os_error();
                 if error.kind() != std::io::ErrorKind::Interrupted {
-                    eprintln!("cmux-tui: the owner's socket watch stopped: poll: {error}");
+                    crate::client_log::stderr_log!(
+                        "lifecycle",
+                        "{BIN}: the owner's socket watch stopped: poll: {error}"
+                    );
                     return false;
                 }
             }
@@ -472,7 +478,10 @@ mod watch {
             }
             let Some(inotify) = &self.inotify else { return true };
             if fds[1].revents & (libc::POLLERR | libc::POLLHUP | libc::POLLNVAL) != 0 {
-                eprintln!("cmux-tui: the owner's socket watch stopped: inotify descriptor failed");
+                crate::client_log::stderr_log!(
+                    "lifecycle",
+                    "{BIN}: the owner's socket watch stopped: inotify descriptor failed"
+                );
                 return false;
             }
             // Drain every queued event, so the descriptor is not readable
@@ -493,7 +502,10 @@ mod watch {
                     std::io::ErrorKind::Interrupted => {}
                     std::io::ErrorKind::WouldBlock => return true,
                     _ => {
-                        eprintln!("cmux-tui: the owner's socket watch stopped: read: {error}");
+                        crate::client_log::stderr_log!(
+                            "lifecycle",
+                            "{BIN}: the owner's socket watch stopped: read: {error}"
+                        );
                         return false;
                     }
                 }

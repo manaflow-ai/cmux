@@ -2278,11 +2278,14 @@ fn run_server(
         headless::ws_token(&args, &ws_addr, &config.server.ws_token)?;
     // Whether clients find this owner only through its socket's folder (the
     // lost-paths watch, headless/lost_paths.rs): not a Cloud daemon's remote
-    // runtime or link entry, and no WebSocket listener but a loopback one
-    // whose token is minted into a file beside the socket.
+    // runtime or link entry, not a provider management socket from systemd,
+    // and no WebSocket listener but a loopback one whose token is minted into
+    // a file beside the socket.
     #[cfg(any(target_os = "macos", target_os = "linux"))]
-    let reached_only_by_socket =
-        !args.remote && !args.link_entry && (ws_addr.is_none() || ws_token_minted);
+    let reached_only_by_socket = !args.remote
+        && !args.link_entry
+        && provider_management_listener.is_none()
+        && (ws_addr.is_none() || ws_token_minted);
     let mut loopback_forward_policy =
         loopback_forward_policy(config.server.loopback_forward.as_ref());
     // Compute the socket path up front so a normal interactive launch can
