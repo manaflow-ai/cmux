@@ -30,7 +30,8 @@ export const FOLD_TOGGLE = [
   "button[data-fold-toggle]",
 ].join(", ");
 /// The controls a click lands on: one inside a toggle is its own, not the toggle's.
-const NESTED_CONTROL = 'button, a[href], [role="button"], summary, input, textarea, select, [role="menuitem"]';
+const NESTED_CONTROL =
+  'button, a[href], [role="button"], [role="link"], summary, input, textarea, select, [role="menuitem"]';
 /// What a collapsible's header sends up (bubbling, cancelable) to be held where it is drawn while its
 /// body opens or closes (useAnchoredCollapse.ts); the transcript that holds it cancels it.
 export const ANCHORED_COLLAPSE_EVENT = "cmux:anchored-collapse";

@@ -88,6 +88,7 @@ describe("foldToggleAt", () => {
       "button",
     ],
     ["a diagram's chart or code", '<button class="cv-diagram__toggle" data-fold-toggle="">Code</button>', "button"],
+    ["an output's Raw", '<button class="cv-tool-output__raw" aria-pressed="false" data-fold-toggle="">Raw</button>', "button"],
     ["a question's pill", '<button class="acpmux-question-pill" aria-expanded="false">Q</button>', "button"],
     ["a permission's details", '<button class="acpmux-ask-toggle" aria-expanded="false">Details</button>', "button"],
     ["a paste chip", '<button class="cv-user__paste" aria-expanded="false">pasted</button>', "button"],
@@ -105,6 +106,12 @@ describe("foldToggleAt", () => {
     );
     expect(at(".to")).toBeUndefined();
     expect(at(".w")).toBeDefined();
+  });
+  test("leaves a file link inside a tool line alone", () => {
+    const { at } = row(
+      '<button class="cv-tool is-toggle" aria-expanded="false"><span class="f" role="link">App.tsx</span></button>',
+    );
+    expect(at(".f")).toBeUndefined();
   });
   test("leaves a pressed button that changes no height alone (Pin, Read aloud)", () => {
     expect(row('<button aria-pressed="false" aria-label="Pin">pin</button>').at("button")).toBeUndefined();

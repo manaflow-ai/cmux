@@ -130,6 +130,7 @@ export const ToolOutput = memo(function ToolOutput({
             className="cv-tool-output__raw"
             aria-pressed={rawShown}
             aria-controls={bodyId}
+            data-fold-toggle=""
             onClick={() => setRawShown((value) => !value)}
           >
             {t("subsession.raw")}
