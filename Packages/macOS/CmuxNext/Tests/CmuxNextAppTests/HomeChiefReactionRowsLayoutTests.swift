@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextDesign
 @testable import CmuxNextDaemon
 @testable import CmuxNextHomeEngine
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -9,7 +10,7 @@ import Testing
 /// theme (a416 follow-up: the first picture showed "Can Wake the…" and "Classifier Har…", and its light
 /// half drew dark field boxes). Each title shows whole at the card's width, and in a light room the
 /// classifier's field boxes take the theme's light field fill (`Palette.chromeBackground`).
-@MainActor @Suite(.serialized) struct HomeChiefReactionRowsLayoutTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct HomeChiefReactionRowsLayoutTests {
     static func scope(dark: Bool) -> ThemeScope {
         let scope = ThemeScope(level: .room)
         let input = dark
