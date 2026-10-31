@@ -737,9 +737,10 @@ async fn with_team_messaging_off_a_chat_reads_its_inbox_whole() {
     for s in [&id, &owner] {
         c.request(method::SESSION_PROMPT, prompt(s, "hello", None)).await.unwrap();
     }
+    // Longer than a notice holds whole (4 KB), so the notice has only a preview of it.
     let order = format!(
         "A standing rule from your owner: {}",
-        "read code and diffs from the host mirror, never the contents API. ".repeat(4)
+        "read code and diffs from the host mirror, never the contents API. ".repeat(70)
     );
     let mut owner_agent = agent_of(&hub, &owner).await;
     let p = json!({"sessionId": id, "prompt": [{"type": "text", "text": order}],
