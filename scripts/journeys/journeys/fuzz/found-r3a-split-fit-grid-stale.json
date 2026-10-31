@@ -1,0 +1,63 @@
+{
+ "id": "found-r3a-split-fit-grid-stale",
+ "priority": "P0",
+ "title": "fuzz repro (r3a): Cmd-N, Ctrl-`, Cmd-D: the split pane's fitted grid must equal its grid, drawn grid, fit(bounds) and the daemon's size",
+ "why": "Action fuzz, corpus round, build v2.2.10-opt (job 2efedfc30af35b895f12b6fe) on cmux20, 2026-10-31T08:2xZ: after Cmd-D the pane reports fit_grid 110x40 while grid, drawn grid, fit(bounds), daemon and topology are 36x40, still after the 3 s settle (R3a). ddmin shrank the corpus round to these 3 actions (14 tries). Owner: the resize owner abe4e792b0edd3ffa.",
+ "source": "scripts/journeys/fuzz.py (ext_fuzz), shrunk by ddmin",
+ "budget_seconds": 255,
+ "steps": [
+  {
+   "do": "smoke_ready",
+   "timeout": 60
+  },
+  {
+   "do": "smoke_remember_workspaces"
+  },
+  {
+   "do": "smoke_make_key"
+  },
+  {
+   "do": "fuzz_run",
+   "sequence": [
+    {
+     "a": "new_workspace",
+     "t": "slow"
+    },
+    {
+     "a": "new_terminal",
+     "t": "slow"
+    },
+    {
+     "a": "split_right",
+     "t": "slow"
+    }
+   ],
+   "set": "layout",
+   "shrink": false,
+   "budget_s": 120
+  },
+  {
+   "do": "expect",
+   "title": "the fuzz found no failure, the daemon agrees with the app, and the window is not blank",
+   "timeout": 20,
+   "all": [
+    {
+     "fuzz_clean": {}
+    },
+    {
+     "fuzz_daemon_agrees": {}
+    },
+    {
+     "smoke_frame": {
+      "min_lines": 1
+     }
+    }
+   ]
+  }
+ ],
+ "finally": [
+  {
+   "do": "smoke_close_all"
+  }
+ ]
+}
