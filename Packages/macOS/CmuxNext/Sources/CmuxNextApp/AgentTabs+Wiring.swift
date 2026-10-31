@@ -302,6 +302,15 @@ extension AgentTabStore {
             guard let services, let (tab, _) = services.locateTabOnAnyMachine(key) else { return [] }
             return services.machines.daemon(forTab: tab).store.tabFolders
         }
+        tabs.remoteMachineFolders = { [weak services] key in
+            guard let services, let (tab, _) = services.locateTabOnAnyMachine(key),
+                  let daemon = try? services.machines.agentDaemon(forTab: tab), !daemon.isLocal,
+                  daemon.supports(DaemonCapability.agentSessionFolders.rawValue) else { return [] }
+            let client = AgentSessionAttachClient(surface: tab.surface.rawValue, endpoint: AgentTabRemoteHost.endpoint(on: daemon))
+            let folders = (try? await client.folders().folders) ?? []
+            await client.close()
+            return folders
+        }
         tabs.remoteHost = { [weak services, weak tabs] key in
             guard let services, let tabs, let (tab, _) = services.locateTabOnAnyMachine(key), let record = tab.agentSession else { return nil }
             let started = record.host.hasPrefix(AgentTabRemoteStart.registryPrefix)
