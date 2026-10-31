@@ -21,6 +21,7 @@ fn item(
         report: false,
         at,
         text: text.to_owned(),
+        details: None,
         noticed: false,
         read: false,
         answer: None,
@@ -80,11 +81,12 @@ fn the_inbox_takes_another_agents_text_only() {
 
 #[test]
 fn only_a_plain_send_from_this_host_goes_to_the_inbox() {
-    assert!(plain_send(false, false, false, false));
-    assert!(!plain_send(true, false, false, false), "a peer's or the relay's forward");
-    assert!(!plain_send(false, true, false, false), "a team message");
-    assert!(!plain_send(false, false, true, false), "a correction under a supersede key");
-    assert!(!plain_send(false, false, false, true), "a steer-only send");
+    assert!(plain_send(false, false, false, false, false));
+    assert!(!plain_send(true, false, false, false, false), "a peer's or the relay's forward");
+    assert!(!plain_send(false, true, false, false, false), "a team message");
+    assert!(!plain_send(false, false, true, false, false), "a correction under a supersede key");
+    assert!(!plain_send(false, false, false, true, false), "a steer-only send");
+    assert!(!plain_send(false, false, false, false, true), "a cmux agent message");
     assert!(plain_kind(None));
     assert!(plain_kind(Some(&json!({"kind": "session_message"}))));
     assert!(plain_kind(Some(&json!({"kind": "agent_message"}))));
@@ -270,5 +272,63 @@ async fn a_turn_that_ends_with_no_continuation_lets_the_inbox_in_at_once() {
             assert!(tokio::time::Instant::now() < deadline, "held past the settle (stop: {stop})");
             tokio::time::sleep(std::time::Duration::from_millis(10)).await;
         }
+    }
+}
+
+/// Whether a notice's reader can open a thread comes from what its agent was given and what its
+/// next spawn gets, both from memory: an agent a restart adopted (launch unknown here) that its
+/// last daemon started with no `acpmux` server reads previews it cannot follow, whatever its
+/// profile says now (router review of #28707).
+#[tokio::test]
+async fn a_notice_reader_has_tools_only_by_its_last_launch_and_its_next_spawn() {
+    let row = |enabled: bool| {
+        json!({"id": "mcp:acpmux", "name": "acpmux", "kind": "cmux", "source": "cmux",
+            "enabled": enabled, "canToggle": true})
+    };
+    let cases = [
+        ("launched with it", json!([row(true)]), json!({}), json!({}), true),
+        ("launched without tools", json!([]), json!({}), json!({}), false),
+        ("its server turned off", json!([row(false)]), json!({}), json!({}), false),
+        (
+            "spawns without tools",
+            json!([row(true)]),
+            json!({"ACPMUX_AGENT_TOOLS": "0"}),
+            json!({}),
+            false,
+        ),
+        (
+            "spawns without its server",
+            json!([row(true)]),
+            json!({}),
+            json!({"ACPMUX_AGENT_TOOL_SERVERS": "cmux,cmux-forum"}),
+            false,
+        ),
+        // `${model}` is the chat's model, `0` (`modelRequest`), once the spawn expands it.
+        (
+            "its switch is a placeholder the spawn expands",
+            json!([row(true)]),
+            json!({"ACPMUX_AGENT_TOOLS": "${model}"}),
+            json!({}),
+            false,
+        ),
+        // No catalog profile: a folder profile, whose file a notice does not read.
+        ("a folder profile", json!([row(true)]), json!({}), json!({}), false),
+    ];
+    for (case, rows, profile_env, session_env, has) in cases {
+        let mut cfg = crate::config::Config::default();
+        cfg.store.mode = crate::config::StoreMode::Memory;
+        let profile = json!({"argv": ["true"], "env": profile_env});
+        cfg.harnesses.insert("fake".into(), serde_json::from_value(profile).unwrap());
+        let harness = if case == "a folder profile" { "folder-fake" } else { "fake" };
+        let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+        let meta = json!({"schema": crate::store::META_SCHEMA, "id": "inbox-reader",
+            "name": "inbox-reader", "harness": harness, "cwd": "/tmp", "status": "idle",
+            "createdAt": 1, "updatedAt": 2, "tools": {"rows": rows}, "sessionEnv": session_env,
+            "modelRequest": "0"});
+        store.save(&serde_json::from_value(meta).unwrap()).unwrap();
+        let hub = Hub::new(cfg, store);
+        hub.begin_startup(false);
+        let session = hub.resolve("inbox-reader").unwrap();
+        assert_eq!(hub.notice_reader_has_tools(&session).await, has, "{case}");
     }
 }

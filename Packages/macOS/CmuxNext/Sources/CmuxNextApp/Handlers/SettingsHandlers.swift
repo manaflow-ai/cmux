@@ -20,6 +20,11 @@ enum SettingsHandlers {
             ?? CmuxConfigSnapshot.previewFeaturesPath.joined(separator: ".")
         registry.bind("palette.openCmuxSettingsFile", run: { _ in try openCmuxConfig(context) })
         registry.bind("palette.openGhosttySettings", run: { _ in try openGhosttyConfig(context) })
+        // Showing the Settings tab is local and immediate: the effect is done on this turn.
+        registry.bindEffect("settings.customizeMenus", requires: nil, effect: { invocation in
+            try context.services.settingsWindow.show(section: nil, focus: invocation.allowsViewChange, route: "#/settings/menus")
+            return .done
+        })
         // R92: Settings > Terminal shows the Ghostty config diagnostics.
         registry.bind("ghostty.showDiagnostics", run: { invocation in
             try context.services.settingsWindow.show(section: .terminal, focus: invocation.allowsViewChange)
@@ -48,17 +53,15 @@ enum SettingsHandlers {
         ChangelogPageTab.register(context.services)
         UpdateHandlers.bind(into: registry, updater: context.services.updater,
                             openWhatsNew: { [weak services = context.services] in services.map { WhatsNewPage.open($0) } ?? false },
-                            whatsNewUnavailable: { [weak services = context.services] in
-                                services?.settings?.snapshot.previewFeatures == true ? nil : previewTitle
-                            },
                             stateDirectories: { [weak services = context.services] in services?.environment.daemonStateDirectories ?? [nil] })
         OnboardingHandlers.bind(into: registry, context: context)
-        // Keep preview surfaces out of menus and the palette while Labs is off. Compose this
-        // with the browser import gate installed above so unrelated settings remain intact.
+        // Keep the App Store out of menus and the palette while Labs is off (What's New is not
+        // behind Labs). Compose this with the browser import gate installed above so unrelated
+        // settings remain intact.
         let previousSettingOffReason = registry.settingOffReason
         registry.settingOffReason = { [weak services = context.services] id in
             if services?.settings?.snapshot.previewFeatures != true,
-               id == "appStore.show" || id == "appStore.showInstalled" || id == "updates.whatsNew" {
+               id == "appStore.show" || id == "appStore.showInstalled" {
                 return previewTitle
             }
             return previousSettingOffReason(id)

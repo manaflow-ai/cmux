@@ -24,6 +24,8 @@ nonisolated public enum PaletteNavEvent: Equatable, Sendable {
     /// Arrow keys; wraps.
     case move(Int)
     case select(String)
+    /// Clear an intentionally exhausted section selection.
+    case clearSelection
     /// A batch from the source of `levelID` for `generation`.
     /// `emptyQuerySelection` overrides the scope's index for this batch (a
     /// page that decides it from its rows, such as Search Tabs).

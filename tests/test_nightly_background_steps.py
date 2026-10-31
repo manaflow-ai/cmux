@@ -29,7 +29,7 @@ PROOF_START = "Prove the browser-data import is compiled out (cx-f58x notary tes
 PROOF_FINISH = "Finish the browser-data import proof"
 SENTRY_START = "Upload dSYMs to Sentry"
 SENTRY_FINISH = "Finish the dSYM upload to Sentry"
-PREPARE_JOBS = ("prepare-nightly-variant-primary", "prepare-nightly-variant-fallback")
+PREPARE_JOBS = ("prepare-nightly-variant-primary", "prepare-nightly-variant")
 
 
 def steps(job: str) -> list[dict]:
