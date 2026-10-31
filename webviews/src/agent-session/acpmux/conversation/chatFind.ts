@@ -7,7 +7,8 @@
 import { createContext, useCallback, useContext, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { commandFolder } from "./commandFolder";
-import { cleanText, mcpCall, mcpOutputResult, prettyValue } from "./mcpCalls";
+import { execParts, execText, execView, isCmuxExec } from "./cmuxExec";
+import { cleanText, mcpCall, mcpOutputResult, prettyOutput, prettyValue } from "./mcpCalls";
 import { plainText } from "./messageMenu";
 import { drawnThought } from "./thoughts";
 import { shellOutput } from "./toolFailure";
@@ -49,6 +50,11 @@ function drawnText(item: AcpmuxActivity): string {
   const call = mcpCall(tool);
   // A finished call's envelope images show in its strip, not its text (toolImages.ts).
   const strip = stripsEnvelopeImages(tool);
+  // A cmux script draws its script, calls, result and logs (McpCallRows.tsx CmuxExecDetails).
+  if (call && isCmuxExec(call)) {
+    const parts = execParts(execView(tool, call.args), cleanText);
+    return execText(parts, parts.rawResponse ? prettyOutput(tool.output, strip) : undefined);
+  }
   if (call) {
     const result = mcpOutputResult(tool.output, strip, call.tool);
     const text = result?.lang === "markdown" ? plainText(result.text) : result?.text;

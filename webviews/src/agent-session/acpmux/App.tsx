@@ -172,6 +172,7 @@ import { FolderContinuation, folderContinuationRequest } from "./folderContinuat
 import type { BrowseRequest } from "./AddProjectPanel";
 import { handBackQuotes, quoteIntoComposer, replayHeldForComposer, restoreComposerDraft } from "./composerRestore";
 import {
+  attachmentSource,
   linkAttachment,
   linkItems,
   type ComposerAttachment,
@@ -179,6 +180,7 @@ import {
   recordingAttachment,
   recordingLeftOutNotice,
   remoteRecordingAttachment,
+  withSource,
 } from "./attachments";
 import type { KeptAttachments } from "./composer/keptAttachments";
 import { ComposerPickers, PICKER_LABELS, type ComposerPermissionAccess } from "./ComposerPickers";
@@ -254,6 +256,7 @@ import {
   descendants,
   subagentChangesFolder,
   subagentProcesses,
+  subagentSummary,
   withChatEnds,
   type SubagentScope,
 } from "./inspector/subagentScope";
@@ -472,18 +475,13 @@ import {
 import { ThreadTitle } from "./header/ThreadTitle";
 import { headerState, setHeaderState, useHeaderState } from "./header/headerState";
 import { setTabRow, tabRowStyle, useTabRow, useTabRowTools } from "./header/tabRow";
-import { LegacyPullRequestDock } from "./summary/PullRequestDockLegacy";
-import {
-  PullRequestDock,
-  RowPullRequests,
-  useTranscriptPullRequests,
-  legacyPullRequestDockMode,
-} from "./summary/PullRequestDock";
-import { PullRequestHostVisibility, usePullRequestPlacement } from "./summary/pullRequestPlacement";
-import { pullRequestRows as prSourceRows } from "./summary/pullRequestRows";
 import { SubagentPaneFooter } from "./subagents/SubagentPaneFooter";
 import { RecapCard, useRecapCard } from "./RecapCard";
 import { HarnessStatusCard } from "./HarnessStatusCard";
+import { cloudPageRefusal, cloudStartToasted, oneCloudStart, type CloudStart } from "./cloudRun";
+import { folderRunLocation } from "./runLocationDefault";
+import { cloudStartBegun, cloudStartEnded, cloudStartPushed, type CloudStartProgress } from "./cloudStartProgress";
+import { CloudStartView } from "./CloudStartView";
 import { configureQuickActions, quickActions, type QuickActionMode } from "./header/quickActions";
 import { chatColumnOf, configureChatWidth, useChatSizing } from "./chatWidth";
 import { registerChatDisplayHost, useChatDisplay } from "./chatDisplay";
@@ -690,6 +688,9 @@ declare global {
       /// Preview features on or off (Settings > Advanced > Labs, `labs.previewFeatures`, off by
       /// default): the session coverage label.
       applyPreview?(on: boolean): void;
+      /// How a Cloud start goes (cloudStartProgress.ts `cloudStartPushed`): `{key, step?, machine?,
+      /// size?, secrets?, network?}` for the start `cloud.startChat {key}` began.
+      cloudStartProgress?(push: unknown): void;
       /// Experimental workflow summary/detail (Labs), separate from environment preview and off by default.
       applyWorkflowLabs?(on: boolean): void;
       /// The native Debug Settings baseline for the sidebar latest-reply preview.
@@ -1279,7 +1280,7 @@ const MessageRow = memo(
     if (!replyActions) return reply;
     return (
       <>
-        <RowPullRequests.Provider value={undefined}>{reply}</RowPullRequests.Provider>
+        {reply}
         <ReplyActions row={row} />
       </>
     );
@@ -1904,8 +1905,6 @@ const RowFrame = React.memo(function RowFrame({
   tabStop,
   onFocus,
   onRowKeyDown,
-  pullRequests,
-  onPullRequestVisibility,
   referenceScope,
   children,
 }: {
@@ -1947,8 +1946,6 @@ const RowFrame = React.memo(function RowFrame({
   tabStop: boolean;
   onFocus: (id: string) => void;
   onRowKeyDown: (index: number, event: React.KeyboardEvent<HTMLElement>) => void;
-  pullRequests?: React.ContextType<typeof RowPullRequests>;
-  onPullRequestVisibility?: (visible: boolean) => void;
   /// What the child row draws from, compared instead of `children` (a new element every render).
   contentType: unknown;
   controls?: string;
@@ -1979,11 +1976,7 @@ const RowFrame = React.memo(function RowFrame({
   );
   const rowTabStop = rovingTabStopProps(tabStop, handleKeyDown);
   const content = (
-    <ReferenceScopeContext.Provider value={referenceScope ?? null}>
-      <PullRequestHostVisibility.Provider value={onPullRequestVisibility}>
-        <RowPullRequests.Provider value={pullRequests}>{children}</RowPullRequests.Provider>
-      </PullRequestHostVisibility.Provider>
-    </ReferenceScopeContext.Provider>
+    <ReferenceScopeContext.Provider value={referenceScope ?? null}>{children}</ReferenceScopeContext.Provider>
   );
   useLayoutEffect(() => {
     if (entering) onEntered(row.id);
@@ -2364,7 +2357,6 @@ export function VirtualTranscript({
   githubRepository,
   fallbackRepository,
   sourceRows,
-  pullRequestRows,
   find,
   reveal,
   working = false,
@@ -2438,8 +2430,6 @@ export function VirtualTranscript({
   /// The client's rows, which still hold the work a closed "Worked for" folds away: where a bare
   /// `#N`'s repository is looked for (conversation/bareReferences.ts). Else `rows`.
   sourceRows?: readonly AcpmuxRow[];
-  /// Original producer snapshot: filtered rows lose its O(1) PR revision marker.
-  pullRequestRows?: readonly AcpmuxRow[];
   /// Find in Chat (chatFind.ts): its bar, the query to highlight and the match to bring into view.
   find?: ChatFind;
   /// A row to bring into view (a count on the running line, WorkingFor.tsx); a new `key` asks again.
@@ -2464,7 +2454,6 @@ export function VirtualTranscript({
   endReserve?: number;
 }) {
   const t = useT();
-  const pullRequests = useTranscriptPullRequests(pullRequestRows ?? sourceRows ?? rows, githubRepository);
   // Debug measurement (acpmuxPerf): off until the first debug call.
   const renderStart = acpmuxPerf.enabled ? performance.now() : 0;
   acpmuxPerf.span("vt.renders", 1);
@@ -3218,11 +3207,6 @@ export function VirtualTranscript({
     lastEstimate.current = { rows, layout, width: rowWidth, sessionId };
     return { layout, ms: acpmuxPerf.enabled ? performance.now() - layoutStart : 0 };
   }, [rows, registry, sessionId, chatLook, scaledRowWidth]);
-  const {
-    rowId: prRow,
-    report: reportPullRequestHost,
-    fallback: pullRequestFallback,
-  } = usePullRequestPlacement(rows, estimated.layout, pullRequests.length > 0, sessionId);
   // A row that draws moves only the rows below it: place them again, measuring none.
   const measured = useMemo(() => {
     const layoutStart = acpmuxPerf.enabled ? performance.now() : 0;
@@ -3467,9 +3451,6 @@ export function VirtualTranscript({
   // window changes. Keep this signature primitive so scroll and layout state updates that leave
   // the mounted rows alone do not walk every text node in the transcript again.
   const mountedRangeKey = mountedRanges.map(({ first, last }) => `${first}:${last}`).join(",");
-  const fallbackPullRequests = pullRequestFallback((index) =>
-    mountedRanges.some(({ first, last }) => index >= first && index < last),
-  );
   // The scrolled rows only: a held row far from the view would widen every drawn-height search
   // (`measured`) to the rows between them. The held rows are looked up by index instead.
   if (lastPlaced.current) {
@@ -4837,8 +4818,6 @@ export function VirtualTranscript({
                       tabStop={tabStopId === row.id}
                       onFocus={rowFocus}
                       onRowKeyDown={handleRowKeyDown}
-                      pullRequests={row.id === prRow ? pullRequests : undefined}
-                      onPullRequestVisibility={row.id === prRow ? reportPullRequestHost : undefined}
                       contentType={Component}
                       controls={controls}
                       onToggleActivity={toggleRow}
@@ -4864,20 +4843,13 @@ export function VirtualTranscript({
           </div>
         </TranscriptContext>
       </div>
-      {(afterLatest || fallbackPullRequests) && (
+      {afterLatest && (
         <div
           className="acpmux-transcript-after-latest"
           // The dock is absolute over the stage. Keep an after-latest tray in flow above its
           // measured room so the composer never covers the expansion or its live tail.
           style={dockHeight > 0 ? { marginBottom: dockHeight } : undefined}
         >
-          {fallbackPullRequests && (
-            <div className="acpmux-pr-fallback">
-              <RowPullRequests.Provider value={pullRequests}>
-                <PullRequestDock />
-              </RowPullRequests.Provider>
-            </div>
-          )}
           {afterLatest}
         </div>
       )}
@@ -5925,11 +5897,14 @@ function AcpmuxPane() {
       mimeType?: string;
       data?: string;
       tooLarge?: boolean;
+      source?: unknown;
     } | null>("composer.capture", { mode }).catch(() => null);
     if (shot?.tooLarge) return { name: shot.name ?? "Screenshot.png", reason: "tooLarge" } as const;
     if (!shot?.data) return undefined;
     const bytes = Uint8Array.from(atob(shot.data), (char) => char.charCodeAt(0));
-    return new File([bytes], shot.name ?? "Screenshot.png", { type: shot.mimeType ?? "image/png" });
+    // cmux took it: its chip wears cmux's icon (composer/attachmentSources.ts).
+    const file = new File([bytes], shot.name ?? "Screenshot.png", { type: shot.mimeType ?? "image/png" });
+    return withSource(file, attachmentSource(shot.source));
   }, []);
   const uploadFiles = useCallback(
     (files: File[], cancelled?: (index: number) => boolean) => uploadToMachine(files, callNative, cancelled),
@@ -7277,11 +7252,63 @@ function AcpmuxPane() {
   /// is used): a send then is refused, never sent as a Persistent chat instead.
   const sandboxPickedNotOffered = sandbox.mode === "sandboxed" && !snapshot.sessionId && !sandboxing;
   const sandboxNotNow = sandbox.spent() ? "sandbox_spent" : "unavailable_now";
-  const sandboxModeRows = { mode: sandbox.mode, onMode: (mode: RunMode) => sandbox.setMode(mode) };
+  /// The person picked where this new chat runs (a Run as row, Cloud, or a machine): their pick
+  /// holds for this chat, and the folder's default (below) no longer changes it.
+  const runModePicked = useRef(false);
+  /// Cloud is this new chat's mode by default, not by the person's pick: the folder may undo it.
+  const cloudByDefault = useRef(false);
+  /// A Cloud start is out (the host answers once the chat opens, minutes for a new machine): the
+  /// folder default changes nothing meanwhile, so the prompt it holds never turns into a local send.
+  const cloudStartPending = useRef(false);
+  /// Counts the Cloud starts that ended, so the folder default looks again once one has.
+  const [cloudStartsEnded, setCloudStartsEnded] = useState(0);
+  const sandboxModeRows = {
+    mode: sandbox.mode,
+    onMode: (mode: RunMode) => {
+      runModePicked.current = true;
+      sandbox.setMode(mode);
+    },
+  };
   /// A Sandboxed send: text only, by an agent a sandbox runs. A page-side refusal comes back as its
   /// code (the prompt stays where it was typed); false: nothing was sent.
   const startSandbox = (text: string, attachmentCount: number, harness: string | undefined): string | boolean =>
     sandboxPageRefusal(attachmentCount, harness) ?? sandbox.send(text, sandboxAgent(harness));
+  /// Cloud picked (cloudRun.ts): the first send goes to the host, which opens the chat on a Cloud
+  /// machine and closes this tab. False keeps the prompt in the composer meanwhile; a string is a
+  /// refusal said here, also while Cloud is picked but not offered now (as `sandboxPickedNotOffered`).
+  /// The host says its own progress and failures (toasts), and the chat shows the start under the
+  /// message as it goes (CloudStartView; the host's `cloudStartProgress` pushes fill it in).
+  const cloudPicked = sandbox.mode === "cloud" && !snapshot.sessionId;
+  const cloudPickedNotOffered = cloudPicked && !sandboxOffered;
+  const [startCloud] = useState(() => oneCloudStart(callNative));
+  const [cloudStart, setCloudStart] = useState<CloudStartProgress>();
+  /// A Cloud start is out: the composer takes no edits until it ends (#28686 review). On success the
+  /// host closes this tab with only the sent prompt, so text or files added meanwhile would be lost;
+  /// on failure the prompt is still in the composer to edit and send again.
+  const cloudStarting = cloudStart?.state === "starting";
+  /// The same, for dictation's field getter (below), which is made once.
+  const cloudStartingNow = useRef(false);
+  cloudStartingNow.current = cloudStarting;
+  const sendToCloud = (text: string, attachmentCount: number, start: Omit<CloudStart, "task">): string | false => {
+    const refused = cloudPageRefusal(sandboxOffered, attachmentCount);
+    if (refused === "cloud_not_now")
+      return translate("composer.offloadNotRun", { action: translate("composer.cloud") });
+    if (refused) return translate("composer.cloudAttachments");
+    const key = crypto.randomUUID();
+    const started = startCloud({ task: text, ...start }, key);
+    // Another Return while a start waits starts nothing, and the card keeps that start.
+    if (!started) return false;
+    cloudStartPending.current = true;
+    setCloudStart(cloudStartBegun(key, text, start.cwd));
+    void started.then((answer) => {
+      cloudStartPending.current = false;
+      setCloudStartsEnded((count) => count + 1);
+      setCloudStart((current) => cloudStartEnded(current, key, answer));
+      if (!answer.ok && !cloudStartToasted(answer))
+        directClient.current?.notice(translate("composer.offloadNotRun", { action: translate("composer.cloud") }));
+    });
+    return false;
+  };
   /// A chat shows here while the tab's run is out or ended: a notice offers it, and Show opens it in
   /// place of the chat until Back: a paid run's receipt stays reachable.
   const sandboxElsewhere =
@@ -7296,7 +7323,14 @@ function AcpmuxPane() {
     setSandboxDraftMoved(false);
     setSandboxViewing(false);
     sandboxWake.current = undefined;
+    runModePicked.current = false;
+    // Another chat shows here: a Cloud start's card belongs to the new chat it was sent from.
+    setCloudStart(undefined);
   }, [snapshot.sessionId, newTabGeneration]);
+  /// The person picked another place to run after a Cloud start failed: its card goes.
+  useEffect(() => {
+    if (sandbox.mode !== "cloud") setCloudStart((current) => (current?.state === "failed" ? undefined : current));
+  }, [sandbox.mode]);
   const viewedSandbox = sandboxViewing && snapshot.sessionId ? sandboxView : undefined;
   /// The chat view shows the tab's run as a card (SandboxRunView), which offers its own Check again.
   const sandboxCard =
@@ -8158,6 +8192,8 @@ function AcpmuxPane() {
   const newTabDictationField = useRef<DictationField | null>(null);
   const dictationTarget = useRef<{ readonly current: DictationField | null }>({
     get current() {
+      // A Cloud start is out: dictation writes nowhere, as typing doesn't (`cloudStarting`).
+      if (cloudStartingNow.current) return null;
       return newTabDictationField.current ?? prompt.current;
     },
   }).current;
@@ -8303,6 +8339,45 @@ function AcpmuxPane() {
   useEffect(() => {
     if (snapshot.sessionId) setProjectDraft(undefined);
   }, [snapshot.sessionId]);
+  /// Where a new chat runs by default (runLocationDefault.ts): Cloud when its folder's newest chat
+  /// went to a Cloud machine, else this Mac. Only while Cloud is offered, and only until the person
+  /// picks in this pane. Sandboxed, or Cloud the person picked, is never changed; a Cloud default
+  /// goes back to this Mac when the folder's history no longer says Cloud or Cloud is not offered.
+  const folderRunDefault = useMemo(
+    () =>
+      sandboxOffered
+        ? folderRunLocation(composerSnapshot.summary?.cwd ?? newTab?.cwd, snapshot.sessions, snapshot.peerKinds)
+        : undefined,
+    [sandboxOffered, composerSnapshot.summary?.cwd, newTab?.cwd, snapshot.sessions, snapshot.peerKinds],
+  );
+  /// The chat the folder default last saw (its session, or the New Tab adoption it came with).
+  const defaultedChat = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    const chat = `${snapshot.sessionId ?? ""}:${newTabGeneration}`;
+    if (defaultedChat.current !== chat) {
+      defaultedChat.current = chat;
+      // A new chat: Cloud carried over from the chat before (picked there) is only a default here,
+      // which this folder's history may undo.
+      if (sandbox.mode === "cloud") cloudByDefault.current = true;
+    }
+    // A chat starting here (its session not shown yet) keeps the mode it starts with.
+    if (runModePicked.current || snapshot.sessionId || snapshot.summary?.sessionId || cloudStartPending.current) return;
+    if (folderRunDefault === "cloud" && sandbox.mode === "persistent") {
+      cloudByDefault.current = true;
+      sandbox.setMode("cloud");
+    } else if (folderRunDefault !== "cloud" && sandbox.mode === "cloud" && cloudByDefault.current) {
+      cloudByDefault.current = false;
+      sandbox.setMode("persistent");
+    }
+  }, [
+    folderRunDefault,
+    snapshot.sessionId,
+    snapshot.summary?.sessionId,
+    newTabGeneration,
+    sandbox,
+    sandbox.mode,
+    cloudStartsEnded,
+  ]);
   /// A fresh chat's first prompt went: the commands it ran join the session it gets.
   const claimShellRuns = useRef(false);
   useEffect(() => {
@@ -8591,6 +8666,9 @@ function AcpmuxPane() {
       },
       applyShortcuts(labels) {
         setShortcuts(readShortcuts(labels));
+      },
+      cloudStartProgress(push) {
+        setCloudStart((current) => cloudStartPushed(current, push));
       },
       applyPreview(on) {
         // The environment picker, Cloud (Move to Cloud, the account's Cloud machines) and Sandboxed
@@ -11112,7 +11190,6 @@ function AcpmuxPane() {
                                                 <VirtualTranscript
                                                   rows={transcriptRows}
                                                   sourceRows={childRows ? undefined : sourceRows}
-                                                  pullRequestRows={prSourceRows(snapshot, childRows, subagentView)}
                                                   endReserve={previewBeside ? COMPUTER_USE_PREVIEW_RESERVE : 0}
                                                   working={snapshot.isWorking}
                                                   // Its stage positions Jump to latest; the Quick Composer's panel has no room for it.
@@ -11474,15 +11551,6 @@ function AcpmuxPane() {
   ) : (
     !reviewing && (
       <>
-        {legacyPullRequestDockMode() && (
-          <LegacyPullRequestDock
-            key={snapshot.sessionId}
-            rows={snapshot.rows}
-            repository={githubRepository ?? undefined}
-            sessionId={snapshot.sessionId}
-            onOpenChanges={inspector.reveal ? () => inspector.reveal!("changes") : undefined}
-          />
-        )}
         {recapCard.recap && (
           <RecapCard
             recap={recapCard.recap}
@@ -11670,6 +11738,7 @@ function AcpmuxPane() {
         {/* An attached image opens in the chat's image viewer, as a transcript image does. */}
         <ImageViewerContext.Provider value={openImage}>
           <Composer
+            locked={cloudStarting}
             snapshot={composerSnapshot}
             headerCwd={snapshot.summary?.cwd ?? ""}
             sessionId={snapshot.sessionId ?? snapshot.summary?.sessionId}
@@ -11695,6 +11764,14 @@ function AcpmuxPane() {
               // The Trust continuation uses ComposerHandle.send(force), but never bypasses auth.
               if (authBlock) return false;
               if (sandboxHoldsChat && !sandboxDraftMoved) return false;
+              if (cloudPicked) {
+                const refused = sendToCloud(text, chips?.length ?? 0, {
+                  ...(projectDraft ? { cwd: projectDraft } : {}),
+                  ...heldPick(composerSnapshot),
+                });
+                if (refused) directClient.current?.notice(refused);
+                return false;
+              }
               if (sandboxPickedNotOffered) {
                 sandbox.refuse(text, sandboxNotNow);
                 return false;
@@ -12136,6 +12213,19 @@ function AcpmuxPane() {
           <SummaryCard
             key={snapshot.sessionId}
             card={summaryCard}
+            environment={{
+              summary: inspectorSubagent
+                ? subagentSummary(inspectorSummary, inspectorSubagent.agent, inspectorSubagent.rows)
+                : inspectorSummary,
+              machineName,
+              peerKinds: snapshot.peerKinds,
+              repository: githubRepository,
+              onOpenFolder:
+                quick || !inspectorLocal
+                  ? undefined
+                  : (path) =>
+                      ignoreFailure(callNative("pane.action", { id: HEADER_ACTIONS.files, cwd: path, mode: "open" })),
+            }}
             rows={cardRows}
             cwd={snapshot.summary?.cwd}
             changes={quick ? undefined : cardChanges}
@@ -12274,11 +12364,25 @@ function AcpmuxPane() {
                     heldBack.current = [...(heldBack.current ?? []), { text: text.trim() ? text : "", attachments }];
                     setSandboxDraftMoved(true);
                   }}
-                  {...(sandboxOffered || sandboxPickedNotOffered
+                  {...(sandboxOffered || sandboxPickedNotOffered || cloudPickedNotOffered
                     ? {
                         runMode: sandboxModeRows,
                         // A page-side refusal goes to the chat view, which says why (SandboxRunView), with
                         // the prompt and attachments put back in its composer.
+                        ...(cloudStart ? { cloudStatus: <CloudStartView start={cloudStart} bubble={false} /> } : {}),
+                        cloudStarting,
+                        onCloud: (
+                          harness: string,
+                          text: string,
+                          cwd: string | undefined,
+                          model: string | undefined,
+                          attachments: ComposerAttachment[],
+                        ) =>
+                          sendToCloud(text, attachments.length, {
+                            harness,
+                            ...(cwd ? { cwd } : {}),
+                            ...(model ? { model } : {}),
+                          }),
                         onSandbox: (harness: string, text: string, attachments: ComposerAttachment[]) => {
                           const started = sandboxPickedNotOffered
                             ? sandboxNotNow
@@ -12675,6 +12779,8 @@ function AcpmuxPane() {
                   />
                 ) : freshView && pastTurns && (!pastWaitsForTrust || trustAsk.ask) ? (
                   <PastChat turns={pastTurns} {...(githubRepository ? { githubRepository } : {})} />
+                ) : cloudStart && !snapshot.sessionId ? (
+                  <CloudStartView start={cloudStart} />
                 ) : sandboxView && !snapshot.sessionId && (sandboxHoldsChat || sandbox.mode === "sandboxed") ? (
                   <SandboxRunView
                     run={sandboxView}
