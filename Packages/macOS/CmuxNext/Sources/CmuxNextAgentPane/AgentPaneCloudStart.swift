@@ -56,13 +56,13 @@ public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
     /// above it holding `.git` (a Git working copy's top), else `folder` itself (as
     /// `CloudMoveFolder` picks it). Reads the disk.
     public nonisolated static func uploadRoot(of folder: String) -> String {
-        var current = folder
-        while true {
+        // The folder and each one above it, up to `/`: a bounded walk, one step per path component.
+        let components = (folder as NSString).pathComponents
+        for count in stride(from: components.count, through: 1, by: -1) {
+            let current = NSString.path(withComponents: Array(components.prefix(count)))
             if FileManager.default.fileExists(atPath: (current as NSString).appendingPathComponent(".git")) { return current }
-            let parent = (current as NSString).deletingLastPathComponent
-            if parent == current || parent.isEmpty { return folder }
-            current = parent
         }
+        return folder
     }
 
     /// The seed of the chat on the Cloud machine, in `cwd` (the folder's copy there): the person's
