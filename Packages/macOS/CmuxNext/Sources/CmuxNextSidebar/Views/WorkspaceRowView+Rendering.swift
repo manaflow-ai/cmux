@@ -8,6 +8,13 @@ extension WorkspaceRowView {
     /// aligns its field to it): the glyphs start one cell inset inside it.
     override var titleFrame: NSRect { title.frame.insetBy(dx: -Self.labelInset, dy: 0) }
     override var titleFont: NSFont { title.font }
+    /// The marquee label draws its text at its frame's edge, the baseline one ascender (on a whole
+    /// pixel) below its top (`ChromeTextLayer`).
+    override var titlePenOrigin: NSValue? {
+        let scale = window?.backingScaleFactor ?? 2
+        return NSValue(point: NSPoint(x: title.frame.minX, y: title.frame.minY + (title.font.ascender * scale).rounded() / scale))
+    }
+    override var titleInk: NSColor? { title.textColor }
     override func setTitleHidden(_ hidden: Bool) {
         renaming = hidden
         title.isHidden = hidden

@@ -41,6 +41,13 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
         if let appLink { return { await appLink.ownerLink } }
         return { await link?.ownerLink }
     }
+
+    /// Whether the link a Cloud machine's calls go over says the machine is a teammate's (the app
+    /// link's own answer, or the legacy link's): only names a refused start, never grants one.
+    static func teammate(appLink: CloudLinkSession?, link: CloudMachineLink?) -> AgentTabRemoteStart.Teammate {
+        if let appLink { return { await appLink.callerIsTeammate } }
+        return { await link?.callerIsTeammate ?? false }
+    }
     /// The keyed restart of the machine's acpmux (an SSH machine, or a paired server on the ssh
     /// route); nil where the app has no exec channel of its own (cx-0q7o).
     var approvals: AgentPaneRemoteApprovals?

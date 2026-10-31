@@ -49,7 +49,8 @@ await requireBrowserLane("agent-pane-attach-typing.test.ts", async () => {
     await vite?.close();
   });
 
-  async function newChat(colorScheme: "light" | "dark" = "light"): Promise<Page> {
+  /// A new chat; `view` "strip" turns on Settings' attachment strip (the default is inline).
+  async function newChat(colorScheme: "light" | "dark" = "light", view?: "strip"): Promise<Page> {
     const page = await browser!.newPage({ viewport: { width: 900, height: 640 }, colorScheme });
     await page.addInitScript(() => {
       Object.assign(window, {
@@ -66,6 +67,7 @@ await requireBrowserLane("agent-pane-attach-typing.test.ts", async () => {
     const { port } = vite!.httpServer!.address() as { port: number };
     await page.goto(`http://127.0.0.1:${port}/`);
     await page.locator(".acpmux-composer-prompt").waitFor();
+    if (view) await page.evaluate((attachmentView) => window.cmuxAcpmuxComposer?.({ attachmentView }), view);
     return page;
   }
 
@@ -82,44 +84,49 @@ await requireBrowserLane("agent-pane-attach-typing.test.ts", async () => {
       const data = new DataTransfer();
       for (let index = 0; index < count; index += 1)
         data.items.add(new File([blob], `Screenshot ${index + 1}.png`, { type: "image/png" }));
-      const target = document.querySelector(".acpmux-composer-prompt [contenteditable]")!;
+      const target = document.querySelector(".acpmux-composer-prompt [contenteditable='true']")!;
       target.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
       // Where the next key goes, at once: the prompt, not a stand-in that takes keys for a moment.
       return target.contains(document.activeElement);
     }, count);
 
   const promptText = (page: Page) =>
-    page
-      .locator(".acpmux-composer-prompt [contenteditable]")
-      .evaluate((node) => node.textContent?.replace(/\u00a0/g, " "));
+    page.locator(".acpmux-composer-prompt [contenteditable='true']").evaluate((node) => {
+      // The prompt's text, without the attachments placed in it (each an atom in the line).
+      const copy = node.cloneNode(true) as Element;
+      for (const atom of copy.querySelectorAll("[data-inline-attachment]")) atom.remove();
+      return copy.textContent?.replace(/\u00a0/g, " ");
+    });
 
   test("keys typed while pasted images attach all land, spaces included", async () => {
     const page = await newChat();
-    const prompt = page.locator(".acpmux-composer-prompt [contenteditable]");
+    const prompt = page.locator(".acpmux-composer-prompt [contenteditable='true']");
     await prompt.click();
     await page.keyboard.type("i cant");
     expect(await pasteImages(page, 3)).toBe(true);
     // The person types on at once, while the images are still being read.
     await page.keyboard.type(" preview", { delay: 15 });
-    await page.locator(".acpmux-attachment-image").nth(2).waitFor();
+    await page.locator(".acpmux-md-inline-chip .acpmux-attachment-image").nth(2).waitFor();
     await page.keyboard.type(" them");
     expect(await promptText(page)).toBe("i cant preview them");
     await page.close();
   });
 
   test("the attachment strip is compact: one row of 64 px tiles close to the text", async () => {
-    const page = await newChat();
-    const prompt = page.locator(".acpmux-composer-prompt [contenteditable]");
+    const page = await newChat("light", "strip");
+    const prompt = page.locator(".acpmux-composer-prompt [contenteditable='true']");
     await prompt.click();
     const field = page.locator(".acpmux-composer-prompt").first();
     const before = (await page.locator(".acpmux-composer-box").boundingBox())!;
     await pasteImages(page, 3);
-    const chips = page.locator(".acpmux-attachment-image");
+    const chips = page.locator(".acpmux-attachments .acpmux-attachment-image");
     await chips.nth(2).waitFor();
     // Every thumbnail loaded and sized by its own shape (decode() can reject while a thumbnail's
     // source is swapped for its smaller copy).
     await page.waitForFunction(() => {
-      const images = [...document.querySelectorAll<HTMLImageElement>(".acpmux-attachment-image img")];
+      const images = [
+        ...document.querySelectorAll<HTMLImageElement>(".acpmux-attachments .acpmux-attachment-image img"),
+      ];
       return images.length === 3 && images.every((img) => img.complete && img.naturalWidth > 0);
     });
     const box = (await page.locator(".acpmux-composer-box").boundingBox())!;
@@ -134,7 +141,7 @@ await requireBrowserLane("agent-pane-attach-typing.test.ts", async () => {
     expect(Math.round(tiles[0]!.y - box.y)).toBe(8);
     // The text's first line starts 6 px under the strip.
     const textTop = await field.evaluate((node) => {
-      const line = node.querySelector("[contenteditable]")!.getBoundingClientRect();
+      const line = node.querySelector("[contenteditable='true']")!.getBoundingClientRect();
       return line.top;
     });
     expect(Math.round(textTop - (strip.y + strip.height))).toBe(6);
@@ -150,14 +157,16 @@ await requireBrowserLane("agent-pane-attach-typing.test.ts", async () => {
       return sum + 0.2126 * png.data[at]! + 0.7152 * png.data[at + 1]! + 0.0722 * png.data[at + 2]!;
     }, 0) / pixels.length;
 
+  // The strip's thumbnail (Leo's 56 px squares were the strip's); an inline thumbnail is sized to sit
+  // in a line of text (markdownField.css).
   test("a dark screenshot's thumbnail is big enough to see and keeps a clear edge", async () => {
-    const page = await newChat("dark");
-    await page.locator(".acpmux-composer-prompt [contenteditable]").click();
+    const page = await newChat("dark", "strip");
+    await page.locator(".acpmux-composer-prompt [contenteditable='true']").click();
     await pasteImages(page, 3);
-    const chips = page.locator(".acpmux-attachment-image");
+    const chips = page.locator(".acpmux-attachments .acpmux-attachment-image");
     await chips.nth(2).waitFor();
     await page
-      .locator(".acpmux-attachment-image img")
+      .locator(".acpmux-attachments .acpmux-attachment-image img")
       .nth(2)
       .evaluate((img: HTMLImageElement) => img.decode());
     for (let index = 0; index < 3; index += 1) {
