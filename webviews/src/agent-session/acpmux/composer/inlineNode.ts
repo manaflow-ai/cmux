@@ -8,11 +8,18 @@
 // attachment's chip into the node's element (composer/inlineAttachments.tsx), which `InlineViews`
 // hands it.
 import { closeHistory } from "@milkdown/kit/prose/history";
-import { Fragment, type Node as ProseNode, type Slice } from "@milkdown/kit/prose/model";
+import { Fragment, type Node as ProseNode, Slice } from "@milkdown/kit/prose/model";
 import { type EditorState, Plugin, TextSelection, type Transaction } from "@milkdown/kit/prose/state";
 import type { EditorView, NodeView } from "@milkdown/kit/prose/view";
 import { $node, $prose } from "@milkdown/kit/utils";
-import { INLINE_ATTACHMENT_MARK, inlineCopyId, inlineToken, inlineTokenSpans } from "../attachments";
+import {
+  escapeTextMarks,
+  INLINE_ATTACHMENT_MARK,
+  inlineCopyId,
+  inlineToken,
+  inlineTokenSpans,
+  unescapeTextMarks,
+} from "../attachments";
 
 export const INLINE_NODE = "inline_attachment";
 
@@ -61,6 +68,10 @@ function holds(content: Fragment, test: (node: ProseNode) => boolean): boolean {
 /// it. A U+FFFC in other copied text (a page's bold run) is only text, and pastes as text.
 export const sliceHoldsInline = (slice: Slice) => holds(slice.content, (node) => node.type.name === INLINE_NODE);
 
+/// The ids of the attachments placed in `doc`, its own nodes only (never text shaped like a token),
+/// in order, each once.
+export const inlineIds = (doc: ProseNode) => [...new Set(inlineNodes(doc).map((node) => node.id))];
+
 /// Each placed attachment's node in `doc`, in order.
 function inlineNodes(doc: ProseNode): { id: string; pos: number }[] {
   const found: { id: string; pos: number }[] = [];
@@ -86,7 +97,33 @@ export function placeTokensIn(tr: Transaction, known: InlineKnown): Transaction 
       tokens.push({ from: pos + span.from, to: pos + span.to, id: span.id });
   });
   for (const token of tokens.reverse()) tr.replaceWith(token.from, token.to, type.create({ id: token.id }));
+  // The person's own U+FFFC, which the draft writes escaped (`withTextMarksEscaped`), is theirs again.
+  const escaped: { from: number; node: ProseNode }[] = [];
+  tr.doc.descendants((node, pos) => {
+    if (!node.isText) return;
+    const text = unescapeTextMarks(node.text!);
+    if (text !== node.text) escaped.push({ from: pos, node });
+  });
+  for (const { from, node } of escaped.reverse())
+    tr.replaceWith(from, from + node.nodeSize, node.type.schema.text(unescapeTextMarks(node.text!), node.marks));
   return tr;
+}
+
+/// `doc` as the draft writes it: the person's own U+FFFC in a run of text shaped like a token
+/// escaped (attachments.ts escapeTextMarks), so only the nodes write tokens. `doc` itself when
+/// nothing needs it.
+export function withTextMarksEscaped(doc: ProseNode): ProseNode {
+  const runs: { from: number; to: number; node: ProseNode }[] = [];
+  doc.descendants((node, pos) => {
+    if (!node.isText || !node.text!.includes(INLINE_ATTACHMENT_MARK)) return;
+    const text = escapeTextMarks(node.text!);
+    if (text !== node.text)
+      runs.push({ from: pos, to: pos + node.nodeSize, node: node.type.schema.text(text, node.marks) });
+  });
+  let escaped = doc;
+  for (const { from, to, node } of runs.reverse())
+    escaped = escaped.replace(from, to, new Slice(Fragment.from(node), 0, 0));
+  return escaped;
 }
 
 /// After an edit that brought in placed attachments' nodes (a value set from outside, a paste of the

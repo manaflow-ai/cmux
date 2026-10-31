@@ -7,7 +7,7 @@ nonisolated extension SidebarLayout {
     /// A fold is view state the sidebar owns (plans/cmux-next/state-ownership-DESIGN.md), so it never
     /// waits for the daemon and never lays the whole list out: its cost is the group's rows, not the
     /// list's. Nil when the fold cannot be spliced and the list must be laid out again: a filter, a
-    /// drag gap or excluded item, Group by Folder, inline tabs, or a group this layout does not draw.
+    /// drag gap or excluded item, Group by Folder, or a group this layout does not draw.
     ///
     /// - Parameters:
     ///   - group: The group as the model holds it (its members; `isCollapsed` is ignored).
@@ -26,7 +26,7 @@ nonisolated extension SidebarLayout {
     mutating func fold(_ group: SidebarGroup, collapsed: Bool, in section: SidebarSection, metrics base: SidebarLayoutMetrics,
                        options o: SidebarLayoutOptions) -> Bool {
         guard o.filterMatches == nil, o.gap == nil, gapY == nil, o.excludedGroup == nil, o.excludedItem == nil,
-              !o.showWorkspaceTabs, !o.grouping.isGrouped, !o.hidesWorkspaces,
+              !o.grouping.isGrouped, !o.hidesWorkspaces,
               let headerIndex = position(of: .group(group.id)) else { return false }
         // The chat history's blocks sit at places the full layout leaves (`pinnedChatsY`, `earlierChatsY`); a splice
         // moves the rows but not those places, so with history shown the list is laid out again.
@@ -57,6 +57,9 @@ nonisolated extension SidebarLayout {
             }
         }
         guard members.count == header.childCount else { return false } // the members changed too: a structural change
+        // A group of one member named as the group draws that member's row in the header's place
+        // (`SidebarLayout+SoleMember`), not a header over member rows: laid out again.
+        guard Self.soleMember(group, members, hasSubgroups: false, options: o) == nil else { return false }
         let machineLabel = Self.machineLabel(section, options: o)
         let parent = header.siblingIndex
         var built: [SidebarRow] = []
@@ -70,7 +73,7 @@ nonisolated extension SidebarLayout {
                 key: .workspace(ws.id), y: y, height: h, section: section.id,
                 group: group.id, siblingIndex: childIndex, parentIndex: parent,
                 isLastInGroup: last, isCollapsed: false, childCount: 0,
-                groupColor: group.color, tabDisclosure: nil, content: content
+                groupColor: group.color, content: content
             ))
             built[built.count - 1].depth = memberDepth
             y += h + m.rowSpacing

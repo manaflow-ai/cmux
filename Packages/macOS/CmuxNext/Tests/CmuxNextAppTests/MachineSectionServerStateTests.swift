@@ -7,20 +7,20 @@ import Testing
 /// paused machines spun forever next to their names while the Cloud page listed them as Paused).
 @Suite struct MachineSectionServerStateTests {
     @Test func aPausedMachineReadsPausedAndAResumeKeepsASpinner() {
-        #expect(MachineSectionRow.cloudServerState(.paused, stage: .paused(idle: true)) == .paused)
-        #expect(MachineSectionRow.cloudServerState(.paused, stage: .paused(idle: false)) == .paused)
+        #expect(Self.state(.paused, stage: .paused(idle: true)) == .paused)
+        #expect(Self.state(.paused, stage: .paused(idle: false)) == .paused)
         // An attach or a click resuming it: the link is starting or up.
-        #expect(MachineSectionRow.cloudServerState(.paused, stage: .booting) == .resuming)
-        #expect(MachineSectionRow.cloudServerState(.paused, stage: .connecting) == .resuming)
-        #expect(MachineSectionRow.cloudServerState(.paused, stage: .failed("resume refused")) == .failed)
+        #expect(Self.state(.paused, stage: .booting) == .resuming)
+        #expect(Self.state(.paused, stage: .connecting) == .resuming)
+        #expect(Self.state(.paused, stage: .failed("resume refused")) == .failed)
     }
 
     @Test func settledStatesReadInWordsAndLiveOnesFollowTheLink() {
-        #expect(MachineSectionRow.cloudServerState(.failed, stage: .failed("x")) == .failed)
-        #expect(MachineSectionRow.cloudServerState(.destroyed, stage: .booting) == .deleted)
+        #expect(Self.state(.failed, stage: .failed("x")) == .failed)
+        #expect(Self.state(.destroyed, stage: .booting) == .deleted)
         for status in [CloudMachine.Status.running, .provisioning, .unknown] {
             for stage in [CloudMachineStage.booting, .connecting, .ready] {
-                #expect(MachineSectionRow.cloudServerState(status, stage: stage) == nil)
+                #expect(Self.state(status, stage: stage) == nil)
             }
         }
     }
@@ -30,9 +30,15 @@ import Testing
     @Test func aPausedMachineWhoseDaemonSitsConnectingShowsNoSpinner() {
         let stage = CloudMachineStageInput(creation: nil, machineStatus: .paused, pauseReason: .user).stage
         let row = MachineSectionRow(id: "vm-1", name: "zesty", isConnected: false, isLocal: false, kind: .cloud, isConnecting: true,
-                                    serverState: MachineSectionRow.cloudServerState(.paused, stage: stage))
+                                    serverState: Self.state(.paused, stage: stage))
         #expect(row.serverState == .paused)
         #expect(!row.isConnecting)
         #expect(row.stateText == MachineServerState.paused.text)
+    }
+
+    /// The row's reading of a Cloud machine, as `MachineSectionRow.rows` passes it: the server status
+    /// and whether the app's stage for the machine is paused or failed.
+    private static func state(_ status: CloudMachine.Status, stage: CloudMachineStage) -> MachineServerState? {
+        .cloud(status, stagePaused: stage.isPaused, stageFailed: stage.failure != nil)
     }
 }
