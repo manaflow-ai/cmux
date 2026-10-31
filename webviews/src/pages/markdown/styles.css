@@ -791,7 +791,7 @@ body {
 [data-read-only="true"] .md-prose a,
 [data-read-only="true"] .md-prose sup[data-type="footnote_reference"],
 .md-prose [data-type="footnote_definition"] > dt {
-  cursor: pointer;
+  cursor: default;
 }
 
 .md-prose .md-link-broken,
@@ -844,7 +844,7 @@ body {
   color: var(--cmux-md-link-color);
   font: inherit;
   text-align: start;
-  cursor: pointer;
+  cursor: default;
 }
 
 .md-link-bubble-target:hover .md-link-bubble-url {
@@ -1404,7 +1404,7 @@ body {
   border-radius: 9px 9px 9px 3px;
   background: var(--cmux-accent);
   opacity: 0.85;
-  cursor: pointer;
+  cursor: default;
 }
 
 .cmux-comment-button:hover,
@@ -1450,7 +1450,7 @@ body {
   background: none;
   color: var(--cmux-md-muted-color);
   font: inherit;
-  cursor: pointer;
+  cursor: default;
 }
 
 .cmux-comment-delete:hover {
