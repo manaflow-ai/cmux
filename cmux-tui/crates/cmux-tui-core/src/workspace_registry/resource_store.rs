@@ -818,6 +818,8 @@ impl WorkspaceRegistry {
 
     /// Hooks committed before a live projection, including records whose caller timed
     /// out after commit admission. Reading the retry queue avoids scanning terminal history.
+    /// Quarantined rows (at the attempt cap) are skipped, so one permanently failing hook
+    /// cannot stall every later hook of its terminal.
     pub(crate) fn pending_agent_hook_projections_before(
         &self,
         terminal_id: &TerminalPublicId,
@@ -837,7 +839,7 @@ impl WorkspaceRegistry {
         let mut statement = db.prepare(
             "SELECT producer_id, origin, idempotency_key, event_sequence, ingress_json
              FROM resource_agent_hook_pending
-             WHERE terminal_id = ?1 AND (?4 IS NOT NULL OR attempt < ?2)
+             WHERE terminal_id = ?1 AND attempt < ?2
                AND (?4 IS NULL OR event_sequence < ?4)
              ORDER BY event_sequence ASC, idempotency_key ASC
              LIMIT ?3",
