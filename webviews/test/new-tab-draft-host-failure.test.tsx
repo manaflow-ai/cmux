@@ -172,3 +172,64 @@ for (const [template, selector] of [
     expect(field()!.value).toBe("draft typed before the handshake");
   }, 60_000);
 }
+
+test("an existing chat that failed before its handshake and recovered gives a later New Tab no prompt", async () => {
+  // cmux#28204 review: the stand-in flag stayed set after a chat's own recovery, and a New Tab
+  // adopted into the pane later took the chat's prompt as its draft.
+  let answers = false;
+  let failFirst: (() => void) | undefined;
+  let asked = 0;
+  Object.assign(dom.window, {
+    webkit: {
+      messageHandlers: {
+        agentSession: {
+          postMessage: (message: { method: string }) => {
+            const refusal = { ok: false, error: { code: "acpmux.unavailable", message: "acpmux is not installed" } };
+            if (message.method === "ready" && !answers) {
+              asked += 1;
+              if (asked > 1) return Promise.resolve(refusal);
+              return new Promise((done) => (failFirst = () => done(refusal)));
+            }
+            return Promise.resolve({
+              ok: true,
+              value:
+                message.method === "ready"
+                  ? { protocolVersion: 1, transport: "mock", newSession: true, machineName: "Mac" }
+                  : undefined,
+            });
+          },
+        },
+      },
+    },
+  });
+  const { createRoot } = await import("react-dom/client");
+  const { AcpmuxApp } = await import("../src/agent-session/acpmux/App");
+  root = createRoot(host);
+  await act(async () => root!.render(<AcpmuxApp />));
+  await until(() => failFirst !== undefined, "the handshake goes out");
+  await act(async () => failFirst!());
+  await until(() => promptField() !== undefined, "the chat view with its error card");
+  answers = true;
+  await until(
+    () => (dom.window as unknown as { cmuxAcpmuxActions?: Record<string, unknown> }).cmuxAcpmuxActions !== undefined,
+    "the chat recovers",
+    30_000,
+  );
+  // The person types in the chat's own composer.
+  const field = host.querySelector<HTMLElement & { acpmuxMarkdownField?: { type(text: string): unknown } }>(
+    ".acpmux-composer-prompt",
+  )!;
+  await act(async () => void field.acpmuxMarkdownField!.type("the chat's own prompt"));
+  await until(() => composerText() === "the chat's own prompt", "the chat's prompt");
+  // Cmd-T adopts a New Tab into this pane: it opens empty.
+  const { NEW_TAB_ADOPT_EVENT } = await import("../src/agent-session/acpmux/newtab/adoption");
+  await act(async () =>
+    dom.window.dispatchEvent(
+      new dom.window.CustomEvent(NEW_TAB_ADOPT_EVENT, {
+        detail: { template: "default", cwd: "/tmp/draft-project", projects: ["/tmp/draft-project"] },
+      }),
+    ),
+  );
+  await until(() => host.querySelector(".nt-field") !== null, "the New Tab page");
+  expect(host.querySelector<HTMLTextAreaElement>(".nt-field")!.value).toBe("");
+}, 60_000);

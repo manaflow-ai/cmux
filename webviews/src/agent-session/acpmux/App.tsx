@@ -7930,9 +7930,11 @@ function AcpmuxPane() {
   // The host failed before its handshake: the chat view (its error card and composer) takes the
   // New Tab page's place until a retry answers, then gives it back (`showNewTab`). What was typed
   // goes along each way (the page's `onLeaveDraft`, `takeDraft`); before, it was dropped both ways.
-  // `composerStoodIn` stays set from that render until the page is back after a handshake.
+  // `composerStoodIn`: the chat view stands in for a New Tab page now (the host failed before its
+  // handshake while the tab is a New Tab page). Set from that state each render, and cleared once
+  // the handshake is done (below): the page that comes back right then takes the draft, and no
+  // later page (another New Tab adopted into this pane, a chat's own recovery) ever does.
   const composerStoodIn = useRef(false);
-  if (!handshaken && hostError !== undefined) composerStoodIn.current = true;
   /// Whether `hostError` is said (one line above the composer, hostRetry.ts `hostErrorShows`): a
   /// refusal at once, a recovery (a daemon starting, restarting or handed off by an update) only
   /// once it has failed past its deadline. Until then the pane shows nothing; a connect clears it.
@@ -10394,10 +10396,12 @@ function AcpmuxPane() {
     (newTabStartPage === newTabGeneration ||
       ((sessionSelection?.state === "pending" || !snapshot.sessionId) && snapshot.rows.length === 0)) &&
     (handshaken || hostError === undefined);
-  // The page is back after a handshake (its `takeDraft` ran): a later page has no stand-in's draft.
+  if (newTab !== undefined && !handshaken && hostError !== undefined) composerStoodIn.current = true;
+  // The handshake is done: the page that came back in that render took the draft (`takeDraft`
+  // runs as it mounts, before this effect); an existing chat's recovery has no page to give it to.
   useEffect(() => {
-    if (handshaken && showNewTab) composerStoodIn.current = false;
-  }, [handshaken, showNewTab]);
+    if (handshaken) composerStoodIn.current = false;
+  }, [handshaken]);
   /// The New Tab page (either template) goes with its draft unsent, and the chat view takes its
   /// place: the tab's run, found by a read, or the chat view standing in before the handshake (a
   /// host that failed early). The draft goes to the chat view's composer.
