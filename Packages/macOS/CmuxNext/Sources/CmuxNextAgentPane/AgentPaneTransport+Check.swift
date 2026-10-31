@@ -62,8 +62,10 @@ extension AgentPaneTransport {
     }
 
     /// What the rules that need no main-actor state make of one frame: refused (a ticket in it, if
-    /// any, is to be spent), or the checked frame and its facts. No socket and no request ids, so the
-    /// shared parity cases run it (cmux-agent-pane-policy `check_frame`, tests/cases/check.json).
+    /// any, is to be spent), or the checked frame and its facts. No socket and no request ids. The
+    /// Rust copy of these rules (cmux-agent-pane-policy `check_frame`) runs the cases in its
+    /// tests/cases/check.json; no Swift test reads that file, so a rule here needs its own Swift
+    /// test (the transport tests, for example `AgentPaneForkRelayTests`).
     nonisolated enum Checked: Sendable {
         case refuse(AcpmuxPaneMethods.Decision, spend: String?)
         case frame(Facts, FrameBox)

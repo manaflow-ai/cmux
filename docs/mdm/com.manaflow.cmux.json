@@ -1764,22 +1764,6 @@
       "title" : "Reactions Can Wake the Chief",
       "type" : "boolean"
     },
-    "cloud.newWorkspaceFolder" : {
-      "default" : "inherit",
-      "description" : "Current Folder copies the folder you work in (its whole git working copy) to the new machine. Empty Folder starts in the machine's own empty folder.",
-      "enum" : [
-        "inherit",
-        "empty"
-      ],
-      "title" : "New Cloud Workspaces Start In",
-      "type" : "string"
-    },
-    "cloud.newWorkspacesInCloud" : {
-      "default" : false,
-      "description" : "Each new workspace (Cmd-N, the sidebar's +) gets its own new Cloud machine. Agent chats you start in it run on that machine.",
-      "title" : "Run New Workspaces in Cloud",
-      "type" : "boolean"
-    },
     "computerUse.driver" : {
       "default" : "legacy",
       "description" : "Legacy runs the current cmux Computer Use helper. Upstream runs the new helper built on the upstream Cua Driver; macOS asks for its permissions separately.",
@@ -1800,6 +1784,12 @@
       "default" : true,
       "description" : "While an agent uses an app, its chat shows a small live view of that app. Click the view to open Agent Activity.",
       "title" : "Live Preview in Chat",
+      "type" : "boolean"
+    },
+    "contextMenus.showCustomizeItem" : {
+      "default" : true,
+      "description" : "Adds Customize Menu… to the end of every right-click menu.",
+      "title" : "Show Customize Menu…",
       "type" : "boolean"
     },
     "deviceHub.url" : {
@@ -3900,7 +3890,7 @@
       "type" : "boolean"
     },
     "sidebar.showWorkspaceTabs" : {
-      "default" : true,
+      "default" : false,
       "description" : "Lists tabs beneath each workspace in the sidebar.",
       "title" : "Show Workspace Tabs",
       "type" : "boolean"

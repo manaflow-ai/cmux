@@ -191,9 +191,9 @@ extension SidebarBridge {
     /// Section only on Recents (`SidebarHiddenSections`).
     func layoutSectionMenu(_ id: LayoutSectionID) -> NSMenu? {
         let isApp = model.layout.section(id)?.owningAppID != nil
-        let entries = ContextMenuCatalog.shared.entries(for: .sidebarSection, removing: SidebarHiddenSections.headerMenuRemovals(id, isApp: isApp))
+        let entries = services.registry.contextMenuEntries(for: .sidebarSection, removing: SidebarHiddenSections.headerMenuRemovals(id, isApp: isApp))
         return services.registry.makeContextMenu(for: .sidebarSection, target: ActionTargetRef(kind: .sidebarSection, id: id.rawValue),
-                                                 entries: entries)
+                                                 entries: entries, customize: true)
     }
 
     /// The open workspace a pinned workspace's tile names, or nil (another item, a closed or
@@ -218,11 +218,10 @@ extension SidebarBridge {
     /// The right-click menu of a layout item: Hide only on app items.
     func layoutItemMenu(_ id: LayoutItemID) -> NSMenu? {
         let tile = model.layout.item(id), item = tile ?? model.listedItem(id)
-        let menus = ContextMenuCatalog.shared
-        let entries = menus.entries(for: .sidebarItem, removing: ChiefSidebar.menuRemovals(isApp: item?.owningAppID != nil, isChief: item?.ref == .builtIn(.chief), isTile: tile != nil)
+        let entries = services.registry.contextMenuEntries(for: .sidebarItem, removing: ChiefSidebar.menuRemovals(isApp: item?.owningAppID != nil, isChief: item?.ref == .builtIn(.chief), isTile: tile != nil)
             .union(Self.pendingEdits(id)))
         return services.registry.makeContextMenu(for: .sidebarItem, target: ActionTargetRef(kind: .sidebarItem, id: id.rawValue),
-                                                 entries: entries)
+                                                 entries: entries, customize: true)
     }
 
     /// The item menu rows an item `id` does not offer while its add waits for the daemon (a Chief just dragged in): an

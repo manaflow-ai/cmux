@@ -7,6 +7,13 @@ public enum CloudStrings {
         String(localized: "cloud.unavailable.localBackend", defaultValue: "This build has no Cloud backend. Rebuild it with ./scripts/reload.sh --tag <tag> --direct-backend.", table: "Cloud", bundle: .module)
     }
     public static var noClient: String { String(localized: "cloud.unavailable.noClient", defaultValue: "The bundled cmux-tui client is missing, so Cloud machines cannot connect. Reinstall cmux from cmux.com/download, or rebuild a local build with cmux-tui bundled.", table: "Cloud", bundle: .module) }
+    /// The name a new Cloud machine gets when the person typed none (``CloudMachine/defaultName(taken:base:numbered:)``),
+    /// so the sidebar and menus never title it by its raw id.
+    nonisolated public static var defaultMachineName: String { String(localized: "cloud.machine.defaultName", defaultValue: "Cloud Machine", table: "Cloud", bundle: .module) }
+    /// The default name when ``defaultMachineName`` is taken: "Cloud Machine 2".
+    nonisolated public static func defaultMachineName(numbered number: Int) -> String {
+        String(format: String(localized: "cloud.machine.defaultNameNumbered", defaultValue: "Cloud Machine %lld", table: "Cloud", bundle: .module), number)
+    }
     nonisolated public static var signInFirst: String { String(localized: "cloud.failed.signInFirst", defaultValue: "Sign in to use Cloud machines: run Sign In from the command palette, or `cmux cloud sign-in`.", table: "Cloud", bundle: .module) }
     /// The Cloud toggle (#26062) is on, but this New Workspace opened on this Mac; `reason` says why.
     public static func newWorkspaceOpenedHere(_ reason: String) -> String {

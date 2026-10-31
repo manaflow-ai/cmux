@@ -21,6 +21,8 @@ mod deferred;
 pub use deferred::{Deferral, Keep};
 mod superseded;
 pub use superseded::{Superseded, starts_prompt};
+mod kind_index;
+pub use kind_index::INDEXED_KINDS;
 
 /// One line in the session event log.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -713,6 +715,19 @@ pub trait Store: Send + Sync {
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
         self.scan(id, 0, &mut |rec| {
+            if kinds.contains(&rec.kind.as_str()) { visit(rec) } else { true }
+        })
+    }
+    /// `scan_kinds`, but strict as `scan_strict` is: a record that cannot be read is an error. A
+    /// file store reads a segment's copy of its kinds (`store/kind_index.rs`) only when every line
+    /// the copy covers read whole.
+    fn scan_kinds_strict(
+        &self,
+        id: &str,
+        kinds: &[&str],
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        self.scan_strict(id, 0, &mut |rec| {
             if kinds.contains(&rec.kind.as_str()) { visit(rec) } else { true }
         })
     }
@@ -1511,38 +1526,16 @@ impl Store for LocalStore {
         kinds: &[&str],
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
-        // Debug builds only: `ACPMUX_TEST_SCAN_DELAY_MS` holds each log scan, as a slow disk or a
-        // long log does (`tests/restart_reattach.rs`). Bounded; release builds have no seam.
-        #[cfg(debug_assertions)]
-        if let Some(ms) =
-            std::env::var("ACPMUX_TEST_SCAN_DELAY_MS").ok().and_then(|v| v.parse::<u64>().ok())
-        {
-            std::thread::sleep(std::time::Duration::from_millis(ms.min(1_000)));
-        }
-        let mut line = Vec::new();
-        for (_, path) in self.segments(id)? {
-            let mut reader =
-                BufReader::with_capacity(256 * 1024, crate::config::private_state_file(&path)?);
-            loop {
-                line.clear();
-                if reader.read_until(b'\n', &mut line)? == 0 {
-                    break;
-                }
-                if line.iter().all(u8::is_ascii_whitespace) {
-                    continue;
-                }
-                if record_kind(&line)
-                    .is_some_and(|kind| !kinds.iter().any(|k| k.as_bytes() == kind))
-                {
-                    continue;
-                }
-                let Ok(rec) = serde_json::from_slice::<EventRecord>(&line) else { continue };
-                if kinds.contains(&rec.kind.as_str()) && !visit(rec) {
-                    return Ok(());
-                }
-            }
-        }
-        Ok(())
+        self.scan_kinds_in(id, kinds, false, visit)
+    }
+
+    fn scan_kinds_strict(
+        &self,
+        id: &str,
+        kinds: &[&str],
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        self.scan_kinds_in(id, kinds, true, visit)
     }
 
     /// Segments newest first, so a page from the end reads only the segments it

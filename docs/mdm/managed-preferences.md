@@ -79,8 +79,6 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `phone.cloudReplica` | boolean | `false` |  | Show This Mac's Workspaces on Your Phone While It's Off. cmux stores this Mac's workspace names, colors and unread counts so your phone can show them while the Mac is off. A workspace name can be a folder's name. No paths, tab titles or terminal output. Turning this off deletes the copy. |
 | `appearance.machineColors` | dictionary | `{}` |  | Machine Color. The color of each machine's sidebar rows and tab badges, by machine name: "#RRGGBB", or an accent name (red, green, yellow, purple, cyan, orange, pink, blue) that follows the theme. A machine without one gets a color from its name. |
 | `ssh.linkAllowedHosts` | array | `[]` |  | Always Allowed SSH Link Hosts. An ssh:// link from another app connects to these hosts without asking. Remove a host to be asked again. Saved machines and acpmux peers never ask. |
-| `cloud.newWorkspacesInCloud` | boolean | `false` |  | Run New Workspaces in Cloud. Each new workspace (Cmd-N, the sidebar's +) gets its own new Cloud machine. Agent chats you start in it run on that machine. |
-| `cloud.newWorkspaceFolder` | string | `"inherit"` | `inherit`, `empty` | New Cloud Workspaces Start In. Current Folder copies the folder you work in (its whole git working copy) to the new machine. Empty Folder starts in the machine's own empty folder. |
 | `agents.subsessions.enabled` | boolean | `true` |  | Let Agents Start Sub-sessions. An agent can start other agent sessions to work on parts of a task in parallel. They show under its session in the sidebar. |
 | `agents.subsessions.answerQuestions` | boolean | `false` |  | Let Sessions Answer Their Sub-sessions' Questions. When an agent in a sub-session asks a question, the session that started it can answer, and the answer shows who gave it. Permission requests always wait for you. Off: only you answer. |
 | `agents.subsessions.maxChildren` | real | `50` | 1 to 1000 | Open Sub-sessions per Session. The most live sub-sessions one session can have at the same time. Running, waiting and harness-alive children count; finished, dead and closed children do not use a slot. |
@@ -320,7 +318,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `sidebar.topBandMaxShare` | real | `0.3333333333333333` | 0.1 to 0.9 | Top Sections Height. The share of the sidebar the top sections fill before they scroll. |
 | `sidebar.bottomBandMaxShare` | real | `0.25` | 0.1 to 0.9 | Bottom Sections Height. The share of the sidebar the bottom sections fill before they scroll. |
 | `sidebar.pinnedBandsScroll` | boolean | `true` |  | Scroll Tall Sections. Off: the top and bottom sections never scroll and the workspace list gets smaller. |
-| `sidebar.showWorkspaceTabs` | boolean | `true` |  | Show Workspace Tabs. Lists tabs beneath each workspace in the sidebar. |
+| `sidebar.showWorkspaceTabs` | boolean | `false` |  | Show Workspace Tabs. Lists tabs beneath each workspace in the sidebar. |
 | `sidebar.showChats` | boolean | `true` |  | Show All Chats on New Tab. On the New Tab page, the Threads and Console styles list every coding agent chat on this computer, newest first. Off, they show the recent chats only. |
 | `sidebar.sessionTree` | boolean | `false` |  | Session Tree. Lists a workspace that another workspace's agent started under it, and shows each row's pull requests and the first rows' Command-number keys. |
 | `sidebar.showProjects` | boolean | `true` |  | Show Projects |
@@ -598,6 +596,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `macScreen.systemShortcuts` | boolean | `false` |  | Send System Shortcuts to the Remote Mac. While a Mac Screen tab has the keyboard, shortcuts like ⌘Tab, ⌘Space, Mission Control and ⌘Q go to the other Mac. Needs Accessibility. |
 | `macScreen.debug.relayOnly` | boolean | `false` |  | Relay Only. Mac Screen tabs connect through the TURN relay only, never directly, to check the relay path. Tabs that are connected reconnect. |
 | `deviceHub.url` | string | `""` |  | Device Hub Address. Overrides the device hub this build signs its devices in to, for Mac Screen sharing between your devices. Leave it empty to use the built-in hub. |
+| `contextMenus.showCustomizeItem` | boolean | `true` |  | Show Customize Menu…. Adds Customize Menu… to the end of every right-click menu. |
 | `EnrollmentToken` | string |  |  | Team enrollment token from the cmux dashboard. Signed-in users in a verified domain of the team join it; the token alone never grants membership. |
 | `ManagedTeam` | string |  |  | Team id (team_...) that manages this device. |
 | `RestrictToManagedTeam` | boolean |  |  | Refuse sign-in to any team other than ManagedTeam on this device. |
