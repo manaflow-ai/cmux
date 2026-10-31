@@ -17,6 +17,10 @@ enum SidebarStyle {
     /// The space between a row's fill and the sidebar's right edge (Leo 2026-10-27: "like say one or
     /// two pixels, 1.5").
     static let rowEdgeGap: CGFloat = 1.5
+    /// The plain sidebar background between a row's trailing edge and the curved main-pane card.
+    /// ChatGPT's sidebar keeps five device pixels (2.5 pt at 2x) here, with no resize line or
+    /// chrome shade in the band. This is scaled with the rest of the sidebar geometry.
+    static var rowToPaneGap: CGFloat { Metrics.scale(2.5) }
     static var rowCornerRadius: CGFloat { SidebarDensityTokens.rowCornerRadius }
     /// A listed tab's icon, sized to its caption-size title.
     static var tabIconSize: CGFloat { .iconRowSize(forLabelPointSize: subtitleFont.pointSize) }

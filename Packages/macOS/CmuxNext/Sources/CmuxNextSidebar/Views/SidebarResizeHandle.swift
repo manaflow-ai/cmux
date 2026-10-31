@@ -41,6 +41,20 @@ final class SidebarResizeHandle: NSView {
         }
     }
 
+    /// In a curved-card window, the sidebar edge line belongs in the titlebar band above the card.
+    /// The root supplies this y coordinate after layout; flat styles leave it at zero so their
+    /// existing full-height line remains unchanged.
+    var lineMinY: CGFloat = 0 {
+        didSet {
+            guard lineMinY != oldValue else { return }
+            needsLayout = true
+            updateLineFrame()
+        }
+    }
+
+    /// The line's frame after layout, exposed for geometry tests without exposing its layer.
+    var drawnLineFrame: CGRect { line.frame }
+
     /// The hairline shows at rest when the sidebar border is on, else only
     /// on hover or while dragging, and never as hover feedback beside the
     /// curved main pane: the card's edge is the seam there. The hit area and
@@ -126,10 +140,15 @@ final class SidebarResizeHandle: NSView {
 
     override func layout() {
         super.layout()
+        updateLineFrame()
+    }
+
+    private func updateLineFrame() {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         let width = lineWidth
-        line.frame = CGRect(x: edgeOffset - width / 2, y: 0, width: width, height: bounds.height)
+        let minY = min(max(0, lineMinY), bounds.height)
+        line.frame = CGRect(x: edgeOffset - width / 2, y: minY, width: width, height: bounds.height - minY)
         CATransaction.commit()
         glow.place(along: line.frame, vertical: true)
     }
