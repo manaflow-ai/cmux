@@ -6,6 +6,7 @@ import { createPageClient, type PageClient } from "../shared/pageClient";
 import { createStrings } from "../shared/i18n";
 import { holdFirstPaint } from "../shared/paintGate";
 import { languageDirection, UiProvider } from "../../ui/UiProvider";
+import { appPopupHost } from "../shared/pagePopupHost";
 import table from "./generated/strings.json";
 import { ChangelogPage } from "./ChangelogPage";
 import { routeChipHost } from "./ChangePullRequest";
@@ -28,7 +29,7 @@ export function mountChangelogPage(root: HTMLElement, client: PageClient | null 
   const render = () =>
     react.render(
       // The pull request card's Open in menu follows the page's language direction (arrow keys, placement).
-      <UiProvider container={root} dir={languageDirection(strings.language)}>
+      <UiProvider container={root} popupHost={appPopupHost(client)} dir={languageDirection(strings.language)}>
         <ChangelogPage
           store={store}
           strings={strings}
