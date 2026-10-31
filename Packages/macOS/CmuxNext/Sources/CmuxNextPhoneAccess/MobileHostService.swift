@@ -17,6 +17,9 @@ import os
 public final class MobileHostService {
     public private(set) var host: MobileIrxHost?
     private var starting: Task<Void, Never>?
+    /// The last listener's teardown; the next listener starts only after it ends, so a quick
+    /// sign-out and sign-in or off and on never leaves an old phone link open beside the new one.
+    private var stopping: Task<Void, Never>?
     /// Bumped by every start and stop; a start that lost the race drops out.
     private var generation = 0
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.mobile")
@@ -104,7 +107,9 @@ public final class MobileHostService {
         status.reset()
         let access = access
         let status = status
+        let stopping = stopping
         starting = Task { [weak self, logger] in
+            await stopping?.value
             await previous?.stop()
             let displayName = await self?.displayName() ?? "Mac"
             guard let self, self.generation == current, !Task.isCancelled else { return }
@@ -145,8 +150,12 @@ public final class MobileHostService {
         status.reset()
         let host = host
         self.host = nil
-        // task-owner: teardown hop; MobileIrxHost.stop() is idempotent and bumps its lifetime
-        Task { await host?.stop() }
+        let previous = stopping
+        // task-owner: teardown hop, kept in `stopping`; MobileIrxHost.stop() is idempotent and bumps its lifetime
+        stopping = Task {
+            await previous?.value
+            await host?.stop()
+        }
     }
 
     static func configuration(launch: LaunchIdentity, daemon: DaemonService, displayName: String,

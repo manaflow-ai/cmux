@@ -70,9 +70,8 @@ import Testing
         let admission = PhoneAdmission(phones: store, disconnect: { id in
             await withCheckedContinuation { calls.continuation.yield((id, $0)) }
         })
-        var second = Self.phone
-        second.phoneDeviceID = String(repeating: "b", count: 64)
-        second.identityKey = String(repeating: "b", count: 64)
+        let second = MobileHostPairRequest(phoneDeviceID: String(repeating: "b", count: 64), name: "Phone",
+                                           identityKey: String(repeating: "b", count: 64), approvalKey: "", transport: .iroh)
         try await store.change(for: "one") { $0.approve(Self.phone, at: Date()); $0.approve(second, at: Date()) }
         try await store.change(for: "one") {
             $0.remove(Self.phone.phoneDeviceID, transport: .iroh)
