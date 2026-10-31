@@ -7,9 +7,9 @@ use std::path::{Path, PathBuf};
 
 use serde_json::{Value, json};
 
-use super::ledger::{LIMIT, Ledger, Send};
+use super::ledger::{LIMIT, Ledger, Send, WORKSPACE_LIMIT};
 use super::pick::{self, Candidate, Destination};
-use super::{Keys, StartCopy, import, pin, plan, remote_name, valid_key};
+use super::{Keys, StartCopy, import, pin, plan, remote_name, valid_key, valid_workspace};
 
 const ME: &str = "user-leo";
 const TEAMMATE: &str = "user-austin";
@@ -144,19 +144,20 @@ fn a_retry_of_the_same_send_stays_on_its_first_trys_machine() {
     let key = key();
     let first = [machine("vm-a", "spare-a"), machine("vm-b", "spare-b")];
     assert_eq!(
-        pick::destination(&send(&key), ACCOUNT, &mut pins, &first, &[], Some(ME), true),
+        pick::destination(&send(&key), ACCOUNT, None, &mut pins, &first, &[], Some(ME), true),
         Destination::Machine("vm-a".into())
     );
     pins.record("vm-a", &send(&key));
     let later = [machine("vm-b", "spare-b"), offline(machine("vm-a", "spare-a"), "running", None)];
     assert_eq!(
-        pick::destination(&send(&key), ACCOUNT, &mut pins, &later, &[], Some(ME), true),
+        pick::destination(&send(&key), ACCOUNT, None, &mut pins, &later, &[], Some(ME), true),
         Destination::Machine("vm-a".into())
     );
     assert_eq!(
         pick::destination(
             &send(&key.to_lowercase()),
             ACCOUNT,
+            None,
             &mut pins,
             &later,
             &[],
@@ -166,7 +167,16 @@ fn a_retry_of_the_same_send_stays_on_its_first_trys_machine() {
         Destination::Machine("vm-a".into())
     );
     assert_eq!(
-        pick::destination(&send(&self::key()), ACCOUNT, &mut pins, &later, &[], Some(ME), true),
+        pick::destination(
+            &send(&self::key()),
+            ACCOUNT,
+            None,
+            &mut pins,
+            &later,
+            &[],
+            Some(ME),
+            true
+        ),
         Destination::Machine("vm-b".into())
     );
 }
@@ -178,14 +188,14 @@ fn a_retry_whose_machine_is_gone_picks_afresh_and_a_retry_of_a_new_machine_stays
     pins.record("vm-gone", &send(&key));
     let now = [machine("vm-b", "spare-b")];
     assert_eq!(
-        pick::destination(&send(&key), ACCOUNT, &mut pins, &now, &[], Some(ME), true),
+        pick::destination(&send(&key), ACCOUNT, None, &mut pins, &now, &[], Some(ME), true),
         Destination::Machine("vm-b".into())
     );
     assert_eq!(pins.machine(&send(&key)), None);
     // A machine made for the first try (the list is not loaded yet) is kept for its retry.
     pins.record("vm-new", &send(&key));
     assert_eq!(
-        pick::destination(&send(&key), ACCOUNT, &mut pins, &now, &[], Some(ME), false),
+        pick::destination(&send(&key), ACCOUNT, None, &mut pins, &now, &[], Some(ME), false),
         Destination::Machine("vm-new".into())
     );
 }
@@ -265,7 +275,7 @@ fn plan_pins_a_machine_that_exists_and_names_a_new_one_otherwise() {
     assert_eq!(answer["new_name"], json!("cloud-chats-2"));
     assert_eq!(answer["create_key"], json!(format!("cloud-start-chat-{}", key.to_lowercase())));
     // The App made vm-new for it and pinned it; the retry, before the list shows it, goes there.
-    assert_eq!(pin(&path, &key, ACCOUNT, "vm-new")["ok"], json!(true));
+    assert_eq!(pin(&path, &key, ACCOUNT, "vm-new", None)["ok"], json!(true));
     let retry = json!({"key": key.to_uppercase(), "account": ACCOUNT, "user": ME, "loaded": false, "machines": []});
     assert_eq!(plan(&path, &retry.to_string())["machine"], json!("vm-new"));
 
@@ -415,7 +425,7 @@ fn a_send_is_kept_under_the_account_it_began_in() {
     let listed = [machine("vm-a", "spare-a"), machine("vm-b", "spare-b")];
     assert_eq!(pins.machine(&in_b), None);
     assert_eq!(
-        pick::destination(&in_b, TEAM_B, &mut pins, &listed[1..], &[], Some(ME), true),
+        pick::destination(&in_b, TEAM_B, None, &mut pins, &listed[1..], &[], Some(ME), true),
         Destination::Machine("vm-b".into())
     );
     pins.record("vm-b", &in_b);
@@ -429,6 +439,7 @@ fn a_send_is_kept_under_the_account_it_began_in() {
         pick::destination(
             &send(&self::key()),
             ACCOUNT,
+            None,
             &mut pins,
             &creatorless,
             &[],
@@ -441,6 +452,7 @@ fn a_send_is_kept_under_the_account_it_began_in() {
         pick::destination(
             &Send::new(&self::key(), TEAM_B),
             TEAM_B,
+            None,
             &mut pins,
             &creatorless,
             &[],
@@ -463,11 +475,11 @@ fn a_pin_to_a_machine_made_since_the_list_was_read_is_kept() {
     let listed = [machine("vm-free", "spare")];
     let stored = ["vm-new".to_string()];
     assert_eq!(
-        pick::destination(&send(&key), ACCOUNT, &mut pins, &listed, &stored, Some(ME), true),
+        pick::destination(&send(&key), ACCOUNT, None, &mut pins, &listed, &stored, Some(ME), true),
         Destination::Machine("vm-new".into())
     );
     assert_eq!(
-        pick::destination(&send(&key), ACCOUNT, &mut pins, &listed, &[], Some(ME), true),
+        pick::destination(&send(&key), ACCOUNT, None, &mut pins, &listed, &[], Some(ME), true),
         Destination::Machine("vm-free".into())
     );
     assert_eq!(pins.machine(&send(&key)), None);
@@ -496,7 +508,7 @@ fn plan_and_pin_need_the_account_the_send_began_in() {
     assert_eq!(plan(&path, &request(json!("x".repeat(513))))["error_code"], json!("bad_request"));
     let missing = json!({"key": key, "user": ME, "loaded": true, "machines": machines});
     assert_eq!(plan(&path, &missing.to_string())["error_code"], json!("bad_request"));
-    assert_eq!(pin(&path, &key, "user-leo/team-b", "vm-made")["ok"], json!(true));
+    assert_eq!(pin(&path, &key, "user-leo/team-b", "vm-made", None)["ok"], json!(true));
     let in_b =
         Ledger::update(&path, |pins| pins.machine(&Send::new(&key, "user-leo/team-b"))).unwrap();
     assert_eq!(in_b.as_deref(), Some("vm-made"));
@@ -515,7 +527,7 @@ fn an_unreadable_ledger_refuses_the_send_and_keeps_its_bytes() {
         pushed.borrow_mut().push(remote.to_string());
         Ok(())
     };
-    assert_eq!(pin(&path, &copy.key, ACCOUNT, "vm-a")["ok"], json!(true));
+    assert_eq!(pin(&path, &copy.key, ACCOUNT, "vm-a", None)["ok"], json!(true));
     assert_eq!(copy.run(&path, &push)["copied"], json!(true));
     let whole = std::fs::read(&path).unwrap();
     let cut = &whole[..whole.len() / 2];
@@ -544,7 +556,10 @@ fn an_unreadable_ledger_refuses_the_send_and_keeps_its_bytes() {
     let unreadable = ledger_in(busy.path());
     std::fs::create_dir_all(&unreadable).unwrap();
     assert_eq!(plan(&unreadable, &retry.to_string())["error_code"], json!("ledger_failed"));
-    assert_eq!(pin(&unreadable, &copy.key, ACCOUNT, "vm-a")["error_code"], json!("ledger_failed"));
+    assert_eq!(
+        pin(&unreadable, &copy.key, ACCOUNT, "vm-a", None)["error_code"],
+        json!("ledger_failed")
+    );
     assert!(unreadable.is_dir());
 }
 
@@ -619,7 +634,7 @@ fn the_sends_the_app_kept_before_carry_over_once() {
         {"key": newer, "machineID": "vm-no-account"},
         {"key": format!("{newer}@{ACCOUNT}"), "machineID": "vm-old-try"},
     ]);
-    assert_eq!(pin(&path, &newer, ACCOUNT, "vm-newer")["ok"], json!(true));
+    assert_eq!(pin(&path, &newer, ACCOUNT, "vm-newer", None)["ok"], json!(true));
     let answer = import(&path, &kept.to_string());
     assert_eq!(answer["imported"], json!(3), "{answer}");
     let ledger = Ledger::update(&path, |pins| pins.clone()).unwrap();
@@ -647,4 +662,230 @@ fn the_sends_the_app_kept_before_carry_over_once() {
     // Taking the same list in again changes nothing; one that is not a list is refused.
     assert_eq!(import(&path, &kept.to_string())["imported"], json!(0));
     assert_eq!(import(&path, "{")["error_code"], json!("bad_request"));
+}
+
+/// Leo, 2026-10-30: "we'll want a vm for every single workspace". A Mac
+/// workspace's first send to Cloud makes a machine that is its own from then
+/// on; no other workspace, and no send from no workspace, shares it.
+#[test]
+fn each_workspace_gets_its_own_machine_and_keeps_it() {
+    let mut pins = Ledger::default();
+    let shared = [machine("vm-free", "spare"), machine("vm-chats", "cloud-chats")];
+    let first = key();
+    let to = |pins: &mut Ledger,
+              key: &str,
+              workspace: Option<&str>,
+              listed: &[Candidate],
+              loaded: bool| {
+        pick::destination(&send(key), ACCOUNT, workspace, pins, listed, &[], Some(ME), loaded)
+    };
+    assert_eq!(to(&mut pins, &first, Some("ws-a"), &shared, true), Destination::New);
+    // The App made vm-a for it and pinned it (`pin --workspace`).
+    pins.record("vm-a", &send(&first));
+    pins.bind("ws-a", ACCOUNT, "vm-a");
+    let listed = [
+        machine("vm-free", "spare"),
+        with(machine("vm-a", "cloud-chats-2"), |m| m.chats = Some(2)),
+    ];
+    // Its next send, busy with chats or not, goes back to it.
+    assert_eq!(
+        to(&mut pins, &key(), Some("ws-a"), &listed, true),
+        Destination::Machine("vm-a".into())
+    );
+    // Paused (by a person or the idle timer), it resumes there.
+    let paused = [offline(machine("vm-a", "cloud-chats-2"), "paused", Some("user"))];
+    assert_eq!(
+        to(&mut pins, &key(), Some("ws-a"), &paused, true),
+        Destination::Machine("vm-a".into())
+    );
+    // Another workspace never shares it, nor the free one.
+    assert_eq!(to(&mut pins, &key(), Some("ws-b"), &listed, true), Destination::New);
+    // Before the App's list is loaded, the workspace's machine is kept.
+    assert_eq!(
+        to(&mut pins, &key(), Some("ws-a"), &[], false),
+        Destination::Machine("vm-a".into())
+    );
+    // A send from no workspace keeps the shared pick, but never takes a workspace's own machine,
+    // even one marked for chats.
+    assert_eq!(to(&mut pins, &key(), None, &listed, true), Destination::Machine("vm-free".into()));
+    assert_eq!(to(&mut pins, &key(), None, &listed[1..], true), Destination::New);
+    // In another team the workspace has no machine yet.
+    assert_eq!(
+        pick::destination(
+            &Send::new(&key(), "user-leo/team-b"),
+            "user-leo/team-b",
+            Some("ws-a"),
+            &mut pins,
+            &listed,
+            &[],
+            Some(ME),
+            true
+        ),
+        Destination::New
+    );
+    assert_eq!(pins.workspace_machine("ws-a", ACCOUNT).as_deref(), Some("vm-a"));
+}
+
+#[test]
+fn a_workspaces_gone_teammates_or_failed_machine_is_replaced_by_a_new_one() {
+    for gone in [
+        vec![machine("vm-other", "spare")],
+        vec![with(machine("vm-a", "cloud-chats-2"), |m| m.created_by = Some(TEAMMATE.into()))],
+        vec![offline(machine("vm-a", "cloud-chats-2"), "failed", None)],
+        // A stale link still reads as connected; the server's status says it is gone.
+        vec![with(machine("vm-a", "cloud-chats-2"), |m| m.status = "failed".into())],
+        vec![with(machine("vm-a", "cloud-chats-2"), |m| m.status = "deleting".into())],
+    ] {
+        let mut pins = Ledger::default();
+        pins.bind("ws-a", ACCOUNT, "vm-a");
+        assert_eq!(
+            pick::destination(
+                &send(&key()),
+                ACCOUNT,
+                Some("ws-a"),
+                &mut pins,
+                &gone,
+                &[],
+                Some(ME),
+                true
+            ),
+            Destination::New,
+            "{gone:?}"
+        );
+        assert_eq!(pins.workspace_machine("ws-a", ACCOUNT), None, "{gone:?}");
+    }
+    // Signed out, a workspace's machine is not taken either.
+    let mut pins = Ledger::default();
+    pins.bind("ws-a", ACCOUNT, "vm-a");
+    assert_eq!(
+        pick::destination(
+            &send(&key()),
+            ACCOUNT,
+            Some("ws-a"),
+            &mut pins,
+            &[machine("vm-a", "x")],
+            &[],
+            None,
+            true
+        ),
+        Destination::New
+    );
+    // One the App made since its list was read is kept.
+    let mut pins = Ledger::default();
+    pins.bind("ws-a", ACCOUNT, "vm-new");
+    assert_eq!(
+        pick::destination(
+            &send(&key()),
+            ACCOUNT,
+            Some("ws-a"),
+            &mut pins,
+            &[],
+            &["vm-new".into()],
+            Some(ME),
+            true
+        ),
+        Destination::Machine("vm-new".into())
+    );
+}
+
+#[test]
+fn a_retry_stays_on_its_first_trys_machine_even_after_its_workspace_moved_on() {
+    let mut pins = Ledger::default();
+    let first = key();
+    pins.record("vm-a", &send(&first));
+    pins.bind("ws-a", ACCOUNT, "vm-b");
+    let listed = [machine("vm-a", "a"), machine("vm-b", "b")];
+    assert_eq!(
+        pick::destination(
+            &send(&first),
+            ACCOUNT,
+            Some("ws-a"),
+            &mut pins,
+            &listed,
+            &[],
+            Some(ME),
+            true
+        ),
+        Destination::Machine("vm-a".into())
+    );
+}
+
+#[test]
+fn plan_and_pin_keep_each_workspaces_machine_across_a_relaunch() {
+    let dir = scratch();
+    let path = ledger_in(dir.path());
+    let first = key();
+    let request = |key: &str, workspace: &str, machines: &Value| {
+        json!({"key": key, "account": ACCOUNT, "workspace": workspace, "user": ME, "loaded": true, "machines": machines})
+            .to_string()
+    };
+    let shared = json!([
+        {"id": "vm-free", "title": "spare", "created_by": ME, "status": "running", "connected": true, "chats": 0},
+    ]);
+    let answer = plan(&path, &request(&first, "ws-a", &shared));
+    assert_eq!(answer["ok"], json!(true));
+    assert_eq!(answer["machine"], Value::Null, "{answer}");
+    assert_eq!(pin(&path, &first, ACCOUNT, "vm-a", Some("ws-a"))["ok"], json!(true));
+
+    let listed = json!([
+        {"id": "vm-free", "title": "spare", "created_by": ME, "status": "running", "connected": true, "chats": 0},
+        {"id": "vm-a", "title": "cloud-chats", "created_by": ME, "status": "running", "connected": true, "chats": 1},
+    ]);
+    assert_eq!(plan(&path, &request(&key(), "ws-a", &listed))["machine"], json!("vm-a"));
+    assert_eq!(plan(&path, &request(&key(), "ws-b", &listed))["machine"], Value::Null);
+    // A retry of the first send stays on vm-a, but never takes ws-a back from the machine
+    // that replaced it.
+    assert_eq!(pin(&path, &key(), ACCOUNT, "vm-c", Some("ws-a"))["ok"], json!(true));
+    assert_eq!(plan(&path, &request(&first, "ws-a", &listed))["machine"], json!("vm-a"));
+    let kept = Ledger::update(&path, |pins| pins.clone()).unwrap();
+    assert_eq!(kept.workspace_machine("ws-a", ACCOUNT).as_deref(), Some("vm-c"));
+
+    // A ledger written before workspaces (the sends' list alone) still reads.
+    let older = scratch();
+    let older_path = ledger_in(older.path());
+    std::fs::create_dir_all(older_path.parent().unwrap()).unwrap();
+    let pinned = key();
+    std::fs::write(
+        &older_path,
+        json!([{"key": pinned.to_lowercase(), "account": ACCOUNT, "machine_id": "vm-old"}])
+            .to_string(),
+    )
+    .unwrap();
+    let retry = json!({"key": pinned, "account": ACCOUNT, "workspace": "ws-a", "user": ME, "loaded": false, "machines": []});
+    assert_eq!(plan(&older_path, &retry.to_string())["machine"], json!("vm-old"));
+    let relaunched = Ledger::update(&older_path, |pins| pins.clone()).unwrap();
+    assert_eq!(relaunched.workspace_machine("ws-a", ACCOUNT).as_deref(), Some("vm-old"));
+
+    for bad in ["", &"w".repeat(129), "ws\u{0}a"] {
+        assert!(!valid_workspace(bad));
+        assert_eq!(
+            plan(&path, &request(&key(), bad, &json!([])))["error_code"],
+            json!("bad_request")
+        );
+    }
+}
+
+#[test]
+fn the_ledger_keeps_the_newest_workspaces_apart_from_the_sends() {
+    let dir = scratch();
+    let path = ledger_in(dir.path());
+    Ledger::update(&path, |pins| {
+        pins.bind("ws-first", ACCOUNT, "vm-first");
+        for index in 0..=LIMIT {
+            pins.record(&format!("vm-{index}"), &send(&key()));
+        }
+    })
+    .unwrap();
+    // Many sends later, the workspace still has its machine.
+    let kept = Ledger::update(&path, |pins| pins.clone()).unwrap();
+    assert_eq!(kept.workspace_machine("ws-first", ACCOUNT).as_deref(), Some("vm-first"));
+    Ledger::update(&path, |pins| {
+        for index in 0..WORKSPACE_LIMIT {
+            pins.bind(&format!("ws-{index}"), ACCOUNT, &format!("vm-ws-{index}"));
+        }
+    })
+    .unwrap();
+    let kept = Ledger::update(&path, |pins| pins.clone()).unwrap();
+    assert_eq!(kept.workspace_machine("ws-first", ACCOUNT), None);
+    assert_eq!(kept.workspace_machine("ws-0", ACCOUNT).as_deref(), Some("vm-ws-0"));
 }

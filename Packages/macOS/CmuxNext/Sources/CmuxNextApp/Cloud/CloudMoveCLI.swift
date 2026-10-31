@@ -108,9 +108,9 @@ nonisolated struct CloudMoveCLI: Sendable {
     }
 
     /// `cmux link start-chat pin`: the send `key` of `account` (``CloudStartChat/accountText(_:)``)
-    /// runs on `machine`, one the App just made for it.
-    func startChatPin(key: String, account: String, machine: String) async throws -> (Answer, Void) {
-        (try await run(["link", "start-chat", "pin", "--key", key, "--account", account, "--machine", machine]), ())
+    /// runs on `machine`, one the App just made for it, the Mac workspace `workspace`'s own from now on.
+    func startChatPin(key: String, account: String, machine: String, workspace: String?) async throws -> (Answer, Void) {
+        (try await run(["link", "start-chat", "pin", "--key", key, "--account", account, "--machine", machine] + (workspace.map { ["--workspace", $0] } ?? [])), ())
     }
 
     /// `cmux link start-chat import`: hands cmux-tui the sends this App kept itself before (`entries`, their JSON).

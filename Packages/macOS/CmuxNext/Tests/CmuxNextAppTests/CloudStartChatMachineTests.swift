@@ -26,20 +26,23 @@ struct CloudStartChatMachineTests {
         #expect(throws: CloudMove.Failure.self) { try CloudStartChat.checkAccount(teamA, now: [nil, nil], listCurrent: true) }
     }
 
-    /// The plan reads the send under its account, only the machines the account's list named, and the
-    /// ones made since (kept for a pin, never picked).
-    @Test func thePlanRequestCarriesTheSendItsAccountAndTheListedMachines() throws {
-        let text = CloudStartChat.planRequest(key: "K", account: [Self.me, "team-a"], user: Self.me, machines: [], stored: ["vm-new"])
+    /// The plan reads the send under its account and Mac workspace, only the machines the account's list
+    /// named, and the ones made since (kept for a pin, never picked).
+    @Test func thePlanRequestCarriesTheSendItsAccountWorkspaceAndTheListedMachines() throws {
+        let text = CloudStartChat.planRequest(key: "K", account: [Self.me, "team-a"], workspace: "ws-1", user: Self.me, machines: [],
+                                              stored: ["vm-new"])
         let object = try #require(try JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any])
         #expect(object["key"] as? String == "K")
         #expect(object["account"] as? String == "user-leo/team-a")
+        #expect(object["workspace"] as? String == "ws-1")
         #expect(object["user"] as? String == Self.me)
         #expect(object["loaded"] as? Bool == true)
         #expect((object["machines"] as? [Any])?.isEmpty == true)
         #expect(object["stored"] as? [String] == ["vm-new"])
-        let signedOut = CloudStartChat.planRequest(key: "K", account: [nil, nil], user: nil, machines: [], stored: [])
+        let signedOut = CloudStartChat.planRequest(key: "K", account: [nil, nil], workspace: nil, user: nil, machines: [], stored: [])
         let unsigned = try #require(try JSONSerialization.jsonObject(with: Data(signedOut.utf8)) as? [String: Any])
         #expect(unsigned["user"] == nil)
+        #expect(unsigned["workspace"] == nil)
     }
 
     /// A folder the page named is copied only as the pane checked it.
