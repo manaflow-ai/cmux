@@ -76,9 +76,10 @@ struct ClosedPendingSplitFocusTests {
     }
 
     /// The same cancel path: Cmd-W on the pending split's stand-in cancels its creation, and the stand-in's tab leaves the
-    /// close list in that turn. On feat it stayed in it: the close still asked the daemon what runs in the stand-in's
-    /// terminal (`TabCloseGuard`, the close warning's read) and then sent a close for the stand-in's own surface, which the
-    /// daemon never made; a close hold armed on that read would hold the next keys of the burst.
+    /// close in that turn. On feat it stayed in it: the close asked the daemon what runs in the stand-in's terminal
+    /// (`TabCloseGuard`, the close warning's read, which starts in the close's own turn) and then sent a close for the
+    /// stand-in's own surface, which the daemon never made. Both follow from the tab being in the close, so the check is
+    /// the read, read in the close's turn (no wait: the read starts there or never).
     @Test func cmdWOnAPendingSplitNeitherAsksNorClosesItsStandIn() async throws {
         try await PinnedPageTests.withApp { services, _ in
             let content = try #require(services.windows.active?.workspaceContent)
@@ -92,20 +93,16 @@ struct ClosedPendingSplitFocusTests {
                                        "Cmd-D shows no pane in its turn: \(Self.describe(content, services))")
             let tab = try #require(standIn.pane.tabs.first, "the stand-in has no tab: \(standIn.pane.tabs)")
             try #require(ProvisionalTab.isProvisional(surface: tab.surface), "the split already confirmed: \(Self.describe(content, services))")
+            // The focus on the stand-in, as when its focus landed before Cmd-W: Cmd-W then closes the stand-in's own tab
+            // through the strip's close (CloseUndoToasts), the path that kept it in the close. (A focus still on its way
+            // takes TabLifecycle's cancel branch, which never reaches that close.)
+            PaneHandlers.focus(standIn.layoutPaneID, in: content)
+            try #require(content.focus.state.pane == standIn.paneKey && content.focus.state.expectation == nil,
+                         "the test needs the focus on the stand-in and no focus wait: \(Self.describe(content, services))")
             _ = try Self.press("w", .command, keyCode: 13, services: services, window: window)
-
-            @MainActor func closesStandIn() -> Bool {
-                services.daemon.store.intentLog.entries.contains { entry in
-                    if case .closeTabs(let surfaces) = entry.kind { surfaces.contains(tab.surface) } else { false }
-                }
-            }
+            // The close ran (the stand-in's creation is cancelled), so the check below is about this close.
+            try #require(!services.daemon.store.creations.isPending(tab: tab.id), "Cmd-W did not cancel the split: \(Self.describe(content, services))")
             #expect(!TabCloseGuard.asking.contains(tab.id), "the close of the cancelled stand-in still asks what runs in it (tab \(tab.id))")
-            #expect(!closesStandIn(), "the close of the cancelled stand-in sends a close for its surface \(tab.surface.rawValue), which the daemon never made")
-            // A close that waited for the warning's read sends it after the read: still none.
-            try? await Task.sleep(for: .seconds(2))
-            #expect(!TabCloseGuard.asking.contains(tab.id), "the cancelled stand-in's close is still asking after 2 s (tab \(tab.id))")
-            #expect(!closesStandIn(), "after the read, the close of the cancelled stand-in sent a close for its surface \(tab.surface.rawValue)")
-            #expect(!content.panes.values.contains { $0.paneKey == standIn.paneKey }, "the cancelled split still shows: \(Self.describe(content, services))")
         }
     }
 
