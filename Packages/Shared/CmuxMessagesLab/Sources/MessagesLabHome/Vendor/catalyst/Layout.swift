@@ -200,6 +200,22 @@ struct Metrics: Hashable {
     /// [226,232), [260,273), [287.5,294), [304.5,319.5), >= 338; 0.654 is inside all five). The old rule, proportional to
     /// the width (0.5707 W), wrapped later than Messages below 600 pt.
     var maxTextWidth: CGFloat {
+        // cmux: a zoomed Chief chat is laid out at its pane's width over the zoom and drawn magnified, and the rule
+        // below has a negative constant term, so on screen the column was 0.654 x pane - 52 x zoom: Cmd-= narrowed
+        // it and Cmd-- widened it (https://github.com/manaflow-ai/cmux/issues/28978). The rule reads the width at
+        // the widest column's zoom (`columnZoom`), in its points, and gives the column back in this width's points:
+        // the column keeps its on-screen width at every zoom and only the text in it grows.
+        Self.column(width: width, columnZoom: Self.columnZoom)
+    }
+
+    /// The column at `width` for a chat zoomed `columnZoom` times past its widest column's zoom, in `width`'s points.
+    static func column(width: CGFloat, columnZoom k: CGFloat) -> CGFloat {
+        guard k.isFinite, k > 0, k != 1 else { return column(width: width) }
+        return column(width: width * k) / k
+    }
+
+    /// The rule above at `width`, in its own points.
+    static func column(width: CGFloat) -> CGFloat {
         // A cmux-next Home pane can be narrower than Messages' 434 pt window minimum (the
         // pane layout has no per-content minimum): below 434 pt the column keeps its
         // 434 pt share of the width (the rule alone reaches 0 pt at 80 pt).
