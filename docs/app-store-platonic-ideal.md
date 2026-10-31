@@ -52,13 +52,17 @@ repeat them:
 7. **Shared live instances.** A team instance runs once and every member sees the same live
    state. The pin lives in a cloud group, so sharing a group shares the app with its state. This
    is the exe.dev idea: deploy once, share by link, auth at the edge.
+7a. **Self-hosted is a first-class target.** Everything above also runs on a machine the
+   enterprise owns (its own Linux VM or a Kubernetes cluster, joined over SSH or Tailscale),
+   with the same runner, the same health check and the same pin. Nothing in the install,
+   deploy, pin or share path needs cmux Cloud (section 8a).
 8. **Users and agents are equal operators.** Every op an app declares is a palette entry, a CLI
    verb and an MCP tool, generated from one catalog fragment. Agents may call granted ops; only a
    user gesture in a native sheet may install, widen grants or spend money.
 9. **Untrusted code runs in a VM, not on the Mac.** Unverified apps with servers deploy to a
    Cloud VM by default. The Mac runs only sandboxed scene JS and sandboxed web content.
 10. **Smallest first slice** (section 15): a third-party web app from a git repo, deployed to the
-    user's Cloud VM, pinned as a remote web pane in the current workspace, shared through a
+    user's Cloud VM or to a self-hosted machine, pinned as a remote web pane in the current workspace, shared through a
     cloud group, with the first-party privilege ratchet in the gate.
 
 ## 1a. What bb and exe.dev actually do (read 2026-10-30)
@@ -141,6 +145,7 @@ Facts, with sources, so the steals below rest on what the projects ship, not on 
 | P11 | Private by default, share at two levels, identity at the edge | exe.dev proxy and sharing | edge route tokens, Reflection | Use vs Operate share levels (section 9) |
 | P12 | Secrets are injected on the network, never handed to app code | exe.dev Integrations | handles (V6), credential broker | an egress proxy for instances (section 10) |
 | P13 | Agents propose, humans approve, by link | exe.dev `suggest` links | agent installs blocked (app-platform 8) | `cmux://suggest` (section 8) |
+| P14 | Self-hostable end to end: an enterprise adopts the store with no dependency on cmux Cloud | Lawrence 2026-10-30 (Chief log 17766); exe.dev's "a computer per app" on hardware the customer owns | `cmux server` on Linux, `cmux remote enroll`, Tailscale links, session host on any Linux box | the `self-hosted` deploy target and a self-hosted index and edge (section 8a) |
 
 ## 3. Vocabulary
 
@@ -149,7 +154,7 @@ Facts, with sources, so the steals below rest on what the projects ship, not on 
 | app | a manifest plus implementations; the one unit of extension, listing and consent |
 | implementation | how a place is filled: `scene` (QuickJS export), `web` (bundled page), `native` (first-party and Verified only), `server` (native, js or external), `remote` (an instance) |
 | place | where an app shows up: sidebar section, sidebar item, pane, right panel, status item, toolbar item, palette, CLI, MCP, Home chat tool, automation trigger. Places are interfaces (`cmux.section/1`, `cmux.pane/1`, `cmux.status/1`, ...) |
-| instance (`inst_…`) | a running deployment of an app's server: tenancy `machine`, `user` or `team`; target `local`, `cloud-vm`, `team-vm`, `ssh-host` |
+| instance (`inst_…`) | a running deployment of an app's server: tenancy `machine`, `user` or `team`; target `local`, `cloud-vm`, `team-vm`, `self-hosted` (a machine or cluster the customer runs; `ssh-host` is its single-machine form) |
 | pin (`pin_…`) | a placement record that puts an app (and optionally an instance) into a place; owned by the layout owner of that place (workspace store, sidebar layout, cloud group) |
 | grant | a scope or handle the user gave an app; owned by `UserDO`/`TeamDO`, enforced by the supervisor and op owners |
 
@@ -200,7 +205,7 @@ input formats: an importer turns each into a manifest at load, so no file a user
   "deploy": {
     "server": {"kind": "container", "image": "Dockerfile", "port": 8080, "health": "/healthz"},
     "tenancy": ["team", "user"],                 // offered choices; the first is the default
-    "targets": ["team-vm", "cloud-vm", "local"], // allowed targets; unverified apps never get local
+    "targets": ["team-vm", "cloud-vm", "self-hosted", "local"], // allowed targets; unverified apps never get local
     "size": "small", "state": "/data"           // persistent path, snapshotted with the VM
   },
 
@@ -347,7 +352,8 @@ like the atomic `workspace.create` launch (workspace-create-extension.md):
 4. **Deploy** (when `deploy` is present). The supervisor asks the target's owner for an
    instance: the Cloud control plane for `cloud-vm` (create or reuse a VM, run the container,
    create the publication), `TeamVmDO` for `team-vm` (team app server lease, team-vm-plan S7),
-   the local daemon for `local`, the SSH host's session host for `ssh-host`. The instance record
+   the local daemon for `local`, the enrolled host's session host for `self-hosted` (section 8a).
+   The instance record
    (`inst_…`, app, version, tenancy, target, state, URL handle) is owned by that target's owner;
    the supervisor holds a projection.
 5. **Pin** (when `pin` is present). The layout owner of the place writes a pin record: a pane in
@@ -360,7 +366,7 @@ Surfaces (one op, every entrypoint):
 | --- | --- |
 | App Store | **Get** opens the sheet with deploy and pin choices filled from the defaults below |
 | Palette (Cmd-Shift-P) | **Install App…**, **Deploy <App>…**, **Pin <App> Here** |
-| CLI | `cmux apps install acme/pg-admin --deploy team --pin pane` (`--json`, `--wait`) |
+| CLI | `cmux apps install acme/pg-admin --deploy team --pin pane` (`--json`, `--wait`); `--deploy self-hosted:<host>` for a customer machine |
 | MCP | an agent calls `apps_propose_install`; it returns a `cmux://suggest?op=apps.install&…` link (exe.dev `suggest`) that the agent posts in chat; clicking it opens the sheet; agents never install directly (app-platform 8) |
 | Web | a "Deploy on cmux" button `https://cmux.com/new?repo=…` (exe.dev `new?repo=`) opens the app and the same sheet |
 | Drag | drag a listing onto a pane drop zone = install + pin there |
@@ -369,12 +375,40 @@ Defaults picked (the user can override in the sheet):
 
 - tenancy: the first entry of `deploy.tenancy`; an install made inside a shared cloud group
   defaults to `team`;
-- target: `team-vm` for team tenancy, `cloud-vm` for user tenancy; `local` only for first-party
-  and Verified apps;
+- target: `team-vm` for team tenancy, `cloud-vm` for user tenancy; when the user or team has a
+  `self-hosted` host enrolled and no cmux Cloud account (or the team setting `apps.deployTarget`
+  says so), `self-hosted` instead; `local` only for first-party and Verified apps;
 - pin: a pane in the current workspace when the app implements `cmux.pane/1`, else a sidebar item.
 
 Uninstall stops instances the user owns (after a snapshot), removes pins and grants in one commit.
 A team instance stops only when a team admin uninstalls it.
+
+## 8a. Self-hosted target (enterprise)
+
+Lawrence, 2026-10-30 (Chief log 17766): "we need self hosted cloud vm thing too tho so
+enterprises can easily adopt". The `self-hosted` target is the Cloud VM path with the customer's
+machine in place of ours. Rule: **no step of install, deploy, pin, share or update may need cmux
+Cloud** when the target is `self-hosted`.
+
+| Piece | cmux Cloud (`cloud-vm`) | Self-hosted (`self-hosted`) |
+| --- | --- | --- |
+| Machine | a VM the Cloud control plane creates | the customer's Linux VM, bare-metal box or a Kubernetes cluster, enrolled once with `cmux server` (installs the session host) and joined over SSH (`cmux remote enroll`) or Tailscale (`cmux link`) |
+| Runner | session host on the VM runs the container (`deploy.server.kind: container`) | the same session host and the same runner; on Kubernetes the runner applies a Deployment + Service from the same `deploy.server` fields (image, port, health, state volume) |
+| Health | `deploy.server.health` polled by the runner, one result to the supervisor | identical |
+| Instance record owner | Cloud control plane (with the VM record) | the enrolled host's session host (it owns the container); the supervisor holds a projection |
+| URL / edge | cmux edge `https://<inst>.<team>.cmux.app` | the customer's own ingress or the host's tailnet name; the session host's built-in proxy signs `X-Cmux-User` / `X-Cmux-Email` / `X-Cmux-Team` with the enterprise's own key, so the app's identity contract is the same |
+| Install records, grants | `UserDO` / `TeamDO` | the local supervisor's install mirror, and for a team the enterprise's own control plane (the self-hosted `cmux server` team mode); the same records, a different owner |
+| Registry | cmux index (`cmux-official`) | any user-added index (`cmux apps index add <git or path>`), or a direct git URL / folder; the enterprise can run an internal index with no outbound access |
+| Consent sheet | the same sheet | the same sheet; it names the host (`deploy to build-01.corp`) |
+| Sharing | pins in cloud groups, the edge enforces Use / Operate | pins in the enterprise team's layout; the host proxy enforces Use / Operate with the enterprise's identity provider (OIDC) |
+| Billing | instance compute on Cloud credits | none from cmux: the customer pays for its own machines |
+| Air-gapped | not applicable | supported: images from the customer's registry, index from a folder, no call to cmux.com |
+
+Defaults picked: one target name, `self-hosted`, with a host selector (`self-hosted:<host>`,
+host = an enrolled host id or SSH alias); Kubernetes is a runner mode of that target
+(`deploy.server.runner: "k8s"` on the host's enrollment), not a fourth target. Unverified apps may
+deploy to a self-hosted target only when the enterprise's admin allows it
+(`apps.selfHosted.unverified on|off`, default off), because it is the customer's own machine.
 
 ## 9. Team sharing and shared live instances
 
@@ -433,9 +467,10 @@ computer, not a seat in the user's.
   Cloud prices; the store shows the estimate in the sheet.
 - Records follow the billable-facts pattern already in usage-billing.md: the store records facts,
   a reconcile worker computes the number for Stripe.
-- Default picked: phase 1 to 4 list free apps only; instance compute is the only charge. Paid
-  third-party apps and publisher payouts are a money and legal decision for Lawrence (Needs you
-  in phase 5).
+- Decided (Lawrence, 2026-10-30, Chief log 17766): **free apps only**. There are no paid apps, no
+  publisher accounts with payouts and no store revenue share; `billing.model` is `free` and the
+  validator refuses any other value. The only charge is instance compute on cmux Cloud, at Cloud
+  prices; a self-hosted instance costs nothing from cmux.
 
 ## 12. How today's cmux-next pieces map onto it
 
@@ -500,7 +535,7 @@ What we take, and what we do not:
 | 2 | Manifest v3: importers for `pack.toml`, harness TOML, `cmux.pack.json`; `agentTools`; `permissions` block; derived "Works on" | every shipped pack and harness loads as an app; `chief pack list` and `cmux apps list` agree |
 | 3 | `remote.scene` over the pane protocol; team tenancy on the team VM (Tasks as the first team instance) | a scene app on the team VM renders on Mac and TUI for two members with the same live state |
 | 4 | Scene renderers for iPhone, web and TUI with the semantic components; text projection for agents | the fork-check apps render on all four clients in screenshot tests |
-| 5 | Verified tier review, publisher accounts, paid apps and payouts (Needs Lawrence: money and legal) | a decision, then a store policy |
+| 5 | Verified tier review and publisher identity (free apps only: no paid apps, no payouts) | a review policy and the first Verified apps |
 
 ## 15. The smallest first slice
 
@@ -509,20 +544,26 @@ Goal: prove install = deploy + pin with a remote pane and team sharing, on piece
 1. **Manifest:** add `deploy {server: {kind: "container", image, port, health}, tenancy: ["user"],
    targets: ["cloud-vm"]}` and `implements["cmux.pane/1"].remote = "instance"` to the v2 schema
    (validator + fixtures), with no other new fields.
-2. **Deploy:** `cmux.apps.install` with `deploy` calls the Cloud control plane to create or reuse
-   the user's VM, build and run the container, check `health`, and create a publication; the
-   instance record lives with the VM record (D11 owner).
+2. **Deploy:** `cmux.apps.install` with `deploy` picks the target and calls its owner: for
+   `cloud-vm` the Cloud control plane creates or reuses the user's VM; for `self-hosted:<host>` the
+   enrolled host's session host is used directly (no cmux Cloud call). Both then run the same
+   runner: build and run the container, check `health`, publish; the instance record lives with
+   its owner (the VM record, or the self-hosted session host). The two targets share one code
+   path behind a `DeployTarget` seam; only "get a machine" differs.
 3. **Pin:** the pane kind `remote.web` opens the publication through the edge with the user's
    identity in the browser engine under a per-app profile; the edge sends signed identity
    headers and the publication is private (Use share to the owner only) by default; the pin record (`pin_…`, app,
    instance) goes into the workspace layout, so a cloud group shares it.
 4. **Entry points:** App Store Get sheet, `cmux apps install <git-url> --deploy cloud --pin pane`,
    palette **Install App…**; MCP only as `apps_propose_install`, which returns a
-   `cmux://suggest` link the user clicks.
+   `cmux://suggest` link the user clicks. `--deploy cloud` and `--deploy self-hosted:<host>` take
+   the same steps.
 5. **Proof:** failing tests first (validator refuses `remote` without `deploy`; install rolls back
    the VM work when the pin fails; a guest sees the pin read-only); one sample app
    (`samples/apps/hello-deploy`, a 30-line HTTP server); one live run on a non-production Cloud
-   account; before/after screenshots in light and dark. The phase 0 ratchet lands first.
+   account and one on a self-hosted Linux host (an enrolled fleet Linux box, no cmux Cloud);
+   a test that the self-hosted install makes no cmux Cloud request; before/after screenshots in
+   light and dark. The phase 0 ratchet lands first.
 
 Out of the slice: team tenancy, `remote.scene`, iPhone/web/TUI renderers, billing beyond the
 existing VM charge, Verified review.
@@ -535,11 +576,14 @@ existing VM charge, Verified review.
 4. Agents propose installs; only the native sheet installs.
 5. First slice = user tenancy on a Cloud VM with `remote.web`; team tenancy and `remote.scene`
    come next.
-6. Free apps only until Lawrence decides on paid apps; instance compute is charged at Cloud
-   prices.
+6. Free apps only (decided by Lawrence, 2026-10-30); instance compute is charged at Cloud prices;
+   self-hosted instances cost nothing from cmux.
 7. Declared, host-enforced capabilities from the first release; bb's full-trust install model is
    not copied.
 8. The registry is an index repo of pinned sources (bb's marketplace shape); a moved tag is
    refused.
 9. Instances are private by default; shares are Use or Operate, to a person, the team or a link
    (exe.dev's Web and Root).
+10. Self-hosted is a target from the first slice (Lawrence, 2026-10-30): one `self-hosted` target
+    with a host selector; Kubernetes is a runner mode of it; unverified apps on a self-hosted host
+    need the enterprise admin's switch (default off); nothing in the path needs cmux Cloud.
