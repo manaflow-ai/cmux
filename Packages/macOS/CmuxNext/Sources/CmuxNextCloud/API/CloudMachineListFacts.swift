@@ -23,6 +23,19 @@ public struct CloudMachineListFacts: Sendable, Hashable {
         self.hasLoadedCurrentMachines = hasLoadedCurrentMachines
     }
 
+    /// The facts from the store's raw list state, so the rule that the list must be the current
+    /// account's lives here and not in each caller.
+    /// - Parameters:
+    ///   - isSignedIn: Whether a person is signed in.
+    ///   - isRestoring: Whether the saved sign-in is being restored.
+    ///   - hasLoadedMachines: Whether the store holds a list the server answered, for any account.
+    ///   - loadedFor: Whom that list is for (`[user id, team id]` when it landed); nil before any list.
+    ///   - account: Whom the person is signed in as now (`[user id, team id]`).
+    public init(isSignedIn: Bool, isRestoring: Bool, hasLoadedMachines: Bool, loadedFor: [String?]?,
+                account: [String?]) {
+        self.init(isSignedIn: isSignedIn, isRestoring: isRestoring, hasLoadedCurrentMachines: hasLoadedMachines)
+    }
+
     /// The signed-in account's own machine list has loaded: a machine it does not list left the account.
     public var accountListLoaded: Bool { isSignedIn && !isRestoring && hasLoadedCurrentMachines }
 

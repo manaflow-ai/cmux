@@ -87,6 +87,30 @@ struct CloudWorkspaceAccountListTests {
         #expect(services.windows.isDead("ws-never-seen"), "the new team's list loaded without it, and this Mac's tree has none")
     }
 
+    /// Review of #28393 at 9f937401f6a: the rule that only the current account's list counts lives in
+    /// `CloudMachineListFacts`, built from the store's raw list state. After a team switch the store still
+    /// holds the previous team's list: it must not say the new team's machine left, nor that the lists
+    /// settled; the new team's own list does.
+    @Test func thePreviousTeamsStoredListIsNotTheCurrentAccountsList() {
+        let oldTeam: [String?] = ["user-cloudlist", "team-old"]
+        let newTeam: [String?] = ["user-cloudlist", "team-new"]
+        let stale = CloudMachineListFacts(isSignedIn: true, isRestoring: false, hasLoadedMachines: true,
+                                          loadedFor: oldTeam, account: newTeam)
+        #expect(!stale.hasLoadedCurrentMachines, "the stored list is the previous team's")
+        #expect(!stale.machineLeft(listed: false), "a machine the old team's list lacks did not leave the new team")
+        #expect(!stale.settled { true }, "the new team's list has not loaded")
+        let services = Self.services(savedOn: "vm-new-team", list: stale)
+        #expect(!services.windows.isDead(Self.workspace), "the new team's workspace waits for the new team's list")
+
+        let current = CloudMachineListFacts(isSignedIn: true, isRestoring: false, hasLoadedMachines: true,
+                                            loadedFor: newTeam, account: newTeam)
+        #expect(current.machineLeft(listed: false), "the new team's own list without the machine: it left")
+        #expect(current.settled { true })
+        let none = CloudMachineListFacts(isSignedIn: true, isRestoring: false, hasLoadedMachines: false,
+                                         loadedFor: nil, account: newTeam)
+        #expect(!none.hasLoadedCurrentMachines, "no list has loaded")
+    }
+
     /// Finding 3: the ids the app gives SSH machines and paired servers are never Cloud ids, read
     /// from the types that make them, so a change of their id form cannot make them Cloud machines.
     @Test func sshAndServerMachineIDsAreNeverCloudIDs() throws {
