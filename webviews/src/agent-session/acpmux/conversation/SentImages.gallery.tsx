@@ -4,11 +4,11 @@
 // its file name or, for a pasted screenshot, its size; one that cannot be drawn says so.
 import { useEffect, useState } from "react";
 import { componentEntry } from "../../../gallery/format";
-import type { PromptImage } from "../model";
+import type { AcpmuxRow, PromptImage } from "../model";
 import { primeSentImages } from "./imageEntries";
 import { ImageViewerContext } from "./imageViewerContext";
-import { TurnActionsContext } from "./turnActions";
-import { SentImages } from "./UserBubble";
+import { TurnActionsContext, type TurnActions } from "./turnActions";
+import { SentImages, UserBubble } from "./UserBubble";
 
 type Shot = { width: number; height: number; hue: number };
 type Props = {
@@ -17,6 +17,7 @@ type Props = {
   /// The pane's own paste: acpmux's echo names each image (by the SHA-256 of its bytes) before
   /// the pane has primed it, and acpmux's read never answers; the pane's priming draws it.
   primedLate?: boolean;
+  attachmentOnly?: "sending" | "actions";
 };
 
 /// A screenshot-like image `shot.width`×`shot.height`: a title bar, a sidebar and lines of text.
@@ -73,9 +74,54 @@ function GalleryPrimedLate({ images }: Props) {
   return named ? <GallerySentImages images={named} pending /> : null;
 }
 
-function GallerySentImages({ images, pending = false, primedLate = false }: Props) {
+function GallerySentImages({ images, pending = false, primedLate = false, attachmentOnly }: Props) {
   if (primedLate) return <GalleryPrimedLate images={images} />;
+  if (attachmentOnly) return <GalleryAttachmentOnly images={images} state={attachmentOnly} />;
   return <GalleryShownImages images={images} pending={pending} />;
+}
+
+function GalleryAttachmentOnly({ images, state }: { images: Props["images"]; state: "sending" | "actions" }) {
+  const [actions] = useState<TurnActions>(() => {
+    const urls = new Map(images.map((image) => [image.id, image.shot && paint(image.shot)]));
+    return {
+      promptImage: (id: string) => Promise.resolve(urls.get(id)),
+      ...(state === "actions" && {
+        retry: () => {},
+        fork: () => {},
+        forkSeq: 7,
+        promptTurns: new Map([["attachment-only", 7]]),
+        branches: {
+          of: new Map([["attachment-only", { index: 0, sessions: ["session-1", "session-2"] }]]),
+          open: () => {},
+        },
+      }),
+    };
+  });
+  const row: AcpmuxRow = {
+    id: "attachment-only",
+    version: 1,
+    kind: "user",
+    at: Date.now() - 10_000,
+    images,
+    ...(state === "sending" && {
+      delivery: {
+        state: "sending" as const,
+        slow: true,
+        promptId: "prompt-attachment-only",
+        sessionId: "session-1",
+        sentAt: Date.now() - 10_000,
+      },
+    }),
+  };
+  return (
+    <ImageViewerContext.Provider value={() => {}}>
+      <TurnActionsContext.Provider value={actions}>
+        <div className="cv-user" style={{ padding: 16 }}>
+          <UserBubble row={row} text="" />
+        </div>
+      </TurnActionsContext.Provider>
+    </ImageViewerContext.Provider>
+  );
 }
 
 function GalleryShownImages({ images, pending = false }: Props) {
@@ -156,6 +202,15 @@ export default componentEntry<Props>({
         })),
         pending: true,
       },
+    },
+    "attachment-only-sending": {
+      note: "An image-only prompt keeps its Still sending clock beside the attachment without drawing an empty glass bubble.",
+      props: { images: pasted.slice(0, 2), attachmentOnly: "sending" },
+    },
+    "attachment-only-actions": {
+      note: "A delivered image-only prompt keeps its action row: Copy, Retry, Fork and version arrows under the attachment.",
+      props: { images: pasted.slice(0, 2), attachmentOnly: "actions" },
+      play: async (ctx) => ctx.hover({ selector: ".cv-user" }),
     },
   },
 });

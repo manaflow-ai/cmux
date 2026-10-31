@@ -73,6 +73,14 @@ export function UserBubble({
           ? [{ ...file, size: file.mimeType || file.size > 0 ? file.size : undefined }]
           : [],
       );
+  // Every recorded non-text part is an attachment, including documents, audio and pasted blocks
+  // that do not become legacy file chips.
+  const hasAttachment = Boolean(
+    row.images?.length ||
+    row.retryAttachments?.length ||
+    files?.length ||
+    row.inlineParts?.some((part) => part.kind !== "text"),
+  );
   // A prompt that went out with an image as `data:` text (before the composer stopped making them)
   // reads each one as its name: a bubble never draws base64 (inlineImages.ts, Leo 2026-10-20).
   // Edit opens it without the images (the field would draw them full size again); Copy copies it as sent.
@@ -94,7 +102,11 @@ export function UserBubble({
     (placed
       ? orderedParts!.some((part) => !isStripMedia(part))
       : orderedParts!.slice(firstMedia + 1).some((part) => part.kind === "text"));
-  const strip = useComposerSettings().attachmentView === "strip" && hasInterleaved;
+  // An attachment-only inline prompt has no text bubble to host its media. Keep its attachments
+  // in the same strip as the legacy `images` shape, otherwise the estimator reserves a thumbnail
+  // row while the DOM draws nothing and the next virtualized row jumps into that space.
+  const inlineAttachmentOnly = Boolean(orderedParts?.length && orderedParts.every((part) => !readsAsText(part)));
+  const strip = (useComposerSettings().attachmentView === "strip" && hasInterleaved) || inlineAttachmentOnly;
   // A placed prompt's attachments the composer left in the strip (unmarked) stay in the band.
   const banded = (part: PromptContentPart) =>
     isStripMedia(part) && (strip || (hasInterleaved && placed && part.placed !== true));
@@ -144,18 +156,21 @@ export function UserBubble({
       <div className="cv-user__body">
         {/* No text to read draws no bubble: a prompt of images alone is its images (an empty glass
             bubble under them read as a lost message; Leo 2026-10-21). */}
-        {(strip ? shownParts!.some(readsAsText) : hasInterleaved || text.trim()) && (
+        {(strip ? shownParts!.some(readsAsText) : hasInterleaved || text.trim()) ? (
           <div className="ui-glass cv-user__bubble selectable">
             {hasInterleaved ? (
               <InlinePromptContent rowId={row.id} parts={shownParts!} show={show} renderImage={renderImage} />
             ) : (
               <PromptText rowId={row.id} text={text} pasted={row.pasted} show={show} />
             )}
-            {/* A prompt this pane sent that is still on its way; a steer's mark says it instead. */}
             {row.delivery && !row.steer && <DeliveryMark delivery={row.delivery} />}
           </div>
-        )}
-        {!row.failed && !row.queued && (text || pending) && (
+        ) : row.delivery?.state === "sending" && !row.steer ? (
+          <div className="cv-user__bubble-wrap is-empty">
+            <DeliveryMark delivery={row.delivery} />
+          </div>
+        ) : null}
+        {!row.failed && !row.queued && (text || hasAttachment || pending) && (
           <UserFooter
             className={branch ? "cv-user__actions cv-user__actions--versions" : "cv-user__actions"}
             pending={pending}
@@ -209,7 +224,9 @@ export function UserBubble({
                 </button>
               )}
               {/* Not while it is still on its way: a second send would duplicate it. */}
-              {!row.pending && row.delivery?.state !== "sending" && <PromptRetry rowId={row.id} prompt={resend} />}
+              {!row.pending && row.delivery?.state !== "sending" && (
+                <PromptRetry rowId={row.id} prompt={resend} hasAttachment={hasAttachment} />
+              )}
               {forkThrough !== undefined && (
                 <ForkButton
                   throughSeq={forkThrough}

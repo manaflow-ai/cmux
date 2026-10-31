@@ -975,10 +975,15 @@ const TURN_GAP = 16;
 /// images alone.
 const userMetaHeight = (row: AcpmuxRow) => {
   const chief = row.from === "chief" || chiefEnvelope(row.text) !== undefined;
-  return (
-    (row.text && !row.failed && !row.queued && !chief ? META_GAP + META_ROW : 0) +
-    (row.steer === "waiting" && !row.text?.trim() ? META_GAP + META_ROW : 0)
+  const hasAttachment = Boolean(
+    row.images?.length || row.retryAttachments?.length || row.inlineParts?.some((part) => part.kind !== "text"),
   );
+  // A waiting steer uses the same single footer slot as a delivered prompt. Include it in the
+  // shared predicate so an attachment-only steer does not reserve that slot twice.
+  const needsMeta =
+    ((row.text || hasAttachment) && !row.failed && !row.queued && !chief) ||
+    (row.steer === "waiting" && !row.text?.trim());
+  return needsMeta ? META_GAP + META_ROW : 0;
 };
 /// The author line over a shared chat's prompt (multiplayer/multiplayer.css `.cv-author`).
 const AUTHOR_HEIGHT = 22;
@@ -1207,6 +1212,31 @@ function fallbackRowHeight(
     const agent = row.subagents![0]!;
     const reply = agent.result && agent.state !== "running" ? replyHeight(agent.result) : 0;
     return finish(cardHeight("working") + reply + TOOL_ROW_HEIGHT);
+  }
+  // Image/file-only user prompts still draw their attachment strip before the action footer.
+  // Reserve the fixed thumbnail height so virtualization never places the next row over it.
+  if (
+    row.kind === "user" &&
+    !row.text?.trim() &&
+    (row.images?.length || row.retryAttachments?.length || row.inlineParts?.some((part) => part.kind !== "text"))
+  ) {
+    // Sent thumbnails wrap at the 70% user column. Use the widest thumbnail (192px) when
+    // estimating columns so a narrow pane never lets a second attachment row overlap the next row.
+    const inlineParts = row.inlineParts ?? [];
+    const imageCount = Math.max(
+      row.images?.length ?? 0,
+      inlineParts.filter((part) => part.kind === "image").length,
+      row.retryAttachments?.filter((part) => part.kind === "image").length ?? 0,
+    );
+    const columns = Math.max(1, Math.floor((width * 0.7 + 6) / 198));
+    const imageRows = imageCount ? Math.ceil(imageCount / columns) : 0;
+    const otherAttachments = Math.max(
+      row.retryAttachments?.filter((part) => part.kind !== "image").length ?? 0,
+      inlineParts.filter((part) => part.kind !== "text" && part.kind !== "image").length,
+    );
+    const attachmentHeight = imageRows * 128 + otherAttachments * 36;
+    const deliveryAnchor = row.delivery?.state === "sending" && !row.steer ? metrics().lineHeight : 0;
+    return finish(attachmentHeight + deliveryAnchor + messageBelow(beforeFooter) + chromeHeight(row, actions));
   }
   if (row.kind === SUBAGENTS) return finish(56);
   // A workflow's card (summary/WorkflowCard.css): three fixed lines in a hairline box.

@@ -143,6 +143,18 @@
 .cv-user__body {
   display: contents;
 }
+/* An attachment-only prompt has no text bubble. Keep a small positioned status anchor so its
+   delivery clock can sit beside the attachment row without inventing an empty glass surface. */
+.cv-user__bubble-wrap {
+  position: relative;
+}
+.cv-user__bubble-wrap.is-empty {
+  /* Attachment-only delivery has no bubble width to anchor against. Match the attachment band so
+     the clock sits beside its thumbnails instead of at the transcript edge. */
+  align-self: flex-end;
+  width: 70%;
+  min-height: var(--cv-line-height);
+}
 /* A prompt's bubble: a small radius, and text inset evenly, 12px from each side (8px of padding
    plus the line's half-leading above and below). model.ts measures it. Its look is the glass rule
    below. */

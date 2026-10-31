@@ -250,10 +250,18 @@ export function ReadReceipt({ row }: { row: AcpmuxRow }) {
 /// (`prompt`, as the agent got it) again. Under a prompt it shows on every one, as Claude's; at the
 /// end of another agent's message only on the last ended turn's (VirtualTranscript marks that row
 /// `data-retryable`; conversation.css).
-export function PromptRetry({ rowId, prompt }: { rowId: string; prompt: string }) {
+export function PromptRetry({
+  rowId,
+  prompt,
+  hasAttachment = false,
+}: {
+  rowId: string;
+  prompt: string;
+  hasAttachment?: boolean;
+}) {
   const t = useT();
   const { retry, retryWith } = useContext(TurnActionsContext);
-  if (!retry || !prompt) return null;
+  if (!retry || (!prompt && !hasAttachment)) return null;
   return (
     <span className="cv-message-retry">
       <button
