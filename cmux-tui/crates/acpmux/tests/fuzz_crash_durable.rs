@@ -32,7 +32,8 @@
 //! These are measurements a fuzz owner runs on the fleet, not CI tests (CLAUDE.md: no new CI
 //! tests): each test runs only in a fleet step whose key names it (`CMUX_CI_STEP_KEY` contains
 //! `fuzz-g`), or when `ACPMUX_FUZZ_SEED` is set; elsewhere it prints `FUZZ-G SKIP` and passes.
-//! `ACPMUX_FUZZ_SEED` (a u64) and `ACPMUX_FUZZ_ROUNDS` (kills per seed) choose the run.
+//! `ACPMUX_FUZZ_SEED` (a u64) and `ACPMUX_FUZZ_ROUNDS` (kills per seed) choose the run; without
+//! them each test runs its three seeds, 12 kills each, at most 70 s a seed.
 #![cfg(unix)]
 
 #[path = "support/daemon_env.rs"]
@@ -597,6 +598,15 @@ fn run_op(client: &mut Client, model: &Mutex<Model>, op: Op, home: &Path) -> boo
             Op::Prompt { chat, pid } => {
                 if let Some(c) = m.chats.get_mut(chat) {
                     c.maybe.insert(pid.clone());
+                    // A prompt subscribes this connection as showing the chat
+                    // (`server/view.rs` `subscribe_local`), which is seeing it: unread clears.
+                    c.unread_acked = false;
+                }
+            }
+            Op::PermissionAnswer { chat } => {
+                // Its next waiting turn is a prompt too (`arm`).
+                if let Some(c) = m.chats.get_mut(chat) {
+                    c.unread_acked = false;
                 }
             }
             _ => {}
@@ -848,6 +858,14 @@ fn step_of(model: &Model, pred: impl Fn(&Op) -> bool) -> (usize, String) {
         .unwrap_or((0, "-".into()))
 }
 
+/// Durable answers the checks after the restarts compared, by kind (coverage: a pass that
+/// checked nothing proves nothing).
+static CHECKED: Mutex<BTreeMap<&'static str, u64>> = Mutex::new(BTreeMap::new());
+
+fn checked(kind: &'static str, n: usize) {
+    *CHECKED.lock().unwrap().entry(kind).or_default() += n as u64;
+}
+
 /// Checks the restarted daemon against the model.
 fn check(daemon: &mut Daemon, model: &Model) -> Vec<Finding> {
     let mut out = Vec::new();
@@ -911,8 +929,10 @@ fn check(daemon: &mut Daemon, model: &Model) -> Vec<Finding> {
                 continue;
             }
         };
+        checked("chats", 1);
         // Drafts: promised durable.
         if let Some(ok) = allowed(&c.drafts) {
+            checked("drafts", 1);
             let now = client
                 .get("_acpmux/draft_get", json!({"sessionId": id}))
                 .map(|v| v["draft"].as_str().map(str::to_owned));
@@ -988,6 +1008,8 @@ fn check(daemon: &mut Daemon, model: &Model) -> Vec<Finding> {
             }
             std::thread::sleep(Duration::from_millis(300));
         }
+        checked("prompts", c.accepted.len());
+        checked("removals", c.removed.len());
         for p in missing {
             let (step, op) = step_of(model, |o| matches!(o, Op::Prompt { pid, .. } if *pid == p));
             bad(
@@ -1021,6 +1043,7 @@ fn check(daemon: &mut Daemon, model: &Model) -> Vec<Finding> {
         }
     }
     // The outbox: every acknowledged delivery is still known.
+    checked("deliveries", model.deliveries.len());
     for (delivery, step) in &model.deliveries {
         if let Err(e) = client.get("_acpmux/send_status", json!({"deliveryId": delivery})) {
             bad(*step, "_acpmux/send_queue", "lost-delivery", format!("delivery {delivery}: {e}"));
@@ -1034,6 +1057,7 @@ fn check(daemon: &mut Daemon, model: &Model) -> Vec<Finding> {
             let owed = ls["deliveries"].to_string();
             for (tag, w) in &model.watches {
                 let Some(wid) = &w.id else { continue };
+                checked(if w.removed { "watch_removals" } else { "watches" }, 1);
                 let (step, op) =
                     step_of(model, |o| matches!(o, Op::WatchAdd { tag: t, .. } if t == tag));
                 let is_listed = listed.contains(&format!("\"id\":\"{wid}\""));
@@ -1084,7 +1108,13 @@ fn check(daemon: &mut Daemon, model: &Model) -> Vec<Finding> {
 fn rearm(daemon: &Daemon, model: &Mutex<Model>, epoch: u64) -> Option<Client> {
     let mut client = Client::connect(&daemon.socket)?;
     let chats: Vec<(String, Role)> = {
-        let m = model.lock().unwrap();
+        let mut m = model.lock().unwrap();
+        // The waiting turns' prompts show their chats: unread clears (see `run_op`).
+        for c in m.chats.values_mut() {
+            if c.role.is_some_and(|r| r != Role::Plain) {
+                c.unread_acked = false;
+            }
+        }
         m.chats.values().filter_map(|c| Some((c.id.clone()?, c.role?))).collect()
     };
     for (id, role) in chats {
@@ -1103,6 +1133,8 @@ struct Totals {
     violations: Vec<Finding>,
     notes: Vec<Finding>,
     restart_ms: Vec<u64>,
+    /// Requests the kill cut before their answer (in flight at the kill).
+    cut: u64,
 }
 
 /// Splits the findings: notes (unpromised losses) and violations.
@@ -1218,6 +1250,9 @@ fn fuzz_seed(seed: u64, rounds: u32, budget: Duration, totals: &mut Totals) -> V
             continue;
         }
         totals.ops += 1;
+        if i.outcome == "dead" {
+            totals.cut += 1;
+        }
         if let Some(ms) = i.latency_ms {
             totals.latencies.push(ms);
             if ms > STALL_MS {
@@ -1348,8 +1383,12 @@ fn run(name: &str, seeds: &[u64], rounds: u32) {
     for &seed in &seeds {
         let had = totals.violations.len();
         let notes_had = totals.notes.len();
-        let log = fuzz_seed(seed, rounds, Duration::from_secs(110), &mut totals);
+        let log = fuzz_seed(seed, rounds, Duration::from_secs(70), &mut totals);
+        let mut seen = BTreeSet::new();
         for f in &totals.notes[notes_had..] {
+            if !seen.insert((f.kind, f.what.clone())) {
+                continue;
+            }
             println!(
                 "FUZZ-G NOTE seed={seed} step={} op={} what={}: {} (not promised)",
                 f.step, f.op, f.kind, f.what
@@ -1381,10 +1420,11 @@ fn run(name: &str, seeds: &[u64], rounds: u32) {
     let mut restart = totals.restart_ms.clone();
     restart.sort_unstable();
     println!(
-        "FUZZ-G SUMMARY test={name} seeds={} ops={} kills={} violations={} notes={} latency_ms p50={} p95={} p99={} max={} restart_ms p50={} max={}",
+        "FUZZ-G SUMMARY test={name} seeds={} ops={} kills={} cut_in_flight={} violations={} notes={} latency_ms p50={} p95={} p99={} max={} restart_ms p50={} max={} checked={:?}",
         seeds.len(),
         totals.ops,
         totals.kills,
+        totals.cut,
         totals.violations.len(),
         totals.notes.len(),
         percentile(&lat, 0.50),
@@ -1393,6 +1433,7 @@ fn run(name: &str, seeds: &[u64], rounds: u32) {
         lat.last().copied().unwrap_or(0),
         percentile(&restart, 0.50),
         restart.last().copied().unwrap_or(0),
+        CHECKED.lock().unwrap(),
     );
     assert!(
         totals.violations.is_empty(),
@@ -1403,20 +1444,20 @@ fn run(name: &str, seeds: &[u64], rounds: u32) {
 
 #[test]
 fn fuzz_g_crash_durable_seed_a() {
-    run("seed_a", &[0x6701], 4);
+    run("seed_a", &[0x6701, 0x6711, 0x6721], 12);
 }
 
 #[test]
 fn fuzz_g_crash_durable_seed_b() {
-    run("seed_b", &[0x6702], 4);
+    run("seed_b", &[0x6702, 0x6712, 0x6722], 12);
 }
 
 #[test]
 fn fuzz_g_crash_durable_seed_c() {
-    run("seed_c", &[0x6703], 4);
+    run("seed_c", &[0x6703, 0x6713, 0x6723], 12);
 }
 
 #[test]
 fn fuzz_g_crash_durable_seed_d() {
-    run("seed_d", &[0x6704], 4);
+    run("seed_d", &[0x6704, 0x6714, 0x6724], 12);
 }
