@@ -302,15 +302,10 @@ impl Hub {
             return false;
         }
         match session.launched_with_tools.load(Ordering::SeqCst) {
-            1 => true,
-            2 => false,
-            _ => self.spawn_gives_tools(&m).await,
+            1 => return true,
+            2 => return false,
+            _ => {}
         }
-    }
-
-    /// Whether the profile `m`'s chat spawns with now (its preset's env and args included, as
-    /// `child_for` resolves it) gives its agent cmux's tools. False when it cannot be resolved.
-    pub(super) async fn spawn_gives_tools(&self, m: &SessionMeta) -> bool {
         let (profile, defaults) = {
             let cfg = self.config.read().await;
             match super::resolve::session_profile(&cfg, &m.harness, &m.cwd, m.remote_origin) {
@@ -318,7 +313,7 @@ impl Hub {
                 Err(_) => return false,
             }
         };
-        let Ok(profile) = self.spawn_profile_for(m, &profile, &defaults.env).await else {
+        let Ok(profile) = self.spawn_profile_for(&m, &profile, &defaults.env).await else {
             return false;
         };
         // Claude Code alone reads `--strict-mcp-config` (`hub/tools.rs`).

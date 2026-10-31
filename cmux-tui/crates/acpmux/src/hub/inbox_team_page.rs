@@ -15,8 +15,9 @@
 //! An agent with no cmux tools has no reader at all, so its notice carries each new message whole
 //! ([`whole_notice`]) instead of the one-line previews. That is decided as the notice goes
 //! ([`Hub::notice_reader_has_tools`]), not when its messages came: a chat whose agent respawned
-//! without the tools, or that has not started one since a restart, may hold messages the inbox
-//! took while it had them (router review of #28707).
+//! without the tools, or that an adopted tool-less agent still runs after a restart, may hold
+//! messages the inbox took while it had them. It reads only what is in memory, the chat's tool
+//! rows and the config, as it runs for every notice (router reviews of #28707).
 
 use super::*;
 
@@ -91,16 +92,25 @@ impl Hub {
         Ok(json!({"messageId": id, "state": "acked", "to": {"sessionId": session.id}}))
     }
 
-    /// Whether the agent that reads the next notice can open a thread: neither the agent this
-    /// daemon last launched for the chat nor the one its profile spawns now lacks cmux's tools.
-    /// A notice to one that cannot carries its messages whole ([`whole_notice`]).
+    /// Whether the agent that reads the next notice can open a thread. Its chat's tool rows say
+    /// what the agent last launched for it was given (`record_spawn_inputs`; they outlast a
+    /// restart, so an adopted agent counts as it was started), and the profile its next spawn
+    /// takes must leave the tools in too ([`spawn_keeps_tools`]). Unknown (no rows yet, the
+    /// `acpmux` server turned off) counts as cannot: a notice to one that cannot carries its
+    /// messages whole ([`whole_notice`]).
     pub(super) async fn notice_reader_has_tools(&self, session: &Session) -> bool {
         let m = session.meta();
         let switch = std::env::var_os(crate::agent_tools::SWITCH_ENV);
-        !m.remote_origin
-            && switch.is_none_or(|v| v != "0")
-            && session.launched_with_tools.load(Ordering::SeqCst) != 2
-            && self.spawn_gives_tools(&m).await
+        let row = format!("mcp:{}", crate::acpmux_mcp::SERVER_NAME);
+        let launched = m.tools.rows.iter().any(|r| r.source == "cmux" && r.id == row && r.enabled);
+        if m.remote_origin
+            || switch.is_some_and(|v| v == "0")
+            || session.launched_with_tools.load(Ordering::SeqCst) == 2
+            || !launched
+        {
+            return false;
+        }
+        spawn_keeps_tools(&*self.config.read().await, &m)
     }
 
     /// The `inbox_read` records of what a read or an ack marked read, one per thread.
@@ -114,6 +124,35 @@ impl Hub {
             );
         }
     }
+}
+
+/// Whether the chat's next spawn gives its agent the `acpmux` server, from the config alone: the
+/// harness profile's, its defaults' and its preset's env and args, then the chat's own env, as
+/// `spawn_profile_read` merges them. None of `spawn_profile_for`'s file work (a folder profile's
+/// file, the cmux-harness migration) runs for a notice: a folder profile is judged by the rows of
+/// its last launch alone.
+fn spawn_keeps_tools(cfg: &crate::config::Config, m: &SessionMeta) -> bool {
+    let Some(profile) = cfg.profile(&m.harness) else {
+        return true;
+    };
+    let mut env = profile.env.clone();
+    for (k, v) in cfg.defaults_for(&m.harness).env {
+        env.entry(k).or_insert(v);
+    }
+    let mut args = profile.argv.clone();
+    if let Some(preset) = m.preset.as_ref().and_then(|name| cfg.presets.get(name)) {
+        env.extend(preset.env.clone());
+        args.extend(preset.args.iter().cloned());
+    }
+    env.extend(m.session_env.clone());
+    // Claude Code alone reads `--strict-mcp-config` (`hub/tools.rs`).
+    if profile.kind != crate::config::HarnessKind::ClaudeStdio {
+        args.clear();
+    }
+    let servers =
+        env.get(crate::agent_tools::SERVERS_ENV).map(|v| v.trim()).filter(|v| !v.is_empty());
+    !crate::agent_tools::left_out(false, &env, &args)
+        && servers.is_none_or(|v| v.split(',').any(|s| s.trim() == crate::acpmux_mcp::SERVER_NAME))
 }
 
 /// The notice of `items` for an agent with no cmux tools: each message whole, oldest first, under
