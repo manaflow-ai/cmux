@@ -10,7 +10,8 @@ import Testing
 /// opens no gap) lit the header's fill, which nothing drew, so an accepted drop showed no destination; and a drag of the
 /// row moved only the workspace, so the group could no longer be reordered; and a drop into a nested such group took its
 /// step-in from a header the list does not draw, so the gap and card sat at the list's inset; and opening a focused
-/// collapsed such group took its header away, so Down walked on from the active workspace instead of from the group.
+/// collapsed such group took its header away, so Down walked on from the active workspace instead of from the group, and
+/// Tab and Shift-Tab lost their place in the headers.
 @MainActor @Suite(.serialized, .closesItsWindows) struct SidebarSingleMemberGroupKeysTests {
     static let group = GroupID("g-coord")
     static let coord = WorkspaceID("w-coord")
@@ -171,6 +172,50 @@ import Testing
         #expect(list.focusedGroup == nil)
         try key(String(Character(UnicodeScalar(NSDownArrowFunctionKey)!)), 125)
         #expect(model.activeWorkspaceID == WorkspaceID("w-c"), "Down from the one row did not go on to the next row")
+    }
+
+    @Test func tabGoesOnFromAnOpenedGroupsOneRow() throws {
+        let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
+        let before = GroupID("g-before"), after = GroupID("g-after")
+        let nodes: [CmuxNextSidebar.SidebarNode] = [
+            .group(SidebarGroup(id: before, name: "Before", workspaces: [SidebarWorkspace(id: WorkspaceID("w-p1"), title: "P1"),
+                                                                         SidebarWorkspace(id: WorkspaceID("w-p2"), title: "P2")])),
+            .workspace(SidebarWorkspace(id: WorkspaceID("w-a"), title: "A")),
+            .group(SidebarGroup(id: Self.group, name: "release-coord", isCollapsed: true,
+                                workspaces: [SidebarWorkspace(id: Self.coord, title: "release-coord")])),
+            .group(SidebarGroup(id: after, name: "After", workspaces: [SidebarWorkspace(id: WorkspaceID("w-q1"), title: "Q1"),
+                                                                       SidebarWorkspace(id: WorkspaceID("w-q2"), title: "Q2")])),
+        ]
+        let model = SidebarModel(sections: [CmuxNextSidebar.SidebarSection(kind: .machine(machine), nodes: nodes)], activeWorkspaceID: WorkspaceID("w-a"))
+        let sidebar = SidebarView(model: model, design: DesignSettings())
+        let window = NSWindow(contentRect: NSRect(x: 100, y: 200, width: 260, height: 600), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        sidebar.frame = NSRect(x: 0, y: 0, width: 260, height: 600)
+        window.contentView?.addSubview(sidebar)
+        defer { window.close() }
+        let list = sidebar.list
+        list.reload(animated: false)
+        sidebar.layoutSubtreeIfNeeded()
+        func key(_ characters: String, _ code: UInt16, shift: Bool = false) throws {
+            let event = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: shift ? [.shift] : [], timestamp: 0,
+                                                      windowNumber: window.windowNumber, context: nil, characters: characters,
+                                                      charactersIgnoringModifiers: characters, isARepeat: false, keyCode: code))
+            _ = SidebarGroupKeys(list: list).handle(event, flags: shift ? [.shift] : [])
+            list.reload(animated: false)
+        }
+        let right = String(Character(UnicodeScalar(NSRightArrowFunctionKey)!))
+        try key("\t", 48)
+        try key("\t", 48)
+        #expect(list.focusedGroup == Self.group, "Tab did not reach the collapsed group")
+        try key(right, 124)
+        #expect(try #require(list.displayed.row(for: .workspace(Self.coord))).standsForGroup)
+        try key("\t", 48)
+        #expect(list.focusedGroup == after, "Tab from the opened group's one row went to \(String(describing: list.focusedGroup)), not the next header")
+
+        // Focus back where Right left it: on the opened group, drawn as its one row.
+        SidebarGroupKeys(list: list).setFocus(Self.group)
+        try key("\t", 48, shift: true)
+        #expect(list.focusedGroup == before, "Shift-Tab from the opened group's one row went to \(String(describing: list.focusedGroup)), not the previous header")
     }
 
     @Test func leftOnTheOneRowFocusesNoHeaderlessGroup() throws {
