@@ -215,17 +215,18 @@ fn concurrent_claims_never_pass_the_limit() {
 /// Two accept loops reclaim one hung-up slot at once: it is taken back once.
 ///
 /// The model is the reclaim pass alone (`reclaim_hung_up`, which `try_claim`
-/// calls at the limit), not two whole claims: the two-claim model did not end
-/// at bound 3 in 25 min (job 8af2d10a), and the claim's own steps (the active
-/// count, the peak, the new lease) are covered by the other two models. The
-/// race needs one preemption: loop A passes the peer check and takes a pool
-/// place, B runs its whole pass on the same lease, then A's compare-exchange
-/// on `hung_up` must fail and give its pool place back. Bound 3 covers that
-/// and two more switches (A back to B, B back to A).
+/// calls at the limit), not two whole claims: the claim's own steps (the
+/// active count, the peak, the new lease) are covered by the other two models.
+/// `limit` is 2, so the hung-up pool has room for both passes: each can take a
+/// pool place, and the loser of the `hung_up` compare-exchange must give its
+/// place back (with `limit` 1 the second pass stopped at the full pool and that
+/// give-back never ran; review of #29125). The race needs one preemption: pass
+/// A takes a pool place, B runs its whole pass on the same lease, A's
+/// compare-exchange fails. Bound 3 covers it and two more switches.
 #[test]
 fn two_accept_loops_take_back_one_hung_up_slot_once() {
     explore_bounded("two_reclaim_passes", 3, || {
-        let limit = 1;
+        let limit = 2;
         let stats = Arc::new(ConnectionStats::new());
         // The client already hung up: the peer check is a constant, so loom
         // spends no state on it.

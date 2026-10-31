@@ -2,8 +2,9 @@
 //! parse (cmux-tui-core `server::fuzz_seam::parse_control_line`).
 //!
 //! Input: byte 0 picks the client's API revision (0: this daemon's own, so
-//! no upgrade; else a revision in or just past the translated range, or any
-//! u32), the rest is the line. The socket reader drops a connection on
+//! no upgrade; 255: a revision far past the range, 255..=65535; else a
+//! revision in or just past the translated range), the rest is the line. The
+//! run's -max_len is 1 MiB, so the 16 MiB size refusal is the live test's. The socket reader drops a connection on
 //! invalid UTF-8 before any parse, so only UTF-8 reaches here.
 //!
 //! Oracle: no panic (a panic in the parse kills the connection thread and,

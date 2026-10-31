@@ -220,6 +220,15 @@ fuzz_target!(|input: Input| {
         }
     }
 
+    // With no operation that tampered with any line, every line completed and
+    // nothing may stay in flight.
+    if tainted.is_empty() {
+        assert_eq!(
+            assembler.in_flight(),
+            (0, 0),
+            "parts stayed in flight after every line completed"
+        );
+    }
     for line in &sent {
         let message = line.message;
         if tainted.contains(&message) {

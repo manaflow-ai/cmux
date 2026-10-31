@@ -21,6 +21,8 @@
 # carries the repro. The nightly toolchain, rust-src and cargo-fuzz are
 # installed into the job's cache when the image lacks them (it does: STATUS
 # 2026-10-31 06:30Z).
+# No `set -e`: every step's status is read on purpose, and a grep that finds
+# nothing must not end the run before its FUZZ-VERDICT line.
 set -uo pipefail
 umask 022
 
@@ -134,13 +136,11 @@ case "$mode" in
     jobs="${CMUX_FUZZ_JOBS:-$(( $(nproc) / 2 ))}"
     echo "fuzz $target for ${seconds}s, sanitizer $sanitizer, $jobs workers, corpus $(ls "$corpus" | wc -l) inputs"
     export ASAN_OPTIONS="detect_leaks=1:allocator_may_return_null=0:abort_on_error=1:symbolize=1"
-    set +e
     cargo fuzz run --fuzz-dir "$here" --sanitizer "$sanitizer" --debug-assertions "$target" "$corpus" -- \
       -max_total_time="$seconds" -rss_limit_mb=4096 -max_len=1048576 -timeout=20 \
       -jobs="$jobs" -workers="$jobs" -print_final_stats=1 2>&1 | tee "$cache/fuzz-$target.log" | \
       grep -E "^#[0-9]+.*(INITED|DONE|pulse)|stat::|==[0-9]+==|ERROR|panicked|SUMMARY|Test unit written|thread '" | tail -200
     rc=${PIPESTATUS[0]}
-    set -e
     # libFuzzer workers log to fuzz-N.log in the cwd.
     for log in "$tui"/fuzz-*.log; do
       [[ -f "$log" ]] || continue
@@ -168,7 +168,6 @@ case "$mode" in
     need_ghostty
     export CMUX_WIRE_FUZZ_ROUNDS="$rounds"
     cd "$here"
-    set +e
     if [[ "$mode" == live ]]; then
       need_nightly; need_lock
       cargo test --release -p cmux-tui-fuzz-live -- --nocapture 2>&1 | tail -150
@@ -184,7 +183,6 @@ case "$mode" in
       rc=${PIPESTATUS[0]}
       grep -A30 "WARNING: ThreadSanitizer" "$cache/live-tsan.log" | head -400
     fi
-    set -e
     if [[ "$mode" == live-tsan ]] && grep -q "WARNING: ThreadSanitizer" "$cache/live-tsan.log"; then
       verdict "FAIL tsan reports: $(grep -c 'WARNING: ThreadSanitizer' "$cache/live-tsan.log")"
       exit 1
@@ -204,7 +202,6 @@ case "$mode" in
     cd "$tui"
     filters=(server:: diagnostics journal_ingress mux::)
     [[ -n "$filter" ]] && filters=("$filter")
-    set +e
     # The workspace lockfile, read only (--locked): the TSan build changes no
     # dependency. Its own target dir so the stable build cache stays untouched.
     # The browser_host_command tests build cmux-browser-host with a nested
@@ -221,7 +218,6 @@ case "$mode" in
         cargo test --locked -Zbuild-std --target "$target_triple" -p cmux-tui-core --lib -- "$f" --test-threads 8 2>&1 | \
         tee -a "$cache/tsan.log" | grep -E -A4 "WARNING: ThreadSanitizer|SUMMARY: ThreadSanitizer|test result|panicked at|^error" | tail -200
     done
-    set -e
     grep -A30 "WARNING: ThreadSanitizer" "$cache/tsan.log" | head -600
     warnings=$(grep -c "WARNING: ThreadSanitizer" "$cache/tsan.log")
     results=$(grep -c "^test result" "$cache/tsan.log")
@@ -247,7 +243,6 @@ case "$mode" in
     for m in "${models[@]}"; do
       echo "=== loom $m (limit ${limit}s)"
       start=$SECONDS
-      set +e
       RUSTFLAGS="--cfg loom" timeout --kill-after=30 "$limit" \
         cargo test --release -p cmux-tui-loom --test "$m" -- --nocapture --test-threads 1 2>&1 | \
         grep -E -A6 "^test |test result|panicked at|Completed in|iterations" | head -120
