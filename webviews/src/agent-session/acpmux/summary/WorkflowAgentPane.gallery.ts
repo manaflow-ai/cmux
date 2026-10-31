@@ -14,13 +14,13 @@ const snapshot = chat(
 
 export default agentPaneEntry({
   id: "agent-pane.workflow-agent-pane",
-  title: "Open a workflow agent beside its chat",
+  title: "View a workflow agent in its chat",
   area: "Agent pane",
   height: 720,
   covers: ["agent-session/acpmux/summary/workflowTranscript.ts", "agent-session/acpmux/App.tsx"],
   variants: {
     "open-agent": {
-      note: "Click a running agent in Session Info. The native call carries the workflow session/run/agent identity and keeps the parent chat visible. Native placement requires a real-app capture.",
+      note: "With Open subagents in panes off, click an agent in Session Info. Its transcript opens inside the chat with the workflow session/run/agent identity, without a new pane.",
       snapshot,
       workflowLabs: true,
       native: { "pane.tabState": { inspector: true }, "chat.subagentPane": { opened: true } },
@@ -28,18 +28,13 @@ export default agentPaneEntry({
         const selector = ".acpmux-workflow-phase__agents .acpmux-workflow-agent__button:not(:disabled)";
         await ctx.waitFor(() => ctx.document.querySelector(selector));
         await ctx.click({ selector });
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-subagent-of"));
         const log = (ctx.document.defaultView as unknown as { cmuxGalleryLog: PaneCall[] }).cmuxGalleryLog;
-        await ctx.waitFor(() => log.some((call) => call.method === "chat.subagentPane"));
-        const call = log.find((entry) => entry.method === "chat.subagentPane")!;
-        const request = workflowPaneRequest(String(call.params?.subagent));
-        if (
-          request?.sessionId !== snapshot.sessionId ||
-          !request?.runId ||
-          !request.agentId ||
-          call.params?.focus !== true
-        )
-          throw new Error("Workflow click lost its transcript identity or focus");
-        if (ctx.document.querySelector(".cv-subagent-of")) throw new Error("Parent chat switched to the child");
+        const row = ctx.document.querySelector(".cv-subagent-of")?.closest<HTMLElement>("[data-row-id]");
+        const request = workflowPaneRequest(row?.dataset.rowId?.replace(/:of$/, ""));
+        if (request?.sessionId !== snapshot.sessionId || !request?.runId || !request.agentId)
+          throw new Error("Workflow click lost its transcript identity");
+        if (log.some((call) => call.method === "chat.subagentPane")) throw new Error("Workflow click opened a pane");
       },
     },
   },
