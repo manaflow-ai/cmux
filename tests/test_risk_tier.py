@@ -69,6 +69,8 @@ class ClassifyTests(unittest.TestCase):
             NEXT + "CmuxNextChromiumRuntime/SecCodeChromiumRuntimeSignatureChecker.swift",
             NEXT + "CmuxNextChromiumRuntime/ChromiumRuntimeSignatureChecking.swift",
             "Packages/macOS/CmuxComputerUseHelper/Sources/CmuxCuaHelperCore/Admission.swift",
+            "Packages/macOS/CmuxComputerUseHelper/Sources/CmuxCuaHelperCore/AdmissionState.swift",
+            "Packages/macOS/CmuxComputerUseHelper/Sources/CmuxCuaHelperCore/HelperController.swift",
             "cmux-tui/crates/acpmux/src/agent_tools/cua_helper.rs",
             "scripts/cmux-cua-helper-trust.sh",
             NEXT + "CmuxNextComputerUse/ComputerUseHelperStaging.swift",
