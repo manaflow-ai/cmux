@@ -67,9 +67,12 @@ Conditions:
                                       LONG_TAG the long line wraps at the NEW width: its first screen row is exactly
                                       `cols` long and the rest follows. VS/COLS: the grid is wider/narrower than the
                                       remembered one.
-  smoke_same_widths  {since, new}     every column of the snapshot SINCE (matched by its panes) has EXACTLY its old width
+  smoke_same_widths  {since, new, split_in_place?}
+                                      every column of the snapshot SINCE (matched by its panes) has EXACTLY its old width
                                       (0.01 point; float view frames), and the workspace has NEW more columns; each old
-                                      and new width in the result
+                                      and new width in the result. SPLIT_IN_PLACE (Cmd-D): the column of the pane focused
+                                      at the snapshot gains exactly one pane and is not compared; every other column
+                                      is. A width that is unknown (a pane with no frame) is not judged (not run)
 """
 import json
 import time
@@ -630,11 +633,14 @@ def step_smoke_widths(j, step):
     no_frame = {}
     widths, columns = _widths(j, workspace, None, no_frame), _columns(j, workspace)
     if no_frame:
-        raise D.StepError(f"smoke_widths: no frame for panes {no_frame} (their column widths are unknown)")
+        # A pane with no frame (an off-screen column whose terminal the app closed under memory pressure): its
+        # column's width is unknown. Not judged (the round is "not run"), never a fail or a pass.
+        raise D.NotRun(f"smoke_widths: no frame for panes {no_frame}: their column widths are unknown (not judged)")
     if not hasattr(j, "smoke_width_snaps"):
         j.smoke_width_snaps = {}
-    j.smoke_width_snaps[step["name"]] = {"workspace": workspace, "widths": widths, "columns": columns}
-    return {"workspace": workspace, "widths": widths, "columns": columns}
+    focused = _focused_pane(j)
+    j.smoke_width_snaps[step["name"]] = {"workspace": workspace, "widths": widths, "columns": columns, "focused": focused}
+    return {"workspace": workspace, "widths": widths, "columns": columns, "focused": focused}
 
 
 def cond_smoke_same_widths(j, want, cache):
@@ -647,11 +653,18 @@ def cond_smoke_same_widths(j, want, cache):
     no_frame = {}
     widths_now = _widths(j, snap["workspace"], cache, no_frame)
     changed, gone, unknown = {}, [], {}
+    split_in = None
+    if want.get("split_in_place"):
+        # Cmd-D (Split Right) splits the pane focused at the snapshot inside its own column (Lawrence 2026-10-01,
+        # column-sizing.md): that column gains one pane and is not compared; every OTHER column must keep its width.
+        split_in = next((k for k, m in old_cols.items() if snap.get("focused") in m), None)
     for index, members in old_cols.items():
         match = next((k for k, m in new_cols.items() if set(members) <= set(m)), None)
         before = snap["widths"].get(index)
         if match is None:
             gone.append(index)
+            continue
+        if index == split_in:
             continue
         after = widths_now.get(match)
         if before is None or after is None:
@@ -663,15 +676,26 @@ def cond_smoke_same_widths(j, want, cache):
     problems = []
     if changed:
         problems.append(f"{len(changed)} existing columns changed width")
-    if unknown:
-        problems.append(f"no frame for the panes of {len(unknown)} existing columns (width unknown): "
-                        f"{sorted({p for v in unknown.values() for p in v['panes']})}")
+    if unknown and not changed:
+        # Width unknown (no frame, e.g. an off-screen column closed under memory pressure) and no column seen to
+        # change: not judged. A column seen to change still fails.
+        raise D.NotRun(f"no frame for the panes of {len(unknown)} existing columns, their widths are unknown "
+                       f"(not judged): {sorted({p for v in unknown.values() for p in v['panes']})}")
     if gone:
         problems.append(f"{len(gone)} existing columns are gone")
     if len(added) != int(want.get("new", 1)):
         problems.append(f"{len(added)} new columns, not {want.get('new', 1)}")
+    if want.get("split_in_place"):
+        if split_in is None:
+            problems.append(f"the focused pane {snap.get('focused')} was in no column of the snapshot")
+        else:
+            members = old_cols[split_in]
+            match = next((k for k, m in new_cols.items() if set(members) <= set(m)), None)
+            grown = len(new_cols.get(match, [])) - len(members) if match is not None else None
+            if grown != 1:
+                problems.append(f"the focused pane's column has {grown} more panes, not 1 (no split in place)")
     return not problems, {"problems": problems, "changed": changed, "gone": gone, "added": added,
-                          "unknown": unknown, "no_frame": no_frame,
+                          "unknown": unknown, "no_frame": no_frame, "split_in_column": split_in,
                           "old_widths": snap["widths"], "new_widths": widths_now, "old_columns": old_cols, "new_columns": new_cols}
 
 STEPS = {"smoke_ready": step_smoke_ready, "smoke_make_key": step_smoke_make_key, "smoke_type_now": step_smoke_type_now,

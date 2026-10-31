@@ -22,6 +22,8 @@ GATE = HERE / "smoke-gate.py"
 
 FAKE = r'''
 import json, os, sys
+R3 = [st["title"] for st in json.load(open(os.environ["SMOKE_JOURNEY"]))["steps"]
+      if st.get("do") == "expect" and str(st.get("title", "")).startswith("R3")]
 args = sys.argv[1:]
 out = args[args.index("--out") + 1]
 os.makedirs(os.path.join(out, "smoke-dogfood"), exist_ok=True)
@@ -46,13 +48,16 @@ if status == "pass" and "--journey-option" not in args:
     late = os.environ.get("SMOKE_LATE") == "yes"
     typed = [] if os.environ.get("SMOKE_LATE") == "none" else [{"index": 7, "do": "smoke_type_now", "ok": True,
                                                                  "result": {"at_once": not late}}]
-    r3 = os.environ.get("SMOKE_R3", "all")  # all | none (the round ended before R3) | r3b-failed | one-r3b
-    checks = [("R3a split", True), ("R3a window", True), ("R3b New Column", True), ("R3b Ctrl-Cmd-D", True),
-              ("R3b Cmd-D", r3 != "r3b-failed")]
+    r3 = os.environ.get("SMOKE_R3", "all")  # all | none | r3b-failed | one-r3b | renamed | duplicated
+    checks = [(title, not (r3 == "r3b-failed" and i == 4)) for i, title in enumerate(R3)]
     if r3 == "none":
         checks = []
     if r3 == "one-r3b":
         checks = checks[:3]
+    if r3 == "renamed":
+        checks[5] = ("R3b: Split Down, renamed", True)
+    if r3 == "duplicated":
+        checks[5] = (checks[2][0], True)  # the New Column check twice stands in for Split Down
     typed += [{"do": "expect", "title": title, "ok": ok} for title, ok in checks]
     json.dump({"steps": typed},
               open(os.path.join(out, "smoke-dogfood", "result.json"), "w"))
@@ -60,9 +65,7 @@ if "--journey-option" in args:
     open(os.path.join(out, "options.txt"), "w").write(args[args.index("--journey-option") + 1])
     json.dump({"steps": [{"index": 5, "do": "expect", "title": "Cmd-D twice fast", "ok": status == "pass",
                           "error": "" if status == "pass" else "no new pane"}]
-                        + ([{"do": "expect", "title": t, "ok": True} for t in
-                            ("R3a split", "R3a window", "R3b New Column", "R3b Ctrl-Cmd-D", "R3b Cmd-D")]
-                           if status == "pass" else [])},
+                        + ([{"do": "expect", "title": t, "ok": True} for t in R3] if status == "pass" else [])},
               open(os.path.join(out, "smoke-dogfood", "result.json"), "w"))
 open(os.path.join(out, "results.jsonl"), "w").write(json.dumps(row) + "\n")
 print("leased slot-cmux99-abc")
@@ -80,7 +83,8 @@ def gate(plan, tmp, extra=(), env_extra=None, rounds=None):
     with open(runner, "w") as f:
         f.write(FAKE)
     env = {k: v for k, v in os.environ.items() if not k.startswith("CAPTURE_HOST_")}
-    env.update({"SMOKE_PLAN": json.dumps(plan), "SMOKE_GATE_CMUX_CI": "/bin/false", **(env_extra or {})})
+    env.update({"SMOKE_PLAN": json.dumps(plan), "SMOKE_GATE_CMUX_CI": "/bin/false",
+                "SMOKE_JOURNEY": str(HERE / "journeys" / "dogfood" / "smoke-dogfood.json"), **(env_extra or {})})
     done = subprocess.run([sys.executable, str(GATE), "--build", "job123", "--rounds", str(rounds or len(plan)), "--runner", runner,
                            "--out", os.path.join(tmp, "out"), "--handoff", os.path.join(tmp, "handoff"), *extra],
                           capture_output=True, text=True, env=env, timeout=120)
@@ -149,9 +153,23 @@ class Verdicts(unittest.TestCase):
             self.assertEqual((code, summary["verdict"]), (75, "DIAGNOSTIC (NOT JUDGED)"))
             self.assertFalse(os.path.exists(os.path.join(tmp, "handoff", "job123.pass")))
 
+    def test_the_gate_requires_exactly_the_journeys_resize_checks(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("smoke_gate_titles", GATE)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        with open(HERE / "journeys" / "dogfood" / "smoke-dogfood.json") as f:
+            journey = json.load(f)
+        titles = [st["title"] for st in journey["steps"] if st.get("do") == "expect" and st["title"].startswith("R3")]
+        self.assertEqual(titles, list(module.REQUIRED_CHECKS))
+        self.assertEqual(len(titles), len(set(titles)))
+
     def test_a_round_that_did_not_reach_or_pass_every_resize_check_is_no_pass(self):
-        for r3, want in (("none", "0 of 2 passed (0 reached)"), ("r3b-failed", "R3b: 2 of 3 passed (3 reached)"),
-                         ("one-r3b", "R3b: 1 of 3 passed (1 reached)")):
+        for r3, want in (("none", "R3a split resize: the right pane is wider"),
+                         ("r3b-failed", "R3b: Cmd-D (Split Right) splits the pane inside its own column and every...: failed"),
+                         ("one-r3b", "R3b: New Column's key (Ctrl-Cmd-D) adds a column"),
+                         ("renamed", "R3b: Cmd-Shift-D (Split Down) adds no column"),
+                         ("duplicated", "recorded 2 times")):
             with tempfile.TemporaryDirectory() as tmp:
                 code, summary = gate(["pass"] * 10, tmp, env_extra={"SMOKE_R3": r3})
                 self.assertEqual((code, summary["verdict"], summary["passed"]), (1, "FAIL", 0), r3)
@@ -216,7 +234,9 @@ class Verdicts(unittest.TestCase):
                 f.write(FAKE)
             done = subprocess.run([sys.executable, str(GATE), "--build", "job123", "--runner", runner,
                                    "--out", os.path.join(tmp, "out"), "--handoff", os.path.join(tmp, "handoff")],
-                                  capture_output=True, text=True, timeout=60, env={**os.environ, "SMOKE_GATE_CMUX_CI": "/bin/false"})
+                                  capture_output=True, text=True, timeout=60,
+                                  env={**os.environ, "SMOKE_GATE_CMUX_CI": "/bin/false",
+                                       "SMOKE_JOURNEY": str(HERE / "journeys" / "dogfood" / "smoke-dogfood.json")})
             self.assertEqual(done.returncode, 2)
             self.assertIn("not empty", done.stderr)
 
@@ -498,8 +518,11 @@ class Resize(unittest.TestCase):
         class StepError(Exception):
             pass
 
-        ext_smoke.install(type("D", (), {"StepError": StepError, "NotRun": Exception, "now": staticmethod(lambda: 0.0)}))
-        self.ext, self.StepError = ext_smoke, StepError
+        class NotRun(Exception):
+            pass
+
+        ext_smoke.install(type("D", (), {"StepError": StepError, "NotRun": NotRun, "now": staticmethod(lambda: 0.0)}))
+        self.ext, self.StepError, self.NotRun = ext_smoke, StepError, NotRun
 
     def journey(self, grid="80x24", fit="80x24", drawn="80x24", daemon=(80, 24), topo=(80, 24), pty=(80, 24),
                 frame=(80 * 8 + 8, 24 * 16 + 8), long_rows=None, columns=None):
@@ -639,19 +662,55 @@ class Resize(unittest.TestCase):
         self.assertFalse(ok, detail)
         self.assertTrue(any("fit(bounds)" in p for p in detail["problems"]), detail["problems"])
 
-    def test_r3b_a_column_with_no_frame_fails_with_its_panes(self):
+    def test_r3b_a_column_with_no_frame_is_not_judged(self):
         j = self.journey(columns=[(1, "P2", 650.0, 300.0)])
         self.ext.step_smoke_widths(j, {"name": "c0"})
         later = self.journey(columns=[(1, "P2", 650.0, 300.0), (2, "P3", 951.0, 300.0)])
         later.smoke_width_snaps = j.smoke_width_snaps
-        del later.app.panes()[1]["grid"]  # P2 has no frame now (off screen)
-        ok, detail = self.ext.cond_smoke_same_widths(later, {"since": "c0", "new": 1}, {})
-        self.assertFalse(ok)
-        self.assertTrue(any("no frame" in p and "P2" in p for p in detail["problems"]), detail["problems"])
+        del later.app.panes()[1]["grid"]  # P2 has no frame now (off screen, closed under memory pressure)
+        # Not judged (the round is "not run"), never a fail or a pass.
+        with self.assertRaises(self.NotRun) as caught:
+            self.ext.cond_smoke_same_widths(later, {"since": "c0", "new": 1}, {})
+        self.assertIn("P2", str(caught.exception))
         bare = self.journey(columns=[(1, "P2", 650.0, 300.0)])
         del bare.app.panes()[1]["grid"]
-        with self.assertRaises(self.StepError):
+        with self.assertRaises(self.NotRun):
             self.ext.step_smoke_widths(bare, {"name": "c1"})
+
+    def test_cmd_d_splits_in_place_and_no_other_column_changes(self):
+        base = [(1, "P2", 650.0, 300.0)]
+        j = self.journey(columns=base)
+        j.app.panes()[1]["focused"], j.app.panes()[0]["focused"] = True, False  # P2 (column 1) is focused
+        self.ext.step_smoke_widths(j, {"name": "c0"})
+        self.assertEqual(j.smoke_width_snaps["c0"]["focused"], "P2")
+        # P2 splits inside column 1 (P2 and P5 share it); column 0 keeps its width: holds.
+        good = self.journey(columns=[(1, "P2", 650.0, 150.0), (1, "P5", 800.0, 150.0)])
+        good.smoke_width_snaps = j.smoke_width_snaps
+        ok, detail = self.ext.cond_smoke_same_widths(good, {"since": "c0", "new": 0, "split_in_place": True}, {})
+        self.assertTrue(ok, detail)
+        # Cmd-D opened a column instead: fails ("1 new columns, not 0").
+        column = self.journey(columns=[(1, "P2", 650.0, 300.0), (2, "P5", 951.0, 300.0)])
+        column.smoke_width_snaps = j.smoke_width_snaps
+        ok, detail = self.ext.cond_smoke_same_widths(column, {"since": "c0", "new": 0, "split_in_place": True}, {})
+        self.assertFalse(ok)
+        # Another column changed width: fails, with old and new.
+        other = self.journey(columns=[(1, "P2", 650.0, 150.0), (1, "P5", 800.0, 150.0)],
+                             frame=(80 * 8 + 8 - 40, 24 * 16 + 8))
+        other.smoke_width_snaps = j.smoke_width_snaps
+        ok, detail = self.ext.cond_smoke_same_widths(other, {"since": "c0", "new": 0, "split_in_place": True}, {})
+        self.assertFalse(ok)
+        self.assertIn("0", detail["changed"])
+
+    def test_split_down_adds_no_column_and_keeps_every_width(self):
+        j = self.journey(columns=[(1, "P2", 650.0, 300.0)])
+        self.ext.step_smoke_widths(j, {"name": "c0"})
+        down = self.journey(columns=[(1, "P2", 650.0, 300.0), (1, "P6", 650.0, 300.0)])
+        down.smoke_width_snaps = j.smoke_width_snaps
+        ok, detail = self.ext.cond_smoke_same_widths(down, {"since": "c0", "new": 0}, {})
+        self.assertTrue(ok, detail)
+        opened = self.journey(columns=[(1, "P2", 650.0, 300.0), (2, "P6", 951.0, 300.0)])
+        opened.smoke_width_snaps = j.smoke_width_snaps
+        self.assertFalse(self.ext.cond_smoke_same_widths(opened, {"since": "c0", "new": 0}, {})[0])
 
     def test_r3b_any_old_column_width_change_fails_with_old_and_new(self):
         base = [(1, "P2", 650.0, 300.0)]

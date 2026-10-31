@@ -322,15 +322,21 @@ in the shown terminal: grid == fitted grid == drawn grid == fit(the view's bound
 the PTY's size (`stty size`) == the daemon's screen size == the topology tab's size, and a line longer
 than the old width wraps at the new width (`smoke_r3`; every size is in the result; the window check
 also needs the window 160 points narrower and the pane narrower than before). Both are re-read through
-a 1.5 s settle. Then the column-adding actions, each from the layout the one before left: New Column
-(the action), its key Ctrl-Cmd-D, and Cmd-D (Split Right; cmux-ad 06:38Z: Split Right adds a column,
-Split Down does not). After each, every existing column (matched by its panes, width from the float
-view frames) keeps exactly its width, and there is one more column (`smoke_same_widths`; each old and
-new width in the result; a column whose pane has no frame fails as unknown).
+a 1.5 s settle. Then, each from the layout the one before left: New Column (the action) and its key
+Ctrl-Cmd-D each add one column, and every existing column (matched by its panes, width from the float
+view frames) keeps exactly its width; Cmd-D (Split Right) splits the focused pane inside its own column
+(Lawrence 2026-10-01, plans/cmux-next/column-sizing.md; Cmd-D is a Ghostty-reserved key, so a change
+needs his own "Ghostty-defaults-OK"): no new column, that column gains one pane, every OTHER column
+keeps exactly its width; Cmd-Shift-D (Split Down) adds no column and every column keeps its width
+(`smoke_same_widths`; each old and new width in the result). A column whose pane has no frame (an
+off-screen column whose terminal was closed under memory pressure) has an unknown width: not judged.
 
-**No pass without the resize checks** (cmux-ad 06:38Z): a round passes only when it REACHED and passed
-every R3a check (2) and every R3b check (3) (`REQUIRED_CHECKS` in smoke-gate.py). A round that ends
-before them, at any step, is a fail with the missing checks named, never "skipped and OK".
+**No pass without the resize checks** (cmux-ad 06:38Z): a round passes only when it reached and passed,
+exactly once each, the 2 R3a checks and the 4 R3b checks (`REQUIRED_CHECKS` in smoke-gate.py: their
+exact titles; a renamed or duplicated check never counts). A round whose journey passed without them
+is a FAIL that names the missing checks; a round that failed at an earlier step stays a FAIL; a round
+that did not run (no lease, a known gap, a column width that cannot be read) stays NOT JUDGED. None is
+ever a pass, and the `.pass` file needs every round to pass.
 
 **Typed at once** (`smoke_type_now`): no wait for the creation hold, the case Lawrence reports
 (keys into a terminal while it is created). A capture slot's window is never key
