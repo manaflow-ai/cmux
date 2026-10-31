@@ -21,15 +21,16 @@ public struct AgentChatsPalettePage {
     static let pageLimit = AgentPaneChatsQuery.maximumLimit
 
     private let windows: AcpmuxChatWindows?
-    private let history: @MainActor (String) -> String?
+    private let history: @MainActor (String) async -> String?
     private let open: @MainActor (String) -> Void
 
     /// - Parameters:
     ///   - windows: The chat feed's windows over acpmux's index; nil without a local acpmux.
     ///   - history: The person's past choices of chats for a query (`FrecencyStore.rankerHistory`
-    ///     over the rows' `chat:<key>` use), so acpmux ranks them as the palette does; nil: none.
+    ///     over the rows' `chat:<key>` use), so acpmux ranks them as the palette does; nil: none. It is
+    ///     encoded off the main thread (`FrecencyStore.encodedRankerHistory`), never in a key's turn.
     ///   - open: Opens a chat by key (the app's Open Chat path).
-    public init(windows: AcpmuxChatWindows?, history: @escaping @MainActor (String) -> String?,
+    public init(windows: AcpmuxChatWindows?, history: @escaping @MainActor (String) async -> String?,
                 open: @escaping @MainActor (String) -> Void) {
         self.windows = windows
         self.history = history
@@ -41,7 +42,7 @@ public struct AgentChatsPalettePage {
                         symbol: "bubble.left.and.bubble.right", providers: [],
                         onCancel: { [windows] in windows?.close(Self.window) },
                         queryResults: { [windows, history, open] query in
-                            Self.answers(query, windows: windows, history: history(query), open: open)
+                            Self.answers(query, windows: windows, history: history, open: open)
                         },
                         filtersByQuery: false)
     }
@@ -53,6 +54,22 @@ public struct AgentChatsPalettePage {
     ///   - history: The person's choice history of chats (`FrecencyStore.rankerHistory`), so acpmux
     ///     ranks a chat chosen before as the palette did; nil: none.
     ///   - open: Opens a chat by key (the app's Open Chat path).
+    static func answers(_ query: String, windows: AcpmuxChatWindows?, history: @escaping @MainActor (String) async -> String?,
+                        open: @escaping @MainActor (String) -> Void) -> AsyncStream<[PaletteItem]> {
+        // The choice history is encoded off the main thread first; a query the palette moved past by
+        // then (its stream ended) opens no window, so an older spec never replaces a newer one.
+        let text = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        let (stream, continuation) = AsyncStream.makeStream(of: [PaletteItem].self, bufferingPolicy: .bufferingNewest(1))
+        let task = Task { @MainActor in
+            let encoded = text.isEmpty || windows == nil ? nil : await history(query)
+            guard !Task.isCancelled else { return continuation.finish() }
+            for await rows in answers(query, windows: windows, history: encoded, open: open) { continuation.yield(rows) }
+            continuation.finish()
+        }
+        continuation.onTermination = { _ in task.cancel() }
+        return stream
+    }
+
     static func answers(_ query: String, windows: AcpmuxChatWindows?, history: String? = nil,
                         open: @escaping @MainActor (String) -> Void) -> AsyncStream<[PaletteItem]> {
         let (stream, continuation) = AsyncStream.makeStream(of: [PaletteItem].self, bufferingPolicy: .bufferingNewest(1))

@@ -74,7 +74,8 @@ extension PaletteController {
             let section = PaletteSection(id: "search.\(contribution.id)", title: contribution.title, order: contribution.order)
             // Such a page ignores its providers too when it shows on its own (`PaletteModel.search`).
             if let results = page.queryResults {
-                answers.append(PaletteContributedAnswers(section: section, showsForEmptyQuery: showsItemsForEmptyQuery,
+                // In the Chats & agents scope the chats are the main content (`leads`); in Search one block of many.
+                answers.append(PaletteContributedAnswers(section: section, leads: showsItemsForEmptyQuery,
                                                          results: results, close: page.onCancel))
                 continue
             }

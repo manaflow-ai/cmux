@@ -8,7 +8,7 @@ extension AgentChatsPalettePage {
         self.init(windows: services.chatsFeed?.windows,
                   history: { [weak services] query in
                       guard let model = services?.palette.model else { return nil }
-                      return model.frecency.rankerHistory(keyPrefix: "chat:", query: query, now: model.now())
+                      return await model.frecency.encodedRankerHistory(keyPrefix: "chat:", query: query, now: model.now())
                   },
                   open: { [weak services] key in services?.chatsOpener.open(key) })
     }

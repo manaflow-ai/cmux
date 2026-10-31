@@ -57,6 +57,8 @@ struct AgentChatsJoinSearchTests {
         await palette.model.settle()
         palette.model.send(.setQuery("zebra"))
         await palette.model.settle()
+        // The page is asked in a later turn than the key's, after the choice history is encoded off main.
+        for _ in 0..<500 where !sent.contains(where: { $0["query"] as? String == "zebra" }) { await Task.yield() }
         let asked = sent.last { $0["window"] as? String == AgentChatsPalettePage.window }
         #expect(asked?["query"] as? String == "zebra", "Search asks acpmux for the query: \(sent)")
         try Self.answer(windows, to: try #require(asked))
@@ -75,6 +77,7 @@ struct AgentChatsJoinSearchTests {
         defer { palette.hide() }
         _ = palette.show(scope: PaletteScopeID.chats)
         await palette.model.settle()
+        for _ in 0..<500 where !sent.contains(where: { $0["window"] as? String == AgentChatsPalettePage.window }) { await Task.yield() }
         let asked = sent.last { $0["window"] as? String == AgentChatsPalettePage.window }
         #expect(asked != nil, "the scope asks acpmux for its newest chats: \(sent)")
         #expect(asked?["query"] == nil, "the empty query asks for the newest, not a match")

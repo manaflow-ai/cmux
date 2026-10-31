@@ -243,10 +243,12 @@ public final class AcpmuxChatWindows {
         model.answered()
     }
 
-    /// Whether `spec` is its window's current spec and acpmux answered it (the rows are `spec`'s).
+    /// Whether `spec` is its window's current spec and acpmux answered it (the rows are `spec`'s). A
+    /// window asked again (a reconnect, a lag, a broken diff) is not answered until its full answer
+    /// comes: until then its rows are the old connection's.
     public func isAnswered(_ spec: Spec) -> Bool {
         specs[spec.window] == spec && answeredGeneration[spec.window] != nil
-            && answeredGeneration[spec.window] == generations[spec.window]
+            && answeredGeneration[spec.window] == generations[spec.window] && !awaitingFull.contains(spec.window)
     }
 
     /// Asks for `spec`'s whole window, once until it comes.

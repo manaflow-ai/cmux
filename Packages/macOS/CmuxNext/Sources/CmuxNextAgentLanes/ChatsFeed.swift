@@ -171,15 +171,18 @@ public final class ChatsFeed {
         if drain.closed { lost(connection) }
     }
 
-    /// One request on the connection.
+    /// One request on the connection: it is encoded on the connection's own serial queue, so the
+    /// main thread does no JSON work and the requests keep their order.
     private func send(_ method: String, _ params: [String: any Sendable], on connection: AgentActivityLineConnection) {
         requestID += 1
         if method == "_acpmux/chats_window", let window = params["window"] as? String { windowRequests[requestID] = window }
-        let request: [String: Any] = ["jsonrpc": "2.0", "id": requestID, "method": method, "params": params as [String: Any]]
-        guard let data = try? JSONSerialization.data(withJSONObject: request) else { return }
-        var line = data
-        line.append(0x0A)
-        connection.send(line)
+        let id = requestID
+        connection.send {
+            let request: [String: Any] = ["jsonrpc": "2.0", "id": id, "method": method, "params": params as [String: Any]]
+            guard var line = try? JSONSerialization.data(withJSONObject: request) else { return nil }
+            line.append(0x0A)
+            return line
+        }
     }
 
     private func publish() {

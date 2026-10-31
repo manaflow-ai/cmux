@@ -62,7 +62,7 @@ public struct PalettePageSpec {
     /// stream of the query before it, and the rows on screen stay until the
     /// new query's first answer lands.
     public var queryResults: (@MainActor (String) -> AsyncStream<[PaletteItem]>)?
-    /// Contributed pages that answer their own queries, shown beside this page's ranked rows
+    /// Contributed pages that answer their own queries, shown with this page's ranked rows
     /// (Search and the Chats & agents scope: `PaletteController.contributed`).
     var contributedAnswers: [PaletteContributedAnswers] = []
     /// False: the query never filters the providers' rows (a save picker's

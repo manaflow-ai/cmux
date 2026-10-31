@@ -1,6 +1,15 @@
 public import Foundation
 
 extension FrecencyStore {
+    /// ``rankerHistory(keyPrefix:query:now:)`` built and encoded off the main thread (it maps and
+    /// JSON-encodes up to the store's capacity of entries, too much for a key's turn).
+    public func encodedRankerHistory(keyPrefix: String, query: String, now: Date) async -> String? {
+        let store = self
+        return await Task.detached(priority: .userInitiated) {
+            store.rankerHistory(keyPrefix: keyPrefix, query: query, now: now)
+        }.value
+    }
+
     /// This history as the shared ranker reads it (`{now, frecency}` JSON text), for a list that a
     /// daemon ranks with the same ranker (acpmux's chats window): only the entries and hidden keys
     /// under `keyPrefix`, and only the learned picks that begin `query`, so the text stays small.

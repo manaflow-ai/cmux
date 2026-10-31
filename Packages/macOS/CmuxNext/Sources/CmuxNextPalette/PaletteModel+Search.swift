@@ -279,16 +279,22 @@ extension PaletteModel {
     func deliver(_ sections: [PaletteResultSection], to state: PageState, generation: Int, provisional: Bool = false,
                  complete: Bool = true) {
         guard pages[state.levelID] === state, state.generation == generation else { return }
-        // The contributed answers join the ranked rows (`PaletteContributedAnswers`); they hold nothing final.
+        // The contributed answers join the ranked rows (`PaletteContributedAnswers`). A leading answer the
+        // query still waits for keeps its rows provisional: not final, and a Return waits for it.
         state.rankedSections = sections
-        let sections = state.answerSections.isEmpty ? sections : Self.withAnswers(sections, answers: Array(state.answerSections.values))
+        state.rankedGeneration = generation
+        state.rankedProvisional = provisional
+        state.rankedComplete = complete
+        let held = !state.pendingLeads.isEmpty
+        let sections = state.answerSections.isEmpty ? sections
+            : Self.withAnswers(sections, answers: Array(state.answerSections.values), leading: state.leadingAnswers)
         state.lastSections = sections
         state.awaitsRank = provisional
         if !provisional { recordShownDeferredItems(sections, on: state) }
         if shownLevelID == state.levelID { display(sections) }
         send(.results(levelID: state.levelID, generation: generation, rows: navRows(sections), replace: true,
-                      isFinal: complete && !provisional && state.pendingProviders.isEmpty, emptyQuerySelection: state.emptyQuerySelection,
-                      provisional: provisional))
+                      isFinal: complete && !provisional && !held && state.pendingProviders.isEmpty,
+                      emptyQuerySelection: state.emptyQuerySelection, provisional: provisional || held))
     }
 
     /// What navigation needs from the rows.

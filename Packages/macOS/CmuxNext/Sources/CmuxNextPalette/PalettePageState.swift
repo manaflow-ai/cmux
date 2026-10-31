@@ -27,11 +27,20 @@ final class PageState {
     var tasks: [Task<Void, Never>] = []
     /// The query the page's contributed answers last asked for (`PaletteContributedAnswers`).
     var answeredQuery: String?
-    /// Each contributed answer's rows for `answeredQuery`, by section id.
+    /// Each contributed answer's last rows, by section id: `answeredQuery`'s, or the query before
+    /// until `answeredQuery`'s answer replaces them.
     var answerSections: [String: PaletteResultSection] = [:]
+    /// The answers that lead the page (its main content, `PaletteContributedAnswers.leads`).
+    var leadingAnswers = Set<String>()
+    /// The leading answers `answeredQuery` still waits for: its rows are not final until they end.
+    var pendingLeads = Set<String>()
     var answerTasks: [Task<Void, Never>] = []
-    /// The ranked rows last delivered, before the answers join them.
+    /// The ranked rows last delivered, before the answers join them, and that delivery's generation
+    /// and marks: an answer shows again with them only when they are the current query's.
     var rankedSections: [PaletteResultSection]?
+    var rankedGeneration: Int?
+    var rankedProvisional = false
+    var rankedComplete = true
     /// Rows last shown on this page, restored instantly when the page comes
     /// back into view (popping) while a fresh search runs.
     var lastSections: [PaletteResultSection]?
@@ -156,10 +165,16 @@ final class PageState {
         cancelAnswers()
     }
 
-    /// Ends the contributed answers' streams and drops their rows.
+    /// Ends the contributed answers' streams and drops their rows (the page is left).
     func cancelAnswers() {
+        cancelAnswerTasks()
+        answerSections = [:]
+    }
+
+    /// Ends the contributed answers' streams; their rows stay until the next answers replace them.
+    func cancelAnswerTasks() {
         for task in answerTasks { task.cancel() }
         answerTasks = []
-        answerSections = [:]
+        pendingLeads = []
     }
 }
