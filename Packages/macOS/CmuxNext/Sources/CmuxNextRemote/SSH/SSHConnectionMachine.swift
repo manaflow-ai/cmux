@@ -81,6 +81,10 @@ public struct SSHConnectionMachine: Hashable, Sendable {
 
     public init() {}
 
+    /// Only Reconnect may open the gate now: the machine's session is in use by another cmux
+    /// daemon. Nothing automatic (reconnect on use included) may take it over (HQ #4877 G5).
+    public var waitsForUser: Bool { blocked && onlyUserUnblocks }
+
     /// Whether the link may probe and dial now.
     public var mayAttempt: Bool {
         switch status {

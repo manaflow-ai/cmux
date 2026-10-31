@@ -72,6 +72,8 @@ public actor DaemonConnection {
     var handoffHoldTimer: DemandTimer?
     /// Shows a request refused because it names a pane still opening (``PaneNotReady``); see ``observePaneNotReady(_:)``.
     private var paneNotReadyObserver: (@Sendable (PaneNotReady) -> Void)?
+    /// Told each time a reconnect fails with the timed retries spent; see ``observeRetriesSpent(_:)``.
+    private var retriesSpentObserver: (@Sendable () -> Void)?
     /// The launch's first snapshot, fetched right after the handshake (``prefetchSnapshot()``).
     var prefetchedSnapshot: (serial: UInt64, fetch: Task<(tree: DaemonTree, barrier: UInt64), any Error>)?
 
@@ -206,6 +208,13 @@ public actor DaemonConnection {
     /// scope answers it; `DaemonService` sets it on each connection it makes. Runs on this connection's executor.
     public func observePaneNotReady(_ observer: (@Sendable (PaneNotReady) -> Void)?) {
         paneNotReadyObserver = observer
+    }
+
+    /// Sets what is told when the reconnect loop's timed retries are spent and it waits for an
+    /// event only (a remote machine's header then reads offline, not connecting, HQ #4877 G4).
+    /// Runs on this connection's executor, after each failed attempt past the budget.
+    public func observeRetriesSpent(_ observer: (@Sendable () -> Void)?) {
+        retriesSpentObserver = observer
     }
 
     /// The event sequence this connection has routed so far, or nil when
@@ -378,6 +387,7 @@ public actor DaemonConnection {
             }
             if pacer.isExhausted {
                 logger.info("cmux-tui reconnect: timed retries spent; waiting for the daemon socket or another event")
+                retriesSpentObserver?()
             }
         }
         reconnectTask = nil

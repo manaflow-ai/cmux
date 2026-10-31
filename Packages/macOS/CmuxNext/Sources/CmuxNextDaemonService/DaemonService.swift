@@ -337,7 +337,7 @@ public final class DaemonService {
                     await connection.close()
                     return
                 }
-                await connection.observePaneNotReady(self.paneNotReadyReporter)
+                await self.observeRemote(connection)
                 self.didConnect(connection, identity: identity)
                 logger.info("\(machineID, privacy: .public): cmux-tui \(identity.version, privacy: .public) session \(identity.session, privacy: .public)")
                 await store.run(connection: connection, scheduler: drainScheduler)

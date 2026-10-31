@@ -61,6 +61,10 @@ final class SSHMachineSession {
     @ObservationIgnored var offersInstall = false
     @ObservationIgnored var onStatusChange: ((SSHMachineSession, SSHConnectionMachine.Status) -> Void)?
     @ObservationIgnored var connectRecovery: SSHConnectRecovery?
+    /// Its session is in use by another cmux daemon: only a person's Reconnect takes it over (G5).
+    var waitsForUser: Bool { if case .failed = linkStatus { link.waitsForUser } else { false } }
+    /// The daemon's reconnect spent its timed retries: Offline, not Connecting (HQ #4877 G4).
+    var retriesSpent: Bool { daemon.store.retriesSpent }
     /// Changes at the start of every user or automatic connection attempt, even when the
     /// transport and daemon report the same failure again.
     private(set) var connectionAttemptID: UInt64 = 0
@@ -185,7 +189,20 @@ final class SSHMachineSession {
         // mirror moves now, so the new attempt never shows the old failure. The link
         // then reports `.connecting` (already mirrored) and the retry's own result.
         if linkStatus.needsRecovery { linkStatusChanged(.connecting) }
+        daemon.store.noteRetriesSpent(false)
         daemon.beginAttempt()
+    }
+
+    /// Disconnect then Connect, with a new retry budget: Reconnect once the retries are spent.
+    func restart() {
+        daemon.shutdownConnection()
+        beginConnectionAttempt()
+        linkStatus = .connecting
+        // task-owner: teardown hop; connect() runs once the old link client is stopped
+        Task { [weak self, link] in
+            await link.stop()
+            if self?.autoConnect == true { self?.connect() }
+        }
     }
 
     /// Reopens a daemon attempt without disturbing an already-connected SSH transport.

@@ -58,7 +58,7 @@ enum RemoteGroupHandlers {
             switch route(machine, machines) {
             case .wakeServer: machines.server(machine)?.wake()
             case .retryCloud: machines.session(machine)?.retry()
-            case .ssh: _ = registry.perform("remote.reconnect", invocation: ActionInvocation(target: ActionTargetRef(kind: .machine, id: machine)))
+            case .ssh: _ = registry.perform("remote.reconnect", invocation: ActionInvocation(target: ActionTargetRef(kind: .machine, id: machine), origin: invocation.origin))
             case .none: throw ActionFailure.invalidTarget(WorkspaceVerbStrings.noMachine)
             }
         })

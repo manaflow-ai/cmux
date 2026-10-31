@@ -74,10 +74,10 @@ import Testing
     }
 
     @Test func reconnectDuringATransientInterruptionKeepsAnEstablishedDaemonsStartup() {
-        #expect(SSHService.reconnectStep(link: .reconnecting, daemon: .connected, daemonFailed: false) == .wake)
-        #expect(SSHService.reconnectStep(link: .reconnecting, daemon: .connecting, daemonFailed: false) == .newAttempt)
-        #expect(SSHService.reconnectStep(link: .connected, daemon: .connected, daemonFailed: false) == .nothing)
-        #expect(SSHService.reconnectStep(link: .offline, daemon: .connected, daemonFailed: false) == .connect)
+        #expect(SSHReconnectStep(link: .reconnecting, daemonStarted: true, daemonFailed: false) == .wake)
+        #expect(SSHReconnectStep(link: .reconnecting, daemonStarted: false, daemonFailed: false) == .newAttempt)
+        #expect(SSHReconnectStep(link: .connected, daemonStarted: true, daemonFailed: false) == .nothing)
+        #expect(SSHReconnectStep(link: .offline, daemonStarted: true, daemonFailed: false) == .connect)
     }
 
     @Test func aRetryChangesTheDaemonObservationForAnIdenticalFailure() {
