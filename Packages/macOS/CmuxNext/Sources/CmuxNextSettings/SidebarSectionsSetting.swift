@@ -18,6 +18,8 @@ public nonisolated enum SidebarSectionsSetting {
     public static let densityPath = ["sidebar", "density"]
     /// `sidebar.textSize` (``SidebarTextSize``): the list's text, leading glyphs and rows together.
     public static let textSizePath = ["sidebar", "textSize"]
+    /// `sidebar.rowSpacing` (#28663), in points; absent is the density's gap.
+    public static let rowSpacingPath = ["sidebar", "rowSpacing"]
     /// `sidebar.style`: standard or the thin rail (plans/cmux-next/minimal-sidebar.md).
     public static let stylePath = ["sidebar", "style"]
     public static let showProjectsPath = ["sidebar", "showProjects"]
@@ -129,6 +131,16 @@ public nonisolated enum SidebarSectionsSetting {
 
     /// Lawrence msg 17752: "we also need option for sidebar text to be very significantly bigger. this is
     /// how big chatgpt is by default, let's match them". Larger is that size.
+    static func rowSpacingDescriptor(group: SettingText) -> SettingDescriptor {
+        let range = SidebarSectionsPreferences.rowSpacingRange
+        return SettingDescriptor(rowSpacingPath, section: .appearance, group: group,
+                          title: SettingsText.keyed("settings.sidebar.rowSpacing", "Row Spacing"),
+                          help: SettingsText.keyed("settings.sidebar.rowSpacing.help", "The space between rows in the sidebar."),
+                          kind: .number(SettingNumber(range, step: 1, unit: .points, placeholder: 2)),
+                          default: nil, defaultLabel: SettingsText.keyed("settings.default.density", "Density default"),
+                          keywords: ["sidebar", "spacing", "space", "gap", "padding", "rows", "between", "tight", "loose"])
+    }
+
     static func textSizeDescriptor(group: SettingText) -> SettingDescriptor {
         SettingDescriptor(textSizePath, section: .appearance, group: group,
                           title: SettingsText.keyed("settings.sidebar.textSize", "Sidebar Text Size"),
@@ -346,6 +358,7 @@ public nonisolated enum SidebarSectionsSetting {
                 diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "sidebar.textSize", message: "expected one of " + choices))
             }
         }
+        result.rowSpacing = points(root, rowSpacingPath, SidebarSectionsPreferences.rowSpacingRange, &diagnostics)
         if let value = root.value(at: stylePath) {
             if let text = value.stringValue, let style = SidebarLayoutStyle(rawValue: text) {
                 result.style = style
@@ -371,6 +384,22 @@ public nonisolated enum SidebarSectionsSetting {
             return fallback
         }
         return flag
+    }
+
+    /// A point size in `range`; out of range clamps with a diagnostic, a non-number is absent with one.
+    private static func points(_ root: JSONValue, _ path: [String], _ range: ClosedRange<Double>,
+                               _ diagnostics: inout [SettingsDiagnostic]) -> Double? {
+        guard let value = root.value(at: path), value != .null else { return nil }
+        let name = path.joined(separator: ".")
+        let bounds = "\(Int(range.lowerBound)) to \(Int(range.upperBound)) points"
+        guard let number = value.doubleValue, number.isFinite else {
+            diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: name, message: "expected a size from " + bounds))
+            return nil
+        }
+        if !range.contains(number) {
+            diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: name, message: "expected a size from " + bounds + "; clamped"))
+        }
+        return min(max(number, range.lowerBound), range.upperBound)
     }
 
     private static func share(_ root: JSONValue, _ path: [String], _ name: String, fallback: Double,

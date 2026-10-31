@@ -139,7 +139,7 @@ public nonisolated struct SettingsPageLayout: Sendable {
     /// looks for together sits together under one small header, like macOS System Settings.
     public static let sidebarSections: [SidebarSection] = [
         sidebarSection("app", nil, [general, updates]),
-        sidebarSection("look", SettingsText.keyed("settings.sidebarSection.look", "Look and Feel"), [theme, appearance]),
+        sidebarSection("look", SettingsText.keyed("settings.sidebarSection.look", "Look and Feel"), [theme, appearance, sidebar]),
         sidebarSection("tools", SettingsText.keyed("settings.sidebarSection.tools", "Tools"), [terminal, editor, browser]),
         sidebarSection("ai", SettingsText.keyed("settings.sidebarSection.ai", "AI"), [agents, chief]),
         sidebarSection("interaction", SettingsText.keyed("settings.sidebarSection.interaction", "Interaction"), [notifications, keyboard, menus]),
@@ -202,20 +202,14 @@ public nonisolated struct SettingsPageLayout: Sendable {
         groups: [group("settings.group.appTheme")],
         lead: [.themeStudio])
 
-    private static let appearance = CategorySpec(
-        id: "appearance", title: section(.appearance), symbol: "paintbrush",
+    /// Settings > Sidebar (#28663): the sidebar's size and spacing lead, then the cards that were in
+    /// Appearance (Sidebar, Sidebar Workspaces, Buttons and Spaces, hover cards, Workspace Rows).
+    private static let sidebar = CategorySpec(
+        id: "sidebar", title: SettingsText.keyed("settings.category.sidebar", "Sidebar"), symbol: "sidebar.left",
         groups: [
-            // Motion holds ui.animations.enabled and the per-area switches (f35023e54c1c);
-            // without a group here they had no row on the page.
-            group("settings.group.terminalFont"), group("settings.group.densityMotion"),
-            card("settings.pageGroup.sizes", "Sizes", [
-                "app.uiScale", "appearance.metrics.chromeFontSize", "appearance.metrics.sidebarWidth",
-                "appearance.metrics.columnGap", "appearance.metrics.dividerThickness",
-                "appearance.metrics.dividerHitWidth", "appearance.metrics.titlebarHeight",
+            card("settings.pageGroup.sidebarSize", "Size and Spacing", [
+                "sidebar.textSize", "sidebar.density", "sidebar.rowSpacing",
             ]),
-            group("settings.group.motion"),
-            group("settings.group.colorTransition"),
-            group("settings.group.windowBackground"), group("settings.group.panes"), group("settings.group.focusRing"),
             // Show Workspace Tabs leads the Sidebar card: it is off by default, and this is
             // where a person turns each workspace's tabs back on (#26384).
             GroupSpec(group: "settings.group.sidebar", leadKeys: ["sidebar.showWorkspaceTabs"]),
@@ -244,6 +238,22 @@ public nonisolated struct SettingsPageLayout: Sendable {
                 "sidebar.hoverCards.groups.sections.ports",
             ]),
             group("settings.group.workspaceRows"),
+        ])
+
+    private static let appearance = CategorySpec(
+        id: "appearance", title: section(.appearance), symbol: "paintbrush",
+        groups: [
+            // Motion holds ui.animations.enabled and the per-area switches (f35023e54c1c);
+            // without a group here they had no row on the page.
+            group("settings.group.terminalFont"), group("settings.group.densityMotion"),
+            card("settings.pageGroup.sizes", "Sizes", [
+                "app.uiScale", "appearance.metrics.chromeFontSize", "appearance.metrics.sidebarWidth",
+                "appearance.metrics.columnGap", "appearance.metrics.dividerThickness",
+                "appearance.metrics.dividerHitWidth", "appearance.metrics.titlebarHeight",
+            ]),
+            group("settings.group.motion"),
+            group("settings.group.colorTransition"),
+            group("settings.group.windowBackground"), group("settings.group.panes"), group("settings.group.focusRing"),
             group("settings.group.statusIndicator"), group("settings.group.surfaces"),
             card("settings.pageGroup.windowSurfaces", "Surfaces: Window", [
                 "appearance.surfaces.sidebar.color", "appearance.surfaces.sidebar.opacity",

@@ -54,7 +54,8 @@ public final class DesignSettings {
     }
     /// `app.uiScale`, the content/page scale. Chrome uses `interfaceScale`.
     /// Terminal content deliberately remains owned by Ghostty's font size.
-    public var uiScale: CGFloat = 1
+    /// Starts at `UIScaleSetting().fallback` (110%) until the settings apply.
+    public var uiScale: CGFloat = 1.1
     /// `appearance.interfaceScale`: the opt-in multiplier for the app chrome. A single token
     /// multiplier drives type, spacing and control heights across native surfaces.
     public var interfaceScale: CGFloat = 1

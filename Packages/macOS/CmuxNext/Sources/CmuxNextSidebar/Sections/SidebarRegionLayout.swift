@@ -34,6 +34,9 @@ public nonisolated struct SidebarRegionMetrics: Hashable, Sendable {
     /// How far a list row ends short of the region's right edge: a block in the sidebar's list takes the
     /// list rows' `SidebarStyle.rowTrailingTrim`, so a pinned row's pill ends where a workspace row's does.
     public var trailingTrim: CGFloat = 0
+    /// The gap between consecutive list rows of one section: 0 unless the user sets
+    /// `sidebar.rowSpacing` (#28663), so pinned rows space like the workspace list.
+    public var rowGap: CGFloat = 0
 
     public init(rowHeight: CGFloat, headerHeight: CGFloat, inset: CGFloat, sectionGap: CGFloat, padding: CGFloat,
                 cardPadding: CGFloat, tileMinWidth: CGFloat, tileHeight: CGFloat, tileGap: CGFloat,
@@ -160,13 +163,15 @@ public nonisolated struct SidebarRegionLayout: Hashable, Sendable {
                     let lines = min(flow.lines, section.maxRows ?? flow.lines)
                     sectionCapped += CGFloat(lines) * flow.lineHeight + CGFloat(max(0, lines - 1)) * flow.gap
                 } else {
-                    for item in section.items {
+                    for (index, item) in section.items.enumerated() {
+                        if index > 0 { y += m.rowGap }
                         result.rows.append(SidebarRegionRow(kind: .item(item.id, section: section.id),
                                                             frame: CGRect(x: x, y: y, width: max(0, innerWidth - itemTrailingTrim(section, look: look, metrics: m)),
                                                                           height: m.rowHeight)))
                         y += m.rowHeight
                     }
-                    sectionCapped += CGFloat(min(section.items.count, section.maxRows ?? section.items.count)) * m.rowHeight
+                    let shown = min(section.items.count, section.maxRows ?? section.items.count)
+                    sectionCapped += CGFloat(shown) * m.rowHeight + CGFloat(max(0, shown - 1)) * m.rowGap
                 }
             }
             if carded {
