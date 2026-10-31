@@ -134,11 +134,13 @@ def samples_instant(doc):
 
 
 def missed_instant(doc):
-    """Runs that gave no visible result (a missed press), per command/phase: they are not samples, so they are counted
-    apart (a B that misses more cannot look faster)."""
+    """Runs that gave no result (a missed press), per command/phase: they are not samples, so they are counted apart
+    (a B that misses more cannot look faster). A --typeable run (it has a "lost" key or typeable_ms) is missed when it
+    has no typeable_ms; any other run is missed when it has no visible_ms."""
     out = {}
     for r in doc.get("runs") or []:
-        if not isinstance(r.get("visible_ms"), (int, float)):
+        metric = "typeable_ms" if ("lost" in r or "typeable_ms" in r) else "visible_ms"
+        if not isinstance(r.get(metric), (int, float)) or isinstance(r.get(metric), bool):
             key = f"{r.get('command')}/{r.get('phase')}"
             out[key] = out.get(key, 0) + 1
     return out

@@ -122,6 +122,13 @@ class Statistics(unittest.TestCase):
         r = row(bench_ab.compare("instant-ab", bench_ab.load(self.tmp, "instant-ab")), "c/idle", "visible_ms")
         self.assertEqual(r["missed"], {"before": 0, "after": 2})
 
+    def test_a_typeable_run_is_missed_only_without_typeable_ms(self):
+        doc = {"runs": [{"command": "new_tab", "phase": "idle", "typeable_ms": 40.0, "lost": False},
+                        {"command": "new_tab", "phase": "idle", "typeable_ms": None, "lost": True},
+                        {"command": "new_tab", "phase": "idle", "visible_ms": 30.0},
+                        {"command": "new_tab", "phase": "idle", "visible_ms": None}]}
+        self.assertEqual(bench_ab.missed_instant(doc), {"new_tab/idle": 2})
+
     def test_quantile_is_linear(self):
         self.assertEqual(bench_ab.q([1, 2, 3, 4], .5), 2.5)
         self.assertIsNone(bench_ab.q([], .5))
