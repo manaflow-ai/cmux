@@ -1272,15 +1272,19 @@ enum RowBuilder {
         // cmux: the host's status line (ask 9) goes above the typing indicator, not under it (upstream: last,
         // centered): the Chief's "working on" line reads as a caption of the bubble it heads (RowDraw `.notice`
         // draws it at the bubble's left edge). Same gap and height as upstream's.
+        var statusLine = false
         if !threadMode, span.upperBound == messages.count, s.atNewest, let notice = s.ui.notice, !notice.isEmpty {
             // cmux: one caption row per line (the running indicator's folded steps, narration and step: HomeNoticeRows).
             rows.append(RowSpec(key: "notice", kind: .notice(notice), gap: 8, height: HomeNoticeRows.height(notice)))
+            statusLine = true
         }
-        if !threadMode, span.upperBound == messages.count, s.atNewest, typists {
+        // cmux (user 2026-10-30, "make it just one line with shimmer text"): the status line, shimmering
+        // (HomeNoticeShimmer), is the running indicator; no typing bubble under it.
+        if !threadMode, span.upperBound == messages.count, s.atNewest, typists, !statusLine {
             // cmux: right under a bubble the typing bubble keeps a separate message's gap, 8 pt body to body (the
             // new-group gap above), so it does not touch the bubble above or its tail; it sat 4.3 pt under it (user,
-            // 2026-10-30, "more space in between typing bubble and the latest message"). Under the status line,
-            // a receipt or a label row it stays as it was.
+            // 2026-10-30, "more space in between typing bubble and the latest message"). Under a receipt or a
+            // label row it stays as it was (the status line has no typing bubble under it).
             var gap: CGFloat = 0
             switch rows.last?.kind ?? previousRow {
             case .part, .unsent: gap = Self.typingGapUnderBubble

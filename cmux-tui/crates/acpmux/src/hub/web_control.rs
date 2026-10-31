@@ -132,8 +132,10 @@ impl Hub {
                 match w {
                     ModeWrite::Modes(v) => m.modes = Some(v),
                     ModeWrite::CurrentMode(v) => {
-                        let written =
-                            m.modes.as_mut().is_some_and(|modes| modes.set("currentModeId", v.clone()));
+                        let written = m
+                            .modes
+                            .as_mut()
+                            .is_some_and(|modes| modes.set("currentModeId", v.clone()));
                         // A harness that declared no modes reports one: kept
                         // apart (clients read `modes`), for the asking check.
                         // Modes that are not an object (a harness's `session/new` answer is not
