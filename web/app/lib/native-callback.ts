@@ -35,10 +35,9 @@ export function trustedNativeCallbackScheme(
 /**
  * A DEV build's callback scheme: `cmux-dev`, or `cmux-dev-<tag>` with the tag
  * as CloudConfiguration.sanitizedSchemeTag writes it (lowercase letters and
- * digits joined by single hyphens).
+ * digits joined by single hyphens, any length: build tooling does not cap tags).
  */
 const DEV_BUILD_SCHEME = /^cmux-dev(?:-[a-z0-9]+)*$/;
-const MAX_SCHEME_LENGTH = 64;
 
 /**
  * Whether a sign-in may hand its session back to `scheme`: a shipped
@@ -50,7 +49,7 @@ const MAX_SCHEME_LENGTH = 64;
  */
 export function isNativeSignInScheme(scheme: string): boolean {
   if (NATIVE_SCHEMES.has(scheme)) return true;
-  return scheme.length <= MAX_SCHEME_LENGTH && DEV_BUILD_SCHEME.test(scheme);
+  return DEV_BUILD_SCHEME.test(scheme);
 }
 
 /**
