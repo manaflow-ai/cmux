@@ -31,7 +31,7 @@ struct PinCommands {
             controller.setPinned(StripTabID(id), pinned: pinned)
         } else {
             let surface = tab.surface
-            context.send("set-tab-pinned") { _ = try await $0.setTabPinned(surface, pinned) }
+            context.services.daemon(for: pane).send("set-tab-pinned") { _ = try await $0.setTabPinned(surface, pinned) }
         }
         return true
     }

@@ -169,11 +169,10 @@ extension AppActionContext {
     /// selected tabs, every selected tab that may move, in strip order (`tab` among them); else `tab`.
     func movingTabs(_ invocation: ActionInvocation, _ tab: TabModel) -> [TabModel] {
         guard let pane = services.locateTab(model: tab).flatMap({ services.paneController(for: $0.1) }) else { return [tab] }
-        return actingTabs(invocation, pane, StripTabID(tab.id)).compactMap { pane.tab($0) }.filter { $0.id == tab.id || TabPromotion.refusal(tab: $0.id, services: services) == nil }
+        return actingTabs(invocation, pane, StripTabID(tab.id)).compactMap { pane.tab($0) }.filter { $0.id == tab.id || TabPromotion.refusal(tab: $0, services: services) == nil }
     }
 
-    /// The tab `id` names: on the invocation's machine when it names one (a forked or SSH machine keeps
-    /// this Mac's tab ids), else on the one machine that holds it (cmuxterm-hq#5338). Callers refuse.
+    /// The tab `id` names, on the invocation's machine when it names one (forks keep tab ids, cmuxterm-hq#5338); callers refuse.
     func targetTab(_ id: String, _ invocation: ActionInvocation) -> (TabModel, PaneModel)? {
         if let machine = invocation.targetMachineID { return services.locateTab(id, onMachine: machine) }
         return services.locateTab(id)
