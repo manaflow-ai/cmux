@@ -225,6 +225,43 @@ export default componentEntry<Props>({
     await import("./updateSurfaces.css");
   },
   variants: {
+    "popover-pr-links": {
+      note: "Structured PR metadata on a leading change and a remaining change; both reuse the shared PR chip and card. Public PR titles, representative update data.",
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelectorAll("a.cl-pr").length === 2);
+        for (const chip of ctx.document.querySelectorAll<HTMLAnchorElement>("a.cl-pr")) {
+          const box = chip.getBoundingClientRect();
+          if (!chip.textContent?.match(/#\d+/) || box.width <= 0 || box.height <= 0) {
+            throw new Error("The update-ready PR chip must have a visible number and nonzero size");
+          }
+        }
+        await ctx.hover({ selector: ".wn-pop-list a.cl-pr" });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-pr-card"));
+      },
+      props: {
+        surface: "popover",
+        data: {
+          ...base,
+          items: [
+            {
+              id: "transcript-reading",
+              category: "improved",
+              title: "Let transcript reading surfaces follow chat text size",
+              pr: "https://github.com/manaflow-ai/cmux/pull/26875",
+            },
+          ],
+          rest: [
+            {
+              id: "inline-messages",
+              category: "improved",
+              title: "Other sessions' messages are one inline line each, then open when opened",
+              pr: "https://github.com/manaflow-ai/cmux/pull/27312",
+            },
+          ],
+          moreCount: 1,
+        },
+      },
+    },
     card: {
       note: "Card #01 Compact list (u2441): \"Updated to Nightly · Oct 12\", what changed one line per area (updateSummary.ts), the count of the rest beside See What's New, the x on hover only. The composer's surface on a plain page. Without the span's notes the card groups the host's items.",
       props: { surface: "card", data: base },

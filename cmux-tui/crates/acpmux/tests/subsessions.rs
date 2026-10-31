@@ -159,7 +159,13 @@ async fn agents_start_children_within_their_width_and_depth_limits() {
     assert_eq!(e["data"]["maxChildren"], 2, "{e}");
     assert_eq!(e["data"]["source"], "settings", "{e}");
     let message = e["message"].as_str().unwrap();
-    assert!(message.contains("at most 2") && message.contains("stop_session"), "{message}");
+    assert!(
+        message.contains("at most 2")
+            && message.contains("live sub-sessions")
+            && message.contains("finished, dead")
+            && message.contains("send_message"),
+        "{message}"
+    );
 
     // The parent sees its children and their replies.
     let list = p.ok("_acpmux/subsession/list", json!({})).await;

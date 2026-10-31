@@ -1,0 +1,52 @@
+{
+  "title": "Installed stays open while the CLI installs Standup: the row appears without a reload",
+  "settings": {
+    "labs": {
+      "previewFeatures": true
+    }
+  },
+  "launch_args": [],
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 3
+    },
+    {
+      "title": "App Store, Installed tab",
+      "cmux": [
+        "action",
+        "run",
+        "appStore.show",
+        "--focus",
+        "--tab",
+        "installed"
+      ],
+      "wait": 4,
+      "cite": "Packages/macOS/CmuxNext/Sources/CmuxNextActions/Catalog/AppStoreActionCatalog.swift"
+    },
+    {
+      "title": "cmux apps install manaflow-ai/standup",
+      "cmux": [
+        "action",
+        "run",
+        "app.install",
+        "--no-wait",
+        "--app",
+        "manaflow-ai/standup"
+      ],
+      "wait": 3,
+      "cite": "Packages/macOS/CmuxNext/Sources/CmuxNextPages/AppsStoreChange.swift"
+    },
+    {
+      "title": "Confirm the consent card",
+      "rpc": {
+        "method": "debug.dialog",
+        "params": {
+          "press": "confirm"
+        }
+      },
+      "wait": 4,
+      "cite": "cmux-tui/crates/cmux-tui-core/src/apps.rs (apps-changed reaches the page relay)"
+    }
+  ]
+}

@@ -197,7 +197,9 @@ impl CloudError {
 
 impl std::fmt::Display for CloudError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}: {}", self.code, self.message)
+        // Put the actionable server message first; the stable code is useful
+        // for logs and automation but is not a person's next step.
+        write!(f, "{} ({})", self.message, self.code)
     }
 }
 

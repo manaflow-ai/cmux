@@ -9,6 +9,7 @@
 //! reply and exits when the Chief's turn ends. On a terminal it opens the
 //! chat (`tui`).
 
+mod acp;
 mod adapter;
 mod avatar;
 mod backend;
@@ -190,6 +191,9 @@ fn run(global: GlobalArgs, args: &[String]) -> i32 {
     }
     if args.first().is_some_and(|word| word == "move") {
         return relocate::run(&global, &args[1..]);
+    }
+    if args.first().is_some_and(|word| word == "acp") {
+        return acp::run(&global, &args[1..]);
     }
     if args.first().is_some_and(|word| word == "usage") {
         return usage::run(&global, &args[1..]);

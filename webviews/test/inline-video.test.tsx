@@ -1,6 +1,6 @@
 // Videos in agent replies (Leo 2026-10-21: "id like to be able to watch .mp4s direclty in cmux next
 // somehow"): which sources are video and how each opens in a tab, and the thumbnail a video draws
-// before it plays (poster frame, play button, length, the pointing hand), then click-to-play.
+// before it plays (poster frame, play button, length, the arrow), then click-to-play.
 import { afterEach, describe, expect, jest, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { act } from "react";
@@ -345,7 +345,7 @@ describe("the inline player", () => {
 
   test("Open in tab asks the host to open the file, never the granted URL", async () => {
     const { container, calls } = await mount();
-    const open = container.querySelector<HTMLButtonElement>('button.cv-media__action[aria-label="Open in tab"]');
+    const open = container.querySelector<HTMLButtonElement>("button.cv-media__action:not(.cv-media__expand)");
     expect(open).not.toBeNull();
     await act(async () => open!.click());
     expect(calls).toEqual([["link.openPath", { path: SOURCE }]]);
@@ -363,9 +363,7 @@ describe("the inline player", () => {
     await act(async () => void jest.advanceTimersByTime(MEDIA_PREVIEW_DWELL));
     expect(video.dataset.played).toBe("muted");
     jest.useRealTimers();
-    await act(async () =>
-      container.querySelector<HTMLButtonElement>('button.cv-media__action[aria-label="Expand"]')!.click(),
-    );
+    await act(async () => container.querySelector<HTMLButtonElement>("button.cv-media__expand")!.click());
     const stage = dom!.window.document.querySelector(".cv-media-stage");
     expect(stage).not.toBeNull();
     const large = stage!.querySelector("video")!;
@@ -377,6 +375,74 @@ describe("the inline player", () => {
     await act(async () => play!.click());
     expect(large.muted).toBe(false);
     expect(large.dataset.played).toBe("sound");
+  });
+
+  test("expanded playback takes over the inline player at its current position", async () => {
+    const { container, video } = await mount();
+    video.pause = () => {
+      video.dataset.paused = "yes";
+    };
+    await act(async () => container.querySelector<HTMLButtonElement>("button.cv-media__poster")!.click());
+    video.currentTime = 12;
+    await act(async () => container.querySelector<HTMLButtonElement>("button.cv-media__expand")!.click());
+    const stage = dom!.window.document.querySelector(".cv-media-stage")!;
+    const large = stage.querySelector<HTMLVideoElement>("video")!;
+    await act(async () => stage.querySelector<HTMLButtonElement>("button.cv-media__poster")!.click());
+    expect(video.dataset.paused).toBe("yes");
+    expect(large.currentTime).toBe(12);
+    expect(large.dataset.played).toBe("sound");
+  });
+
+  test("closing the expanded player hands its position back to the inline player", async () => {
+    const { container, video } = await mount();
+    video.pause = () => {
+      video.dataset.paused = "yes";
+    };
+    await act(async () => container.querySelector<HTMLButtonElement>("button.cv-media__poster")!.click());
+    video.currentTime = 12;
+    await act(async () => container.querySelector<HTMLButtonElement>("button.cv-media__expand")!.click());
+    const stage = dom!.window.document.querySelector(".cv-media-stage")!;
+    const large = stage.querySelector<HTMLVideoElement>("video")!;
+    await act(async () => stage.querySelector<HTMLButtonElement>("button.cv-media__poster")!.click());
+    large.currentTime = 30;
+    await act(async () =>
+      dom!.window.document.querySelector<HTMLButtonElement>(".acpmux-image-viewer-action")!.click(),
+    );
+    expect(dom!.window.document.querySelector(".cv-media-stage")).toBeNull();
+    expect(video.currentTime).toBe(30);
+  });
+
+  test("an expanded player rewound to the start hands back zero", async () => {
+    const { container, video } = await mount();
+    video.pause = () => {
+      video.dataset.paused = "yes";
+    };
+    await act(async () => container.querySelector<HTMLButtonElement>("button.cv-media__poster")!.click());
+    video.currentTime = 12;
+    await act(async () => container.querySelector<HTMLButtonElement>("button.cv-media__expand")!.click());
+    const stage = dom!.window.document.querySelector(".cv-media-stage")!;
+    const large = stage.querySelector<HTMLVideoElement>("video")!;
+    await act(async () => stage.querySelector<HTMLButtonElement>("button.cv-media__poster")!.click());
+    large.currentTime = 0;
+    await act(async () =>
+      dom!.window.document.querySelector<HTMLButtonElement>(".acpmux-image-viewer-action")!.click(),
+    );
+    expect(video.currentTime).toBe(0);
+  });
+
+  test("inline Play continues from where the expanded player closed", async () => {
+    const { container, video } = await mount();
+    await act(async () => container.querySelector<HTMLButtonElement>("button.cv-media__expand")!.click());
+    const stage = dom!.window.document.querySelector(".cv-media-stage")!;
+    const large = stage.querySelector<HTMLVideoElement>("video")!;
+    await act(async () => stage.querySelector<HTMLButtonElement>("button.cv-media__poster")!.click());
+    large.currentTime = 30;
+    await act(async () =>
+      dom!.window.document.querySelector<HTMLButtonElement>(".acpmux-image-viewer-action")!.click(),
+    );
+    await act(async () => container.querySelector<HTMLButtonElement>("button.cv-media__poster")!.click());
+    expect(video.currentTime).toBe(30);
+    expect(video.dataset.played).toBe("sound");
   });
 
   test("its hover transitions run only when motion is allowed", () => {
@@ -406,15 +472,15 @@ describe("the inline player", () => {
     expect(container.querySelector("button.cv-media__poster")?.closest("[data-path]")).not.toBeNull();
   });
 
-  test("every control a click lands on shows the pointing hand", () => {
+  test("every control a click lands on shows the arrow", () => {
     const css = readFileSync(new URL("../src/agent-session/acpmux/chips/chips.css", import.meta.url), "utf8");
     const rule = (selector: string) => {
       const start = css.indexOf(`\n${selector} {`);
       expect(start).toBeGreaterThan(-1);
       return css.slice(start, css.indexOf("}", start));
     };
-    expect(rule(".cv-media__poster")).toContain("cursor: pointer;");
-    expect(rule(".cv-media__action")).toContain("cursor: pointer;");
-    expect(css).toMatch(/\.cv-media__frame\.is-playing video,[^{]*\{\s*cursor: pointer;/);
+    expect(rule(".cv-media__poster")).toContain("cursor: default;");
+    expect(rule(".cv-media__action")).toContain("cursor: default;");
+    expect(css).toMatch(/\.cv-media__frame\.is-playing video,[^{]*\{\s*cursor: default;/);
   });
 });

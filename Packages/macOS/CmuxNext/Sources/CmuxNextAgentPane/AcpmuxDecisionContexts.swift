@@ -14,6 +14,8 @@ public nonisolated final class AcpmuxDecisionContexts: Sendable {
         /// The options the prompt offers once each as a one-time allow (`allow_once`): the only
         /// ones an enrolled Mac may sign (acpmux `mac_approvers::may_allow`).
         public var allowOnce: Set<String> = []
+        /// The daemon normalized this request as a question, never a tool permission.
+        public var isQuestion = false
     }
 
     /// How the daemon answered one of the pane's permission answers (one prompt's or a group's).
@@ -40,6 +42,14 @@ public nonisolated final class AcpmuxDecisionContexts: Sendable {
         var byKey: [String: Context] = [:]
         /// The log seq each context came from: an older page replayed later never wins.
         var seqByKey: [String: UInt64] = [:]
+        /// A live pending notification can omit its log seq (notably a peer relay). It wins over
+        /// older replay until the same context is anchored by a seq, but is not an infinite seq:
+        /// a later explicit decision must still remove it.
+        var unsequencedPending: Set<String> = []
+        var decisionSeqByKey: [String: UInt64] = [:]
+        var decisionSeqBySession: [String: UInt64] = [:]
+        var decisionSessionOrder: [String] = []
+        var questionVersion: UInt64 = 0
         var localInstance: String?
         /// How the daemon answered the pane's permission answers since the pane last looked, in
         /// order (at most ``limit``).
@@ -56,6 +66,8 @@ public nonisolated final class AcpmuxDecisionContexts: Sendable {
     private let state = Mutex(State())
 
     public init() {}
+
+    func pendingQuestionVersion() -> UInt64 { state.withLock { $0.questionVersion } }
 
     /// Reads one inbound frame, as the page gets it.
     func observe(_ object: [String: Any], replyTo method: String?) {
@@ -129,6 +141,40 @@ public nonisolated final class AcpmuxDecisionContexts: Sendable {
 
     /// One event record: a `permission_request` or `permission_reissued` names its prompt's nonce and run.
     private func observeRecord(_ record: [String: Any]) {
+        // A decided prompt cannot keep backing a question key, including when a history page
+        // containing its older request arrives after the decision.
+        if record["dir"] as? String == "mux", record["kind"] as? String == "permission_decision",
+           let session = record["sessionId"] as? String, let message = record["msg"] as? [String: Any] {
+            let prefix = session + "\u{0}"
+            let permission = message["permissionId"] as? String
+            state.withLock { state in
+                let seq = (record["seq"] as? NSNumber)?.uint64Value ?? .max
+                let keys = state.byKey.keys.filter { $0.hasPrefix(prefix) && (permission == nil || $0 == prefix + (permission ?? "")) }
+                var changed = false
+                for key in keys {
+                    guard seq >= (state.seqByKey[key] ?? 0) else { continue }
+                    changed = changed || state.byKey[key]?.isQuestion == true
+                    state.byKey.removeValue(forKey: key)
+                    state.unsequencedPending.remove(key)
+                    state.seqByKey[key] = seq
+                }
+                if let permission {
+                    let key = prefix + permission
+                    state.decisionSeqByKey[key] = max(state.decisionSeqByKey[key] ?? 0, seq)
+                    if !state.order.contains(key) { state.order.append(key) }
+                }
+                else {
+                    if state.decisionSeqBySession[session] == nil { state.decisionSessionOrder.append(session) }
+                    state.decisionSeqBySession[session] = max(state.decisionSeqBySession[session] ?? 0, seq)
+                    if state.decisionSessionOrder.count > Self.limit {
+                        state.decisionSeqBySession.removeValue(forKey: state.decisionSessionOrder.removeFirst())
+                    }
+                }
+                Self.trim(&state)
+                if changed { state.questionVersion &+= 1 }
+            }
+            return
+        }
         // Only the daemon's own (`mux`) records name a prompt's nonce and run.
         guard record["dir"] as? String == "mux",
               let kind = record["kind"] as? String, kind == "permission_request" || kind == "permission_reissued",
@@ -146,6 +192,9 @@ public nonisolated final class AcpmuxDecisionContexts: Sendable {
         let key = session + "\u{0}" + permission
         var context = Context(nonce: nonce, instance: instance)
         let request = params["request"] as? [String: Any]
+        // Keep this predicate in lockstep with the card model: Claude's AskUserQuestion uses
+        // `_meta.claude.tool` and has no normalized `_meta.acpmux.question` envelope.
+        context.isQuestion = request.map(AcpmuxPermissionPrompt.isQuestion) ?? false
         context.toolCall = (request?["toolCall"] as? [String: Any])?["toolCallId"] as? String ?? ""
         let options = request?["options"] as? [[String: Any]] ?? []
         let ids = options.compactMap { $0["optionId"] as? String }
@@ -156,15 +205,38 @@ public nonisolated final class AcpmuxDecisionContexts: Sendable {
         })
         state.withLock { state in
             if let seq, let known = state.seqByKey[key], seq < known { return }
-            // An update without a seq is the newest the pane knows: no replayed record replaces it.
-            state.seqByKey[key] = seq ?? .max
-            guard state.byKey.updateValue(context, forKey: key) == nil else { return }
-            state.order.append(key)
-            if state.order.count > Self.limit {
-                let oldest = state.order.removeFirst()
-                state.byKey.removeValue(forKey: oldest)
-                state.seqByKey.removeValue(forKey: oldest)
+            if let seq, seq <= (state.decisionSeqByKey[key] ?? 0) || seq <= (state.decisionSeqBySession[session] ?? 0) { return }
+            let previous = state.byKey[key]
+            if let seq {
+                // An unsequenced notification is current, but an old history page can arrive
+                // afterwards. Only an exact echo can anchor that context's position in the log.
+                if state.unsequencedPending.contains(key), previous != context { return }
+                state.seqByKey[key] = seq
+                state.unsequencedPending.remove(key)
+            } else {
+                // Keep the last known seq as a lower bound, so an older decision cannot erase a
+                // reissue already observed. Missing seq itself is not a value in that ordering.
+                state.unsequencedPending.insert(key)
             }
+            let changed = previous != context
+            state.byKey[key] = context
+            if changed {
+                state.order.removeAll { $0 == key }
+                state.order.append(key)
+            }
+            Self.trim(&state)
+            if changed, context.isQuestion || previous?.isQuestion == true { state.questionVersion &+= 1 }
+        }
+    }
+
+    private static func trim(_ state: inout State) {
+        while state.order.count > limit {
+            let oldest = state.order.removeFirst()
+            if state.byKey[oldest]?.isQuestion == true { state.questionVersion &+= 1 }
+            state.byKey.removeValue(forKey: oldest)
+            state.seqByKey.removeValue(forKey: oldest)
+            state.unsequencedPending.remove(oldest)
+            state.decisionSeqByKey.removeValue(forKey: oldest)
         }
     }
 
@@ -213,6 +285,17 @@ public nonisolated final class AcpmuxDecisionContexts: Sendable {
     /// The newest nonce and run of `permission` of `session`.
     public func context(session: String, permission: String) -> Context? {
         state.withLock { $0.byKey[session + "\u{0}" + permission] }
+    }
+
+    /// Pending questions for the selected native session. Read from daemon frames only.
+    func questions(session: String) -> [String: Context] {
+        let prefix = session + "\u{0}"
+        return state.withLock { state in
+            Dictionary(uniqueKeysWithValues: state.byKey.compactMap { key, value in
+                guard key.hasPrefix(prefix), value.isQuestion else { return nil }
+                return (String(key.dropFirst(prefix.count)), value)
+            })
+        }
     }
 
     /// The daemon run this connection talks to directly (its own prompts need no relayed proof);
