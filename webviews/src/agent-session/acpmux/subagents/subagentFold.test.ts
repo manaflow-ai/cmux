@@ -64,6 +64,21 @@ test("seeded root tags remain parent content even when the current thread differ
   expect(fold.views()).toEqual({});
 });
 
+test("a helper missing its spawn still shows a nested dispatch only as the child group", () => {
+  const fold = new SubagentFold();
+  expect(
+    feed(
+      fold,
+      { sessionUpdate: "tool_call", toolCallId: "spawn", title: "Agent", status: "in_progress" },
+      { subagent: "helper", subagents: [{ id: "nested", parent: "helper", name: "Nested", toolCallId: "spawn" }] },
+    ),
+  ).toBe(true);
+  const rows = fold.views().helper!;
+  expect(rows.map((row) => row.kind)).toEqual([SUBAGENTS]);
+  expect(rows[0]?.subagents?.map((agent) => agent.id)).toEqual(["nested"]);
+  expect(fold.takeRows()).toEqual([]);
+});
+
 test("a subagent's own updates draw as its view, with the subagents it spawned as a group", () => {
   const fold = new SubagentFold();
   feed(fold, { sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "a", parent: null, name: "Audit" }] });

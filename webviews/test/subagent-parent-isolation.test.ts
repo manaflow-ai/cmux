@@ -138,7 +138,8 @@ async function connect(daemon: ReturnType<typeof fakeDaemon>) {
 }
 
 const replies = (rows: readonly AcpmuxRow[]) => rows.filter((row) => row.kind === "assistant").map((row) => row.text);
-const tools = (rows: readonly AcpmuxRow[]) => rows.flatMap((row) => row.items?.flatMap((item) => item.tool ?? []) ?? []);
+const tools = (rows: readonly AcpmuxRow[]) =>
+  rows.flatMap((row) => row.items?.flatMap((item) => item.tool ?? []) ?? []);
 const thoughts = (rows: readonly AcpmuxRow[]) =>
   rows.flatMap((row) => row.items?.filter((item) => !item.tool).map((item) => item.text) ?? []);
 
@@ -158,9 +159,11 @@ test("helper activity stays in its own chat when attach starts after its spawn, 
     expect(replies(snapshot().rows)).toEqual(["Parent replay reply"]);
     expect(thoughts(snapshot().rows)).toEqual([]);
     expect(tools(snapshot().rows).map((entry) => entry.id)).toEqual(["parent-read"]);
-    expect(snapshot().rows.filter((row) => row.kind === "sessionStart").map((row) => row.sessionStart?.model)).toEqual([
-      "parent-model",
-    ]);
+    expect(
+      snapshot()
+        .rows.filter((row) => row.kind === "sessionStart")
+        .map((row) => row.sessionStart?.model),
+    ).toEqual(["parent-model"]);
 
     daemon.push(
       init("helper-live-model", HELPER),
@@ -174,9 +177,11 @@ test("helper activity stays in its own chat when attach starts after its spawn, 
     expect(replies(snapshot().rows)).toEqual(["Parent replay reply", "Parent live reply"]);
     expect(thoughts(snapshot().rows)).toEqual([]);
     expect(tools(snapshot().rows).map((entry) => entry.id)).toEqual(["parent-read", "parent-live-read"]);
-    expect(snapshot().rows.filter((row) => row.kind === "sessionStart").map((row) => row.sessionStart?.model)).toEqual([
-      "parent-model",
-    ]);
+    expect(
+      snapshot()
+        .rows.filter((row) => row.kind === "sessionStart")
+        .map((row) => row.sessionStart?.model),
+    ).toEqual(["parent-model"]);
 
     // Lifecycle metadata arriving later names the helper without losing its earlier work.
     daemon.push([

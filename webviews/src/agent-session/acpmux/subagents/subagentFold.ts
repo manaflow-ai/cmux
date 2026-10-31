@@ -318,7 +318,9 @@ export class SubagentFold {
     // out of the parent transcript; retain that work for its own view without inventing a
     // lifecycle row. Later progress/spawn metadata supplies the child's identity as usual.
     if (tag !== undefined && !this.isChat(tag) && !owner) {
-      this.record(tag, { event, update });
+      const spawnCall = call !== undefined && this.spawnCalls.has(call);
+      if (kind !== "subagent_spawned" && kind !== "subagent_state_update" && !spawnCall)
+        this.record(tag, { event, update });
       return true;
     }
     if (owner) {
