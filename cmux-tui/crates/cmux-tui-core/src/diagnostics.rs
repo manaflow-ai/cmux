@@ -24,7 +24,13 @@ pub use resource_projection::{
 };
 mod connection_leases;
 pub use connection_leases::{ConnectionLease, PeerClosed};
+mod hook_queue;
 mod write_path;
+pub use hook_queue::{
+    HOOK_SPOOL_DIR, HOOK_SPOOL_DROPPED_EVENTS, HOOK_SPOOL_UNDELIVERABLE_EVENTS, HookQueueSnapshot,
+    JOURNAL_APPEND_LONGEST_WAIT, add_undeliverable_hook_events, drop_session_hook_queues,
+    hook_spool_dir, names_this_file, open_spool_file, queue_prefix, spool_name_part,
+};
 pub(crate) use write_path::writer_took_registry_lock;
 pub use write_path::{WritePathSnapshot, WritePathStats};
 
@@ -155,11 +161,63 @@ struct Holder {
     since: Instant,
 }
 
+/// Octave buckets of a per-site histogram: bucket `i` (i > 0) holds samples
+/// from 2^(i-1) to 2^i - 1 us, the last one everything above.
+const SITE_OCTAVES: usize = 32;
+
+/// Sites each `locks` list of `server-stats` reports.
+const DETAIL_SITES: usize = 20;
+
+/// Power-of-two histogram of one site: 256 bytes, updated under the
+/// `sites` table lock that the release already takes, so a site costs no
+/// allocation after its first acquisition.
+#[derive(Default)]
+struct OctaveHistogram {
+    counts: [u64; SITE_OCTAVES],
+    total_us: u64,
+    max_us: u64,
+}
+
+impl OctaveHistogram {
+    fn record(&mut self, value_us: u64) {
+        // Bucket i > 0 holds 2^(i-1)..2^i - 1; the last one everything above.
+        let octave = u64::BITS.saturating_sub(value_us.leading_zeros()) as usize;
+        if let Some(count) = self.counts.get_mut(octave.min(SITE_OCTAVES.saturating_sub(1))) {
+            *count = count.saturating_add(1);
+        }
+        self.total_us = self.total_us.saturating_add(value_us);
+        self.max_us = self.max_us.max(value_us);
+    }
+
+    /// The upper bound of the bucket that holds the 99th percentile sample,
+    /// at most twice the true value and never above the largest sample.
+    fn p99_us(&self) -> u64 {
+        let count = self.counts.iter().fold(0u64, |sum, bucket| sum.saturating_add(*bucket));
+        if count == 0 {
+            return 0;
+        }
+        let rank = count.saturating_mul(99).div_ceil(100).max(1);
+        let mut seen = 0u64;
+        for (octave, bucket) in self.counts.iter().enumerate() {
+            seen = seen.saturating_add(*bucket);
+            if seen >= rank {
+                let upper = 1u64
+                    .checked_shl(u32::try_from(octave).unwrap_or(u32::MAX))
+                    .map_or(u64::MAX, |bound| bound.saturating_sub(1));
+                return upper.min(self.max_us);
+            }
+        }
+        self.max_us
+    }
+}
+
 #[derive(Default)]
 struct SiteStats {
     acquisitions: u64,
     hold_total_us: u64,
     hold_max_us: u64,
+    hold: OctaveHistogram,
+    wait: OctaveHistogram,
 }
 
 #[derive(Clone, Copy)]
@@ -226,31 +284,86 @@ impl LockStats {
         }
     }
 
-    pub fn released(&self, site: LockSite, held: Duration) {
+    /// Call when the holder at `site` releases, after holding for `held`
+    /// and having waited `waited` to acquire.
+    pub fn released(&self, site: LockSite, held: Duration, waited: Duration) {
         self.hold.record_duration(held);
         *self.holder.lock().unwrap_or_else(|e| e.into_inner()) = None;
         let held_us = u64::try_from(held.as_micros()).unwrap_or(u64::MAX);
+        let waited_us = u64::try_from(waited.as_micros()).unwrap_or(u64::MAX);
         let mut sites = self.sites.lock().unwrap_or_else(|e| e.into_inner());
         let entry = sites.entry(site).or_default();
-        entry.acquisitions += 1;
+        entry.acquisitions = entry.acquisitions.saturating_add(1);
         entry.hold_total_us = entry.hold_total_us.saturating_add(held_us);
         entry.hold_max_us = entry.hold_max_us.max(held_us);
+        entry.hold.record(held_us);
+        entry.wait.record(waited_us);
+    }
+
+    fn holder_snapshot(&self) -> Option<LockHolderSnapshot> {
+        self.holder.lock().unwrap_or_else(|e| e.into_inner()).map(|holder| LockHolderSnapshot {
+            site: site_label(holder.site),
+            held_for_us: u64::try_from(holder.since.elapsed().as_micros()).unwrap_or(u64::MAX),
+        })
+    }
+
+    fn last_stall_snapshot(&self) -> Option<LockStallSnapshot> {
+        self.last_stall.lock().unwrap_or_else(|e| e.into_inner()).map(|stall| LockStallSnapshot {
+            waiter: site_label(stall.waiter),
+            blocker: stall.blocker.map(site_label),
+            waited_us: u64::try_from(stall.waited.as_micros()).unwrap_or(u64::MAX),
+        })
+    }
+
+    /// Every site's hold and wait record, the `server-stats` `locks`
+    /// section: the [`DETAIL_SITES`] sites with the most total hold time,
+    /// and the [`DETAIL_SITES`] with the longest 99th percentile hold.
+    pub fn detail(&self) -> LockDetailSnapshot {
+        let all: Vec<LockSiteDetail> = self
+            .sites
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+            .map(|(site, stats)| LockSiteDetail {
+                site: site_label(site),
+                acquisitions: stats.acquisitions,
+                hold_total_us: stats.hold_total_us,
+                hold_max_us: stats.hold_max_us,
+                hold_p99_us: stats.hold.p99_us(),
+                wait_total_us: stats.wait.total_us,
+                wait_max_us: stats.wait.max_us,
+                wait_p99_us: stats.wait.p99_us(),
+            })
+            .collect();
+        let sites = all.len() as u64;
+        let mut by_hold_total = all.clone();
+        by_hold_total
+            .sort_by(|a, b| b.hold_total_us.cmp(&a.hold_total_us).then(a.site.cmp(&b.site)));
+        by_hold_total.truncate(DETAIL_SITES);
+        let mut by_hold_p99 = all;
+        by_hold_p99.sort_by(|a, b| {
+            b.hold_p99_us
+                .cmp(&a.hold_p99_us)
+                .then(b.hold_max_us.cmp(&a.hold_max_us))
+                .then(a.site.cmp(&b.site))
+        });
+        by_hold_p99.truncate(DETAIL_SITES);
+        LockDetailSnapshot {
+            wait_us: self.wait.snapshot(),
+            hold_us: self.hold.snapshot(),
+            contended_acquisitions: self.contended.load(Ordering::Relaxed),
+            stalls: self.stalls.load(Ordering::Relaxed),
+            holder: self.holder_snapshot(),
+            last_stall: self.last_stall_snapshot(),
+            sites,
+            by_hold_total,
+            by_hold_p99,
+        }
     }
 
     pub fn snapshot(&self) -> LockStatsSnapshot {
-        let holder = self.holder.lock().unwrap_or_else(|e| e.into_inner()).map(|holder| {
-            LockHolderSnapshot {
-                site: site_label(holder.site),
-                held_for_us: u64::try_from(holder.since.elapsed().as_micros()).unwrap_or(u64::MAX),
-            }
-        });
-        let last_stall = self.last_stall.lock().unwrap_or_else(|e| e.into_inner()).map(|stall| {
-            LockStallSnapshot {
-                waiter: site_label(stall.waiter),
-                blocker: stall.blocker.map(site_label),
-                waited_us: u64::try_from(stall.waited.as_micros()).unwrap_or(u64::MAX),
-            }
-        });
+        let holder = self.holder_snapshot();
+        let last_stall = self.last_stall_snapshot();
         let mut top_sites: Vec<LockSiteSnapshot> = self
             .sites
             .lock()
@@ -310,6 +423,47 @@ pub struct LockSiteSnapshot {
     pub acquisitions: u64,
     pub hold_total_us: u64,
     pub hold_max_us: u64,
+}
+
+/// One lock's full site record (`server-stats` `locks`).
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct LockDetailSnapshot {
+    pub wait_us: HistogramSnapshot,
+    pub hold_us: HistogramSnapshot,
+    /// Acquisitions that waited at least 1 ms.
+    pub contended_acquisitions: u64,
+    /// Acquisitions that waited at least [`LOCK_STALL_THRESHOLD`].
+    pub stalls: u64,
+    pub holder: Option<LockHolderSnapshot>,
+    pub last_stall: Option<LockStallSnapshot>,
+    /// Distinct sites that released the lock since start.
+    pub sites: u64,
+    /// At most twenty sites, by total hold time.
+    pub by_hold_total: Vec<LockSiteDetail>,
+    /// At most twenty sites, by 99th percentile hold.
+    pub by_hold_p99: Vec<LockSiteDetail>,
+}
+
+/// One site's acquisitions of a lock. The p99 values are power-of-two
+/// bucket bounds: at most twice the true value, never above the maximum.
+#[derive(Clone, Debug, Serialize)]
+pub struct LockSiteDetail {
+    pub site: String,
+    pub acquisitions: u64,
+    pub hold_total_us: u64,
+    pub hold_max_us: u64,
+    pub hold_p99_us: u64,
+    pub wait_total_us: u64,
+    pub wait_max_us: u64,
+    pub wait_p99_us: u64,
+}
+
+/// The `server-stats` `locks` section: the workspace registry lock and the
+/// mux state lock, each with its top sites.
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct LocksSnapshot {
+    pub registry: LockDetailSnapshot,
+    pub state: LockDetailSnapshot,
 }
 
 const WRITER_IDLE: u8 = 0;
@@ -497,6 +651,9 @@ pub struct ConnectionStats {
     /// terminal connection gives this slot back with its main one
     /// (`connection_leases`).
     terminal_active: AtomicU64,
+    /// The socket these connections come in on, once a server attached the
+    /// session to it.
+    socket: std::sync::OnceLock<std::path::PathBuf>,
 }
 
 impl ConnectionStats {
@@ -561,6 +718,15 @@ impl ConnectionStats {
         self.active.load(Ordering::Acquire)
     }
 
+    /// Records the socket the session serves (the first one wins).
+    pub fn note_socket(&self, path: &std::path::Path) {
+        let _ = self.socket.set(path.to_path_buf());
+    }
+
+    pub fn socket(&self) -> Option<&std::path::Path> {
+        self.socket.get().map(std::path::PathBuf::as_path)
+    }
+
     pub fn snapshot(&self, limit: u64) -> ConnectionSnapshot {
         ConnectionSnapshot {
             active: self.active.load(Ordering::Acquire),
@@ -605,6 +771,13 @@ pub struct ServerStatsSnapshot {
     /// Present only when the request names `write_path` in `include`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub write_path: Option<WritePathSnapshot>,
+    /// Present only when the request names `locks` in `include`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub locks: Option<LocksSnapshot>,
+    /// Present only when the request names `hook_queue` in `include` and the
+    /// session serves a socket.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hook_queue: Option<HookQueueSnapshot>,
 }
 
 pub const SERVER_STATS_SCHEMA: u32 = 1;

@@ -444,7 +444,7 @@ pub(super) const REFUSED_BUSY_LINE: &str = concat!(
 
 /// Best effort: a short write timeout keeps the accept loop from waiting on a
 /// client that does not read.
-fn refuse_busy(mut stream: Box<dyn transport::Stream>) {
+pub(super) fn refuse_busy(mut stream: Box<dyn transport::Stream>) {
     use std::io::Write as _;
     let _ = stream.set_write_timeout(Some(Duration::from_millis(50)));
     let _ = stream.write_all(REFUSED_BUSY_LINE.as_bytes());

@@ -418,7 +418,7 @@
     },
     "appearance.appTheme" : {
       "default" : "followTerminal",
-      "description" : "Colors for cmux's own pages. Every bundled theme works here, and each color meets WCAG AA contrast.",
+      "description" : "Colors for the window, sidebar, tabs and cmux's pages. Terminals keep the Terminal Theme. Every color meets WCAG AA contrast.",
       "title" : "App Theme",
       "type" : "string"
     },
@@ -1306,7 +1306,7 @@
       "type" : "number"
     },
     "appearance.theme" : {
-      "description" : "Colors for cmux and its terminals. A space, workspace or terminal theme overrides it.",
+      "description" : "Colors for terminals. cmux uses them too while App Theme is Match Terminal Theme. A space, workspace or terminal theme overrides it.",
       "title" : "Theme",
       "type" : "string"
     },
@@ -1784,6 +1784,12 @@
       "default" : true,
       "description" : "While an agent uses an app, its chat shows a small live view of that app. Click the view to open Agent Activity.",
       "title" : "Live Preview in Chat",
+      "type" : "boolean"
+    },
+    "contextMenus.showCustomizeItem" : {
+      "default" : true,
+      "description" : "Adds Customize Menu… to the end of every right-click menu.",
+      "title" : "Show Customize Menu…",
       "type" : "boolean"
     },
     "deviceHub.url" : {
@@ -3884,7 +3890,7 @@
       "type" : "boolean"
     },
     "sidebar.showWorkspaceTabs" : {
-      "default" : true,
+      "default" : false,
       "description" : "Lists tabs beneath each workspace in the sidebar.",
       "title" : "Show Workspace Tabs",
       "type" : "boolean"
@@ -3943,6 +3949,17 @@
         "rail"
       ],
       "title" : "Sidebar Style",
+      "type" : "string"
+    },
+    "sidebar.textSize" : {
+      "default" : "default",
+      "description" : "Makes the sidebar's names, headers, icons and rows larger together. Larger matches the ChatGPT app's sidebar.",
+      "enum" : [
+        "default",
+        "large",
+        "larger"
+      ],
+      "title" : "Sidebar Text Size",
       "type" : "string"
     },
     "sidebar.topBandMaxShare" : {
@@ -4490,7 +4507,6 @@
         "minimal",
         "cards",
         "default",
-        "composer",
         "threads",
         "console",
         "classic",
@@ -4893,6 +4909,12 @@
       ],
       "title" : "When an Update Is Ready",
       "type" : "string"
+    },
+    "updates.showFeatureTips" : {
+      "default" : true,
+      "description" : "Now and then, a small tip points at a feature an update added. Close it or use the feature and it never comes back.",
+      "title" : "Show Feature Tips",
+      "type" : "boolean"
     },
     "updates.showWhatsNew" : {
       "default" : true,
