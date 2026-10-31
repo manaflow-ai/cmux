@@ -1,6 +1,6 @@
 //! Fresh-Chief eval, first-run walk (user 12374): a new person's Chief (clean home, empty
-//! memory, default grant) spawns a subagent; the answer names a workspace with a real id, in a
-//! group, and the Chief's reply links the subagent. Same steps for every placement.
+//! memory, default grant) spawns a subagent without creating a workspace, and the Chief's reply
+//! links the subagent so the user can open it. Same steps for every placement.
 
 mod common;
 
@@ -92,15 +92,15 @@ fn walk(ws: Option<Arc<dyn Workspaces>>) -> (String, bool, String) {
 }
 
 #[test]
-fn a_fresh_chief_with_a_workspace_host_answers_a_workspace_and_a_linked_reply() {
-    let ws: Arc<dyn Workspaces> = Arc::new(Opened::default());
-    let (answer, granted, reply) = walk(Some(ws));
-    assert!(granted, "the default grant lets a Chief spawn and tell");
-    assert!(answer.contains("workspace \"First task\""), "{answer}");
+fn a_fresh_chief_with_a_workspace_host_defers_the_workspace_and_links_the_reply() {
+    let ws = Arc::new(Opened::default());
+    let (answer, granted, reply) = walk(Some(ws.clone()));
     assert!(
-        answer.contains("ws_"),
-        "the real workspace id is in the answer: {answer}"
+        ws.0.lock().unwrap().is_empty(),
+        "spawning must not create sidebar workspaces"
     );
+    assert!(granted, "the default grant lets a Chief spawn and tell");
+    assert!(answer.contains("no cmux workspace yet"), "{answer}");
     assert!(
         reply.contains("](cmux://chief/"),
         "the reply links a1: {reply}"

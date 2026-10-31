@@ -10,11 +10,11 @@
 //!   prompt is section 9's subagent prompt, VIEW_DOC and the user's
 //!   instructions (the subagent preset's system prompt on a Claude harness,
 //!   else the subagent directory's CLAUDE.md or AGENTS.md). It answers the
-//!   ids at once. Each subagent also gets a cmux workspace whose tab is its
-//!   chat (workspaces.rs), so the user can watch and join it, when this host
-//!   has somewhere to make one. The answer says, per subagent, which
-//!   workspace it got and where, or that it got none and why: the Chief
-//!   repeats it to the user, so it must never claim more than happened.
+//!   ids at once. A subagent's cmux workspace is opened when the user opens
+//!   its Chief link, so starting work does not add a sidebar row. The answer
+//!   says that the subagent can be opened from its link when this host has a
+//!   cmux app, or why it cannot be opened: the Chief repeats it to the user,
+//!   so it must never claim more than happened.
 //! - `spawn` takes an optional working directory (`~` is this host's home).
 //!   A directory that does not exist here is reported and the default
 //!   subagent directory is used.
@@ -672,9 +672,9 @@ impl Spawner {
             .map_err(|_| "the Chief host is stopping".to_owned())
     }
 
-    /// Starts subagent `id`'s session (in `s.cwd`) and first prompt, then its
-    /// workspace; answers what the user can see of it: its workspace and
-    /// where it lives, or that it has none and why.
+    /// Starts subagent `id`'s session (in `s.cwd`) and first prompt. Its chat
+    /// workspace is opened later when the user follows the Chief link; the
+    /// answer explains how to open it, or why this host cannot.
     #[allow(clippy::too_many_arguments)]
     fn start_one(
         &self,
@@ -711,13 +711,9 @@ impl Spawner {
         // most 4 marks, so ours would fail the subagent's second request
         // (Claude Code 2.1.287, measured 2026-10-08). Claude Code's own
         // marks cache the long session step by step.
-        // The workspace key is chosen first, so the session starts knowing
-        // its workspace (CMUX_WORKSPACE_ID; acpmux per-session env).
-        let key = self
-            .workspaces
-            .as_ref()
-            .map(|_| crate::workspaces::new_key());
-        // Its workspace's name, also its name on an approval card it is in.
+        // Its task name is also the name shown on an approval card. The chat
+        // workspace is deliberately not created here: starting a lane must
+        // not add a sidebar row before the person opens it.
         let name = crate::workspaces::title(task);
         let spec = SessionSpec {
             name: format!("{}-{id}", s.prefix),
@@ -738,13 +734,9 @@ impl Spawner {
                 }
                 t
             },
-            // Per-session env reaches a local session only (acpmux allowlist,
-            // unix socket).
-            env: key
-                .iter()
-                .filter(|_| peer.is_none())
-                .map(|k| ("CMUX_WORKSPACE_ID".to_owned(), crate::workspaces::env_id(k)))
-                .collect(),
+            // No workspace is assigned until the user opens the subagent's
+            // Chief link, so there is no per-session workspace env here.
+            env: BTreeMap::new(),
             fast: false,
             peer: peer.clone(),
         };
@@ -828,62 +820,18 @@ impl Spawner {
             "subagent.start",
             json!({"id": id, "spawn": spawn, "session": session, "harness": s.harness, "harness_profile": admitted.profile, "harness_kind": admitted.kind, "harness_argv0": admitted.argv0, "ms": began.elapsed().as_millis() as u64}),
         );
-        // The chat replays its history when the tab attaches, so the
-        // workspace can follow the prompt.
-        let Some(workspaces) = &self.workspaces else {
+        let Some(_workspaces) = &self.workspaces else {
             self.trace.emit(
                 "subagent.workspace",
                 json!({"id": id, "spawn": spawn, "error": self.trace.text(&self.no_workspace_reason)}),
             );
             return Ok(format!("no cmux workspace ({})", self.no_workspace_reason));
         };
-        // No group unless the task asks for the person's "Chief agents" (#27712).
-        let group = crate::workspaces::spawn_group(task);
-        let key = key.unwrap_or_else(crate::workspaces::new_key);
-        // The terminal beside the chat runs on this Mac: a peer session's
-        // folder is on the VM (/home/agent/work), and a PTY spawned in a
-        // folder missing here fails, so the subagent got no workspace (a511).
-        let term_cwd = match &peer {
-            Some(_) => &self.settings.cwd,
-            None => &s.cwd,
-        };
-        match workspaces.open(&key, &session, &name, group, term_cwd) {
-            Ok(key) => {
-                let place = workspaces.place();
-                // a313: the real ws_ id, so the CLI can list, move and pin it.
-                let located = workspaces.locate(&key);
-                self.trace.emit(
-                    "subagent.workspace",
-                    json!({"id": id, "spawn": spawn, "workspace": key, "name": name, "group": group, "place": place,
-                        "ws": located.as_ref().map(|r| r.id.clone()), "session": located.as_ref().map(|r| r.session.clone())}),
-                );
-                // No link here: the posted reply links every mention (link_subagents), so
-                // the memory keeps the plain id, not a 70-character URL per mention.
-                let mut note = format!("workspace \"{name}\" in {place}");
-                if let Some(r) = &located {
-                    note.push_str(&format!(
-                        " (id {}; `{}` moves it to the top)",
-                        r.id,
-                        r.move_to_top()
-                    ));
-                }
-                let _ = self.to_brain(Input::SubagentWorkspace {
-                    id: id.to_owned(),
-                    key,
-                    name,
-                    ws: located.map(|r| r.id),
-                });
-                Ok(note)
-            }
-            Err(e) => {
-                (self.log)(&format!("subagent {id}: opening its workspace: {e}"));
-                self.trace.emit(
-                    "subagent.workspace",
-                    json!({"id": id, "spawn": spawn, "error": self.trace.text(&e)}),
-                );
-                Ok(format!("no cmux workspace (opening it failed: {e})"))
-            }
-        }
+        self.trace.emit(
+            "subagent.workspace",
+            json!({"id": id, "spawn": spawn, "deferred": true, "name": name}),
+        );
+        Ok("no cmux workspace yet (open the subagent link to view it)".to_owned())
     }
 
     /// The directory subagents run in: `asked` when it exists on this host

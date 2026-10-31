@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "aca2c082fab80ea186977cdc38391cd0b52a857f42ebe04ee16c01fac050b10e",
+  "catalog_sha256": "b98c1e335098e805886d2674a2566595cdb905d682223f4ecf0f074ab94abbd6",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -131,6 +131,9 @@
       "class": "mutation"
     },
     "chief.stop": {
+      "class": "mutation"
+    },
+    "chief.workspace": {
       "class": "mutation"
     },
     "client.cell_pixels.set": {

@@ -746,6 +746,69 @@ fn a_prompt_whose_workspace_opens_after_it_asked_waits_for_the_person() {
 }
 
 #[test]
+fn explicit_workspace_open_notification_keeps_pending_permission_visible() {
+    let mut h = harness(None, false, default_script());
+    const T0: u64 = 1_800_000_000_000;
+    h.brain.set_clock(Arc::new(|| T0));
+    let session = subagent_asking(&mut h, false);
+    let (reply, answer) = std::sync::mpsc::channel();
+    h.brain.step(Input::SubagentWorkspaceOpened {
+        session,
+        key: "workspace:opened".into(),
+        name: None,
+        group: None,
+        reply,
+    });
+    assert_eq!(answer.recv().unwrap()["opened"], true);
+    assert!(h.brain.unanswered_permissions().is_empty());
+    h.brain.deny_overdue_permissions_at(T0 + 3_600_000);
+    assert_eq!(answered(&h, "p1"), None);
+    assert!(pending_prompt(&h));
+}
+
+#[test]
+fn explicit_workspace_prepare_uses_chief_task_metadata() {
+    let mut h = harness(None, false, default_script());
+    let session = subagent_asking(&mut h, false);
+    let (reply, answer) = std::sync::mpsc::channel();
+    h.brain
+        .step(Input::SubagentWorkspacePrepare { session, reply });
+    let metadata = answer.recv().unwrap();
+    assert!(
+        metadata["name"]
+            .as_str()
+            .is_some_and(|name| !name.is_empty())
+    );
+    assert_eq!(metadata["group"], "");
+}
+
+#[test]
+fn explicit_open_keeps_a_completed_subagent_workspace_attached() {
+    let mut h = harness(None, false, default_script());
+    let session = subagent_asking(&mut h, false);
+    h.brain.step(Input::SubagentAnswer {
+        id: "a1".into(),
+        answer: Err("finished".into()),
+    });
+    let (reply, answer) = std::sync::mpsc::channel();
+    h.brain.step(Input::SubagentWorkspaceOpened {
+        session,
+        key: "workspace:completed".into(),
+        name: None,
+        group: None,
+        reply,
+    });
+    assert_eq!(answer.recv().unwrap()["opened"], true);
+    assert_eq!(
+        h.brain
+            .state()
+            .sub("a1")
+            .and_then(|(_, s)| s.workspace.as_deref()),
+        Some("workspace:completed")
+    );
+}
+
+#[test]
 fn the_owners_turn_session_is_refused_at_once_what_nobody_can_answer() {
     // The app shows no button for a turn session (it lives on the Chief's
     // own acpmux daemon): a request the host left "to its harness" held the

@@ -1186,6 +1186,15 @@ pub enum ControlRequest {
     /// chief.stop {restart: [ids]}: those subagents go on (Restart on the
     /// stop-all toast).
     Restart(Vec<String>),
+    /// The owner asks for metadata before opening a subagent workspace.
+    WorkspacePrepare { session: String },
+    /// The owner reports that the app created the subagent workspace.
+    WorkspaceOpened {
+        session: String,
+        key: String,
+        name: Option<String>,
+        group: Option<String>,
+    },
 }
 
 /// What the tools socket serves: the memory, the subagent tools when the
@@ -1294,10 +1303,12 @@ fn connection(conn: UnixStream, served: &Served) {
                         | "spawn_policy"
                         | "engine"
                         | "stop"
+                        | "workspace"
                         | "inspect"
                         | "grant"
                         | "browse"
-                ) && role() == crate::turn_caller::Role::Subagent
+                ) && ((tool == "workspace" && role() != crate::turn_caller::Role::Other)
+                    || (tool != "workspace" && role() == crate::turn_caller::Role::Subagent))
                 {
                     if writeln!(
                         out,
@@ -1326,6 +1337,61 @@ fn connection(conn: UnixStream, served: &Served) {
                             Err(e) => json!({"error": e}),
                         },
                         None => json!({"error": "settings are not served here"}),
+                    };
+                    if writeln!(out, "{answer}").is_err() {
+                        return;
+                    }
+                    continue;
+                }
+                // The app's explicit subagent workspace lifecycle. This is a
+                // distinct owner control, never a model tool.
+                if tool == "workspace" {
+                    let session = req
+                        .get("agent_session")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .trim();
+                    let action = req.get("action").and_then(Value::as_str).unwrap_or("");
+                    let ask = if session.is_empty() {
+                        Err("workspace: `agent_session` is required".to_owned())
+                    } else {
+                        match action {
+                            "prepare" => Ok(ControlRequest::WorkspacePrepare {
+                                session: session.to_owned(),
+                            }),
+                            "opened" => {
+                                let key =
+                                    req.get("key").and_then(Value::as_str).unwrap_or("").trim();
+                                if key.is_empty() {
+                                    Err("workspace: `key` is required for opened".to_owned())
+                                } else {
+                                    Ok(ControlRequest::WorkspaceOpened {
+                                        session: session.to_owned(),
+                                        key: key.to_owned(),
+                                        name: req
+                                            .get("name")
+                                            .and_then(Value::as_str)
+                                            .map(str::to_owned),
+                                        group: req
+                                            .get("group")
+                                            .and_then(Value::as_str)
+                                            .map(str::to_owned),
+                                    })
+                                }
+                            }
+                            _ => Err("workspace: action is prepare or opened".to_owned()),
+                        }
+                    };
+                    let answer = match (ask, control) {
+                        (Err(e), _) => json!({"error": {"code": "bad_request", "message": e}}),
+                        (Ok(_), None) => {
+                            json!({"error": {"code": "unavailable", "message": "workspace control is not served here"}})
+                        }
+                        (Ok(request), Some(control)) => match control(request) {
+                            Ok(text) => serde_json::from_str(&text)
+                                .unwrap_or_else(|_| json!({"value": text})),
+                            Err(e) => json!({"error": {"code": "unavailable", "message": e}}),
+                        },
                     };
                     if writeln!(out, "{answer}").is_err() {
                         return;

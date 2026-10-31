@@ -135,6 +135,14 @@ fn finish_a1(report: &str, ran: Duration) -> Vec<String> {
     while !finished(&h) {
         assert!(Instant::now() < until, "a1 never finished: {:?}", h.log());
         if !backdated && h.brain.state().sub("a1").is_some_and(|(_, s)| s.run_ms > 0) {
+            // Exercise cleanup for a workspace recorded by an older host. New spawns
+            // no longer create one; restored workspace records still need this behavior.
+            h.brain.step(Input::SubagentWorkspace {
+                id: "a1".into(),
+                key: "legacy-workspace".into(),
+                name: "Tab bar tweak".into(),
+                ws: None,
+            });
             h.brain.backdate_sub_run("a1", ran);
             backdated = true;
         }

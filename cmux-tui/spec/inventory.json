@@ -47,6 +47,7 @@
     "chief.profile.undo",
     "chief.profile.update",
     "chief.stop",
+    "chief.workspace",
     "client.cell_pixels.set",
     "client.detach",
     "client.get",

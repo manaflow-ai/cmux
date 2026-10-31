@@ -831,6 +831,51 @@ impl Brain {
         }
     }
 
+    /// Metadata used by the app before it creates an explicitly requested
+    /// workspace. This keeps title and the settled Chief agents grouping in
+    /// the Chief's task record instead of reimplementing parsing in Swift.
+    pub(super) fn sub_workspace_prepare(&self, session: &str) -> serde_json::Value {
+        let Some(id) = self.state.sub_by_session(session) else {
+            return serde_json::json!({"error": {"code": "unknown_session", "message": "unknown subagent session"}});
+        };
+        let Some((_, sub)) = self.state.sub(&id) else {
+            return serde_json::json!({"error": {"code": "unknown_subagent", "message": "unknown subagent"}});
+        };
+        serde_json::json!({
+            "name": sub.title,
+            "group": crate::workspaces::spawn_group(&sub.task),
+        })
+    }
+
+    /// Records that the app finished creating an explicitly requested
+    /// workspace. Unlike the legacy spawn callback this never auto-closes a
+    /// completed subagent: the user's explicit open is the retention choice.
+    pub(super) fn sub_workspace_opened(
+        &mut self,
+        session: &str,
+        key: String,
+        name: Option<String>,
+        _group: Option<String>,
+    ) -> serde_json::Value {
+        let Some(id) = self.state.sub_by_session(session) else {
+            return serde_json::json!({"error": {"code": "unknown_session", "message": "unknown subagent session"}});
+        };
+        let Some(sub) = self.state.sub_mut(&id) else {
+            return serde_json::json!({"error": {"code": "unknown_subagent", "message": "unknown subagent"}});
+        };
+        let shown_session = sub.peer.is_none().then(|| session.to_owned());
+        sub.workspace = Some(key);
+        sub.ws_id = None;
+        if let Some(name) = name.filter(|name| !name.trim().is_empty()) {
+            sub.title = name;
+        }
+        self.save();
+        if let Some(session) = shown_session {
+            self.forget_unanswered_of(&session);
+        }
+        serde_json::json!({"opened": true})
+    }
+
     pub(super) fn sub_failed(&mut self, id: &str, error: &str) {
         // A subagent that fails while the spawn floor is up (another
         // person's turn, or an `ask` child or subagent alive) keeps `ask`:

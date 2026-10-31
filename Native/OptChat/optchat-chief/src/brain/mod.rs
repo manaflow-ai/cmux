@@ -177,6 +177,20 @@ pub enum Input {
         /// Its public id (`ws_…`), when the place can name it.
         ws: Option<String>,
     },
+    /// The app is preparing to open an existing subagent session; returns its
+    /// task title and optional Chief agents group.
+    SubagentWorkspacePrepare {
+        session: String,
+        reply: Sender<serde_json::Value>,
+    },
+    /// The app created the explicit workspace for an existing subagent.
+    SubagentWorkspaceOpened {
+        session: String,
+        key: String,
+        name: Option<String>,
+        group: Option<String>,
+        reply: Sender<serde_json::Value>,
+    },
     /// A subagent could not start.
     SubagentFailed {
         id: String,
@@ -1390,6 +1404,18 @@ impl Brain {
             Input::SubagentTurnStarted { id, prompt_id } => self.sub_turn_started(&id, &prompt_id),
             Input::SubagentWorkspace { id, key, name, ws } => {
                 self.sub_workspace(&id, key, name, ws)
+            }
+            Input::SubagentWorkspacePrepare { session, reply } => {
+                let _ = reply.send(self.sub_workspace_prepare(&session));
+            }
+            Input::SubagentWorkspaceOpened {
+                session,
+                key,
+                name,
+                group,
+                reply,
+            } => {
+                let _ = reply.send(self.sub_workspace_opened(&session, key, name, group));
             }
             Input::SubagentFailed { id, error } => self.sub_failed(&id, &error),
             Input::SubagentAgentKey { id, key_id } => self.sub_agent_key(&id, key_id),

@@ -12,7 +12,7 @@ import Foundation
 /// `optchat-<home>-<n>`, a subagent `optchat-sub-<home>-a<n>`, a compactor `optchat-compact-…`.
 /// The Chief needs you while any of its turns waits on a permission or question, works while one
 /// runs, and is idle otherwise. Folded, the subagent rows hide only the idle ones: a working,
-/// waiting, failed or lost subagent always shows, so the list never folds away an active one.
+/// waiting, failed or lost opened subagent stays visible. Unopened sessions remain in the menu.
 extension SidebarTransientItem {
     private static let chiefSubagentPrefix = LayoutItemID.transientPrefix + "chief-sub:"
 
@@ -29,10 +29,15 @@ extension SidebarTransientItem {
     }
 
     /// The subagent rows under the Chief item, in order; none draw while the item is not in the
-    /// sidebar. `showsIdle`: the list is unfolded, so idle subagents show too.
+    /// sidebar. `openedSessions` keeps a Chief-started session out until its chat is opened in a
+    /// workspace. Nil lists all sessions for the Subagents menu. `showsIdle`: the list is unfolded,
+    /// so idle opened subagents show too.
     @MainActor
-    public static func chiefSubagents(lanes: some Collection<AgentActivityLane>, showsIdle: Bool) -> [SidebarTransientItem] {
-        let subagents = lanes.filter { ChiefSessionRole(name: $0.name) == .subagent }
+    public static func chiefSubagents(lanes: some Collection<AgentActivityLane>, showsIdle: Bool,
+                                      openedSessions: Set<String>? = nil) -> [SidebarTransientItem] {
+        let subagents = lanes.filter {
+            ChiefSessionRole(name: $0.name) == .subagent && (openedSessions?.contains($0.id) ?? true)
+        }
             .sorted { ($0.subagentNumber ?? .max, $0.name) < ($1.subagentNumber ?? .max, $1.name) }
         var items: [SidebarTransientItem] = []
         var previous = LayoutItemRef.builtIn(.chief)

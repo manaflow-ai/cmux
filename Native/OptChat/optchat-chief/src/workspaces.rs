@@ -1,3 +1,6 @@
+//! Workspace adapters retained for explicit opens and legacy workspace cleanup.
+//! Spawning a subagent no longer calls these adapters to create a workspace.
+//!
 //! Each subagent's cmux workspace (Lawrence, 2026-10-05: "subagent
 //! orchestration spawns workspaces that have the acp chat, so everything is
 //! monitorable and I can jump in deeper using cmux ui"). A workspace named

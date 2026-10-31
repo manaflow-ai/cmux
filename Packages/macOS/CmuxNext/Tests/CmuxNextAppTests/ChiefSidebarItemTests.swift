@@ -24,6 +24,10 @@ struct ChiefSidebarItemTests {
         SidebarTransientItem.chiefSubagents(lanes: lanes, showsIdle: showsIdle)
     }
 
+    static func openedRows(_ lanes: [AgentActivityLane], showsIdle: Bool = false) -> [SidebarTransientItem] {
+        SidebarTransientItem.chiefSubagents(lanes: lanes, showsIdle: showsIdle, openedSessions: ["id-opened"])
+    }
+
     static let chiefItem = LayoutItem(id: LayoutItemID("itm_chief"), ref: .builtIn(.chief))
 
     static func placed(_ items: [LayoutItem], transient: [SidebarTransientItem]) -> [String] {
@@ -108,5 +112,14 @@ struct ChiefSidebarItemTests {
         #expect(Self.placed([Self.chiefItem, home], transient: rows) == ["itm_chief"] + ids + ["itm_home"])
         #expect(Self.placed([home, Self.chiefItem], transient: rows) == ["itm_home", "itm_chief"] + ids)
         #expect(Self.placed([home], transient: rows) == ["itm_home"])
+    }
+
+    @Test func unopenedSubagentsStayOutOfSidebarRowsButRemainInTheMenu() {
+        let unopened = Self.lane("optchat-sub-6b68ac4a-a1", .working, title: "Unopened")
+        let opened = AgentActivityLane(id: "id-opened", name: "optchat-sub-6b68ac4a-a2", title: "Opened", peer: nil,
+                                       parent: "optchat-chief:6b68ac4a", state: .working, since: nil, error: nil,
+                                       harness: "claude")
+        #expect(Self.openedRows([unopened, opened]).map(\.info.title) == ["Opened"])
+        #expect(Self.rows([unopened, opened], showsIdle: true).map(\.info.title) == ["Unopened", "Opened"])
     }
 }

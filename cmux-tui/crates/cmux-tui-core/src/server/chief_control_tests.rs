@@ -123,6 +123,10 @@ fn call(mux: &Arc<Mux>, client: u64, operation: &str, socket: &Path) -> Value {
     let (writer, outbound) = tests::captured_writer();
     let mut line = json!({"protocol":"cmux.protocol/2","type":"request","id":"c","operation":operation,
                           "params":{"machine":"current","session":"current"}});
+    if operation == "chief.workspace" {
+        line["params"]["action"] = json!("prepare");
+        line["params"]["agent_session"] = json!("s-1");
+    }
     if operation != "chief.engine.get" {
         line["idempotency_key"] = json!("k1");
     }
@@ -165,7 +169,7 @@ fn an_agent_bound_connection_reaches_nothing_and_the_owner_reaches_the_brain() {
     )
     .unwrap();
     let (_dir, sock, seen) = brain(json!({"stopped": true}));
-    for operation in ["chief.stop", "chief.engine.set", "chief.engine.get"] {
+    for operation in ["chief.stop", "chief.engine.set", "chief.engine.get", "chief.workspace"] {
         let refused = call(&mux, agent, operation, &sock);
         assert_eq!(refused["error"]["code"], "origin.forbidden", "{operation}: {refused}");
     }
@@ -243,4 +247,21 @@ fn stop_all_and_restart_reach_the_brain() {
         restarted["value"],
         json!({"stopped":false,"restarted":["a1"],"errors":["a2: no subagent a2"]})
     );
+}
+
+/// Workspace notification has its own tool: a host that does not know it must
+/// refuse it, never fall through to stopping the Chief.
+#[test]
+fn workspace_open_forwards_metadata_and_returns_the_brain_ack() {
+    let mux = Mux::new_for_test("chief-workspace", crate::SurfaceOptions::default());
+    let params =
+        json!({"action":"opened", "agent_session":"s-1", "key":"ws-1", "name":"Inspect sidebar"});
+    let expected = json!({"tool":"workspace", "action":"opened", "agent_session":"s-1", "key":"ws-1", "name":"Inspect sidebar"});
+    let line = tool_line(ResourceOperation::ChiefWorkspace, &fields(params));
+    assert_eq!(line, expected);
+    let (_dir, sock, seen) = brain(json!({"opened":true}));
+    let answer = ask(ResourceOperation::ChiefWorkspace, &line, Some(&sock));
+    let notified = result(&mux, ResourceOperation::ChiefWorkspace, answer).unwrap();
+    assert_eq!(notified["value"], json!({"opened":true}));
+    assert_eq!(seen.lock().unwrap().as_slice(), [expected]);
 }

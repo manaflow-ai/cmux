@@ -1200,12 +1200,11 @@ impl optchat_chief::workspaces::Workspaces for CwdRecorder {
     }
 }
 
-/// a511 (Oct 21): a cloud subagent got no cmux workspace, because its
-/// workspace terminal was opened in the VM's folder (/home/agent/work),
-/// which does not exist on the Mac. The session runs on the peer; the
-/// terminal beside its chat runs here, so it opens in a local folder.
+/// Chief starts a cloud session without creating a sidebar workspace. The
+/// user's Chief link opens the chat later, so no terminal is created during
+/// spawn and no local folder is needed at this point.
 #[test]
-fn a_cloud_subagents_workspace_terminal_opens_in_a_folder_on_this_mac() {
+fn a_cloud_subagent_workspace_is_deferred_until_opened() {
     let mut h = Harness::new(default_script());
     h.agents.hold(true);
     std::fs::create_dir_all(h.dir.path().join("subagent")).unwrap();
@@ -1231,21 +1230,16 @@ fn a_cloud_subagents_workspace_terminal_opens_in_a_folder_on_this_mac() {
     })
     .unwrap();
     assert!(spawned.contains("Started a1"), "{spawned}");
-    assert!(
-        !spawned.contains("no cmux workspace"),
-        "a cloud subagent gets its workspace: {spawned}"
-    );
+    assert!(spawned.contains("no cmux workspace yet"), "{spawned}");
     let (spec, _) = subs(&h).into_iter().next().unwrap();
     assert_eq!(
         spec.cwd, vm_dir,
         "the session still runs in the VM's folder"
     );
     let opened = recorder.opened.lock().unwrap().clone();
-    assert_eq!(opened.len(), 1, "{opened:?}");
     assert!(
-        opened[0].is_dir(),
-        "the terminal opens in a folder on this Mac: {:?}",
-        opened[0]
+        opened.is_empty(),
+        "workspace opens only after the user follows the link: {opened:?}"
     );
 }
 
@@ -1278,13 +1272,10 @@ impl optchat_chief::workspaces::Workspaces for NameRecorder {
     }
 }
 
-/// Oct 22-25: 31 cloud subagents' workspaces read "You are a subagent of
-/// Chief, an…" in the sidebar: the cloud placement puts the subagent
-/// instructions before the task, and the workspace name and group were read
-/// from that wrapped text, whose first lines are no `Title:`/`Group:`. They
-/// come from the task the Chief wrote.
+/// Starting cloud subagents does not create workspaces or sidebar groups. The
+/// task headers do not cause automatic placement, even for a named group.
 #[test]
-fn a_cloud_subagents_workspace_is_named_and_grouped_by_its_task_headers() {
+fn a_cloud_subagent_workspace_name_and_group_are_deferred_until_opened() {
     let mut h = Harness::new(default_script());
     h.agents.hold(true);
     std::fs::create_dir_all(h.dir.path().join("subagent")).unwrap();
@@ -1316,17 +1307,7 @@ fn a_cloud_subagents_workspace_is_named_and_grouped_by_its_task_headers() {
     })
     .unwrap();
     assert!(spawned.contains("Started a1"), "{spawned}");
-    let mut opened = recorder.opened.lock().unwrap().clone();
-    opened.sort();
-    // #27712: only "Chief agents" is asked for; any other `Group:` value is ignored.
-    assert_eq!(
-        opened,
-        vec![
-            ("Cloud thing".to_owned(), "Chief agents".to_owned()),
-            ("Other thing".to_owned(), String::new()),
-        ],
-        "{spawned}"
-    );
+    assert!(recorder.opened.lock().unwrap().is_empty(), "{spawned}");
 }
 
 // ---- v2: every subagent in its own VM by default (cloud-subagents-DESIGN.md, "v2") ----
