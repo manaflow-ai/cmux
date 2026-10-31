@@ -113,8 +113,11 @@ final class TabDragGhostPanel {
 
     /// A frame client of the ghost panel's own FrameScheduler (its screen,
     /// 120 Hz on ProMotion).
-    func makeFrameClient(owner: String, onFrame: @escaping @MainActor (FrameTick) -> Bool) -> FrameClient {
-        FrameClient(owner: owner, view: root, onFrame: onFrame)
+    /// `settle` lands the ghost when its panel goes out of sight (FrameScheduler gives it no frames).
+    func makeFrameClient(owner: String, settle: @escaping @MainActor () -> Void,
+                         onFrame: @escaping @MainActor (FrameTick) -> Bool) -> FrameClient {
+        FrameClient(owner: owner, scheduler: { [weak root] in root.map(FrameScheduler.forView) ?? .app }, settle: settle,
+                    onFrame: onFrame)
     }
 
     /// The ghost's screen geometry for `motion`.

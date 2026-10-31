@@ -478,16 +478,20 @@ public final class LayoutRootView: NSView {
     /// The final layout now, in one pass: Reduce Motion turned on mid-flight, or the window went out
     /// of sight (`DisplayLinkDriver.motionSettle`).
     func landMotion() {
-        for view in screenViews.values where view.hasMotion || view.resizeGesture == .landing { view.settleMotion() }
+        defer { onFramePlaced?() }
+        for view in screenViews.values {
+            if view.hasMotion || view.resizeGesture == .landing { view.settleMotion() }
+            view.settleCanvasCamera()
+        }
         for id in Array(screenFrames.keys) { screenFrames[id]?.snap() }
         applyScreenFrames()
+        highlight.settle()
         updateVisibility()
         flushOverlaySync()
         setLayoutInMotion(false)
     }
 
     func advanceFrame(_ dt: Double) -> Bool {
-        defer { onFramePlaced?() }
         // A released resize drag whose layout the observation has not applied yet: apply it before this
         // frame, so the frame that ends the drag for the pane contents is the release's (`ScreenContentView+ResizeGesture`).
         if !model.isGestureActive, screenViews.values.contains(where: { $0.resizeGesture == .releasing }) {
@@ -500,6 +504,7 @@ public final class LayoutRootView: NSView {
             landMotion()
             return false
         }
+        defer { onFramePlaced?() }
         // One motion policy per frame (it reads the animation settings), not one per spring.
         let policy = Motion.panes.policy
         var moving = false, panning = false
