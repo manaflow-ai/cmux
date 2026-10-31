@@ -74,10 +74,16 @@ struct State {
 /// share's successive host sockets share it (a reconnect of either keeps it). Keyed by prompt
 /// id: a retry, a decision said again (live, in a snapshot, in a history page) changes nothing.
 /// The count is the guest's prompts sent and neither refused nor decided, filled only from what
-/// the guest sent (never from `prompt_status`), so the cap counts every one.
+/// the guest sent (never from `prompt_status`), so the cap counts every one. A prompt the daemon
+/// has not answered yet stays here with its text, and every relay of the guest sends it again
+/// once attached (acpmux runs a prompt id once), so neither a guest nor a host reconnect loses
+/// it unsaid.
 #[derive(Default)]
 pub(super) struct Ledger {
     open: HashSet<String>,
+    /// Prompts taken and not answered yet (prompt id, client id, text), oldest first; at most
+    /// [`MAX_HELD`], as each is in `open`.
+    unanswered: VecDeque<(String, String, String)>,
     /// Prompt id to its state (the chat's guest prompts the relays saw), oldest first in `order`.
     states: HashMap<String, State>,
     order: VecDeque<String>,
@@ -106,11 +112,24 @@ impl Ledger {
         true
     }
 
-    /// Records a prompt's state, forward only; whether it changed.
+    /// Takes the guest's `prompt` to send: false at the cap. Kept until the daemon answers it.
+    fn take(&mut self, prompt: &str, client_id: String, text: String) -> bool {
+        self.remember(prompt, client_id.clone());
+        if !self.admit(prompt) {
+            return false;
+        }
+        if !self.unanswered.iter().any(|(p, _, _)| p == prompt) {
+            self.unanswered.push_back((prompt.to_owned(), client_id, text));
+        }
+        true
+    }
+
+    /// Records a prompt's state, forward only; whether it changed. Any state answers it.
     fn note(&mut self, prompt: &str, state: &'static str, reason: Option<String>) -> bool {
         if !prompt.starts_with("g-") {
             return false;
         }
+        self.unanswered.retain(|(p, _, _)| p != prompt);
         let from = self.state(prompt);
         if !advance(from, state) {
             return false;
@@ -208,10 +227,6 @@ pub(super) fn refuse(held: &Held, ids: (&str, &str), ask: Ask, reason: &str) -> 
 pub(super) enum Out {
     /// A frame of this guest's relay of this generation.
     Frame(String, u64, Value),
-    /// A prompt this guest's relay of this generation took and did not get answered before it
-    /// ended: the guest's next relay sends it again (acpmux runs a prompt id once), else it is
-    /// refused.
-    Replay(String, u64, Ask),
     /// The relay of this guest and generation ended.
     Ended(String, u64),
     /// Try again to start the relay of this connected guest (no connection permit was free, or
@@ -275,9 +290,14 @@ async fn run(
                 _ => false,
             },
             // Until the attachment answers, the room's asks wait (one sent before it would be
-            // refused as not attached, and lost).
+            // refused as not attached, and lost): a prompt in the guest's ledger, which every
+            // relay of the guest sends once attached, the rest here.
             ask = asks.recv() => match ask {
                 Some(ask) if link.attached => link.ask(ask).await,
+                Some(Ask::Prompt { client_id, text }) => {
+                    link.take(client_id, text);
+                    true
+                }
                 Some(ask) if link.waiting.len() < MAX_WAITING => {
                     link.waiting.push_back(ask);
                     true
@@ -297,19 +317,8 @@ async fn run(
             open = link.ask(ask).await;
         }
     }
-    // The prompts it took and did not get answered, in the order they came: the guest's next
-    // relay sends them, so none is lost unsaid.
-    let mut sent: Vec<(u64, Ask)> = (link.pending.drain())
-        .filter_map(|(id, pending)| match pending {
-            Pending::Prompt { client_id, text, .. } => Some((id, Ask::Prompt { client_id, text })),
-            _ => None,
-        })
-        .collect();
-    sent.sort_by_key(|(id, _)| *id);
-    let waiting = link.waiting.drain(..).filter(|ask| matches!(ask, Ask::Prompt { .. }));
-    for ask in sent.into_iter().map(|(_, ask)| ask).chain(waiting) {
-        let _ = link.out.send(Out::Replay(link.guest_id.clone(), link.generation, ask));
-    }
+    // The prompts it sent and did not get answered stay in the guest's ledger: its next relay
+    // sends them again.
     let _ = link.out.send(Out::Ended(link.guest_id.clone(), link.generation));
 }
 
@@ -317,12 +326,8 @@ enum Pending {
     Bind,
     Attach,
     Page,
-    /// A prompt sent: its id, and what the guest sent (to send again if the relay ends first).
-    Prompt {
-        prompt: String,
-        client_id: String,
-        text: String,
-    },
+    /// A prompt sent: its id.
+    Prompt(String),
     Ignore,
 }
 
@@ -428,7 +433,18 @@ impl Link {
                     }
                 }
                 let view = json!({"cmd": "agent-session-view", "surface": 0, "visible": true});
-                self.call(view, Pending::Ignore).await
+                if !self.call(view, Pending::Ignore).await {
+                    return false;
+                }
+                // The guest's prompts no daemon answered yet (taken before this attachment, or
+                // by an earlier relay): sent again.
+                let unanswered = self.ledger().unanswered.clone();
+                for (prompt, client_id, text) in unanswered {
+                    if !self.send(prompt, client_id, text).await {
+                        return false;
+                    }
+                }
+                true
             }
             Pending::Page if ok => {
                 let page = json!({"v": 1, "t": "page", "to": self.guest_id});
@@ -449,11 +465,11 @@ impl Link {
                 true
             }
             // Held unless acpmux's records said otherwise first (a retried prompt it ran).
-            Pending::Prompt { prompt, .. } if ok => {
+            Pending::Prompt(prompt) if ok => {
                 self.note(&prompt, "held", None);
                 true
             }
-            Pending::Prompt { prompt, .. } => {
+            Pending::Prompt(prompt) => {
                 let reason = frame
                     .get("error_code")
                     .and_then(Value::as_str)
@@ -464,6 +480,31 @@ impl Link {
             }
             Pending::Ignore => true,
         }
+    }
+
+    /// Takes a prompt of the guest into its ledger (held, plus sent and not answered yet: a
+    /// burst cannot pass the cap before the replies come; a retry of one counted or decided
+    /// takes no slot again); its id, or `None` when refused at the cap.
+    fn take(&mut self, client_id: String, text: String) -> Option<String> {
+        if !(1..=128).contains(&client_id.len()) {
+            return None;
+        }
+        let prompt = guest_prompt_id(&self.share_id, &self.guest_id, &client_id);
+        if self.ledger().take(&prompt, client_id, text) {
+            return Some(prompt);
+        }
+        self.note(&prompt, "refused", Some("share.too_many_held".into()));
+        None
+    }
+
+    /// Sends a prompt the ledger took, unless this relay sent it and awaits its answer.
+    async fn send(&mut self, prompt: String, client_id: String, text: String) -> bool {
+        if self.pending.values().any(|p| matches!(p, Pending::Prompt(p) if *p == prompt)) {
+            return true;
+        }
+        let frame = json!({"cmd": "agent-session-prompt", "surface": 0,
+            "client_id": client_id, "text": text});
+        self.call(frame, Pending::Prompt(prompt)).await
     }
 
     /// An ask the relay cannot take now (`share.busy`).
@@ -486,21 +527,10 @@ impl Link {
                     self.busy(Ask::Prompt { client_id, text });
                     return true;
                 }
-                let prompt = guest_prompt_id(&self.share_id, &self.guest_id, &client_id);
-                // Held, plus sent and not answered yet: a burst cannot pass the cap before the
-                // replies come. A retry of one counted or decided takes no slot again.
-                let admitted = {
-                    let mut ledger = self.ledger();
-                    ledger.remember(&prompt, client_id.clone());
-                    ledger.admit(&prompt)
-                };
-                if !admitted {
-                    self.note(&prompt, "refused", Some("share.too_many_held".into()));
-                    return true;
+                match self.take(client_id.clone(), text.clone()) {
+                    Some(prompt) => self.send(prompt, client_id, text).await,
+                    None => true,
                 }
-                let frame = json!({"cmd": "agent-session-prompt", "surface": 0,
-                    "client_id": client_id, "text": text});
-                self.call(frame, Pending::Prompt { prompt, client_id, text }).await
             }
             // Dropped when the daemon is behind: the next one says the same.
             Ask::Typing(_) if full => true,
