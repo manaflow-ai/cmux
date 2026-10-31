@@ -28,6 +28,8 @@ nonisolated struct CloudApprovalAnswer: Sendable {
     }
 
     let call: Call
+    /// The mismatch reason when no open feed item carries the request (closed, or another team's).
+    static let closedItem = "feed item or team"
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "cloud.approval")
 
     /// Approves `request` when it holds `op` with exactly `params` (a JSON
@@ -58,7 +60,7 @@ nonisolated struct CloudApprovalAnswer: Sendable {
             "state": "open", "type": "request", "kind": "approve", "poster_kind": "integration", "limit": 100,
         ]])
         guard let item = Self.item(carrying: request, op: op, digest: digest, team: team, in: list) else {
-            throw Failure.mismatch(request: request, reason: "feed item or team")
+            throw Failure.mismatch(request: request, reason: Self.closedItem)
         }
         let reply = try await post("v1/ops", ["op": "feed.answer", "origin": "user", "idempotency_key": "approve:\(request)",
                                               "params": ["item": item, "answer": ["decision": "allow", "scope": "once"]]])

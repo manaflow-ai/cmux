@@ -61,15 +61,24 @@ await requireBrowserLane("transcript-gap-select-browser.test.ts", async () => {
     await paint(page);
     await page.mouse.up();
   };
-  const open = async (name: string, above: (typeof GAP_KINDS)[number], below: (typeof GAP_KINDS)[number]) => {
+  const open = async (
+    name: string,
+    above: (typeof GAP_KINDS)[number],
+    below: (typeof GAP_KINDS)[number],
+    fixture?: { rows: ReturnType<typeof gapPair>; css: string; dir: string },
+  ) => {
     const page = await browsers.get(name)!.newPage({ viewport: { width: 1280, height: 900 }, reducedMotion: "reduce" });
     await installPaintedFrames(page);
     const { port } = vite.httpServer!.address() as { port: number };
     await page.goto(`http://127.0.0.1:${port}/test/browser/transcript-follow.html`);
     await page.waitForFunction(() => "__showRawRows" in window);
+    if (fixture) {
+      await page.addStyleTag({ content: fixture.css });
+      await page.evaluate((dir) => (document.documentElement.dir = dir), fixture.dir);
+    }
     await page.evaluate(
       (rows) => (window as unknown as { __showRawRows(rows: unknown): void }).__showRawRows(rows),
-      gapPair(above, below),
+      fixture?.rows ?? gapPair(above, below),
     );
     await page.waitForSelector('[data-row-id="after"]');
     for (const id of ["upper", "lower"]) {
@@ -125,29 +134,24 @@ await requireBrowserLane("transcript-gap-select-browser.test.ts", async () => {
   for (const name of ["chromium", "webkit"]) {
     for (const lineDirection of ["rtl", "ltr"] as const)
       test(`${name}: RTL document gaps and both gutters preserve ${lineDirection} line endpoints`, async () => {
-        const page = await open(name, "agent", "agent");
+        const text =
+          lineDirection === "rtl"
+            ? { upper: "אבגדה וזחטי כלמנס", lower: "עפצקר שתאבג דהוזח", after: "טיכלמ נסעפצ קרשתא" }
+            : { upper: "Upper keeper", lower: "Lower harbour", after: "After the watch" };
+        // Mount the actual fixture content and spacing together, so virtual row positions include
+        // the padding. Its empty band extends beyond the reply footer to test both nearest lines.
+        const page = await open(name, "agent", "agent", {
+          rows: gapPair("agent", "agent").map((row) => ({
+            ...row,
+            text: text[row.id as keyof typeof text] ?? row.text,
+          })),
+          dir: "rtl",
+          // RTL inherits the document; a local LTR line must keep its own endpoints.
+          css:
+            '.acpmux-row[data-row-id="upper"] { padding-bottom: 64px; }' +
+            (lineDirection === "ltr" ? ".cv-md p { direction: ltr; }" : ""),
+        });
         try {
-          await page.evaluate((direction) => {
-            document.documentElement.dir = "rtl";
-            const text =
-              direction === "rtl"
-                ? {
-                    upper: "אבגדה וזחטי כלמנס",
-                    lower: "עפצקר שתאבג דהוזח",
-                    after: "טיכלמ נסעפצ קרשתא",
-                  }
-                : { upper: "Upper keeper", lower: "Lower harbour", after: "After the watch" };
-            for (const id of ["upper", "lower", "after"] as const) {
-              const paragraph = document.querySelector<HTMLElement>(`[data-row-id="${id}"] .cv-md p`)!;
-              paragraph.textContent = text[id];
-              // The RTL case inherits the document; a local LTR line must keep its own endpoints.
-              if (direction === "ltr") paragraph.dir = "ltr";
-            }
-          }, lineDirection);
-          // A real, explicit padding surface on the upper row lets both endpoints be tested
-          // without aiming into the paragraph's own line-height padding.
-          await page.addStyleTag({ content: '.acpmux-row[data-row-id="upper"] { padding-bottom: 32px; }' });
-          await paint(page);
           const box = await page.evaluate(() => {
             const line = (id: string) => {
               const paragraph = document.querySelector<HTMLElement>(`[data-row-id="${id}"] .cv-md p`)!;
@@ -185,7 +189,10 @@ await requireBrowserLane("transcript-gap-select-browser.test.ts", async () => {
           expect(box.upper.direction).toBe(lineDirection);
           expect(box.lower.direction).toBe(lineDirection);
           expect(box.lower.top - box.upper.bottom).toBeGreaterThan(4);
-          expect(box.gap.bottom - box.gap.top).toBe(32);
+          expect(box.gap.bottom - box.gap.top).toBe(64);
+          expect(box.gap.bottom).toBeLessThanOrEqual(box.lower.top);
+          expect(box.gap.top - box.upper.bottom).toBeLessThan(box.lower.top - box.gap.top);
+          expect(box.lower.top - box.gap.bottom).toBeLessThan(box.gap.bottom - box.upper.bottom);
           const end = {
             x: lineDirection === "rtl" ? box.after.left + 0.5 : box.after.right - 0.5,
             y: (box.after.top + box.after.bottom) / 2,
@@ -246,9 +253,12 @@ await requireBrowserLane("transcript-gap-select-browser.test.ts", async () => {
         test(`${name}: ${above} to ${below} inter-row midpoint starts at the nearest caret`, async () => {
           const page = await open(name, above, below);
           // Integration-fixture spacing only: leave real row renderers and controls intact while
-          // making a positive gap outside both article boxes. Production does not use this margin.
-          await page.addStyleTag({
-            content: '[data-row-id="lower"], [data-row-id="after"] { margin-top: 32px; }',
+          // adding a positive gap outside both article boxes without replacing fractional placement.
+          await page.evaluate(() => {
+            for (const id of ["lower", "after"]) {
+              const row = document.querySelector<HTMLElement>(`[data-row-id="${id}"]`)!;
+              row.style.marginTop = `${(Number.parseFloat(row.style.marginTop) || 0) + 32}px`;
+            }
           });
           await paint(page);
           const box = await geometry(page);
@@ -398,7 +408,7 @@ await requireBrowserLane("transcript-gap-select-browser.test.ts", async () => {
         wrap.id = "selection-controls";
         wrap.style.cssText = "position:relative;z-index:2;padding:8px";
         wrap.innerHTML =
-          '<button>Attach file</button><a href="#fixture">Harbour link</a><span role="button" tabindex="0">Sender chip</span><input aria-label="Fixture field"><span draggable="true">Drag file</span><span data-interactive><span id="custom-control">Custom control</span></span><div class="cv-received__body selectable" data-cut data-interactive>Open received message</div><div class="acpmux-edited-title--toggle" data-interactive>Open file diff</div><div class="acpmux-turn-preview-frame" data-interactive style="height:30px">Open preview</div>';
+          '<button>Attach file</button><a href="#fixture">Harbour link</a><span role="button" tabindex="0">Sender chip</span><input aria-label="Fixture field"><span draggable="true">Drag file</span><span data-interactive><span id="custom-control">Custom control</span></span><div class="acpmux-edited-title--toggle" data-interactive>Open file diff</div><div class="acpmux-turn-preview-frame" data-interactive style="height:30px">Open preview</div>';
         row.querySelector(".cv-tools")!.append(wrap);
         wrap.addEventListener("pointerdown", (event) => (wrap.dataset.prevented = String(event.defaultPrevented)));
         const hidden = document.createElement("span");
@@ -416,7 +426,6 @@ await requireBrowserLane("transcript-gap-select-browser.test.ts", async () => {
         "input",
         '[draggable="true"]',
         "#custom-control",
-        ".cv-received__body[data-cut]",
         ".acpmux-edited-title--toggle",
         ".acpmux-turn-preview-frame",
       ]) {

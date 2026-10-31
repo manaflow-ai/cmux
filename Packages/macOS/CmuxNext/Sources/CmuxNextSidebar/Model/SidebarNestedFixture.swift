@@ -173,8 +173,8 @@ public nonisolated struct SidebarNestedFixture: Sendable {
             group("minis", "Mac minis", .cyan, parent: "cloud", [ws("mini-health", "Mini health")]),
             group("builders", "Builders", .yellow, parent: "minis", folded: folded.contains("g-builders"),
                   [ws("queue", "Build queue", busy: true)]),
-            group("lawrence", "cmux-lawrence", .orange, parent: "builders", [ws("controller", "Controller")]),
-            group("xcode", "Xcode 26", .pink, parent: "lawrence", [ws("toolchain", "Toolchain pin")]),
+            group("studio", "studio-mac", .orange, parent: "builders", [ws("controller", "Controller")]),
+            group("xcode", "Xcode 26", .pink, parent: "studio", [ws("toolchain", "Toolchain pin")]),
             group("caches", "Caches", .red, parent: "xcode", [
                 ws("derived", "DerivedData sweep", unread: .dot), ws("spm", "SwiftPM cache", busy: true),
             ]),

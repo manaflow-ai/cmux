@@ -10,6 +10,7 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
     private var model: NativePopupModel?
     private var rowViews: [(NativePopupRow, NSView)] = []
     private var targets: [NativePopupControlTarget] = []
+    private var sideButtons: [String: NSButton] = [:]
     private var fields: [String: NSTextField] = [:]
     private var selected: String?
     private var search: NSSearchField?
@@ -48,7 +49,9 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
         }
         model = next
         selected = next.highlighted ?? priorSelection
-        if !enabledRows.contains(where: { $0.0.id == selected }) { selected = enabledRows.first?.0.id }
+        // Keys start in the list, never on the rail: Return in the search field lands the first
+        // matching row, not the Starred or first harness tab.
+        if !enabledRows.contains(where: { $0.0.id == selected }) { selected = (bodyRows.first ?? enabledRows.first)?.0.id }
         paintSelection()
         layoutRows()
     }
@@ -62,9 +65,15 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
         rowViews.filter { !$0.0.isNoninteractive && $0.0.disabled != true }
     }
 
+    private var bodyRows: [(NativePopupRow, NSView)] {
+        let rail = Set((model?.rail ?? []).map(\.id))
+        return enabledRows.filter { !rail.contains($0.0.id) }
+    }
+
     private func rebuild(_ model: NativePopupModel) {
         subviews.forEach { $0.removeFromSuperview() }
         targets = []
+        sideButtons = [:]
         fields = [:]
         search = nil
         title = nil
@@ -159,6 +168,18 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
         }
         if row.kind == .submenu {
             trailing.append(PopupRowView.shortcut("›"))
+        } else if row.kind == .action, row.opensSide {
+            // A row that lands on a click and keeps a side dropdown (a model's effort): its trailing
+            // item names the current value and opens the dropdown beside the row.
+            let button = NSButton(title: "\(row.value ?? "") ›", target: nil, action: nil)
+            button.isBordered = false
+            button.font = Typography.caption
+            button.isEnabled = row.disabled != true
+            button.setAccessibilityLabel(row.label)
+            trailing.append(button)
+            sideButtons[row.id] = button
+        } else if row.kind == .action, let value = row.value, !value.isEmpty {
+            trailing.append(PopupRowView.shortcut(value))
         }
         let accessory = trailing.isEmpty ? nil : NSStackView(views: trailing)
         accessory?.orientation = .horizontal
@@ -184,6 +205,12 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
         view.onActivate = { [weak self, weak view] in
             guard let self, let view else { return }
             activate(row, view: view)
+        }
+        if let button = sideButtons[row.id] {
+            bind(button) { [weak self, weak view] _ in
+                guard let self, let view, row.disabled != true else { return }
+                openSubmenu(row, view)
+            }
         }
         return view
     }
@@ -249,6 +276,12 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
 
     override func keyDown(with event: NSEvent) {
         if handleKey(event.keyCode) { return }
+        // A numbered row's key lands it, ahead of typeahead (the web menus pick rows on 1 to 9).
+        if event.modifierFlags.intersection([.command, .control, .option]).isEmpty,
+           let text = event.charactersIgnoringModifiers, let (row, view) = shortcutRow(text) {
+            activate(row, view: view)
+            return
+        }
         if event.modifierFlags.intersection([.command, .control, .option]).isEmpty,
            let text = event.characters, !text.isEmpty, text.unicodeScalars.allSatisfy({ !CharacterSet.controlCharacters.contains($0) }) {
             typeahead = event.timestamp - typeaheadTime > 0.8 ? text : typeahead + text
@@ -274,9 +307,16 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
             return true
         }
         if [36, 76, 49, 124].contains(key), let (row, view) = enabled.first(where: { $0.0.id == selected }) {
+            if key == 124, row.kind == .action, row.opensSide { openSubmenu(row, view); return true }
             if key != 124 || row.kind == .submenu { activate(row, view: view); return true }
         }
         return false
+    }
+
+    /// The enabled row whose shortcut is this key, if any.
+    func shortcutRow(_ key: String) -> (NativePopupRow, NSView)? {
+        guard key.count == 1, key.first?.isNumber == true else { return nil }
+        return enabledRows.first { $0.0.shortcut == key && $0.0.kind == .action }
     }
 
     func controlTextDidChange(_ notification: Notification) {
@@ -305,8 +345,12 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
     }
 }
 
-private extension NativePopupRow {
+extension NativePopupRow {
     var isNoninteractive: Bool { kind == .section || kind == .separator || kind == .text }
+    /// An action row that also opens its children beside it (a model and its effort levels).
+    var opensSide: Bool { kind == .action && children?.isEmpty == false }
+    /// A row whose children open as a child menu.
+    var opensChildren: Bool { kind == .submenu || opensSide }
 }
 
 private extension NSBox {

@@ -12,6 +12,7 @@ use crate::policy::{Layer, Policy, Writer, parse_patterns};
 use crate::protocol::{DriverError, ErrorCode};
 use crate::secrets::{TabSecrets, Vault};
 use crate::vm::VmHost;
+use cmux_json::JsonSet as _;
 use serde_json::value::RawValue;
 use serde_json::{Value, json};
 use std::sync::{Arc, Mutex, PoisonError};
@@ -550,7 +551,7 @@ impl Gate {
             let mut call =
                 json!({"targetId": params["targetId"], "method": method, "args": [handle]});
             if let Some(frame) = params.get("frameId").filter(|f| !f.is_null()) {
-                call["frameId"] = frame.clone();
+                call.set("frameId", frame.clone());
             }
             self.driver.call("frame.observe", &call)
         };
@@ -911,8 +912,10 @@ fn push_log(log: &Mutex<Vec<Value>>, mut entry: Value) {
     if log.len() > MAX_LOG + usize::from(dropped_row) {
         if dropped_row {
             log.remove(1);
-            let count = log[0].get("count").and_then(Value::as_u64).unwrap_or(0) + 1;
-            log[0]["count"] = json!(count);
+            if let Some(first) = log.first_mut() {
+                let count = first.get("count").and_then(Value::as_u64).unwrap_or(0) + 1;
+                first.set("count", json!(count));
+            }
         } else {
             log.remove(0);
             log.insert(

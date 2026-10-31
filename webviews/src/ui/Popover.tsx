@@ -8,6 +8,7 @@ import { useNativePopup, type NativePopupDescription } from "./nativePopup";
 import type { NativePopupEvent } from "./generated/popupProtocol";
 import { popupAction } from "./popupDescriptors";
 import { UI_ANCHOR_GAP } from "./anchor";
+import { popupCollision, type UiPopupFlip } from "./openSide";
 
 /** A point or box on the page to place a popover at (a caret's coordinates, for example). */
 export interface UiAnchorRect {
@@ -59,8 +60,9 @@ export interface PopoverProps {
   className?: string;
   /** Which side of the anchor receives the popover. */
   side?: "top" | "bottom" | "inline-end" | "inline-start";
-  /** False keeps `side` while open (`useOpenSide` chose it); default flips when there is no room. */
-  flip?: boolean;
+  /** False keeps `side` while open (`useOpenSide` chose it); "shift" keeps it and slides the popup
+   *  along it to stay in the window (openSide.ts `UiPopupFlip`); default flips when there is no room. */
+  flip?: UiPopupFlip;
   /** Focus a field inside on open (default: the first focusable). */
   initialFocus?: React.RefObject<HTMLElement | null> | boolean;
   /** Where focus goes on close (default: back to where it was). */
@@ -117,11 +119,13 @@ export function Popover({
           positionMethod={positionMethod}
           anchor={virtualAnchor(anchor)}
           side={side}
-          collisionAvoidance={flip ? undefined : { side: "none" }}
+          collisionAvoidance={popupCollision(flip)}
           align="start"
           sideOffset={UI_ANCHOR_GAP}
         >
           <BasePopover.Popup
+            // A shifted popup may use the window's height, not only the room on its side (popupSurface.css).
+            data-popup-shift={flip === "shift" ? "" : undefined}
             className={cx("ui-popup ui-glass ui-popover", className)}
             aria-label={label}
             initialFocus={initialFocus}

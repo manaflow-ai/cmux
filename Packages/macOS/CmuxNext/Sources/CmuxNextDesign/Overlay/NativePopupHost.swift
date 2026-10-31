@@ -120,6 +120,14 @@ public final class NativePopupHost {
         }
     }
 
+    /// Closes the popup and its panel for good (its owner is going away): ``hide()`` only orders
+    /// the panel out, so it would stay in the app's window list. A later ``show`` opens it again.
+    public func closePanel() {
+        hide()
+        panel.parent?.removeChildWindow(panel)
+        panel.close()
+    }
+
     /// Closes the popup by a dismiss rule: ``hide()``, then ``onDismiss``.
     public func dismiss(reason: String = "outside") {
         guard isShown else { return unwatch() }

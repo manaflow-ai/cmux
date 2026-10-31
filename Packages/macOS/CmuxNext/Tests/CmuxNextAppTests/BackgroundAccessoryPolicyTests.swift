@@ -4,6 +4,7 @@ import CmuxNextActions
 import CmuxNextDaemon
 import CmuxNextDesign
 @testable import CmuxNextSettings
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -12,7 +13,7 @@ import Testing
 /// menu bar app: the accessory policy (no Dock icon, not in Cmd-Tab) and a menu bar item that
 /// brings a window back. Any window opening makes it regular again before the window shows.
 /// Driven like the launch: the process's adopted services, the real daemon, the registry actions.
-@MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
+@MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"), .closesItsWindows)
 struct BackgroundAccessoryPolicyTests {
     /// Polls until `done` holds or `limit` passes (a poll, as in `FirstLaunchTests`).
     private static func wait(within limit: Duration, until done: () -> Bool) async {
@@ -70,6 +71,8 @@ struct BackgroundAccessoryPolicyTests {
                                                   timeout: .seconds(10))
             }
             services.daemon.shutdownConnection()
+            // Leave background mode as a window opening does: its menu bar item goes.
+            services.background.windowWillAppear(activates: false)
         }
     }
 

@@ -27,6 +27,56 @@ import Testing
         #expect(content.subviews.allSatisfy { $0.frame.maxX <= viewport.bounds.width })
     }
 
+    @Test func aDigitLandsItsNumberedRowAheadOfTypeahead() throws {
+        let content = NativePopupContent()
+        var picked: [String?] = []
+        content.emit = { type, id, _ in if type == .pick { picked.append(id) } }
+        var model = Self.model()
+        model.rows = [NativePopupRow(id: "one", kind: .action, label: "Two of us", shortcut: "1"),
+                      NativePopupRow(id: "two", kind: .action, label: "Beta", shortcut: "2")]
+        content.update(model)
+        content.keyDown(with: try Self.key("2", code: 19))
+        #expect(picked == ["two"])
+    }
+
+    @Test func returnInTheSearchFieldLandsTheFirstListRowNotTheRail() throws {
+        let content = NativePopupContent()
+        var picked: [String?] = []
+        content.emit = { type, id, _ in if type == .pick { picked.append(id) } }
+        var model = Self.model()
+        model.search = NativePopupField(id: "query", value: "a", placeholder: "Search")
+        model.rail = [NativePopupRow(id: "starred", kind: .action, label: "Starred", keepOpen: true)]
+        model.railWidth = 44
+        model.rows = [NativePopupRow(id: "alpha", kind: .action, label: "Alpha")]
+        content.update(model)
+        let field = try #require(content.subviews.compactMap { $0 as? NSSearchField }.first)
+        #expect(content.control(field, textView: NSTextView(), doCommandBy: #selector(NSResponder.insertNewline(_:))))
+        #expect(picked == ["alpha"])
+    }
+
+    @Test func rightOpensAnActionRowsSideDropdownAndReturnLandsTheRow() throws {
+        let content = NativePopupContent()
+        var picked: [String?] = []
+        var opened: [String] = []
+        content.emit = { type, id, _ in if type == .pick { picked.append(id) } }
+        content.openSubmenu = { row, _ in opened.append(row.id) }
+        var model = Self.model()
+        model.rows = [NativePopupRow(id: "beta", kind: .action, label: "Beta", value: "High",
+                                     children: [NativePopupRow(id: "beta:high", kind: .action, label: "High")])]
+        content.update(model)
+        content.keyDown(with: try Self.key(String(UnicodeScalar(NSRightArrowFunctionKey)!), code: 124))
+        #expect(opened == ["beta"])
+        #expect(picked.isEmpty)
+        content.keyDown(with: try Self.key("\r", code: 36))
+        #expect(picked == ["beta"])
+    }
+
+    private static func key(_ characters: String, code: UInt16) throws -> NSEvent {
+        try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+                                      windowNumber: 0, context: nil, characters: characters,
+                                      charactersIgnoringModifiers: characters, isARepeat: false, keyCode: code))
+    }
+
     private static func model() -> NativePopupModel {
         NativePopupModel(schemaVersion: 1, id: "content", revision: 1,
                          anchor: NativePopupAnchor(left: 0, top: 0, right: 20, bottom: 20),

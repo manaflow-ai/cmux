@@ -1,0 +1,24 @@
+{
+  "title": "App Store: Features",
+  "settings": null,
+  "launch_args": [],
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 2
+    },
+    {
+      "title": "App Store: Features",
+      "cmux": [
+        "action",
+        "run",
+        "appStore.show",
+        "--tab",
+        "features",
+        "--focus"
+      ],
+      "wait": 3,
+      "cite": "Packages/macOS/CmuxNext/Sources/CmuxNextActions/Catalog/AppStoreActionCatalog.swift:11 (tour app-store-features)"
+    }
+  ]
+}

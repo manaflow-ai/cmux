@@ -13,8 +13,9 @@ heavy dev-server files fell together by chance (run 40815704587 on 32 vCPU: shar
 far, longest first (greedy longest-processing-time). A file with no recorded duration (a new one)
 goes by a stable hash of its path, after the others, so it moves only itself.
 
-Load is wall time on a shard, not CPU time: the plain files run 32 at a time, the dev-server files
-(SERIAL) 8 at a time, and a `// cmux-web-test-alone` file alone (ShardPlan). The widths are fixed,
+Load is wall time on a shard, not CPU time: the plain files run 24 at a time beside the plain files
+that drive a real browser, 8 at a time (BROWSER_MARK), then the dev-server files (SERIAL) 8 at a
+time, and a `// cmux-web-test-alone` file alone (ShardPlan). The widths are fixed,
 not read from this runner, so every shard job computes the same split even when one lands on a
 smaller runner. Each shard job must get the same FILES, SERIAL and DURATIONS: the workflow reads the
 manifest once (web-subarea-scope) and hands every shard that copy.
@@ -27,12 +28,16 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from pathlib import Path
 import sys
 
-# Files at once on the 32 vCPU shard: plain files (jobs), dev-server files (jobs / 4), alone files.
-PLAIN_AT_ONCE, DEV_AT_ONCE = 32, 8
+# Files at once on the 32 vCPU shard: plain files (jobs - jobs / 4) beside browser files (jobs / 4),
+# then dev-server files (jobs / 4), then alone files.
+PLAIN_AT_ONCE, BROWSER_AT_ONCE, DEV_AT_ONCE = 24, 8, 8
 ALONE_MARK = "// cmux-web-test-alone"
+# run-webviews-tests.sh's browser_files: a plain file that drives a real browser.
+BROWSER_MARK = re.compile(r'from "playwright"|import\("playwright"\)|requireBrowserLane\(')
 
 
 def load_durations(path: str) -> dict[str, float]:
@@ -65,6 +70,13 @@ def runs_alone(name: str) -> bool:
         return False
 
 
+def runs_browser(name: str) -> bool:
+    try:
+        return BROWSER_MARK.search(Path(name).read_text(encoding="utf-8", errors="replace")) is not None
+    except OSError:
+        return False
+
+
 def stable_shard(name: str, count: int) -> int:
     return int.from_bytes(hashlib.sha256(name.encode()).digest()[:8], "big") % count
 
@@ -84,7 +96,8 @@ def vite_config(name: str) -> str:
 
 class ShardPlan:
     """One shard's estimated wall time in integer milliseconds, phase by phase as run-webviews-tests.sh
-    runs them: its plain files on PLAIN_AT_ONCE lanes; one warming file per Vite config, alone, one
+    runs them: its plain files on PLAIN_AT_ONCE lanes beside its browser files on BROWSER_AT_ONCE
+    lanes (the phase lasts as long as the longer pool); one warming file per Vite config, alone, one
     after another (the config's shortest: files come longest first, so each new file of a config
     takes over warming and the one it replaces joins the pool); the other dev-server files on
     DEV_AT_ONCE lanes; then the alone files in series. Lanes, not seconds divided by width: a 549 s
@@ -92,6 +105,7 @@ class ShardPlan:
 
     def __init__(self) -> None:
         self.plain = [0] * PLAIN_AT_ONCE
+        self.browser = [0] * BROWSER_AT_ONCE
         self.warm: dict[str, int] = {}
         self.dev = [0] * DEV_AT_ONCE
         self.alone = 0
@@ -104,9 +118,11 @@ class ShardPlan:
         return lanes
 
     def _after(self, kind: str, cost: int, config: str):
-        plain, warm, dev, alone = self.plain, self.warm, self.dev, self.alone
+        plain, browser, warm, dev, alone = self.plain, self.browser, self.warm, self.dev, self.alone
         if kind == "plain":
             plain = self._onto(plain, cost)
+        elif kind == "browser":
+            browser = self._onto(browser, cost)
         elif kind == "dev":
             warm = dict(warm)
             if config in warm:
@@ -114,14 +130,14 @@ class ShardPlan:
             warm[config] = cost
         elif kind == "alone":
             alone += cost
-        return plain, warm, dev, alone
+        return plain, browser, warm, dev, alone
 
     def wall(self, kind: str = "", cost: int = 0, config: str = "") -> int:
-        plain, warm, dev, alone = self._after(kind, cost, config)
-        return max(plain) + sum(warm.values()) + max(dev) + alone
+        plain, browser, warm, dev, alone = self._after(kind, cost, config)
+        return max(max(plain), max(browser)) + sum(warm.values()) + max(dev) + alone
 
     def add(self, kind: str, cost: int, config: str = "") -> None:
-        self.plain, self.warm, self.dev, self.alone = self._after(kind, cost, config)
+        self.plain, self.browser, self.warm, self.dev, self.alone = self._after(kind, cost, config)
         self.total += cost
 
 
@@ -136,7 +152,10 @@ def assign(files: list[str], serial: set[str], durations: dict[str, float], coun
         if name not in durations:
             shards[index] = stable_shard(name, count)
             continue
-        kind = ("alone" if runs_alone(name) else "dev") if name in serial else "plain"
+        if name in serial:
+            kind = "alone" if runs_alone(name) else "dev"
+        else:
+            kind = "browser" if runs_browser(name) else "plain"
         config = vite_config(name) if kind == "dev" else ""
         known.append((round(durations[name] * 1000), name, kind, config, index))
     for cost, _, kind, config, index in sorted(known, key=lambda item: (-item[0], item[1])):

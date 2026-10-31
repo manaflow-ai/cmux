@@ -187,25 +187,44 @@ public final class RegistryControlBridge: ControlActionExecutor {
         // Reported before the context check, so a context-gated action that
         // cannot exist yet says why instead of "not available here".
         if let reason = registry.unavailableReason(for: id) { return .refused(reason) }
-        var invocation = ActionInvocation(
-            target: request.target.flatMap(Self.actionTarget),
-            arguments: request.arguments.compactMapValues(Self.actionValue),
-            origin: ActionOrigin(rawValue: request.origin) ?? .cli,
-            focusRequested: request.focus
-        )
-        invocation.callerApp = request.callerApp
-        invocation.besideCaller = request.besideCaller
-        invocation.newColumnBeside = request.newColumnBeside
-        invocation.opensInBackground = request.background
-        invocation.callerAgentSession = request.callerAgentSession
-        invocation.callerTerminal = request.callerTerminal
-        guard registry.isAvailable(id, for: invocation) else { return .unavailable }
+        let invocation = Self.invocation(request)
+        guard registry.isAvailable(id, forScript: invocation) else { return .unavailable }
         guard action.isEnabled() else { return .disabled }
         if registry.needsConfirmation(id, invocation) { return .confirmationRequired }
         var ran = false
         let refusal = registry.capturingTypedRefusal { ran = registry.perform(id, invocation: invocation) }
         if let refusal { return refusal.isNotFound ? .notFound(refusal.reason) : .refused(refusal.reason) }
         return ran ? .ran : .disabled
+    }
+
+    /// The first of `requests` `performAction` would answer `.unavailable` now (its target's
+    /// live facts, `ActionRegistry.isAvailable(_:forScript:)`, included). Requests refused for another
+    /// reason (unknown, unbound, turned off, person only) answer that when they run.
+    public func firstUnavailable(_ requests: [ControlActionRequest]) -> Int? {
+        requests.firstIndex { request in
+            let id = registry.canonicalID(for: ActionID(rawValue: request.actionID))
+            guard registry.action(for: id) != nil, registry.disabledFeature(for: id) == nil,
+                  registry.descriptor(for: id)?.isPersonOnly != true, registry.unavailableReason(for: id) == nil else { return false }
+            return !registry.isAvailable(id, forScript: Self.invocation(request))
+        }
+    }
+
+    /// The registry invocation of a socket request.
+    static func invocation(_ request: ControlActionRequest) -> ActionInvocation {
+        var invocation = ActionInvocation(
+            target: request.target.flatMap(Self.actionTarget),
+            arguments: request.arguments.compactMapValues(Self.actionValue),
+            origin: ActionOrigin(rawValue: request.origin) ?? .cli,
+            focusRequested: request.focus
+        )
+        invocation.viaControlSocket = true
+        invocation.callerApp = request.callerApp
+        invocation.besideCaller = request.besideCaller
+        invocation.newColumnBeside = request.newColumnBeside
+        invocation.opensInBackground = request.background
+        invocation.callerAgentSession = request.callerAgentSession
+        invocation.callerTerminal = request.callerTerminal
+        return invocation
     }
 
     static func actionTarget(_ ref: ControlTargetRef) -> ActionTargetRef? {
@@ -316,5 +335,6 @@ public final class RegistryControlBridge: ControlActionExecutor {
         (.cloudWorkspace, "cloudWorkspace"),
         (.homeChannelsEnabled, "homeChannelsEnabled"),
         (.webViewFocused, "webViewFocused"),
+        (.sideSessions, "sideSessions"),
     ]
 }

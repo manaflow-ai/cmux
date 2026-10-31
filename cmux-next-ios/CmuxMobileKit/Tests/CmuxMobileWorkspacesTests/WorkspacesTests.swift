@@ -24,6 +24,7 @@ import Testing
 }
 
 #if os(iOS)
+import CmuxMobileBrowserStream
 import CmuxTabsKit
 import SwiftUI
 
@@ -62,11 +63,23 @@ import SwiftUI
         #expect(store.workspace(id: "ws-cmux")!.tabs.map(\.id) == ["t-claude", "t-zsh"])
     }
 
+    private func waitForPendingCloseMessage(_ source: WorkspaceTabsSource, _ message: String) async {
+        while source.pendingClose?.message != message {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                withObservationTracking {
+                    _ = source.pendingClose?.message
+                } onChange: {
+                    continuation.resume()
+                }
+            }
+        }
+    }
+
     /// N2/A1: a shell tab running `sleep` (title "zsh") asks before its close kills it.
     @Test func closingATabWithARunningProgramAsks() async throws {
         let (store, source) = make(backend: ProgramsBackend(programs: ["sleep"]))
         let close = Task { await source.close("t-zsh") }
-        for _ in 0..<200 where source.pendingClose == nil { await Task.yield() }
+        await waitForPendingCloseMessage(source, "Still running: sleep.")
         let pending = try #require(source.pendingClose)
         #expect(pending.title == "Close \u{201C}zsh\u{201D}?")
         #expect(pending.message == "Still running: sleep.")
@@ -124,7 +137,7 @@ import SwiftUI
         #expect(source.pendingTabTitle == nil)
         #expect(source.openedTab == nil)
         #expect(source.tabs.map { [$0.id, $0.title, $0.subtitle ?? ""] } == before)
-        #expect(source.toastText?.hasSuffix("doesn't allow agent chats in this folder from your iPhone yet.") == true)
+        #expect(source.toastText?.hasSuffix("doesn't allow agent chats in this folder from your iPhone.") == true)
     }
 
     /// User report 2026-10-14: GUI sessions must open model-agnostic, as the Mac's New Agent
@@ -175,7 +188,7 @@ import SwiftUI
         #expect(source.toastText?.contains("your Mac") == false)
         // Agents not connected yet: the entry stays, the chooser does not.
         older.kinds = [.terminal]
-        older.unavailable = [(.agentChat, "Agents on this Mac aren't connected yet. Try again in a moment.")]
+        older.unavailable = [(.agentChat, "Agents on this Mac aren't connected. Try again in a moment.")]
         #expect(source.newTabOptions.map(\.title) == ["New Terminal", "New Agent Chat"])
     }
 
@@ -221,6 +234,36 @@ import SwiftUI
         for _ in 0..<100 where source.tabs.first?.id != order[1] { try? await Task.sleep(for: .milliseconds(10)) }
         #expect(source.tabs.first?.id == order[1])
         #expect(source.toastText?.hasPrefix("Couldn't move") == true)
+    }
+
+    /// A page's link that opens a new tab or window (`rb.open_tab`): a browser tab beside the
+    /// page, shown at once (a background tab stays behind with a toast); one the Mac refuses
+    /// says why and gives the page no tab. The browser page menu has Hard Reload and Open in
+    /// Safari only for a page that can do them.
+    @Test func aPageLinkOpensABrowserTabBesideIt() async throws {
+        let backend = MockWorkspaceCreationBackend(latency: .zero)
+        let (store, source) = make(backend: backend)
+        let count = source.tabs.count
+        let shown = RemoteBrowserOpenTab(request: 1, url: "https://example.com/next", disposition: .foregroundTab, userGesture: true)
+        let id = try #require(await source.openLinkTab(shown, from: "t-docs"))
+        #expect(source.tabs.count == count + 1)
+        #expect(store.workspace(id: "ws-cmux")?.tabs.last?.url?.absoluteString == "https://example.com/next")
+        #expect(source.activeTabID == id && source.openedTab == id && source.pendingTabTitle == nil)
+
+        source.activate("t-docs")
+        let behind = RemoteBrowserOpenTab(request: 2, url: "https://example.com/b", disposition: .backgroundTab, userGesture: true)
+        let other = try #require(await source.openLinkTab(behind, from: "t-docs"))
+        #expect(source.activeTabID == "t-docs" && other != id && source.toastText == "Opened in a new tab.")
+
+        backend.failNext = "no such pane"
+        #expect(await source.openLinkTab(shown, from: "t-docs") == nil)
+        #expect(source.tabs.count == count + 2)
+        #expect(source.toastText?.hasPrefix("Couldn't") == true)
+
+        let docs = try #require(source.tabs.first { $0.id == "t-docs" })
+        let rows = source.pageMenu(for: docs).flatMap { $0 }.map(\.title)
+        // A local web view (no Mac stream) has no Hard Reload; its web address opens in Safari.
+        #expect(rows.contains("Open in Safari") && !rows.contains("Hard Reload"))
     }
 
     /// Parity round 2: Move Tab to Workspace… and Move Tab to New Workspace (the Mac's titles).
@@ -450,14 +493,29 @@ import SwiftUI
         #expect(source.workspace?.screenLabel(ofTab: ids[0]) == nil)
     }
 
+    /// Fork Conversation to a new workspace: the toast names the workspace on this chat's Mac,
+    /// even when another Mac lists a tab with the same surface id first.
+    @Test func forkToANewWorkspaceNamesThisMacsWorkspace() async throws {
+        let store = AppStore.mock(tabMemory: .inMemory([:]))
+        let backend = ForkToWorkspaceBackend(store: store)
+        let source = WorkspaceTabsSource(store: store, workspaceID: "ws-cmux", creator: WorkspaceCreator(store: store, backend: backend))
+        let chat = try #require(source.workspaceTab("t-claude"))
+        await source.fork("t-claude", to: .workspace)
+        #expect(source.toastText == "Forked \(chat.title) to Forked Here.")
+    }
+
     @Test func forkArchiveAndDuplicateAChat() async throws {
         let backend = MockWorkspaceCreationBackend(latency: .zero)
         let (store, source) = make(backend: backend)
         let claude = try #require(source.tabs.first { $0.id == "t-claude" })
         let menu = source.pageMenu(for: claude).flatMap { $0 }.map(\.title)
-        #expect(menu.contains("Fork") && menu.contains("Archive") && menu.contains("Duplicate Tab"))
+        #expect(menu.contains("Fork Conversation…") && menu.contains("Archive") && menu.contains("Duplicate Tab"))
+        // Fork Conversation… asks where (the Mac's fork destinations); In a New Tab is the fork beside it.
+        source.pageMenu(for: claude).flatMap { $0 }.first { $0.title == "Fork Conversation…" }?.action()
+        #expect(source.forkingTab?.id == "t-claude")
         let count = source.tabs.count
-        await source.fork("t-claude")
+        await source.fork("t-claude", to: .tab)
+        #expect(source.forkingTab == nil)
         #expect(source.tabs.count == count + 1)
         #expect(source.activeTabID == source.tabs.last?.id && source.openedTab == source.tabs.last?.id)
         // acpmux's refusal of a Mac-started Claude chat, in its own words.
@@ -693,6 +751,38 @@ import SwiftUI
     func create(_ request: NewWorkspaceRequest, placeholder: Workspace) async throws -> Workspace { placeholder }
     func closeTab(_ tab: WorkspaceTab, in workspace: Workspace) async throws {}
     func runningPrograms(of tabs: [WorkspaceTab], in workspace: Workspace) async -> [String] { programs }
+}
+
+/// Fork Conversation to a new workspace on the chat's Mac (`mac-studio`): the copy (`s41`) lands
+/// in "Forked Here"; another Mac lists a tab with the same surface id first.
+@MainActor final class ForkToWorkspaceBackend: WorkspaceCreationBackend, WorkspacePaneBackend {
+    let store: AppStore
+    init(store: AppStore) { self.store = store }
+    func canCreate(on macID: String) -> Bool { true }
+    func options(on macID: String) -> WorkspaceCreationOptions { .basic }
+    func create(_ request: NewWorkspaceRequest, placeholder: Workspace) async throws -> Workspace { placeholder }
+    func canEditTabs(on macID: String) -> Bool { true }
+    func canEditPanes(on macID: String) -> Bool { true }
+    func forkAgentChat(_ tab: WorkspaceTab, to destination: ChatForkDestination, in workspace: Workspace) async throws -> WorkspaceTab {
+        let copy = WorkspaceTab(id: "s41", kind: .agent, title: tab.title, subtitle: "", harness: "claude")
+        func place(_ id: String, mac: String, title: String) -> Workspace {
+            Workspace(id: id, macID: mac, title: title, directory: "~", tabs: [copy], lastActivityAt: Date())
+        }
+        store.workspaces.insert(place("ws-elsewhere", mac: "mac-other", title: "Other Mac"), at: 0)
+        store.workspaces.append(place("ws-forked", mac: workspace.macID, title: "Forked Here"))
+        return copy
+    }
+    func split(_ pane: Int, _ direction: PaneSplit, in workspace: Workspace) async throws -> WorkspaceTab { throw CancellationError() }
+    func newPane(from pane: Int, column: Bool, in workspace: Workspace) async throws -> WorkspaceTab { throw CancellationError() }
+    func toggleZoom(_ pane: Int, in workspace: Workspace) async throws {}
+    func swap(_ pane: Int, _ direction: PaneSwap, in workspace: Workspace) async throws {}
+    func renamePane(_ pane: Int, to name: String, in workspace: Workspace) async throws {}
+    func closePane(_ pane: Int, in workspace: Workspace) async throws {}
+    func equalizeSplits(in workspace: Workspace) async throws -> Int { 0 }
+    func undoLayout(in workspace: Workspace, confirming confirmation: LayoutUndoConfirmation?) async throws -> LayoutUndoOutcome { .undone }
+    func moveTab(_ tab: WorkspaceTab, toNewSplit edge: TabSplitEdge, in workspace: Workspace) async throws {}
+    func moveTabToNewColumn(_ tab: WorkspaceTab, in workspace: Workspace) async throws {}
+    func moveTab(_ tab: WorkspaceTab, toPane pane: Int, in workspace: Workspace) async throws {}
 }
 
 /// acpmux refuses a Web fork of a Claude chat the Mac started (D13) with this reason.

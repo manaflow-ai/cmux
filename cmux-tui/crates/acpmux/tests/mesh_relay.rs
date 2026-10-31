@@ -17,9 +17,14 @@ use acpmux::mesh::{
     Ack, AckState, ControlHook, Heartbeat, HeartbeatReply, HubError, InMessage, Kind, MeshHub,
     Mode, OutMessage, Receipt, RefuseControl, Sender, SessionRow, Target,
 };
+use acpmux::mesh_control::{
+    Command as ControlCommand, ControlRequest, MeshControlRelay, Recipient, submit,
+};
+use acpmux::mesh_http::MeshControlFrom;
 use acpmux::rpc::Message;
-use acpmux::server::mesh_relay::{MeshRelay, RelayOptions, relay_connection};
+use acpmux::server::mesh_relay::{MeshControlHook, MeshRelay, RelayOptions, relay_connection};
 use acpmux::server::{Origin, serve_connection_with};
+use acpmux::store::{EventRecord, MemoryStore, SessionStatus, Store};
 use futures::future::BoxFuture;
 use serde_json::{Value, json};
 use std::collections::{HashMap, VecDeque};
@@ -30,7 +35,7 @@ use tokio::sync::{Notify, mpsc};
 
 const FAKE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
 
-fn hub() -> Arc<Hub> {
+fn config() -> Config {
     let mut cfg: Config = serde_json::from_value(json!({
         "harnesses": {"fake": {"argv": ["python3", FAKE], "family": "codex"}},
         "defaultHarness": "fake",
@@ -38,6 +43,11 @@ fn hub() -> Arc<Hub> {
     }))
     .unwrap();
     cfg.store.mode = StoreMode::Memory;
+    cfg
+}
+
+fn hub() -> Arc<Hub> {
+    let cfg = config();
     let store = acpmux::store::open(&cfg.store, Path::new("/nonexistent")).unwrap();
     Hub::new(cfg, store)
 }
@@ -68,6 +78,9 @@ fn message(id: &str, to: &str, kind: Kind) -> InMessage {
         },
         body: "hello from another machine".into(),
         attempt: 1,
+        start_work: None,
+        state: None,
+        subject: None,
     }
 }
 
@@ -192,14 +205,20 @@ impl MeshHub for FakeHub {
     /// Routes to the one daemon whose last heartbeat lists the name.
     fn send<'a>(&'a self, m: &'a OutMessage) -> BoxFuture<'a, Result<Receipt, HubError>> {
         Box::pin(async move {
+            m.validate().map_err(HubError::refused)?;
             self.with(|s| {
                 s.sent.push(m.clone());
                 if let Some(id) = s.keys.get(&m.idempotency_key) {
                     return Ok(s.receipts[id].clone());
                 }
-                let listed = s.heartbeats.last().is_some_and(|b| {
-                    b.sessions.iter().any(|r| Some(&r.name) == m.to.name.as_ref())
-                });
+                let listed = (m.kind == Kind::Control
+                    && m.to.daemon_id.as_deref() == Some("inst_b"))
+                    || s.heartbeats.last().is_some_and(|b| {
+                        b.sessions.iter().any(|r| {
+                            Some(&r.name) == m.to.name.as_ref()
+                                || Some(&r.session_id) == m.to.session_id.as_ref()
+                        })
+                    });
                 if !listed {
                     let mut e = HubError::refused("no such recipient");
                     e.code = Some("mesh.unknown_recipient".into());
@@ -217,12 +236,18 @@ impl MeshHub for FakeHub {
                     created_at: 1000,
                     leased_until: None,
                     acked_at: None,
+                    delivered_at: None,
+                    read_at: None,
+                    read_by: None,
+                    acked_by: None,
+                    resolution: None,
+                    start_work: None,
                 };
                 s.receipts.insert(id.clone(), receipt.clone());
                 s.waiting.push_back(InMessage {
                     message_id: id,
                     kind: m.kind,
-                    op: None,
+                    op: m.op.clone(),
                     mode: m.mode,
                     // The hub resolved the host: the inbox names only the session.
                     to: Target {
@@ -230,9 +255,16 @@ impl MeshHub for FakeHub {
                         name: m.to.name.clone(),
                         ..Target::default()
                     },
-                    from: m.from.clone(),
+                    from: Sender { daemon_id: Some("inst_a".into()), ..m.from.clone() },
                     body: m.body.clone(),
                     attempt: 1,
+                    start_work: m
+                        .to
+                        .team_address
+                        .as_ref()
+                        .map(|_| acpmux::mesh::StartWork::Information),
+                    state: Some("queued".into()),
+                    subject: None,
                 });
                 Ok(receipt)
             })
@@ -296,7 +328,10 @@ async fn a_message_for_a_session_here_runs_once_and_is_acked_with_its_prompt_id(
     // An id that is no plain id (here a credential) is never run, acked (its path) or logged.
     let token_id = "Bearer eyJhbGciOiJIUzI1NiJ9/../ack";
     fake.lease(message(token_id, "dep-land", Kind::Prompt));
-    fake.lease(message("msg-1", "dep-land", Kind::Prompt));
+    // Canonical sender display metadata does not turn a legacy session target into team traffic.
+    let mut legacy = message("msg-1", "dep-land", Kind::Prompt);
+    legacy.from.team_address = Some("@member/coordinator".into());
+    fake.lease(legacy);
     fake.until("the ack", |s| !s.acked("msg-1").is_empty()).await;
     // Its ack was lost: the hub leases it again, and it is acked again without a second run.
     fake.lease(InMessage { attempt: 2, ..message("msg-1", "dep-land", Kind::Prompt) });
@@ -314,6 +349,39 @@ async fn a_message_for_a_session_here_runs_once_and_is_acked_with_its_prompt_id(
     }
     assert_eq!(info.pointer("/result/turnCount"), Some(&json!(1)), "ran twice: {info}");
     assert!(fake.with(|s| s.acked(token_id).is_empty()), "a malformed id was acked");
+    relay.stop().await;
+}
+
+/// A relayed message names the session that sent it (`fromSessionId` on its provenance), as its
+/// daemon proved it (`mesh_send.rs`), so the queue row opens that chat; the hub's sender record
+/// carries no harness, so it names none.
+#[tokio::test]
+async fn a_relayed_message_names_its_sending_session_for_display() {
+    let hub = hub();
+    let mut local = Client::local(&hub);
+    let session = local.new_session("dep-land").await;
+    let fake = Arc::new(FakeHub::default());
+    let relay = MeshRelay::start(&hub, fake.clone(), Arc::new(RefuseControl), quick());
+    let mut sent = message("msg-from", "dep-land", Kind::Prompt);
+    sent.from.session_id = Some("s-remote-1".into());
+    fake.lease(sent);
+    fake.until("the ack", |s| !s.acked("msg-from").is_empty()).await;
+    let mut found = Value::Null;
+    for _ in 0..600 {
+        let page = local
+            .call("_acpmux/events", json!({"sessionId": session, "kinds": ["user_message"]}))
+            .await;
+        let events = page.pointer("/result/events").and_then(Value::as_array).cloned();
+        if let Some(e) = events.into_iter().flatten().find(|e| e["msg"]["promptId"] == "msg-from") {
+            found = e["msg"].clone();
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    let p = &found["_meta"]["provenance"];
+    assert_eq!(p["fromName"], "gcp-lane/lane-a", "{found}");
+    assert_eq!(p["fromSessionId"], "s-remote-1", "{found}");
+    assert!(p.get("fromHarness").is_none(), "{found}");
     relay.stop().await;
 }
 
@@ -497,6 +565,329 @@ async fn control_messages_go_to_the_hook_and_without_one_are_refused() {
 }
 
 #[tokio::test]
+async fn mesh_control_dispatches_through_peer_requests_and_refuses_unknown_sessions() {
+    let hub = hub();
+    let dir = tempfile::tempdir().unwrap();
+    let message = InMessage {
+        message_id: "control-resume-1".into(),
+        kind: Kind::Control,
+        op: Some("resume".into()),
+        mode: Mode::Now,
+        to: Target { session_id: Some("missing-session".into()), ..Target::default() },
+        body: r#"{"version":1}"#.into(),
+        ..message("control-resume-1", "", Kind::Control)
+    };
+    let hook = MeshControlHook::new(
+        vec![MeshControlFrom {
+            daemon_id: "inst_a".into(),
+            ops: vec!["start".into(), "resume".into(), "stop".into()],
+        }],
+        Some(dir.path().join("mesh-controls.json")),
+    );
+    let ack = hook.control(&hub, &message).await.expect("control is acknowledged");
+    assert_eq!(ack.state, AckState::Refused);
+    assert!(ack.detail.as_deref().is_some_and(|detail| detail.contains("no session")), "{ack:?}");
+}
+
+#[tokio::test]
+async fn mesh_control_requires_owner_allowlist_and_stamped_daemon_id() {
+    let hub = hub();
+    let dir = tempfile::tempdir().unwrap();
+    let allowed = MeshControlHook::new(
+        vec![MeshControlFrom { daemon_id: "inst_a".into(), ops: vec!["resume".into()] }],
+        Some(dir.path().join("mesh-controls.json")),
+    );
+    let base = |op: &str, sender: Option<&str>| InMessage {
+        message_id: format!("control-{op}-{}", sender.unwrap_or("missing")),
+        kind: Kind::Control,
+        op: Some(op.into()),
+        mode: Mode::Now,
+        to: Target { session_id: Some("missing-session".into()), ..Target::default() },
+        from: Sender {
+            daemon_id: sender.map(str::to_owned),
+            // These are claims and must never make an unlisted sender acceptable.
+            name: Some("inst_a".into()),
+            host: Some("owner-host".into()),
+            ..Sender::default()
+        },
+        body: r#"{"version":1}"#.into(),
+        attempt: 1,
+        start_work: None,
+        state: None,
+        subject: None,
+    };
+
+    let ack = allowed.control(&hub, &base("resume", Some("inst_a"))).await.unwrap();
+    assert!(ack.detail.as_deref().is_some_and(|detail| detail.contains("no session")), "{ack:?}");
+    for (op, sender) in [
+        ("resume", None),
+        ("resume", Some("")),
+        ("resume", Some("other")),
+        ("stop", Some("inst_a")),
+    ] {
+        let ack = allowed.control(&hub, &base(op, sender)).await.unwrap();
+        assert_eq!(ack.state, AckState::Refused);
+        assert_eq!(ack.detail.as_deref(), Some("mesh.control_not_allowed"));
+    }
+    let mut unsupported = base("resume", Some("inst_a"));
+    unsupported.message_id = "control-unsupported-version".into();
+    unsupported.body = r#"{"version":2}"#.into();
+    let ack = allowed.control(&hub, &unsupported).await.unwrap();
+    assert_eq!(ack.state, AckState::Refused);
+    assert_eq!(ack.detail.as_deref(), Some("unsupported control body version"));
+    let default = MeshControlHook::new(vec![], None);
+    let ack = default.control(&hub, &base("resume", Some("inst_a"))).await.unwrap();
+    assert_eq!(ack.detail.as_deref(), Some("mesh.control_not_allowed"));
+}
+
+#[tokio::test]
+async fn mesh_control_rejects_peer_routing_and_replays_a_persisted_ack() {
+    let hub = hub();
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("mesh-controls.json");
+    let hook = MeshControlHook::new(
+        vec![MeshControlFrom {
+            daemon_id: "inst_a".into(),
+            ops: vec!["start".into(), "resume".into(), "stop".into()],
+        }],
+        Some(path.clone()),
+    );
+    let mut routed = message("control-routed", "", Kind::Control);
+    routed.body =
+        r#"{"version":1,"params":{"cwd":"/tmp","_meta":{"acpmux":{"peer":"other"}}}}"#.into();
+    let ack = hook.control(&hub, &routed).await.unwrap();
+    assert_eq!(ack.state, AckState::Refused);
+    assert!(ack.detail.as_deref().is_some_and(|d| d.contains("cannot forward")));
+
+    let mut duplicate = message("control-persisted", "", Kind::Control);
+    duplicate.op = Some("resume".into());
+    duplicate.body = r#"{"version":1}"#.into();
+    duplicate.to = Target { session_id: Some("missing-session".into()), ..Target::default() };
+    let first = hook.control(&hub, &duplicate).await.unwrap();
+    let restarted = MeshControlHook::new(
+        vec![MeshControlFrom {
+            daemon_id: "inst_a".into(),
+            ops: vec!["start".into(), "resume".into(), "stop".into()],
+        }],
+        Some(path),
+    );
+    let replayed = restarted.control(&hub, &duplicate).await.unwrap();
+    assert_eq!(replayed, first);
+    for sender in [Some("other"), None] {
+        let mut forged = duplicate.clone();
+        forged.from.daemon_id = sender.map(str::to_owned);
+        let refused = restarted.control(&hub, &forged).await.unwrap();
+        assert_eq!(refused.detail.as_deref(), Some("mesh.control_not_allowed"));
+    }
+}
+
+fn control_allowlist() -> Vec<MeshControlFrom> {
+    vec![MeshControlFrom {
+        daemon_id: "inst_a".into(),
+        ops: ["start", "resume", "stop"].map(str::to_owned).to_vec(),
+    }]
+}
+
+#[tokio::test]
+async fn mesh_controls_start_and_stop_through_shared_sender_and_replay_success() {
+    let fake = Arc::new(FakeHub::default());
+    let dir = tempfile::tempdir().unwrap();
+    let root = std::fs::canonicalize(dir.path()).unwrap();
+    let cwd = root.join("project");
+    std::fs::create_dir(&cwd).unwrap();
+    // The process uses daemon_env's private HOME and the hub's explicit Config above;
+    // only this test's root is authorized, regardless of the runner's own config.
+    let mut config = config();
+    config.harnesses.get_mut("fake").unwrap().family = None;
+    config.web_roots = vec![root.to_string_lossy().into_owned()];
+    let unreviewed = Hub::new(config.clone(), Box::new(MemoryStore::default()));
+    let mut request = message("start-unreviewed", "", Kind::Control);
+    request.body = json!({"version": 1, "params": {"cwd": cwd, "mcpServers": [],
+        "_meta":{"acpmux":{"harness":"fake", "name":"unreviewed", "policy":"ask"}}}})
+    .to_string();
+    let ack = MeshControlHook::new(
+        control_allowlist(),
+        Some(dir.path().join("unreviewed-controls.json")),
+    )
+    .control(&unreviewed, &request)
+    .await
+    .unwrap();
+    assert_eq!(ack.state, AckState::Refused, "{ack:?}");
+    assert!(
+        ack.detail.as_deref().is_some_and(|detail| detail.contains(
+            "this harness has no reviewed asking mode for a remote WebSocket connection"
+        )),
+        "{ack:?}"
+    );
+    assert!(unreviewed.resolve("unreviewed").is_err());
+    unreviewed.shutdown_all().await;
+    // Configure the stand-in's actual mode before constructing the successful hub.
+    config.web_asking_modes.insert("fake".into(), vec!["normal".into(), "strict".into()]);
+    let hub = Hub::new(config, Box::new(MemoryStore::default()));
+    let path = dir.path().join("controls.json");
+    let hook = Arc::new(MeshControlHook::new(control_allowlist(), Some(path.clone())));
+    let relay = MeshRelay::start(&hub, fake.clone(), hook.clone(), quick());
+    let sender = MeshControlRelay::new(fake.clone(), Sender::default());
+    let outside = tempfile::tempdir().unwrap();
+    let params = json!({"cwd": outside.path(), "mcpServers": [],
+        "_meta":{"acpmux":{"harness":"fake", "name":"outside-root", "policy":"ask"}}});
+    let refused = ControlRequest::new(
+        Recipient::Daemon { daemon_id: "inst_b".into() },
+        ControlCommand::Start { params: params.as_object().unwrap().clone() },
+        "start-outside-root".into(),
+    )
+    .unwrap();
+    let receipt = submit(&sender, &refused).await.unwrap();
+    fake.until("cwd refusal", |s| !s.acked(&receipt.message_id).is_empty()).await;
+    let ack = fake.with(|s| s.acked(&receipt.message_id)[0].clone());
+    assert_eq!(ack.state, AckState::Refused, "{ack:?}");
+    assert!(
+        ack.detail.as_deref().is_some_and(|detail| {
+            detail.contains("cwd is refused") && detail.contains("webRoots")
+        }),
+        "{ack:?}"
+    );
+    assert!(hub.resolve("outside-root").is_err());
+    for by_name in [false, true] {
+        let name = if by_name { "mesh-named" } else { "mesh-id" };
+        let params = json!({"cwd": cwd, "mcpServers": [],
+            "_meta":{"acpmux":{"harness":"fake", "name":name, "policy":"ask"}}});
+        let request = ControlRequest::new(
+            Recipient::Daemon { daemon_id: "inst_b".into() },
+            ControlCommand::Start { params: params.as_object().unwrap().clone() },
+            format!("start-{name}"),
+        )
+        .unwrap();
+        let receipt = submit(&sender, &request).await.unwrap();
+        assert_eq!(receipt.state, "queued");
+        fake.until("start ack", |s| !s.acked(&receipt.message_id).is_empty()).await;
+        let first = fake.with(|s| s.acked(&receipt.message_id)[0].clone());
+        assert_eq!(first.state, AckState::Delivered, "{first:?}");
+        let session = hub.resolve(name).unwrap();
+        assert_eq!(first.detail.as_deref(), Some(session.id.as_str()));
+        // Simulate a lost ack and a restarted hook: the successful start must replay, not
+        // attempt a second creation (which would fail on the occupied name).
+        let posted = fake.with(|s| s.sent.last().unwrap().clone());
+        let duplicate = InMessage {
+            message_id: receipt.message_id.clone(),
+            kind: Kind::Control,
+            op: posted.op,
+            to: Target::default(),
+            from: Sender { daemon_id: Some("inst_a".into()), ..Default::default() },
+            body: posted.body,
+            mode: posted.mode,
+            attempt: 2,
+            start_work: None,
+            state: None,
+            subject: None,
+        };
+        let restarted = MeshControlHook::new(control_allowlist(), Some(path.clone()));
+        assert_eq!(restarted.control(&hub, &duplicate).await.unwrap(), first);
+        // Give the fake hub the address-book row explicitly, avoiding a timer race.
+        fake.heartbeat(&Heartbeat { host: "worker".into(), sessions: hub.mesh_rows().await })
+            .await
+            .unwrap();
+        let to = if by_name {
+            Recipient::Name { name: name.into(), host: None }
+        } else {
+            Recipient::Session { session_id: session.id.clone() }
+        };
+        let request =
+            ControlRequest::new(to, ControlCommand::Stop, format!("stop-{name}")).unwrap();
+        let receipt = submit(&sender, &request).await.unwrap();
+        fake.until("stop ack", |s| !s.acked(&receipt.message_id).is_empty()).await;
+        assert_eq!(fake.with(|s| s.acked(&receipt.message_id)[0].state), AckState::Delivered);
+        assert_eq!(hub.resolve(&session.id).unwrap().meta().status, SessionStatus::Closed);
+    }
+    relay.stop().await;
+    hub.shutdown_all().await;
+}
+
+#[tokio::test]
+async fn mesh_control_resume_releases_held_queue_by_id_and_name() {
+    let seed = hub();
+    let mut client = Client::local(&seed);
+    let id = client.new_session("held-mesh").await;
+    let mut meta = seed.resolve(&id).unwrap().meta();
+    let config = seed.config.read().await.clone();
+    seed.shutdown_all().await;
+    meta.status = SessionStatus::Idle;
+    for by_name in [false, true] {
+        let store = MemoryStore::default();
+        store.save(&meta).unwrap();
+        for (seq, kind, msg) in [
+            (
+                1,
+                "queued",
+                json!({"turnId":"held-turn", "promptId":"held-prompt", "text":"hello", "control":"peer"}),
+            ),
+            (2, "queue_paused", json!({"held":["held-prompt"]})),
+        ] {
+            store
+                .append(
+                    &id,
+                    &EventRecord {
+                        seq,
+                        at: 1,
+                        dir: "mux".into(),
+                        kind: kind.into(),
+                        msg,
+                        host_seq: None,
+                    },
+                )
+                .unwrap();
+        }
+        let receiver = Hub::new(config.clone(), Box::new(store));
+        assert!(receiver.resolve(&id).unwrap().queue_paused());
+        let mut resume =
+            message(if by_name { "resume-name" } else { "resume-id" }, "", Kind::Control);
+        resume.op = Some("resume".into());
+        resume.body = r#"{"version":1}"#.into();
+        resume.to = if by_name {
+            Target { name: Some("held-mesh".into()), ..Default::default() }
+        } else {
+            Target { session_id: Some(id.clone()), ..Default::default() }
+        };
+        let ledger_dir = tempfile::tempdir().unwrap();
+        let hook = MeshControlHook::new(
+            control_allowlist(),
+            Some(ledger_dir.path().join("mesh-controls.json")),
+        );
+        let ack = hook.control(&receiver, &resume).await.unwrap();
+        assert_eq!(ack.state, AckState::Delivered, "{ack:?}");
+        assert!(!receiver.resolve(&id).unwrap().queue_paused());
+        receiver.shutdown_all().await;
+    }
+}
+
+#[tokio::test]
+async fn mesh_control_memory_store_refuses_before_and_after_restart() {
+    let hub = hub();
+    let root = tempfile::tempdir().unwrap();
+    let cwd = root.path().join("project");
+    std::fs::create_dir(&cwd).unwrap();
+    {
+        let mut config = hub.config.write().await;
+        config.web_roots = vec![root.path().to_string_lossy().into_owned()];
+        config.web_asking_modes.insert("fake".into(), vec!["normal".into()]);
+    }
+    let mut control = message("memory-control", "", Kind::Control);
+    control.body = json!({
+        "version": 1,
+        "params": {"cwd": cwd, "mcpServers": [],
+            "_meta": {"acpmux": {"harness": "fake", "name": "memory-control", "policy": "ask"}}}
+    })
+    .to_string();
+    let first =
+        MeshControlHook::new(control_allowlist(), None).control(&hub, &control).await.unwrap();
+    assert_eq!(first.detail.as_deref(), Some("mesh.control_not_durable"));
+    let restarted =
+        MeshControlHook::new(control_allowlist(), None).control(&hub, &control).await.unwrap();
+    assert_eq!(restarted.detail.as_deref(), Some("mesh.control_not_durable"));
+    assert!(hub.resolve("memory-control").is_err());
+}
+
+#[tokio::test]
 async fn a_failing_or_impatient_hub_is_never_called_in_a_busy_loop() {
     let down = FakeHub { down: true, ..FakeHub::default() };
     // A backoff that starts at nothing still waits the poll floor between calls.
@@ -601,6 +992,14 @@ async fn a_send_to_a_name_no_peer_has_goes_through_the_hub_and_is_delivered_with
     let said = keyed.pointer("/error/message").and_then(Value::as_str).unwrap_or_default();
     assert!(said.contains("--supersede") && !said.contains("no session"), "{keyed}");
     assert_eq!(fake.with(|s| s.sent.len()), posted, "a keyed send reached the hub");
+    // Nor a class but result, the default the target reads: refused, not sent as a result.
+    let mut block = send_queue("dep-land", "prompt-0005");
+    block["request"]["_meta"]["acpmux"]["class"] = json!("block");
+    let block = sender.call("_acpmux/send_queue", block).await;
+    assert_eq!(block.pointer("/error/data/reason"), Some(&json!("mesh.no_class")), "{block}");
+    let said = block.pointer("/error/message").and_then(Value::as_str).unwrap_or_default();
+    assert!(said.contains("--class") && !said.contains("no session"), "{block}");
+    assert_eq!(fake.with(|s| s.sent.len()), posted, "a classified send reached the hub");
     relay.stop().await;
 }
 
@@ -633,6 +1032,7 @@ async fn a_send_through_the_hub_names_its_proven_session_not_a_claimed_one() {
         harness: "fake".into(),
         state: "ready".into(),
         stuck_reason: None,
+        team_address: None,
     };
     fake.with(|s| s.heartbeats.push(Heartbeat { host: "b".into(), sessions: vec![row] }));
     let _ = a.mesh.set(fake.clone());
@@ -647,4 +1047,63 @@ async fn a_send_through_the_hub_names_its_proven_session_not_a_claimed_one() {
     let from = fake.with(|s| s.sent.last().unwrap().from.clone());
     assert_eq!(from.name.as_deref(), Some("lane-a"), "{from:?}");
     assert_eq!(from.session_id.as_deref(), Some(lane.as_str()), "{from:?}");
+}
+
+#[tokio::test]
+async fn team_delivery_refuses_when_disabled_and_only_allowed_starts_an_idle_turn() {
+    use acpmux::mesh::StartWork;
+    use acpmux::server::mesh_relay::deliver;
+    let hub = hub();
+    let mut local = Client::local(&hub);
+    let session = local.new_session("team-reader").await;
+    let mut incoming = message("team-info-1", "team-reader", Kind::Prompt);
+    incoming.to.session_id = Some(session.clone());
+    incoming.to.team_address = Some("@user_reader/coordinator".into());
+    incoming.from.team_address = Some("@user_sender/coordinator".into());
+    incoming.mode = Mode::Now;
+    assert_eq!(
+        deliver(&hub, &incoming, &RefuseControl, None).await.unwrap().state,
+        AckState::Refused
+    );
+    hub.config.write().await.mesh_relay = Some(acpmux::mesh_http::MeshRelayConfig {
+        url: "https://hub.invalid".into(),
+        token_command: vec!["unused".into()],
+        team_messaging: true,
+        credential: None,
+        control_from: Vec::new(),
+    });
+    // Missing startWork is information even if mode asks to steer.
+    assert_eq!(
+        deliver(&hub, &incoming, &RefuseControl, None).await.unwrap().state,
+        AckState::Delivered
+    );
+    let info = local.call("_acpmux/info", json!({"sessionId": session})).await;
+    assert_eq!(info.pointer("/result/turnCount"), Some(&json!(0)));
+    incoming.message_id = "team-info-2".into();
+    incoming.start_work = Some(StartWork::Information);
+    assert_eq!(
+        deliver(&hub, &incoming, &RefuseControl, None).await.unwrap().state,
+        AckState::Delivered
+    );
+    let info = local.call("_acpmux/info", json!({"sessionId": session})).await;
+    assert_eq!(info.pointer("/result/turnCount"), Some(&json!(0)));
+    incoming.message_id = "team-allowed-1".into();
+    incoming.start_work = Some(StartWork::Allowed);
+    assert_eq!(
+        deliver(&hub, &incoming, &RefuseControl, None).await.unwrap().state,
+        AckState::Delivered
+    );
+    let done = local
+        .call(
+            "_acpmux/wait",
+            json!({"sessions": [session], "until": ["ready"], "timeoutMs": 20000}),
+        )
+        .await;
+    assert!(done.get("error").is_none(), "{done}");
+    let info = local.call("_acpmux/info", json!({"sessionId": session})).await;
+    assert_eq!(info.pointer("/result/turnCount"), Some(&json!(1)));
+    let events = hub.events(&session, 0, 1000).unwrap();
+    assert!(events.iter().any(|event| event.kind == "session/prompt"
+        && event.msg.to_string().contains("Team message from @user_sender/coordinator")));
+    hub.shutdown_all().await;
 }

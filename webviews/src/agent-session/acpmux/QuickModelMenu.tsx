@@ -2,6 +2,7 @@ import { authText, canSessionLogin } from "./sessionAuth";
 import React, { useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { ChatAccountList } from "./chatAccounts";
 import { isModelRouterKind } from "./routerKinds";
+import { reasoningChoices, type Choice } from "./ComposerPickers";
 import { isDefaultChoice } from "./defaultChoice";
 import { useT } from "./i18n";
 import { useOpenSide } from "../../ui/openSide";
@@ -10,6 +11,7 @@ import {
   type NativePopupDescription,
   type NativePopupEvent,
   type NativePopupRow,
+  shortcutRowId,
 } from "../../ui/nativePopup";
 import { OnNewTab } from "./newTabComposer";
 import { QuickModelMenuFallback } from "./QuickModelMenuFallback";
@@ -18,6 +20,7 @@ import { usePopupHost } from "../../ui/UiProvider";
 import { searchGroups, twinRows, type QuickMenu, type QuickModel } from "./QuickModelMenuFallback";
 export { searchGroups, twinRows } from "./QuickModelMenuFallback";
 export type {
+  EffortLook,
   QuickMenu,
   QuickMenuExtras,
   QuickModel,
@@ -44,16 +47,26 @@ export function QuickModelMenu(props: QuickProps) {
 
 /// The compact model menu keeps numbered rows, Effort and Account flyouts, and Fast mode.
 /// Its search field filters models in place using the full picker's matching.
-function NativeQuickModelMenu({ open, onOpenChange, trigger, chip, menu, onMore, children }: QuickProps) {
+function NativeQuickModelMenu(props: QuickProps) {
+  const { open, onOpenChange, trigger, chip, menu, onMore, children } = props;
   const t = useT();
   const newTab = useContext(OnNewTab);
   const { open: sideOpen, setOpen: setSideOpen, side } = useOpenSide(trigger, newTab ? "bottom" : "top", 320);
   if (sideOpen !== open) setSideOpen(open);
-  const { models, current, effort, account, auth, fast } = menu;
-  const levels = effort?.levels.filter((choice) => !isDefaultChoice(choice)) ?? [];
+  const { models, current, effort, auth, fast, ownModel } = menu;
+  // The Chief picks its own model: no account, More models or refresh (as the web menu).
+  const account = ownModel ? undefined : menu.account;
+  const families = menu.families;
+  const currentFamily = families?.list.find((family) => family.id === families.current);
+  const currentModels = currentFamily ? [...currentFamily.models, ...currentFamily.more] : models;
+  const currentModel = currentModels
+    .flatMap((model) => [model, ...(model.offers ?? [])])
+    .find((model) => model.id === current);
+  // Explicitly unsupported effort overrides session options, as in the web menu.
+  const levels =
+    currentModel?.efforts?.length === 0 ? [] : (effort?.levels.filter((choice) => !isDefaultChoice(choice)) ?? []);
   const level = levels.find((choice) => choice.id === effort?.current);
   const accounts = useAccountList(open, account);
-  const families = menu.families;
   const [tab, setTab] = useState(families?.current);
   const [query, setQuery] = useState("");
   const [moreFor, setMoreFor] = useState<string | undefined>();
@@ -122,8 +135,42 @@ function NativeQuickModelMenu({ open, onOpenChange, trigger, chip, menu, onMore,
     const running = (!families || row.family === families.current) && row.id === current;
     if (running && !row.effort && !row.fast) return;
     if (query && search) search.pick(row);
+    else if (!families && row.effort && menu.onModelEffort) menu.onModelEffort(row.id, row.effort);
     else if (!families) menu.onModel(row.id);
     else families.onPick(row);
+  };
+  const isRunning = (model: Pick<QuickModel, "family" | "id">) =>
+    (!families || model.family === families.current) && model.id === current;
+  /// A model's effort levels for its side dropdown (#27948), the same choices the web menu offers.
+  const effortChoices = (model: QuickModel): Choice[] => {
+    const running = isRunning(model);
+    if (menu.inlineEffort !== true || (!families && !menu.onModelEffort)) return [];
+    if (running && effort?.slider) return [];
+    if (model.efforts?.length === 0) return [];
+    const advertised = running
+      ? levels
+      : model.efforts !== undefined
+        ? reasoningChoices(
+            model.efforts.map((value) => ({ value })),
+            { efforts: model.efforts },
+            t,
+          )
+        : [];
+    const ultracode = effort?.levels.find((choice) => choice.id === "ultracode");
+    if (running && ultracode && !advertised.some((choice) => choice.id === "ultracode"))
+      return [...advertised, ultracode];
+    return advertised;
+  };
+  const pickEffort = (model: QuickModel, value: string) => {
+    // The running model applies its effort through the reported option, as the Effort row does;
+    // another model lands with its effort through the combo path.
+    if (isRunning(model) && effort?.onPick) {
+      onOpenChange(false);
+      effort.onPick(value);
+      if (model.fast) pickRow({ ...model, effort: undefined });
+      return;
+    }
+    pickRow({ ...model, effort: value });
   };
   const action = (
     key: string,
@@ -169,7 +216,25 @@ function NativeQuickModelMenu({ open, onOpenChange, trigger, chip, menu, onMore,
         return [{ ...row, kind: "submenu", children: providerRows(choice, key) }];
       if (choice.offers?.length && providerLook === "expanded")
         return [{ ...row, kind: "section" }, ...providerRows(choice, key)];
-      return [row];
+      // The model's effort is a side dropdown at the row's trailing edge (#27948): Return or a
+      // click lands the model, its trailing item or Right opens its levels one per line.
+      const levelsFor = effortChoices(choice);
+      if (!levelsFor.length) return [row];
+      const running = isRunning(choice);
+      const now = running ? levelsFor.find((level) => level.id === effort?.current) : undefined;
+      const look = menu.effortLook ?? "list";
+      return [
+        {
+          ...row,
+          value: now?.name ?? "",
+          children: levelsFor.map((level) =>
+            action(`${key}:effort:${level.id}`, level.name, () => pickEffort(choice, level.id), {
+              checked: running && level.id === effort?.current,
+              ...(look === "list" && level.recommended ? { value: t("picker.modeRecommended") } : {}),
+            }),
+          ),
+        },
+      ];
     });
   const visibleRows: NativePopupRow[] = groups
     ? groups.flatMap((group) => [
@@ -183,7 +248,7 @@ function NativeQuickModelMenu({ open, onOpenChange, trigger, chip, menu, onMore,
       id: "empty",
       label: query
         ? t(families ? "picker.noMatchesFor" : "picker.noMatchesForQuery", { query })
-        : (shown?.note ?? t("picker.noMatches")),
+        : (shown?.note ?? (ownModel ? t("picker.chiefOwnModel") : t("picker.noModels"))),
     });
   if (!query && shown?.note && shown.logIn)
     visibleRows.push(action("login", t("harness.logIn"), closeThen(shown.logIn)));
@@ -206,9 +271,11 @@ function NativeQuickModelMenu({ open, onOpenChange, trigger, chip, menu, onMore,
     );
     if (moreShown) visibleRows.push(...modelRows(shown.more, "more"));
   }
-  if (!query && !forkTab && inlineMore && families?.onAddHarness && (moreShown || !shown?.more.length))
-    visibleRows.push(action("add-harness", t("modelPicker.addHarness"), closeThen(families.onAddHarness)));
-  if (!query && onChatTab && effort && levels.length > 1) {
+  // The running row's own side dropdown replaces the standalone Effort row, as in the web menu.
+  const runningHasEffort = rows.some(
+    (row) => row.id === current && effortChoices(row).length > 0 && (!row.offers || providerLook === "row"),
+  );
+  if (!query && onChatTab && effort && levels.length > 1 && (effort.slider || !runningHasEffort)) {
     const selected = levels.findIndex((choice) => choice.id === effort.current);
     const recommended = levels.findIndex((choice) => choice.recommended);
     const children = effort.slider
@@ -255,19 +322,14 @@ function NativeQuickModelMenu({ open, onOpenChange, trigger, chip, menu, onMore,
       value: runningProvider,
       children: providerRows({ ...runningRow, family: families?.current ?? "" }, "running-provider"),
     });
-  if (!query && !forkTab && !inlineMore && families && (shown?.more.length || families.onAddHarness))
+  if (!query && !forkTab && !ownModel && !inlineMore && families && shown?.more.length)
     visibleRows.push({
       kind: "submenu",
       id: "more-models",
       label: t("picker.moreModels"),
-      children: [
-        ...modelRows(shown?.more ?? [], "more"),
-        ...(families.onAddHarness
-          ? [action("add-harness", t("modelPicker.addHarness"), closeThen(families.onAddHarness))]
-          : []),
-      ],
+      children: modelRows(shown.more, "more"),
     });
-  if (!query && !families)
+  if (!query && !families && !ownModel)
     visibleRows.push(
       action(
         "more-full",
@@ -317,7 +379,8 @@ function NativeQuickModelMenu({ open, onOpenChange, trigger, chip, menu, onMore,
             checked: choice.id === list.active,
           }),
         );
-      if (menu.routeLayout === "grouped") {
+      // Every layout but inline lists Cmux routers under a Provider heading (#28020).
+      if (menu.routeLayout !== "inline") {
         accountRows.push(...routes(direct));
         if (routers.length)
           accountRows.push({ kind: "section", id: "provider-group", label: t("picker.provider") }, ...routes(routers));
@@ -330,12 +393,13 @@ function NativeQuickModelMenu({ open, onOpenChange, trigger, chip, menu, onMore,
         ? (list.accounts.find((choice) => choice.id === list.active)?.name ?? t("picker.harnessLogin"))
         : undefined;
     if (menu.routeLayout === "inline")
-      visibleRows.push({ kind: "section", id: "providers", label: t("picker.provider") }, ...accountRows);
+      visibleRows.push({ kind: "section", id: "providers", label: t("picker.account") }, ...accountRows);
     else
+      // The composer's account switcher (#28020).
       visibleRows.push({
         kind: "submenu",
         id: "providers",
-        label: t("picker.provider"),
+        label: t("picker.account"),
         value: accountValue,
         children: accountRows,
       });
@@ -380,6 +444,11 @@ function NativeQuickModelMenu({ open, onOpenChange, trigger, chip, menu, onMore,
         },
       ),
     );
+  // Add harness is the last item in the harness strip (#26503).
+  if (rail && families?.onAddHarness)
+    rail.push(
+      action("add-harness", t("modelPicker.addHarness"), closeThen(families.onAddHarness), { icon: "action.add" }),
+    );
   const model: NativePopupDescription = {
     side,
     align: "start",
@@ -399,18 +468,23 @@ function NativeQuickModelMenu({ open, onOpenChange, trigger, chip, menu, onMore,
   };
   const onEvent = (event: NativePopupEvent) => {
     if (event.type === "search" && event.id === "query") {
-      setQuery(event.value ?? "");
+      // A digit typed into the empty field picks that numbered row, as in the web menu.
+      const numbered = shortcutRowId(visibleRows, query, event.value);
+      if (numbered) actions.get(numbered)?.({ ...event, type: "pick", id: numbered });
+      else setQuery(event.value ?? "");
       return;
     }
     if (event.type === "pick" || event.type === "change") actions.get(event.id ?? "")?.(event);
   };
-  useNativePopup({
+  const { available } = useNativePopup({
     open,
     model,
     anchor: () => trigger.current,
     onEvent,
     onDismiss: () => onOpenChange(false),
   });
+  // The host could not show this opening (no window): the web menu draws it instead.
+  if (!available) return <QuickModelMenuFallback {...props} />;
   return (
     <button
       type="button"

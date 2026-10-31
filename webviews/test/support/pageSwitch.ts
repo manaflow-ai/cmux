@@ -16,7 +16,7 @@ import type { DOMWindow } from "jsdom";
 
 /// The CSS classes and attributes that start an entrance animation when an element gets them.
 export const ENTRANCE_SELECTOR =
-  ".cv-enter, .acpmux-row--enter, .cv-fresh, .cv-code-handoff.is-fading, [data-kind-switch]";
+  ".cv-enter, .acpmux-row--enter, .acpmux-row--message-enter, .cv-fresh, .cv-code-handoff.is-fading, [data-kind-switch]";
 
 export type SwitchSeen = { fetches: string[]; entrances: string[] };
 
@@ -116,8 +116,10 @@ export function pageSwitch(window: DOMWindow): PageSwitch {
         const gained =
           record.attributeName === "class"
             ? element.matches(ENTRANCE_SELECTOR) &&
-              /(^|\s)(cv-enter|acpmux-row--enter|cv-fresh|is-fading)(\s|$)/.test(element.className) &&
-              !/(^|\s)(cv-enter|acpmux-row--enter|cv-fresh|is-fading)(\s|$)/.test(before)
+              /(^|\s)(cv-enter|acpmux-row--enter|acpmux-row--message-enter|cv-fresh|is-fading)(\s|$)/.test(
+                element.className,
+              ) &&
+              !/(^|\s)(cv-enter|acpmux-row--enter|acpmux-row--message-enter|cv-fresh|is-fading)(\s|$)/.test(before)
             : element.hasAttribute("data-kind-switch") && record.oldValue === null;
         if (gained) entered.push(label(element));
       }

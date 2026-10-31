@@ -3,18 +3,20 @@
 // pretty-printed (mcpCalls.ts). Nothing of a call's JSON is drawn until it is opened; opening and
 // closing play the transcript's fold (fold.ts).
 import { useFindReveal } from "./chatFind";
-import { useContext, useId, useMemo, useState } from "react";
+import { type ReactNode, useContext, useId, useMemo, useState } from "react";
 import { useT } from "../i18n";
 import type { AcpmuxActivity } from "../model";
 import { stripsEnvelopeImages, toolImages } from "../toolImages";
 import { ChevronRight, Spinner, ToolGroup } from "./icons";
 import { menuPartRef } from "./menuParts";
-import { mcpCall, mcpLabel, McpNamesContext, mcpRawName, prettyOutput, prettyValue, type McpCall } from "./mcpCalls";
+import { mcpCall, mcpLabel, McpNamesContext, mcpOutputResult, mcpRawName, prettyValue, type McpCall } from "./mcpCalls";
 import { isFailed, isRunning } from "./toolGroups";
-import { OutputMore, useOutput } from "./toolOutput";
+import { ToolOutput } from "./ToolOutputBody";
 import { ToolImages } from "./ToolRow";
 import { useTranscriptDisclosure } from "./transcriptDisclosure";
 import { useAnchoredCollapse } from "./useAnchoredCollapse";
+import { ToolLabel } from "./ToolVerb";
+import { useMoreBelow } from "./moreBelow";
 import { toolFailure } from "./toolFailure";
 import { failureWord, InlineFailureCause, ToolFailureCause } from "./ToolFailureCause";
 
@@ -50,7 +52,7 @@ function McpGroupRow({ items, disclosureKey }: { items: readonly AcpmuxActivity[
           {running ? <Spinner size={16} /> : <ToolGroup size={16} strokeWidth={1.2} />}
         </span>
         <span className="cv-tool__text" data-find-skip>
-          {mcpLabel(t, calls, names)}
+          <ToolLabel text={mcpLabel(t, calls, names)} />
           {failures > 0 && <span className="cv-tool__failed"> {t("tools.failedCount", { n: failures })}</span>}
         </span>
         <ChevronRight
@@ -109,7 +111,7 @@ function McpCallRow({ item }: { item: AcpmuxActivity }) {
           {running ? <Spinner size={16} /> : <ToolGroup size={16} strokeWidth={1.2} />}
         </span>
         <span className="cv-tool__text" data-find-skip>
-          {mcpLabel(t, [call], names)}
+          <ToolLabel text={mcpLabel(t, [call], names)} />
           {failure && <span className="cv-tool__failed"> {failureWord(t, failure)}</span>}
           <InlineFailureCause failure={failure} />
         </span>
@@ -137,8 +139,33 @@ function McpCallRow({ item }: { item: AcpmuxActivity }) {
   );
 }
 
-/// The opened call: its request, then its response (only its end while long), each as a tight
-/// block; a block with nothing in it is left out. A sub-session card's Raw shows the same.
+/// Pair a Raw string argument with its rendered presentation. Find uses the rendered copy only
+/// when it can highlight every indexed occurrence; hidden URLs and shadow-root code use Raw.
+/// Keys, other arguments and the response remain searchable.
+function requestPresentation(request: string, alternatives: Readonly<Record<string, string>>): ReactNode {
+  if (!Object.keys(alternatives).length) return request;
+  const parts: ReactNode[] = [];
+  let from = 0;
+  for (const match of request.matchAll(/^  ("(?:\\.|[^"\\])*"): ("(?:\\.|[^"\\])*")/gm)) {
+    const primary = alternatives[JSON.parse(match[1]!)];
+    if (!primary) continue;
+    const start = match.index + 2 + match[1]!.length + 2;
+    parts.push(request.slice(from, start));
+    parts.push(
+      <span key={start} data-find-fallback={primary}>
+        {match[2]}
+      </span>,
+    );
+    from = start + match[2]!.length;
+  }
+  if (!from) return request;
+  parts.push(request.slice(from));
+  return parts;
+}
+
+/// The opened call: its request as a tight block, then its response in the same readable body as
+/// other tool outputs (ToolOutputBody.tsx: rendered Markdown or Raw, all lines on request); a part
+/// with nothing in it is left out. A sub-session card's Raw shows the same.
 export function McpCallDetails({
   id,
   call,
@@ -146,6 +173,7 @@ export function McpCallDetails({
   output,
   strip,
   reveal,
+  requestFindAlternatives = {},
 }: {
   id: string;
   call: McpCall;
@@ -154,36 +182,34 @@ export function McpCallDetails({
   /// Whether the call's strip shows its envelope's images, which its response then leaves out.
   strip: boolean;
   reveal: number;
+  /// Maps string arguments to their rendered data-find-primary identity.
+  requestFindAlternatives?: Readonly<Record<string, string>>;
 }) {
   const t = useT();
   const request = useMemo(() => prettyValue(call.args), [call]);
-  const response = useOutput(
-    useMemo(() => prettyOutput(output, strip), [output, strip]),
-    reveal,
-  );
+  const response = useMemo(() => mcpOutputResult(output, strip, call.tool), [output, strip, call.tool]);
+  const requestBox = useMoreBelow<HTMLPreElement>(request);
   return (
-    <div id={id} className="cv-mcp-call" ref={menuPartRef({ output: response.text })}>
+    <div id={id} className="cv-mcp-call" ref={menuPartRef({ output: response?.text })}>
       <code className="cv-mcp-call__name selectable" data-find-skip>
         {raw}
       </code>
       {request && (
         <div className="cv-mcp-call__part">
-          <div className="cv-mcp-call__head">{t("tools.mcp.request")}</div>
-          <pre className="cv-mcp-call__body selectable">{request}</pre>
+          <div className="cv-mcp-call__head" data-find-skip>
+            {t("tools.mcp.request")}
+          </div>
+          <pre ref={requestBox} className="cv-mcp-call__body selectable">
+            {requestPresentation(request, requestFindAlternatives)}
+          </pre>
         </div>
       )}
-      {response.text && (
+      {response && (
         <div className="cv-mcp-call__part">
-          <div className="cv-mcp-call__head">{t("tools.mcp.response")}</div>
-          <pre className="cv-mcp-call__body selectable">
-            {response.cut && (
-              <span className="cv-output-cut" aria-hidden="true">
-                …{"\n"}
-              </span>
-            )}
-            {response.shown}
-          </pre>
-          <OutputMore output={response} />
+          <div className="cv-mcp-call__head" data-find-skip>
+            {t("tools.mcp.response")}
+          </div>
+          <ToolOutput result={response} reveal={reveal} />
         </div>
       )}
     </div>

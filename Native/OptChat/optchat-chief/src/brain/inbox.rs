@@ -55,6 +55,7 @@ impl Brain {
                 self.prune_floors();
                 self.post_notices();
                 self.flush_outbox();
+                self.flush_pending_reports();
                 // Typing is the daemon's ephemeral state: a daemon that
                 // restarted while a main turn runs has forgotten it, and a
                 // client that watches for the turn would never see it (E21).

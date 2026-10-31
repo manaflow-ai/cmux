@@ -9,6 +9,7 @@ use serde_json::{Value, json};
 
 use crate::cli::output::{arg_or_stdin, print_json};
 use crate::rpc::method;
+use cmux_json::JsonSet as _;
 
 #[derive(Subcommand)]
 pub enum TaskCmd {
@@ -71,20 +72,28 @@ pub struct ResultArgs {
 #[derive(Subcommand)]
 /// Task briefs that coordinate work across sessions.
 pub enum BriefsCmd {
+    /// List briefs: id, status, title.
     #[command(alias = "list")]
     Ls {
+        /// Only briefs with this status.
         #[arg(long)]
         status: Option<String>,
+        /// At most this many.
         #[arg(long, default_value_t = 100)]
         limit: usize,
     },
+    /// Send more instructions to the session working a brief.
     Steer {
         brief_id: String,
+        /// The text, or `-` to read it from stdin.
         text: Vec<String>,
     },
+    /// Report a brief's result.
     Report {
         brief_id: String,
+        /// The summary, or `-` to read it from stdin.
         summary: Vec<String>,
+        /// The brief's new status.
         #[arg(long, default_value = "reported")]
         status: String,
     },
@@ -99,10 +108,10 @@ pub async fn run(cmd: TaskCmd, json_out: bool) -> Result<()> {
             beads = Some((session.clone(), ids));
             let mut params = json!({"sessionId": session, "title": title, "stopCondition": stop});
             if !brief.is_empty() {
-                params["brief"] = json!(arg_or_stdin(&brief)?);
+                params.set("brief", json!(arg_or_stdin(&brief)?));
             }
             if let Some(from) = crate::cli::sender::of_this_process() {
-                params["_meta"] = json!({"acpmux": {"fromAgent": from}});
+                params.set("_meta", json!({"acpmux": {"fromAgent": from}}));
             }
             (method::MUX_TASK_NEW, params)
         }

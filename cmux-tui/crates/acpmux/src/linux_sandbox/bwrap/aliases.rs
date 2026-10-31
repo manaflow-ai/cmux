@@ -26,23 +26,22 @@ fn decode_mount_field(raw: &str) -> Result<String, String> {
     let bytes = raw.as_bytes();
     let mut out = Vec::with_capacity(bytes.len());
     let mut index = 0;
-    while index < bytes.len() {
-        if bytes[index] == b'\\'
-            && index + 3 < bytes.len()
-            && (b'0'..=b'7').contains(&bytes[index + 1])
-            && (b'0'..=b'7').contains(&bytes[index + 2])
-            && (b'0'..=b'7').contains(&bytes[index + 3])
+    let octal = |digit: u8| (b'0'..=b'7').contains(&digit);
+    while let Some(&byte) = bytes.get(index) {
+        if let (b'\\', Some(&[high, mid, low])) = (byte, bytes.get(index + 1..index + 4))
+            && octal(high)
+            && octal(mid)
+            && octal(low)
         {
-            let value = u16::from(bytes[index + 1] - b'0') * 64
-                + u16::from(bytes[index + 2] - b'0') * 8
-                + u16::from(bytes[index + 3] - b'0');
+            let value =
+                u16::from(high - b'0') * 64 + u16::from(mid - b'0') * 8 + u16::from(low - b'0');
             if value > u16::from(u8::MAX) {
                 return Err("invalid mountinfo escape".into());
             }
             out.push(value as u8);
             index += 4;
         } else {
-            out.push(bytes[index]);
+            out.push(byte);
             index += 1;
         }
     }
@@ -108,12 +107,12 @@ fn split_overlay_layers(value: &str) -> Vec<String> {
     let mut start = 0;
     let bytes = value.as_bytes();
     let mut index = 0;
-    while index < bytes.len() {
-        if bytes[index] == b'\\' && index + 3 < bytes.len() {
+    while let Some(&byte) = bytes.get(index) {
+        if byte == b'\\' && index + 3 < bytes.len() {
             index += 4;
-        } else if bytes[index] == b':' {
-            if start < index {
-                layers.push(value[start..index].into());
+        } else if byte == b':' {
+            if let Some(layer) = value.get(start..index).filter(|layer| !layer.is_empty()) {
+                layers.push(layer.into());
             }
             index += 1;
             start = index;
@@ -121,8 +120,8 @@ fn split_overlay_layers(value: &str) -> Vec<String> {
             index += 1;
         }
     }
-    if start < value.len() {
-        layers.push(value[start..].into());
+    if let Some(layer) = value.get(start..).filter(|layer| !layer.is_empty()) {
+        layers.push(layer.into());
     }
     layers
 }

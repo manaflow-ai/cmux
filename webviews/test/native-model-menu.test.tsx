@@ -60,7 +60,7 @@ afterAll(() => {
   expect(result.exitCode).toBe(0);
   expect(emitted.length).toBeGreaterThan(0);
 });
-function transport() {
+function transport(shown = true) {
   const models: NativePopupModel[] = [];
   const listeners = new Set<(event: NativePopupEvent) => void>();
   const capture = (model: NativePopupModel) => {
@@ -76,7 +76,7 @@ function transport() {
     native: {
       show: async (model) => {
         capture(model);
-        return { shown: true };
+        return { shown };
       },
       update: capture,
       hide() {},
@@ -87,18 +87,23 @@ function transport() {
     },
   };
   const latest = () => models.at(-1)!;
-  const emit = async (id: string, value?: string, type: NativePopupEvent["type"] = "pick") => {
+  const emit = async (
+    id: string,
+    value?: string,
+    type: NativePopupEvent["type"] = "pick",
+    revision = latest().revision,
+  ) => {
     const model = latest();
     await act(async () => {
-      for (const listener of listeners) listener({ type, popupId: model.id, revision: model.revision, id, value });
+      for (const listener of listeners) listener({ type, popupId: model.id, revision, id, value });
     });
   };
   return { host, latest, emit, rows: () => all(latest().rows), models };
 }
 const all = (rows: NativePopupRow[]): NativePopupRow[] => rows.flatMap((row) => [row, ...all(row.children ?? [])]);
-async function mount(menu: QuickMenu) {
+async function mount(menu: QuickMenu, shown = true) {
   const container = install();
-  const f = transport();
+  const f = transport(shown);
   let update: (menu: QuickMenu) => void;
   let reopen: () => void;
   function Fixture() {
@@ -368,4 +373,140 @@ test("native fast mode stays open and auth refresh remains reachable", async () 
   expect(f.container.querySelector("button")?.getAttribute("aria-expanded")).toBe("true");
   await f.emit(f.rows().find((row) => row.label === "Check again")!.id);
   expect(refreshes).toBe(1);
+});
+
+test("a digit typed into the empty search picks that numbered row", async () => {
+  const picked: string[] = [];
+  const f = await mount({
+    ...base(),
+    models: [
+      { id: "a", name: "Alpha" },
+      { id: "b", name: "Beta" },
+    ],
+    search: { find: () => [], pick() {} },
+    onModel: (id) => picked.push(id),
+  });
+  expect(f.rows().find((row) => row.label === "Beta")?.shortcut).toBe("2");
+  await f.emit("query", "2", "search");
+  expect(picked).toEqual(["b"]);
+});
+
+test("the web menu draws an opening the native host could not show", async () => {
+  const f = await mount({ ...base(), models: [{ id: "b", name: "Beta" }] }, false);
+  await act(async () => {});
+  expect(f.models.length).toBe(1);
+  expect(document.querySelector('[role="menu"]')).not.toBeNull();
+  expect([...document.querySelectorAll('[role^="menuitem"]')].some((row) => row.textContent?.includes("Beta"))).toBe(
+    true,
+  );
+});
+
+test("a model's effort is a side dropdown whose level lands with the model", async () => {
+  const picked: { id: string; effort?: string }[] = [];
+  const row = (id: string, name: string) => ({ id, name, family: "claude", efforts: ["low", "high"] });
+  const f = await mount({
+    ...base(),
+    models: [],
+    current: "a",
+    inlineEffort: true,
+    families: {
+      list: [{ id: "claude", name: "Claude", models: [row("a", "Alpha"), row("b", "Beta")], more: [] }],
+      current: "claude",
+      onPick: (model) => picked.push({ id: model.id, ...(model.effort ? { effort: model.effort } : {}) }),
+    },
+  });
+  const beta = f.latest().rows.find((candidate) => candidate.label === "Beta")!;
+  expect(beta.kind).toBe("action");
+  expect(beta.children?.map((level) => level.kind)).toEqual(["action", "action"]);
+  const high = beta.children!.at(-1)!;
+  await f.emit(high.id);
+  expect(picked).toEqual([{ id: "b", effort: "high" }]);
+  // The row itself still lands the model.
+  await f.reopen();
+  await f.emit(f.latest().rows.find((candidate) => candidate.label === "Beta")!.id);
+  expect(picked.at(-1)).toEqual({ id: "b" });
+});
+
+test("an edit made at an earlier revision of the open popup still lands", async () => {
+  const f = await mount({ ...base(), search: { find: () => [], pick() {} } });
+  const first = f.latest().revision;
+  await f.update({ ...base(), models: [{ id: "a", name: "Alpha 2" }], search: { find: () => [], pick() {} } });
+  expect(f.latest().revision).toBeGreaterThan(first);
+  await f.emit("query", "alp", "search", first);
+  expect(f.latest().search?.value).toBe("alp");
+});
+
+async function mountPicker(props: Partial<ModelPickerProps>) {
+  const container = install();
+  const f = transport();
+  const picked: string[] = [];
+  const full: ModelPickerProps = {
+    catalog: [
+      {
+        id: "claude",
+        name: "Claude",
+        models: [
+          { id: "alpha", name: "Alpha" },
+          { id: "beta", name: "Beta" },
+        ],
+      },
+      { id: "codex", name: "Codex", models: [{ id: "gamma", name: "Gamma" }] },
+    ],
+    harness: "claude",
+    model: "alpha",
+    label: "Alpha",
+    efforts: [],
+    recents: [],
+    onLand: (id) => picked.push(id),
+    onEffort() {},
+    ...props,
+  } as ModelPickerProps;
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <UiProvider container={container} popupHost={f.host}>
+        <ModelPicker {...full} />
+      </UiProvider>,
+    );
+  });
+  await act(async () => {
+    container.querySelector<HTMLButtonElement>("button")!.click();
+  });
+  return { ...f, picked, container };
+}
+
+test("full native picker lists this folder's profiles and opens one", async () => {
+  const f = await mountPicker({
+    catalog: [
+      { id: "claude", name: "Claude", models: [{ id: "alpha", name: "Alpha" }] },
+      {
+        id: "machine-profile",
+        name: "Build machine",
+        folder: { folder: "/Users/me/app", state: "enabled" },
+        models: [{ id: "machine-model", name: "Machine model" }],
+      },
+    ] as ModelPickerProps["catalog"],
+  });
+  const profile = f.rows().find((row) => row.label === "Build machine")!;
+  expect(profile.kind).toBe("action");
+  await f.emit(profile.id);
+  expect(f.rows().find((row) => row.label === "Build machine")?.checked).toBe(true);
+  expect(f.rows().some((row) => row.label === "Machine model")).toBe(true);
+});
+
+test("a native rail click during a search leaves the search for that harness", async () => {
+  const f = await mountPicker({});
+  await f.emit("query", "a", "search");
+  expect(f.latest().search?.value).toBe("a");
+  const codex = f.latest().rail!.find((row) => row.label === "Codex")!;
+  await f.emit(codex.id);
+  expect(f.latest().search?.value).toBe("");
+  expect(f.latest().rail!.find((row) => row.label === "Codex")?.checked).toBe(true);
+});
+
+test("a digit typed into the full picker's empty search picks that numbered row", async () => {
+  const f = await mountPicker({});
+  expect(f.rows().find((row) => row.label === "Beta")?.shortcut).toBe("2");
+  await f.emit("query", "2", "search");
+  expect(f.picked).toEqual(["beta"]);
 });

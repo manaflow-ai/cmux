@@ -43,6 +43,13 @@
   outline: 1.5px solid var(--agent-text);
   outline-offset: -2px;
 }
+/* A row's harness mark, else its toned chat icon (StartedSessionCard.tsx), before the title. */
+.acpmux-started-icon {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+}
 .acpmux-started-text {
   display: flex;
   flex: 1 1 auto;
@@ -136,7 +143,7 @@
   color: var(--cv-link, var(--agent-accent));
   font: inherit;
   text-align: inherit;
-  cursor: pointer;
+  cursor: default;
   -webkit-box-decoration-break: clone;
   box-decoration-break: clone;
 }

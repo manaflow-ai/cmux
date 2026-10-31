@@ -13,6 +13,8 @@
 //! at once. A run that answered normally before the cancel took effect is
 //! printed as usual. The CLI never sends an `origin`: it runs as `cli`.
 
+use cmux_json::JsonSet as _;
+
 mod messages;
 
 #[cfg(test)]
@@ -104,7 +106,7 @@ where
         "args": request.args,
     });
     if let Some(key) = &request.idempotency_key {
-        run["idempotency_key"] = json!(key);
+        run.set("idempotency_key", json!(key));
     }
     if send(&mut writer, &run).await.is_err() {
         return Outcome::Closed;

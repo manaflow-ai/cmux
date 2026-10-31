@@ -27,6 +27,7 @@ use super::*;
 use std::ops::Range;
 use std::time::Duration;
 // Tokio's clock, so a paused test clock moves the pace and the windows too.
+use cmux_json::JsonSet as _;
 use tokio::time::Instant;
 
 /// A build runs at most once per `PACE` times its own cost: about 3% of a core.
@@ -93,7 +94,33 @@ pub(crate) struct Snapshot {
     made: StdMutex<HashMap<&'static str, Arc<String>>>,
     /// The full rows are built only for trusted internal consumers (peer bootstrap and ACP).
     /// Ordinary census/watch replies keep using `whole`, so their retained bytes stay small.
-    full: StdMutex<Option<Arc<String>>>,
+    full: StdMutex<Option<Arc<FullRows>>>,
+}
+
+/// Every summary with its tools, serialized as [`Snapshot::whole`] is, with where each row is
+/// and its paging keys: a page of it parses only its own rows.
+pub(crate) struct FullRows {
+    whole: Arc<String>,
+    spans: Vec<Range<usize>>,
+    keys: Vec<Value>,
+}
+
+impl FullRows {
+    /// Each row's `sessionId` and `peer`, in the order of [`Self::row`].
+    pub(crate) fn keys(&self) -> &[Value] {
+        &self.keys
+    }
+
+    /// The bytes of every row together.
+    pub(crate) fn bytes(&self) -> usize {
+        self.whole.len()
+    }
+
+    /// Row `at`, parsed.
+    pub(crate) fn row(&self, at: usize) -> Value {
+        let text = self.spans.get(at).and_then(|span| self.whole.get(span.clone()));
+        text.and_then(|text| serde_json::from_str(text).ok()).unwrap_or_default()
+    }
 }
 
 type Built = (String, Vec<Range<usize>>, Vec<Value>);
@@ -114,14 +141,108 @@ impl Snapshot {
     }
 
     /// Lazily serialize the same snapshot with tools for the ACP list and peer bootstrap.
+    /// This daemon's own sessions only, no peer's row, serialized as a list reply: what a
+    /// peer's link reads in its watch (`server/list_reply.rs` `watch`).
+    pub(crate) fn own_whole(hub: &Hub, with_tools: bool) -> String {
+        let mut rows = Rows::default();
+        hub.visit_own_session_summaries(with_tools, |row| rows.push(&row));
+        rows.finish().0
+    }
+
     pub(crate) fn full_whole(&self, hub: &Hub) -> Arc<String> {
+        self.full_rows(hub).whole.clone()
+    }
+
+    /// [`Self::full_whole`] with where each row is, for ACP's pages.
+    pub(crate) fn full_rows(&self, hub: &Hub) -> Arc<FullRows> {
         let mut full = self.full.lock().unwrap_or_else(|e| e.into_inner());
         full.get_or_insert_with(|| {
             let mut rows = Rows::default();
             hub.visit_session_summaries(true, |row| rows.push(&row));
-            Arc::new(rows.finish().0)
+            let (whole, spans, keys) = rows.finish();
+            Arc::new(FullRows { whole: Arc::new(whole), spans, keys })
         })
         .clone()
+    }
+
+    /// The reply to `params` that has no `limit` (the whole list, or a filter of it), with tools
+    /// when `tools`: every row it lists, newest first, as before; or, when they come to more
+    /// than `budget` bytes or `params` has a page's cursor, a page of them that fits, with the
+    /// `nextCursor` of the rest (`session_pages::byte_page`, in an order updates do not change).
+    /// One daemon's whole list was 17 MB with tools on 2026-10-30, past the message limit, and
+    /// was refused whole.
+    pub(crate) fn bounded(
+        &self,
+        hub: &Hub,
+        params: &Value,
+        tools: bool,
+        budget: usize,
+    ) -> Result<String, RpcError> {
+        let full = tools.then(|| self.full_rows(hub));
+        let (text, spans, keys) = match &full {
+            Some(full) => (full.whole.as_str(), &full.spans, &full.keys),
+            None => (self.whole.as_str(), &self.spans, &self.keys),
+        };
+        // A page's cursor (`h...`) is byte_page's; a session list cursor (`k...`) stays a
+        // filter, as before: the rows after the session it names. A page of a list a `k` cursor
+        // started carries it on (`h...~k...`), so every page keeps its cutoff.
+        let mut filters = params.clone();
+        let (cursor, after) = match params.get("cursor") {
+            None | Some(Value::Null) => (None, None),
+            Some(Value::String(text)) if text.starts_with('h') => match text.split_once('~') {
+                Some((page, after)) => (Some(page), Some(after)),
+                None => (Some(text.as_str()), None),
+            },
+            Some(Value::String(text)) => (None, Some(text.as_str())),
+            Some(_) => return Err(RpcError::invalid_params("cursor must be a string")),
+        };
+        if let Some(p) = filters.as_object_mut() {
+            match after {
+                Some(after) => p.insert("cursor".to_owned(), Value::String(after.to_owned())),
+                None => p.remove("cursor"),
+            };
+        }
+        let picked = super::session_pages::session_list_reply(keys.clone(), &filters)?;
+        let rows =
+            picked.get("sessions").and_then(Value::as_array).map(Vec::as_slice).unwrap_or_default();
+        let at = |key: &Value| key.get("at").and_then(Value::as_u64).unwrap_or_default() as usize;
+        let row = |key: &Value| -> std::borrow::Cow<'_, str> {
+            let text = spans.get(at(key)).and_then(|span| text.get(span.clone()));
+            match text {
+                Some(text) if text.len() <= budget => text.into(),
+                Some(text) => too_large_stub(key, text.len()).into(),
+                None => "null".into(),
+            }
+        };
+        let whole = cursor.is_none() && {
+            let bytes: usize = rows.iter().map(|key| row(key).len() + 1).sum();
+            bytes <= budget
+        };
+        let (page, next) = if whole {
+            (rows.iter().map(row).collect(), None)
+        } else {
+            let (page, next) = super::session_pages::byte_page(
+                rows,
+                cursor,
+                budget,
+                |n| rows.get(n).map_or_else(|| "null".into(), row),
+                |r| r.len(),
+            )?;
+            (page, next.map(|next| after.map_or_else(|| next.clone(), |k| format!("{next}~{k}"))))
+        };
+        let mut out = String::from("{");
+        if let Some(next) = next {
+            out.push_str(&format!("\"nextCursor\":{},", Value::String(next)));
+        }
+        out.push_str("\"sessions\":[");
+        for (n, text) in page.iter().enumerate() {
+            if n > 0 {
+                out.push(',');
+            }
+            out.push_str(text);
+        }
+        out.push_str("]}");
+        Ok(out)
     }
 
     #[cfg(test)]
@@ -147,7 +268,9 @@ impl Snapshot {
                 text.push(',');
             }
             let at = key["at"].as_u64().unwrap_or_default() as usize;
-            text.push_str(self.spans.get(at).map_or("null", |span| &self.whole[span.clone()]));
+            text.push_str(
+                self.spans.get(at).and_then(|span| self.whole.get(span.clone())).unwrap_or("null"),
+            );
         }
         text.push_str("]}");
         Ok(text)
@@ -155,7 +278,8 @@ impl Snapshot {
 
     /// Every summary, parsed back.
     pub(crate) fn values(&self) -> Vec<Value> {
-        let parse = |span: &Range<usize>| serde_json::from_str(&self.whole[span.clone()]);
+        let parse =
+            |span: &Range<usize>| serde_json::from_str(self.whole.get(span.clone()).unwrap_or(""));
         self.spans.iter().map(|span| parse(span).unwrap_or_default()).collect()
     }
 
@@ -173,6 +297,25 @@ impl Snapshot {
         let mut made = self.made.lock().unwrap_or_else(|e| e.into_inner());
         made.entry(name).or_insert_with(|| Arc::new(make(self))).clone()
     }
+}
+
+/// A row larger than a page alone goes as this stub, with its size, as a record too large for a
+/// reply goes (`hub/paging.rs`): a page holds at least one row, and one that large would be
+/// refused, page and all. It keeps the row's paging keys (an id longer than 4 KiB as null), so
+/// a client still sees the chat and can read it alone (`_acpmux/info`).
+fn too_large_stub(key: &Value, bytes: usize) -> String {
+    let id = key.get("sessionId").filter(|v| v.as_str().is_some_and(|t| t.len() <= 4 << 10));
+    let mut stub = json!({
+        "sessionId": id.cloned().unwrap_or(Value::Null),
+        "updatedAt": key.get("updatedAt").cloned().unwrap_or(Value::Null),
+        "omitted": {"bytes": bytes, "reason": "too_large"},
+    });
+    for k in ["peer", "status"] {
+        if let Some(v) = key.get(k).filter(|v| !v.is_null()) {
+            stub.set(k, v.clone());
+        }
+    }
+    stub.to_string()
 }
 
 /// A byte arena and small keys, rather than all the summaries' nested allocations.
@@ -210,11 +353,15 @@ impl Rows {
     }
 
     fn finish(mut self) -> Built {
-        // Stable ties keep the original local-before-remote order, including duplicate IDs.
+        // The order `sort_session_summaries` gives: a chat's copies local first, then by peer,
+        // the order their cursors (`session_pages.rs`) read them in.
         self.keys.sort_by(|a, b| {
-            b.updated_at.cmp(&a.updated_at).then_with(|| {
-                a.session_id.as_deref().unwrap_or("").cmp(b.session_id.as_deref().unwrap_or(""))
-            })
+            b.updated_at
+                .cmp(&a.updated_at)
+                .then_with(|| {
+                    a.session_id.as_deref().unwrap_or("").cmp(b.session_id.as_deref().unwrap_or(""))
+                })
+                .then_with(|| a.peer.cmp(&b.peer))
         });
         let prefix = br#"{"sessions":["#;
         let mut whole = Vec::with_capacity(
@@ -229,20 +376,25 @@ impl Rows {
             }
             let source = key.at;
             let start = whole.len();
-            whole.extend_from_slice(&self.text[self.spans[source].clone()]);
+            whole.extend_from_slice(
+                self.spans
+                    .get(source)
+                    .and_then(|span| self.text.get(span.clone()))
+                    .unwrap_or_default(),
+            );
             spans.push(start..whole.len());
             let mut value = json!({"at": at});
             if let Some(session_id) = key.session_id {
-                value["sessionId"] = Value::String(session_id);
+                value.set("sessionId", Value::String(session_id));
             }
             if key.updated_at != 0 {
-                value["updatedAt"] = Value::from(key.updated_at);
+                value.set("updatedAt", Value::from(key.updated_at));
             }
             if let Some(peer) = key.peer {
-                value["peer"] = Value::String(peer);
+                value.set("peer", Value::String(peer));
             }
             if let Some(status) = key.status {
-                value["status"] = Value::String(status);
+                value.set("status", Value::String(status));
             }
             keys.push(value);
         }
@@ -387,6 +539,18 @@ impl Pacer {
 mod tests {
     use super::*;
 
+    impl Snapshot {
+        /// [`Snapshot::bounded`] without tools, which needs no hub.
+        fn bounded_text(&self, params: &Value, budget: usize) -> String {
+            let hub = crate::hub::Hub::new(crate::config::Config::default(), {
+                let mut config = crate::config::Config::default();
+                config.store.mode = crate::config::StoreMode::Memory;
+                crate::store::open(&config.store, std::path::Path::new("/nonexistent")).unwrap()
+            });
+            self.bounded(&hub, params, false, budget).unwrap()
+        }
+    }
+
     #[test]
     fn the_text_and_every_page_are_the_bytes_the_summaries_write() {
         let mut rows: Vec<Value> = (0..5)
@@ -417,12 +581,68 @@ mod tests {
         assert!(list.page(&json!({"cursor": 3})).is_err());
     }
 
+    /// A list read from a session list cursor (`k...`) with no `limit`, too large for one page,
+    /// keeps that cursor's cutoff on every page: the rows after the session it names, each once.
+    #[tokio::test]
+    async fn byte_pages_of_a_list_after_a_session_cursor_keep_its_cutoff() {
+        let mut rows: Vec<Value> = ["a", "b", "c", "d", "e", "f"]
+            .iter()
+            .enumerate()
+            .map(|(i, id)| json!({"sessionId": id, "updatedAt": 10 - i, "pad": "x".repeat(40)}))
+            .collect();
+        super::super::session_pages::sort_session_summaries(&mut rows);
+        let list =
+            Snapshot::new((false, 0, 0, Vec::new()), 0, Duration::ZERO, Snapshot::serialize(&rows));
+        let after_b =
+            super::super::session_pages::session_list_reply(rows.clone(), &json!({"limit": 2}))
+                .unwrap()["nextCursor"]
+                .clone();
+        let (mut read, mut params) = (Vec::new(), json!({"cursor": after_b}));
+        for _ in 0..10 {
+            let page: Value = serde_json::from_str(&list.bounded_text(&params, 150)).unwrap();
+            let listed = page["sessions"].as_array().unwrap();
+            read.extend(listed.iter().map(|r| r["sessionId"].as_str().unwrap().to_owned()));
+            match page.get("nextCursor") {
+                Some(next) => params["cursor"] = next.clone(),
+                None => break,
+            }
+        }
+        read.sort();
+        assert_eq!(read, ["c", "d", "e", "f"]);
+    }
+
+    #[tokio::test]
+    async fn a_row_larger_than_its_page_goes_as_a_stub_with_its_keys() {
+        let mut rows = vec![
+            json!({"sessionId": "big", "updatedAt": 9, "peer": "box", "status": "idle",
+                "preview": "x".repeat(5000)}),
+            json!({"sessionId": "small", "updatedAt": 5, "status": "idle"}),
+        ];
+        super::super::session_pages::sort_session_summaries(&mut rows);
+        let list =
+            Snapshot::new((false, 0, 0, Vec::new()), 0, Duration::ZERO, Snapshot::serialize(&rows));
+        let first: Value = serde_json::from_str(&list.bounded_text(&json!({}), 1000)).unwrap();
+        // Pages go in an order updates do not change (`byte_page`), not newest first.
+        let listed = first["sessions"].as_array().unwrap();
+        let by_id = |id: &str| listed.iter().find(|r| r["sessionId"] == id).unwrap();
+        let stub = by_id("big");
+        assert_eq!(stub["peer"], "box");
+        assert_eq!(stub["omitted"]["reason"], "too_large");
+        assert!(stub["omitted"]["bytes"].as_u64().unwrap() > 5000, "{stub}");
+        assert!(stub.get("preview").is_none(), "{stub}");
+        // The stub is small, so the next row goes on its page.
+        assert_eq!(listed.len(), 2, "{first}");
+        assert_eq!(by_id("small"), &rows[1], "{first}");
+        assert!(first.get("nextCursor").is_none(), "{first}");
+    }
+
     #[test]
     fn streamed_rows_preserve_all_fields_and_stable_ties() {
         let mut rows = vec![
             json!({"sessionId": "z", "updatedAt": 1, "status": "closed", "tools": [{"id": "tool", "description": "雪\n\""}]}),
             json!({"sessionId": "same", "updatedAt": 9, "origin": "local"}),
             json!({"sessionId": "same", "updatedAt": 9, "peer": "remote", "origin": "remote"}),
+            json!({"sessionId": "same", "updatedAt": 9, "peer": "other", "origin": "other"}),
             json!({"sessionId": "a", "updatedAt": 9, "unknown": {"array": [null, false, 42]}}),
             json!({"sessionId": null, "updatedAt": "invalid", "status": "closed"}),
             json!({"updatedAt": -1, "opaque": "preserved"}),
@@ -443,7 +663,8 @@ mod tests {
             );
         }
         assert_eq!(rows[1]["origin"], "local");
-        assert_eq!(rows[2]["origin"], "remote");
+        assert_eq!(rows[2]["origin"], "other");
+        assert_eq!(rows[3]["origin"], "remote");
     }
 
     #[test]

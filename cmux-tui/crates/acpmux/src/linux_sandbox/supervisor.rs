@@ -62,7 +62,7 @@ fn link_at(dir: RawFd, path: &str) -> Result<String> {
     if n == buf.len() {
         return Err(ENAMETOOLONG);
     }
-    String::from_utf8(buf[..n].to_vec()).map_err(|_| EACCES)
+    String::from_utf8(buf.get(..n).unwrap_or_default().to_vec()).map_err(|_| EACCES)
 }
 
 /// Reads each target byte at most once; stops at NUL, PATH_MAX, or read error.
@@ -70,7 +70,10 @@ fn copy_path(pid: u32, address: u64) -> Result<String> {
     let mut buf = [0u8; PATH_MAX as usize];
     let mut used = 0;
     while used < buf.len() {
-        let local = iovec { iov_base: buf[used..].as_mut_ptr().cast(), iov_len: buf.len() - used };
+        let local = iovec {
+            iov_base: buf.get_mut(used..).unwrap_or_default().as_mut_ptr().cast(),
+            iov_len: buf.len() - used,
+        };
         let remote = iovec {
             iov_base: address.checked_add(used as u64).ok_or(EFAULT)? as *mut c_void,
             iov_len: local.iov_len,
@@ -80,8 +83,9 @@ fn copy_path(pid: u32, address: u64) -> Result<String> {
             return Err(EFAULT);
         }
         let end = used + n as usize;
-        if let Some(nul) = buf[used..end].iter().position(|b| *b == 0) {
-            return String::from_utf8(buf[..used + nul].to_vec()).map_err(|_| EACCES);
+        if let Some(nul) = buf.get(used..end).unwrap_or_default().iter().position(|b| *b == 0) {
+            return String::from_utf8(buf.get(..used + nul).unwrap_or_default().to_vec())
+                .map_err(|_| EACCES);
         }
         used = end;
     }
@@ -242,16 +246,20 @@ fn resolve_inner(
         let is_proc = i64::try_from(fs.f_type).map_err(|_| EACCES)?
             == i64::try_from(PROC_SUPER_MAGIC).map_err(|_| EACCES)?;
         if is_proc {
+            let (Some(first), Some(second), Some(fd)) = (queue.front(), queue.get(1), queue.get(2))
+            else {
+                return Err(EACCES);
+            };
             if target != Path::new("/proc")
                 || queue.len() != 3
                 || magic.is_some()
-                || !matches!(queue[0].as_str(), "self" | "thread-self") && queue[0] != nspid
-                || queue[1] != "fd"
+                || !matches!(first.as_str(), "self" | "thread-self") && *first != nspid
+                || *second != "fd"
                 || flags & O_NOFOLLOW != 0
             {
                 return Err(EACCES);
             }
-            let number = proc_fd_number(&queue[2])?;
+            let number = proc_fd_number(fd)?;
             let object = open_at(task, &format!("fd/{number}"), O_PATH, 0)?;
             let current = link_at(AT_FDCWD, &format!("/proc/self/fd/{}", object.as_raw_fd()))
                 .map_err(|_| EACCES)?;
@@ -307,17 +315,19 @@ fn resolve_inner(
                 && (queue.is_empty()
                     || (queue.len() == 1
                         && matches!(
-                            queue[0].as_str(),
-                            "null"
-                                | "zero"
-                                | "full"
-                                | "random"
-                                | "urandom"
-                                | "tty"
-                                | "stdout"
-                                | "stderr"
+                            queue.front().map(String::as_str),
+                            Some(
+                                "null"
+                                    | "zero"
+                                    | "full"
+                                    | "random"
+                                    | "urandom"
+                                    | "tty"
+                                    | "stdout"
+                                    | "stderr"
+                            )
                         ))
-                    || (queue.len() == 2 && queue[0] == "fd"));
+                    || (queue.len() == 2 && queue.front().is_some_and(|c| c == "fd")));
             check_directory(pin.as_raw_fd(), device_route)?;
         } else if queue.is_empty() && directory_required {
             return Err(ENOTDIR);

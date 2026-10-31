@@ -277,6 +277,11 @@ final class ExtensionActionToolbar {
         host?.hideExtensionPopups()
     }
 
+    /// The page is closing: the Extensions bubble's panel closes for good.
+    func closeMenuPanel() {
+        menuController.closePanel()
+    }
+
     private var handler: (any ExtensionMenuHandling)? {
         if let menuHandler { return menuHandler }
         guard let host else { return nil }

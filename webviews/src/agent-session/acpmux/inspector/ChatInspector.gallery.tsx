@@ -124,8 +124,8 @@ function GalleryInspector({
   );
 }
 
-/// Pull requests the chat opened or touched across repositories (oldest first, as sessionSummary
-/// reads them).
+/// Pull requests the chat opened or changed across repositories (oldest first, as sessionSummary
+/// reads them). Read-only references appear in Sources below.
 const pullRequests: NonNullable<Props["made"]>["pullRequests"] = [
   { n: 22217, title: "cmux NEXT: Cmd-W closes a pinned tab's split", opened: true, state: "merged" },
   { repo: "acme/billing", n: 7, title: "billing: retry webhooks on a 502", opened: false, state: "closed" },
@@ -303,7 +303,18 @@ const full: Props = {
   summary,
   machineName: "Studio",
   repository: "manaflow-ai/cmux",
-  made: { ...made, pullRequests },
+  made: {
+    ...made,
+    pullRequests,
+    sources: [
+      { url: "https://github.com/acme/billing/pull/7", label: "billing: retry webhooks on a 502", kind: "pullRequest" },
+      { label: "cmux.com/docs/session-info", url: "https://cmux.com/docs/session-info", kind: "url" },
+      { label: "src/net/fetch.ts", kind: "file" },
+      { label: "github · search issues", kind: "mcp" },
+      { label: "linear · get issue", kind: "mcp" },
+      { label: "teamleaderleo/leo-workspace #1056", kind: "issue" },
+    ],
+  },
   links: [
     { url: "https://cmux.com/docs/inspector", label: "cmux.com/docs/inspector" },
     { url: "https://claude.ai/artifact/inspector-plan", label: "claude.ai/artifact/inspector-plan" },
@@ -318,10 +329,12 @@ const full: Props = {
   onStopProcess: async () => undefined,
   onOpenUrl: () => undefined,
   onOpenOutput: () => undefined,
+  onOpenSourceFile: () => undefined,
   onOpenSubagent: () => undefined,
   onSaveEnvironment: () => undefined,
   onSetRunningLimit: async () => undefined,
   onReconnectMcp: async () => undefined,
+  onCompact: () => undefined,
   remoteControl: { on: false, set: () => undefined },
 };
 
@@ -336,6 +349,8 @@ const busyAgents: Subagent[] = Array.from({ length: 107 }, (_, index) => ({
   startedAt: started - (index + 1) * 60_000,
   ...(index < 12 ? { action: index % 2 ? "Running bun test" : "Reading SubagentsSection.tsx" } : {}),
   ...(index >= 12 ? { endedAt: started - index * 50_000 } : {}),
+  // Every fourth runs on Codex (a `codex exec` the chat started), so its line draws Codex's mark.
+  ...(index % 4 === 3 ? { harness: "codex" } : {}),
 }));
 const LANES = ["summary-panel", "priority-view", "lane-host", "machine-hygiene", "paired-approvals"];
 const busySessions: StartedSession[] = LANES.map((title, index) => ({
@@ -343,8 +358,12 @@ const busySessions: StartedSession[] = LANES.map((title, index) => ({
   title,
   state: index === 1 ? "waiting" : "running",
   createdAt: started - (index + 1) * 300_000,
+  // The chats it started run on Claude or Codex, and one on a harness with no mark of its own: its
+  // icon keeps its own color (Leo, 2026-10-29: "one of these is Codex, one of these is Claude").
+  ...(index === 4 ? {} : { harness: index % 2 ? "codex" : "claude" }),
 }));
-const busy: Props = { ...full, agents: busyAgents, sessions: busySessions };
+/// The chat runs on Claude: its own subagents draw Claude's mark.
+const busy: Props = { ...full, summary: { ...summary, harness: "claude" }, agents: busyAgents, sessions: busySessions };
 
 /// A chat running a Claude workflow (Labs `workflowLabs`): its events fed through the real subagent
 /// fold (summary/workflowFixture.ts), so Background tasks shows what the fold keeps
@@ -496,6 +515,7 @@ const subagentPanel: Props = {
   agent: worktreeAgent,
   onOpenUrl: () => undefined,
   onOpenOutput: () => undefined,
+  onOpenSourceFile: () => undefined,
   onStopProcess: async () => undefined,
   scope: scopeOf(worktreeAgent),
 };
@@ -551,6 +571,7 @@ export default componentEntry<Props>({
     "agent-session/acpmux/inspector/chatFolders.ts",
     "agent-session/acpmux/inspector/ChildSessionRows.tsx",
     "agent-session/acpmux/inspector/ChangesSection.tsx",
+    "agent-session/acpmux/inspector/SourcesSection.tsx",
     "agent-session/acpmux/inspector/ConnectorsSection.tsx",
     "agent-session/acpmux/inspector/ContextSection.tsx",
     "agent-session/acpmux/inspector/PullRequestGlyph.tsx",
@@ -569,20 +590,8 @@ export default componentEntry<Props>({
   ],
   load: async () => GalleryInspector,
   variants: {
-    "subagents-done": {
-      note: "A busy chat with Environment, Context, Outputs and 31 completed subagents: four static harness avatars beside the count, opening the named list.",
-      props: {
-        ...full,
-        agents: agents.slice(3, 34).map((agent, index) => ({
-          ...agent,
-          state: "completed",
-          harness: index % 2 ? "codex" : "claude",
-        })),
-        sessions: [],
-      },
-    },
     full: {
-      note: "A chat on this Mac with every section, shipped layout (glance): no section is a box. Where it runs: the machine with Save, folder, repository, branch and Remote Control, then Context (47%) and Connectors (1 to reconnect) as one row each. A hairline, then what it made: eight pull requests across three repositories (five shown, then Show more) and its outputs. A hairline, then what it runs: three running subagents and two running chats with the 40 done · 1 failed row, and Background tasks, the dev server on :5173 first, then the commands (one only the transcript knows, without Stop) and four finished.",
+      note: "A chat on this Mac with every section, shipped layout (glance): no section is a box. Where it runs: the machine with Save, folder, repository, branch and Remote Control, then Context (47%) and Connectors (1 to reconnect) as one row each. A hairline, then what it made: six session-owned pull requests, then Sources with read-only PRs, URLs, files and MCP tools, then its outputs. A hairline, then what it runs: three running subagents and two running chats with the 40 done · 1 failed row, and Background tasks, the dev server on :5173 first, then the commands (one only the transcript knows, without Stop) and four finished.",
       props: full,
       play: checkTopBlockAlignment,
     },
@@ -594,7 +603,7 @@ export default componentEntry<Props>({
       },
     },
     "workflow-finished": {
-      note: "Labs: the same workflow finished. 1 finished; Workflow · Finished · 7 agents · 432k tokens; each phase N/N with its dots, no Stop and no Up next. Critique opened: its agents with a check and how long each took.",
+      note: "Labs: the same workflow finished. 1 finished; Workflow · Finished · 7 agents · 432k tokens; each phase N/N with its dots, no Stop. Critique opened: its agents with a check and how long each took.",
       props: workflowProps("finished"),
       play: openPhase(2),
     },
@@ -673,8 +682,12 @@ export default componentEntry<Props>({
       },
     },
     "context-connectors-open": {
-      note: "Context and Connectors open: the percent used with the tokens, the bar, used and free space with their shares; each MCP server with its status, the failed one with Reconnect.",
+      note: "Context and Connectors open: the percent used with the tokens, the bar, used and free space with their shares; each MCP server with its status.",
       props: { ...full, sections: { ...DEFAULT_SECTIONS, context: true, connectors: true } },
+    },
+    "context-compact-working": {
+      note: "Shipped (Leo, 2026-10-28: \"You don't have the compact session\"): Context open while a turn runs. Compact, the quiet text action under the rows (as Environment's Save), is off until the turn ends, as the composer ring's card has it.",
+      props: { ...full, working: true, sections: { ...DEFAULT_SECTIONS, context: true } },
     },
     "context-breakdown": {
       note: "Shipped: a Claude Code chat's /context in Context, open: 43% used with 171.4k / 400k, the bar split by category in steps of the theme accent (largest first; the autocompact buffer grey; free space the track), a row per category with its tokens and share, the deferred ones dimmed with no share, then the MCP tools, Memory files and Skills folds, MCP tools open.",

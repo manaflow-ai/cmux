@@ -21,7 +21,13 @@ mod app_browser_route;
 #[cfg(unix)]
 mod app_focus;
 #[cfg(unix)]
+mod apps_list;
+#[cfg(unix)]
 mod apps_run;
+#[cfg(unix)]
+mod automation;
+#[cfg(unix)]
+mod automation_cloud;
 mod beside;
 #[cfg(unix)]
 mod billing;
@@ -31,6 +37,7 @@ mod chief;
 mod chief_target;
 #[cfg(unix)]
 mod cloud_client_session;
+mod cloud_help;
 #[cfg(unix)]
 mod cloud_machines;
 #[cfg(unix)]
@@ -50,6 +57,7 @@ mod fix_command;
 mod frontend_browser;
 #[cfg(unix)]
 mod host_mount;
+mod internal;
 mod launch_credential;
 mod lifecycle;
 // Like the other scopes its dispatch is in (`run`, `#[cfg(unix)]`): Unix only.
@@ -69,6 +77,8 @@ pub(crate) use host_mount::early_unix_scope;
 pub(crate) fn remote_host_requested(raw_args: &[String]) -> bool {
     Surface::current() == Surface::Cmux && crate::remote_host::handles(raw_args)
 }
+#[cfg(unix)]
+mod machine_doctor;
 #[cfg(unix)]
 mod machine_join;
 #[cfg(unix)]
@@ -95,6 +105,7 @@ mod skew;
 #[cfg(unix)]
 mod status;
 mod surface;
+mod tab_capabilities;
 #[cfg(unix)]
 mod terminal_talk;
 mod topology_help;
@@ -132,6 +143,8 @@ const PUBLIC_SCOPES: &[&str] = &[
     "pairing",
     "projection",
     "provider",
+    "settings",
+    "config",
     "raw",
 ];
 
@@ -205,21 +218,56 @@ pub(super) fn is_remote_invocation(args: &[String]) -> bool {
                 index += 1;
             }
             value if value.starts_with('-') => return false,
-            "remote" => return remote_family_word(args.get(index + 1)),
+            "remote" => return remote_family_word(args.get(index + 1..).unwrap_or_default()),
             value => return REMOTE_COMMANDS.contains(&value),
         }
     }
     false
 }
 
-/// Whether the word after `remote` keeps argv in the remote command family:
-/// none, a flag, `help` or one of its actions. Any other word is an app
+/// Whether the words after `remote` keep argv in the remote command family:
+/// none, a flag, `help`, one of its actions, or any word asked for `--help`
+/// (the remote family's help lists its actions). Any other word is an app
 /// action's CLI name (`remote new-group`, `remote reconnect`), which the app
-/// action fallback runs.
-fn remote_family_word(word: Option<&String>) -> bool {
-    word.is_none_or(|word| {
-        word.starts_with('-') || word == "help" || remote_action_command(word).is_some()
+/// action fallback runs; a word no app action has is refused as an unknown
+/// remote action there (see ``unknown_remote_action``).
+fn remote_family_word(rest: &[String]) -> bool {
+    rest.first().is_none_or(|word| {
+        word.starts_with('-')
+            || word == "help"
+            || remote_action_command(word).is_some()
+            || rest
+                .iter()
+                .take_while(|arg| *arg != "--")
+                .any(|arg| matches!(arg.as_str(), "-h" | "--help"))
     })
+}
+
+/// The remote family's refusal of `remote <word>` when `<word>` is neither a
+/// remote action nor an app action's CLI name, in place of the mux grammar's
+/// unknown-scope error for `remote`.
+#[cfg(unix)]
+fn unknown_remote_action(args: &[String]) -> Option<i32> {
+    let (global, command_args) = parse_action_globals(args).ok()?;
+    if command_args.first().map(String::as_str) != Some("remote") {
+        return None;
+    }
+    let action = command_args.get(1).filter(|word| !word.starts_with('-'))?;
+    let message = crate::localization::catalog().remote_client.unknown_action("remote", action);
+    let message = match global.output {
+        OutputMode::Quiet | OutputMode::Human => format!("cmux: {message}"),
+        OutputMode::Json | OutputMode::JsonLines => message,
+    };
+    Some(wire::print_local_error(
+        &serde_json::json!({
+            "code":"usage.invalid",
+            "message":message,
+            "details":{},
+            "retryable":false,
+        }),
+        global.output,
+        1,
+    ))
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -421,12 +469,15 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| chief::run_if_requested(args))
         .or_else(|| chief::run_avatar_if_requested(args))
         .or_else(|| coderouter::run_if_requested(args))
+        .or_else(|| automation::run_if_requested(args))
         .or_else(|| billing::run_if_requested(args))
         .or_else(|| sandbox_run::run_if_requested(args))
         .or_else(|| vm::run_if_requested(args))
         .or_else(|| cloud_secret::run_if_requested(args))
         .or_else(|| cloud_client_session::run_if_requested(args))
         .or_else(|| machine_join::run_if_requested(args))
+        .or_else(|| machine_doctor::run_if_requested(args))
+        .or_else(|| apps_list::run_if_requested(args))
         .or_else(|| apps_run::run_if_requested(args))
         .or_else(|| script::run_if_requested(args))
         .or_else(|| setup::run_if_requested(args))
@@ -481,6 +532,10 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
             if let Some(code) = run_app_action_fallback(args) {
                 return code;
             }
+            #[cfg(unix)]
+            if let Some(code) = unknown_remote_action(args) {
+                return code;
+            }
             // A command this build does not know may be one the daemon's
             // build knows: run that daemon's CLI (cli/skew.rs).
             #[cfg(unix)]
@@ -520,6 +575,12 @@ fn run_app_scope(args: &[String]) -> Option<i32> {
     if has_help_option(&command_args) || command_args.first().is_some_and(|word| word == "help") {
         return extra_help::print(&command_args);
     }
+    // Settings CRUD belongs to the daemon's v2 owner. Keep the app parser for
+    // local-only helpers (`list`, `schema`, `validate`) until those have daemon
+    // equivalents on this surface.
+    if daemon_settings_scope(&command_args) {
+        return None;
+    }
     match app::parse(&command_args) {
         Ok(Some(_)) if global.all_sessions => Some(app::failure(
             "usage.invalid",
@@ -539,6 +600,33 @@ fn run_app_scope(args: &[String]) -> Option<i32> {
             global.output,
             2,
         )),
+    }
+}
+
+#[cfg(unix)]
+fn daemon_settings_scope(command_args: &[String]) -> bool {
+    // Help belongs to the app's documented settings scope even when it is
+    // attached to a daemon-owned CRUD verb.
+    if has_help_option(command_args) || command_args.first().is_some_and(|word| word == "help") {
+        return false;
+    }
+    if !matches!(command_args.first().map(String::as_str), Some("settings" | "config")) {
+        return false;
+    }
+    match command_args.get(1).map(String::as_str) {
+        // `get` without a path is the legacy app snapshot; keep it until the
+        // daemon gains an equivalent empty-target read.
+        Some("get") if command_args.len() == 2 => false,
+        // Person-only settings still need the app's native confirmation
+        // sheet. The daemon CLI deliberately has no fake approval path. Only
+        // options before `--` are flags; after it, every argument is literal.
+        Some("set" | "reset" | "unset")
+            if command_args.iter().take_while(|arg| *arg != "--").any(|arg| arg == "--confirm") =>
+        {
+            false
+        }
+        Some("get" | "set" | "reset" | "unset") => true,
+        _ => false,
     }
 }
 
@@ -669,11 +757,9 @@ fn parse_command(
 }
 
 fn unknown_scope(scope: &str, surface: Surface) -> UsageError {
-    UsageError::new(
-        crate::localization::catalog()
-            .local_server
-            .unknown_scope(scope, suggestion(scope, surface.scopes())),
-    )
+    let suggestion = internal::classic_verbs::resource_command(scope)
+        .or_else(|| suggestion(scope, surface.scopes()));
+    UsageError::new(crate::localization::catalog().local_server.unknown_scope(scope, suggestion))
 }
 
 /// A `cmux-tui` scope named through `cmux`, which refuses it by name
@@ -998,7 +1084,7 @@ fn scope_help_for(
         "agent open-tab" => {
             Cow::Borrowed(crate::localization::catalog().app_control.agent_open_tab_usage)
         }
-        "cloud" => Cow::Borrowed(CLOUD_HELP),
+        "cloud" => Cow::Owned(cloud_help::overview(catalog.is_japanese())),
         "room" => Cow::Borrowed(scope_help::ROOM_HELP),
         "closed" => Cow::Borrowed(scope_help::CLOSED_HELP),
         "git" => Cow::Borrowed(scope_help::GIT_HELP),
@@ -1167,112 +1253,6 @@ USAGE
   cmux agent plugin install <git-url> [--name <value>] [--force]
   cmux agent plugin use|update|remove <name-or-id>
   cmux agent plugin use --builtin
-";
-
-const CLOUD_HELP: &str = "\
-USAGE
-  cmux cloud <action> [--target machine:MACHINE_ID] [--<argument> VALUE]...
-
-Most machine actions need --target machine:MACHINE_ID, even with one machine.
-Run `cmux cloud list-machines` to get its id and target.
-hand-off-machine returns hand-off text; move sends a chat tab to Cloud and
-bring-back returns a previously moved chat to this Mac.
-
-CLI actions (the live action catalog is authoritative):
-  new-workspace             new-machine
-  fork-machine              snapshot-machine
-  restore-machine           promote-machine-to-template
-  machine-status            machine-ports
-  hand-off-machine          move
-  bring-back                ssh
-  exec                      setup-github
-  files-list                file-read
-  file-write                file-mkdir
-  file-remove               file-stat
-  prepare-scp               tunnel-attach
-  tunnel-detach             tunnel-rotate-key
-  network-list              firewall-list
-  firewall-get              firewall-create
-  firewall-delete            domain-list
-  publication-list           list-machines
-  new-terminal-on-machine    rename-machine
-  kill-machine               pause-machine
-  resume-machine             resize-machine
-  set-idle-pause             delete-snapshot
-  diagnostics               sign-in
-  sign-out                  open-mobile-pairing
-  open-browser              port-list
-  port-forward              port-close
-  machine-link              enroll-machine
-  open-desktop              apply-machine-config
-  deliver-secrets           start-session
-
-Secrets (stored in this Mac's Keychain):
-  cmux cloud secret set NAME [--repo OWNER/NAME]
-  cmux cloud secret ls
-  cmux cloud secret rm NAME [--repo OWNER/NAME]
-set reads the value from a hidden prompt or stdin, never a command argument.
-deliver-secrets sends the secrets declared by a finished machine config.
-
-Client sessions (a scoped token for one of your machines, no app needed):
-  cmux cloud client-session create --target machine:VM_ID [--ttl SECONDS] [--token-file PATH]
-  cmux cloud client-session exec --target machine:VM_ID -- COMMAND...
-
-Run `cmux action list --category cloud --json` for the current catalog and
-`cmux action describe <action> --json` for an action's arguments.
-";
-
-const CLOUD_HELP_JA: &str = "\
-使い方
-  cmux cloud <アクション> [--target machine:MACHINE_ID] [--<引数> VALUE]...
-
-マシンを操作する大半のアクションには、マシンが 1 台でも --target machine:MACHINE_ID が必要です。
-`cmux cloud list-machines` で ID と target を確認できます。
-hand-off-machine は引き継ぎ用のテキストを返します。move はチャットタブを Cloud に移し、
-bring-back は以前移したチャットをこの Mac に戻します。
-
-CLI アクション（現在の一覧はアクションカタログを参照）:
-  new-workspace             new-machine
-  fork-machine              snapshot-machine
-  restore-machine           promote-machine-to-template
-  machine-status            machine-ports
-  hand-off-machine          move
-  bring-back                ssh
-  exec                      setup-github
-  files-list                file-read
-  file-write                file-mkdir
-  file-remove               file-stat
-  prepare-scp               tunnel-attach
-  tunnel-detach             tunnel-rotate-key
-  network-list              firewall-list
-  firewall-get              firewall-create
-  firewall-delete            domain-list
-  publication-list           list-machines
-  new-terminal-on-machine    rename-machine
-  kill-machine               pause-machine
-  resume-machine             resize-machine
-  set-idle-pause             delete-snapshot
-  diagnostics               sign-in
-  sign-out                  open-mobile-pairing
-  open-browser              port-list
-  port-forward              port-close
-  machine-link              enroll-machine
-  open-desktop              apply-machine-config
-  deliver-secrets           start-session
-
-シークレット（この Mac のキーチェーンに保存）:
-  cmux cloud secret set NAME [--repo OWNER/NAME]
-  cmux cloud secret ls
-  cmux cloud secret rm NAME [--repo OWNER/NAME]
-set は値を非表示の入力プロンプトまたは標準入力から読み取ります。コマンドの引数には指定しません。
-deliver-secrets は適用が完了したマシン設定で宣言されたシークレットを送信します。
-
-クライアントセッション（自分のマシン 1 台だけに使える短期トークン、アプリ不要）:
-  cmux cloud client-session create --target machine:VM_ID [--ttl SECONDS] [--token-file PATH]
-  cmux cloud client-session exec --target machine:VM_ID -- COMMAND...
-
-現在のカタログは `cmux action list --category cloud --json`、引数は
-`cmux action describe <action> --json` で確認できます。
 ";
 
 const SIDEBAR_HELP: &str = "\

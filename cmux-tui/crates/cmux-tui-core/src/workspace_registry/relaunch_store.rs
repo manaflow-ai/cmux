@@ -42,6 +42,7 @@ use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde_json::{Map, Value, json};
 
 use super::WorkspaceRegistry;
+use cmux_json::JsonSet as _;
 
 mod agent_launch;
 pub(crate) use agent_launch::{
@@ -450,9 +451,16 @@ impl WorkspaceRegistry {
                 if non_interactive {
                     record[NON_INTERACTIVE] = json!(true);
                 } else if let Some(launch) = kept {
-                    record["args"] = json!(launch.args);
-                    record["env"] = Value::Object(
-                        launch.env.into_iter().map(|(key, value)| (key, json!(value))).collect(),
+                    record.set("args", json!(launch.args));
+                    record.set(
+                        "env",
+                        Value::Object(
+                            launch
+                                .env
+                                .into_iter()
+                                .map(|(key, value)| (key, json!(value)))
+                                .collect(),
+                        ),
                     );
                 }
                 Some(record.to_string())
@@ -525,7 +533,7 @@ fn stored_agent_launch(agent: &Value) -> Option<AgentLaunch> {
     }
     let args = kept_agent_args(harness, &args);
     let env = account_env_key(harness)
-        .and_then(|key| Some((key, agent["env"][key].as_str()?)))
+        .and_then(|key| Some((key, agent.get("env")?.get(key)?.as_str()?)))
         .filter(|(_, dir)| Path::new(dir).is_absolute() && !dir.chars().any(char::is_control))
         .map(|(key, dir)| vec![(key.to_string(), dir.to_string())])
         .unwrap_or_default();

@@ -12,6 +12,7 @@ type Props = Parameters<typeof PeerCopyBanner>[0];
 
 const copy = { peer: "dev-vm-2", capturedAt: GALLERY_NOW - 39 * 60_000, offline: true };
 const onResume = () => undefined;
+const refusedReconnect = () => Promise.reject(new Error("peer_unreachable: refused by doctor"));
 
 export default componentEntry<Props>({
   id: "agent-pane.peer-copy-paused",
@@ -33,6 +34,13 @@ export default componentEntry<Props>({
     starting: {
       note: "After Resume, or while the machine boots: a spinner and Starting, no second Resume.",
       props: { copy, now: GALLERY_NOW, machine: "starting", onResume },
+    },
+    refused: {
+      note: "The offline chat keeps its copy and shows the daemon doctor failure after Reconnect is refused.",
+      props: { copy, now: GALLERY_NOW, onReconnect: refusedReconnect },
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: "Reconnect" });
+      },
     },
     "paused-no-time": {
       note: "A copy that names no time.",

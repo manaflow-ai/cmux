@@ -111,6 +111,67 @@ async fn a_delayed_compaction_cancel_cannot_cancel_the_next_turn() {
     assert_ne!(accepted["turnId"], old_turn);
     drop(blocked_writer);
     tokio::time::timeout(WAIT, arrived).await.unwrap().unwrap();
+    // A hosted adapter can deliver old metadata while Stop still waits on its
+    // writer. It must be fenced here, before the adapter receives session/cancel.
+    let tap = hub.session_tap(&s);
+    let update = |kind, state| {
+        Message::notification(
+            method::SESSION_UPDATE,
+            json!({"sessionId": s.meta().agent_session_id, "update": {"sessionUpdate": kind, "state": state}}),
+        )
+    };
+    let before_metadata = s.seq.load(std::sync::atomic::Ordering::SeqCst);
+    assert!(tap(crate::agent::Direction::In, &update("compaction", "running"), Some(7001)));
+    assert!(tap(crate::agent::Direction::In, &update("compaction", "completed"), Some(7002)));
+    assert!(tap(crate::agent::Direction::In, &update("compaction_summary", ""), Some(7003)));
+    let metadata = hub.events(&s.id, before_metadata, 100).unwrap();
+    assert!(metadata.iter().any(|e| e.kind == "compaction"
+        && e.msg.pointer("/params/update/state") == Some(&json!("running"))));
+    assert!(
+        !metadata.iter().any(|e| e.kind == "compaction_summary"
+            || (e.kind == "compaction"
+                && e.msg.pointer("/params/update/state") == Some(&json!("completed")))),
+        "late metadata escaped before cancel write: {metadata:?}"
+    );
+    assert!(s.compacting.load(std::sync::atomic::Ordering::SeqCst));
+    assert!(
+        metadata.iter().any(|e| e.kind == "compaction_metadata_fenced" && e.host_seq == Some(7002))
+    );
+    assert!(
+        metadata.iter().any(|e| e.kind == "compaction_metadata_fenced" && e.host_seq == Some(7003))
+    );
+    // The translator on the remote host has not received Stop yet. A raw old
+    // boundary then result must not reset the controller's current usage.
+    let remote = crate::claude_stdio::Translator::new(
+        s.meta().agent_session_id.unwrap(),
+        "default",
+        "haiku",
+        "default",
+    );
+    s.meta.lock().unwrap().usage = Some(json!({"used": 123, "size": 200000}));
+    let boundary = remote.inbound(&json!({"type":"system","subtype":"compact_boundary","compact_metadata":{"post_tokens":10}})).await;
+    let result = remote.inbound(&json!({"type":"result","subtype":"success","num_turns":0,"duration_api_ms":0,"modelUsage":{"haiku":{"contextWindow":200000}}})).await;
+    assert!(result.iter().any(|m| m.params().and_then(|p| p.pointer("/update/sessionUpdate"))
+        == Some(&json!("usage_update"))));
+    for (index, msg) in boundary.iter().chain(result.iter()).enumerate() {
+        assert!(tap(crate::agent::Direction::In, msg, Some(7010 + index as u64)));
+        if msg.method() == Some(method::SESSION_UPDATE) {
+            hub.on_update(&s, msg.params(), false);
+        }
+    }
+    assert_eq!(s.meta().usage.unwrap()["used"], 123, "late boundary-derived usage escaped");
+    let records = hub.events(&s.id, before_metadata, 100).unwrap();
+    assert!(
+        !records.iter().any(|e| e.kind == "usage_update"
+            && e.msg.pointer("/params/update/used") == Some(&json!(10)))
+    );
+    // A real API message still refreshes usage after the fence.
+    let genuine = remote.inbound(&json!({"type":"stream_event","event":{"type":"message_delta","usage":{"input_tokens":250,"output_tokens":2}}})).await;
+    for msg in &genuine {
+        assert!(tap(crate::agent::Direction::In, msg, Some(7020)));
+        hub.on_update(&s, msg.params(), false);
+    }
+    assert_eq!(s.meta().usage.unwrap()["used"], 250);
     // Give the unfixed path time to deliver the new prompt before releasing the delayed
     // cancel. With ordering in place this event cannot arrive until release.
     let _ = tokio::time::timeout(Duration::from_millis(200), async {
