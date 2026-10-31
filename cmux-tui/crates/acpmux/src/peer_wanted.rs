@@ -48,7 +48,8 @@ impl Peer {
     }
 
     fn want_for(&self, window: Duration) {
-        let until = Instant::now() + window;
+        let now = Instant::now();
+        let until = now.checked_add(window).unwrap_or(now);
         let mut held = self.wanted.until.lock().unwrap_or_else(|e| e.into_inner());
         *held = Some(held.map_or(until, |was| was.max(until)));
         drop(held);

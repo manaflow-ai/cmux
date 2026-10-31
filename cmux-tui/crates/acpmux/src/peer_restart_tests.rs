@@ -1,5 +1,4 @@
 use super::*;
-use std::sync::Mutex as StdMutex;
 use tokio::time::Instant;
 use tokio_tungstenite::WebSocketStream;
 use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;

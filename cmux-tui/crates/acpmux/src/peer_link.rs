@@ -91,7 +91,8 @@ impl Backoff {
         if delay <= Self::WANTED_CAP {
             return delay;
         }
-        Self::WANTED_CAP / 2 + Self::WANTED_CAP.mul_f64(jitter.clamp(0.0, 1.0) / 2.0)
+        let half = Self::WANTED_CAP.mul_f64(0.5);
+        half.saturating_add(Self::WANTED_CAP.mul_f64(jitter.clamp(0.0, 1.0) / 2.0))
     }
 
     /// The delay before the next attempt; `jitter` is in `0.0..1.0`.
