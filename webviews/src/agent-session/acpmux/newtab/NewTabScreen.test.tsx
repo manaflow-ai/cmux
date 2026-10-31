@@ -413,3 +413,35 @@ test("a closed agent chat uses the semantic agent glyph and preserves its title"
   expect(container.querySelector('.nt-row-glyph[data-kind="agent"] svg[data-icon="agent.chat"]')).toBeTruthy();
   expect(container.querySelector(".nt-row-title")?.textContent).toBe("Pinned chat");
 });
+
+test("cancelling a New Tab project confirmation allows another chat attempt with its original draft", async () => {
+  const asks: unknown[][] = [];
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        {...firstRunProps}
+        snapshot={noChat()}
+        onAsk={(...args) => asks.push(args)}
+      />,
+    );
+  });
+  const field = await typePrompt("Review this synthetic project");
+  const create = () => container.querySelector<HTMLButtonElement>('[data-create="chat"]')!;
+
+  await act(async () => create().click());
+  expect(asks.length).toBe(1);
+  const cancel = asks[0]?.[7];
+  expect(typeof cancel).toBe("function");
+
+  // The native folder confirmation declined: there was no chat/new or send.
+  await act(async () => (cancel as () => void)());
+  expect(field.value).toBe("Review this synthetic project");
+  await act(async () => create().click());
+  expect(asks.length).toBe(2);
+  expect(asks[1]?.[1]).toBe("Review this synthetic project");
+  // A late duplicate Cancel from the first request cannot release the newer request.
+  await act(async () => (cancel as () => void)());
+  // A second click during the same pending confirmation remains one-shot.
+  await act(async () => create().click());
+  expect(asks.length).toBe(2);
+});

@@ -118,6 +118,8 @@ export type NewTabScreenActions = NewTabCommandActions & {
     noProject?: boolean,
     attachments?: ComposerAttachment[],
     saved?: { peer?: string },
+    /** A pending folder confirmation was cancelled before the chat started. */
+    onCancel?: () => void,
   ): void;
   onOpen(url: string): void;
   onSearch(text: string): void;
@@ -498,7 +500,13 @@ export function NewTabScreen(props: Props) {
   /// and the prompt stays.
   const [sandboxRefusal, setSandboxRefusal] = useState<string>();
   /// False only when a Sandboxed send started nothing, so the caller's one-shot guards stay open.
-  const askChat = (agent: string, prompt: string, cwd?: string, model?: string): boolean | void => {
+  const askChat = (
+    agent: string,
+    prompt: string,
+    cwd?: string,
+    model?: string,
+    onCancel?: () => void,
+  ): boolean | void => {
     if (targetAuthPending || authBlocksSend(targetAuth)) return false;
     if (command.intercept(prompt, agent, attachments.length)) return false;
     if (props.runMode?.mode === "sandboxed" && props.onSandbox) {
@@ -506,7 +514,7 @@ export function NewTabScreen(props: Props) {
       setSandboxRefusal(typeof started === "string" ? started : undefined);
       return started === true;
     }
-    if (environment) return askInEnvironment(environment, agent, prompt, model);
+    if (environment) return askInEnvironment(environment, agent, prompt, model, onCancel);
     if (machine)
       return props.onAsk(
         agent,
@@ -518,9 +526,11 @@ export function NewTabScreen(props: Props) {
         {
           peer: machine.peer,
         },
+        onCancel,
       );
-    if (attachments.length > 0) return props.onAsk(agent, prompt, cwd, model, none || undefined, attachments);
-    return none ? props.onAsk(agent, prompt, cwd, model, true) : props.onAsk(agent, prompt, cwd, model);
+    if (attachments.length > 0)
+      return props.onAsk(agent, prompt, cwd, model, none || undefined, attachments, undefined, onCancel);
+    return props.onAsk(agent, prompt, cwd, model, none || undefined, undefined, undefined, onCancel);
   };
   // The agent Enter asks and the chip's model (newTabStart): the chip's pick, else the last pick.
   const remembered = useLastPick(chatFolder);
@@ -897,10 +907,13 @@ export function NewTabScreen(props: Props) {
   submitNow.current = submit;
   // One create per page: a double click, or a click while the terminal spawns, opens one tab.
   const created = useRef(false);
+  // A delayed Cancel can only unlock the New chat attempt that originally asked for the folder.
+  const createdAttempt = useRef(0);
   const create = (kind: "terminal" | "browser") => {
     touch();
     if (created.current) return;
     created.current = true;
+    createdAttempt.current += 1;
     props.onCreate?.(kind);
   };
   // New chat: Return's chat, with the prompt the field holds (an address or a shell command stays
@@ -917,11 +930,15 @@ export function NewTabScreen(props: Props) {
     const prompt = shell ? "" : text.trim();
     if (command.intercept(prompt, harness, attachments.length)) return;
     created.current = true;
+    const attempt = ++createdAttempt.current;
     const asked = askChat(
       harness,
       prompt && !isAddress(prompt, home) && !pairingLinkRefused(prompt) ? prompt : "",
       project,
       chipModel,
+      () => {
+        if (createdAttempt.current === attempt) created.current = false;
+      },
     );
     // A Sandboxed New chat that started nothing (no prompt, a refusal) leaves the page's creates open.
     if (asked === false) created.current = false;
@@ -941,11 +958,16 @@ export function NewTabScreen(props: Props) {
       return;
     }
     created.current = true;
+    const attempt = ++createdAttempt.current;
     const prompt = shell ? "" : text.trim();
     const asked = askChat(
       agent,
       prompt && !isAddress(prompt, home) && !pairingLinkRefused(prompt) ? prompt : "",
       project,
+      undefined,
+      () => {
+        if (createdAttempt.current === attempt) created.current = false;
+      },
     );
     if (asked === false) created.current = false;
   };
@@ -1173,12 +1195,18 @@ export function NewTabScreen(props: Props) {
   // worktree of its folder (the host makes it first; its refusal shows above the card and the
   // prompt stays in the field).
   const worktreePending = useRef(false);
-  function askInEnvironment(picked: SavedEnvironment, agent: string, prompt: string, model?: string) {
+  function askInEnvironment(
+    picked: SavedEnvironment,
+    agent: string,
+    prompt: string,
+    model?: string,
+    onCancel?: () => void,
+  ) {
     const extra = attachments.length > 0 ? attachments : undefined;
     if (picked.kind === "ssh")
-      return props.onAsk(agent, prompt, picked.folder, model, undefined, extra, { peer: picked.host });
+      return props.onAsk(agent, prompt, picked.folder, model, undefined, extra, { peer: picked.host }, onCancel);
     if (!picked.worktree || !picked.folder || !props.onNewWorktree)
-      return props.onAsk(agent, prompt, picked.folder, model, undefined, extra, {});
+      return props.onAsk(agent, prompt, picked.folder, model, undefined, extra, {}, onCancel);
     if (worktreePending.current) return;
     worktreePending.current = true;
     setWorktreeError(undefined);
@@ -1191,7 +1219,7 @@ export function NewTabScreen(props: Props) {
       (folder) => {
         if (!folder) return unstarted();
         worktreePending.current = false;
-        props.onAsk(agent, prompt, folder, model, undefined, extra, {});
+        props.onAsk(agent, prompt, folder, model, undefined, extra, {}, onCancel);
       },
       (error: unknown) => {
         unstarted();

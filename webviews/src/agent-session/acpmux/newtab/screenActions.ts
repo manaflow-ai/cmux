@@ -23,7 +23,7 @@ export function newTabScreenActions(deps: {
   inputReady?(token: string): void;
   /// A folder the user picked on the page goes through the host first (startFolder.tsx): `start`
   /// runs only with a folder it took; the home folder is asked about once.
-  requestFolder?(cwd: string, start: (folder: string) => void): void;
+  requestFolder?(cwd: string, start: (folder: string) => void, cancel?: () => void): void;
   /// false: the page's chats run on another machine, whose folders are never this Mac's default.
   startsHere?(): boolean;
 }): NewTabScreenActions {
@@ -31,7 +31,7 @@ export function newTabScreenActions(deps: {
   const ignore = (result: Promise<unknown>) => void result.catch(() => undefined);
   const remember = (agent: string) => ignore(callNative("newTab.remember", { agent }));
   return {
-    onAsk(harness, text, picked, model, noProject, attachments, saved) {
+    onAsk(harness, text, picked, model, noProject, attachments, saved, onCancel) {
       const peer = saved?.peer;
       remember(harness);
       // The prompt goes in the same turn as the switch: the switch queues it, and a folder trust
@@ -87,7 +87,7 @@ export function newTabScreenActions(deps: {
       if (noProject) start();
       else if (peer) start(picked);
       else if (picked && (picked !== cwd || saved)) {
-        if (deps.requestFolder) deps.requestFolder(picked, start);
+        if (deps.requestFolder) deps.requestFolder(picked, start, onCancel);
         else start(picked);
       } else start(deps.chatCwd);
     },
