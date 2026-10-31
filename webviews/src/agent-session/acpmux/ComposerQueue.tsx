@@ -165,6 +165,15 @@ function titleWhenTruncated(event: React.PointerEvent<HTMLElement>, prompt: stri
   else button.removeAttribute("title");
 }
 
+/// Bridge failures whose request may already have reached acpmux (it answered late, or the socket
+/// closed after sending); every other rejection (`native.not_connected`, a typed refusal) means
+/// the edit was not applied.
+const UNCERTAIN_CODES = new Set(["native.timed_out", "transport.closed", "transport.stale_connection"]);
+const mayHaveReachedAcpmux = (error: unknown) => {
+  const code = (error as { code?: unknown } | null)?.code;
+  return typeof code === "string" && UNCERTAIN_CODES.has(code);
+};
+
 export function ComposerQueue({
   queue,
   chat,
@@ -656,12 +665,16 @@ export function ComposerQueue({
     const edit: QueueEdit = removed
       ? { op: "update", text: next, images: kept.map((image) => image.id) }
       : { op: "update", text: next };
-    // A refused or failed edit (the bridge rejecting counts) hands the typed text back to the prompt.
+    // A refused edit, or one that failed before acpmux could have it (not connected, a typed
+    // refusal), hands the typed text back to the prompt. A timeout or a closed bridge may have
+    // reached acpmux already: the queue's next snapshot says, and restoring too could duplicate it.
     void onChange(entry.id, edit).then(
       (ok) => {
         if (!ok) onLost?.(next, entry.id);
       },
-      () => onLost?.(next, entry.id),
+      (error: unknown) => {
+        if (!mayHaveReachedAcpmux(error)) onLost?.(next, entry.id);
+      },
     );
   };
   const rowKeyDown = (event: React.KeyboardEvent<HTMLElement>, entry: QueuedEntry, index: number) => {
