@@ -35,10 +35,13 @@
 //     before its attach leaves the copy offline;
 //   - a copy that covers past its newest record keeps it under a page that starts right after it,
 //     and a row that names another session while the attach or the reads after it are out has
-//     the chat read again, with none of the session before's live records.
+//     the chat read again, with none of the session before's live records;
+//   - a cold open or select whose attach fails keeps none of the records it streamed before it
+//     failed, nor any that comes live after it, so the next attach reads the chat from nothing;
+//     a reconnect whose attach fails says the pane is disconnected.
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
+import { AcpmuxDirectClient, type EventRecord } from "../src/agent-session/acpmux/direct";
 import { keptTail, rememberTail, resetKeptTailsForTests } from "../src/agent-session/acpmux/tailCache";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
 
@@ -77,6 +80,10 @@ const record = (seq: number, text: string) => ({
 });
 const turn = (from: number, to: number, label: string) =>
   Array.from({ length: to - from + 1 }, (_, at) => record(from + at, `${label} ${from + at}. `));
+const commandUpdate = (name: string) => ({
+  sessionUpdate: "available_commands_update",
+  availableCommands: [{ name, description: name }],
+});
 
 /// The Mac's acpmux with one chat on peer huge-blue (or on this Mac, `peer: undefined`): `down`
 /// refuses its attach as acpmux does for a machine that does not answer, `copy` is what
@@ -97,7 +104,7 @@ class Daemon {
   /// The session the attach names, when the machine recreated it after the row was listed.
   attachCreatedAt: number | undefined;
   /// Live records the machine sends before it answers the attach.
-  beforeAttach: ReturnType<typeof record>[] = [];
+  beforeAttach: EventRecord[] = [];
   /// Attaches that fail for another reason than the machine being down.
   failAttach = 0;
   /// Live records sent while the chat left is detached (before the attach is asked).
@@ -105,6 +112,8 @@ class Daemon {
   /// The slash commands the session's newest command list names, when it has one (or, as a
   /// function, the list a read back from `beforeSeq` finds).
   commandNames: string[] | ((beforeSeq: number) => string[]) | undefined;
+  /// The latest command publication kept in the session summary, outside its tail page.
+  availableCommands: ReturnType<typeof commandUpdate> | undefined;
   /// The row's status while the machine is up, when not idle.
   status: string | undefined;
   /// Another chat, on this Mac, listed beside the peer chat (a tab that switches from it).
@@ -137,11 +146,13 @@ class Daemon {
   private listed = false;
   readonly asked: Message[] = [];
 
-  constructor() {
+  /// Open only when the client asks for this socket, including a later reconnect.
+  socket(): WebSocket {
     queueMicrotask(() => {
       this.readyState = 1;
       this.onopen?.();
     });
+    return this as unknown as WebSocket;
   }
 
   send(raw: string): void {
@@ -204,6 +215,7 @@ class Daemon {
       turnCount: 1,
       updatedAt: START,
       createdAt: this.createdAt,
+      ...(this.availableCommands ? { availableCommands: this.availableCommands } : {}),
       ...(this.queue ? { queue: this.queue } : {}),
       ...(this.peer ? { peer: this.peer } : {}),
       ...(this.down ? { stale: true } : {}),
@@ -439,7 +451,7 @@ function open(daemon: Daemon, seed?: () => void, sessionId = SESSION) {
       if (snapshot.type === "snapshot") drawn.push(snapshot);
     },
     undefined,
-    () => daemon as unknown as WebSocket,
+    () => daemon.socket(),
   );
   return { drawn, client, last: () => drawn.at(-1) };
 }
@@ -1541,4 +1553,206 @@ test("the command list read of the session before it was recreated is not shown 
   daemon.release("_acpmux/events");
   await flush();
   expect(names()).toContain("new-command");
+});
+
+test("a cold open whose attach fails keeps none of the records that came before it failed", async () => {
+  // A chat on this Mac, read by no tab: the open attaches it cold, with its records streamed.
+  const first = new Daemon();
+  first.down = false;
+  first.peer = undefined;
+  first.log = turn(1, 42, "log");
+  // Seqs 41 and 42 come live before the attach answers, which then fails.
+  first.beforeAttach = [record(41, "stray 41. "), record(42, "stray 42. ")];
+  first.beforeAttach.push({
+    ...record(43, ""),
+    kind: "available_commands_update",
+    msg: { method: "session/update", params: { sessionId: SESSION, update: commandUpdate("stray-command") } },
+  });
+  first.failAttach = 1;
+  const second = new Daemon();
+  second.down = false;
+  second.peer = undefined;
+  // The chat ran on to 50; the page holds 48..50.
+  second.log = turn(1, 50, "log");
+  second.availableCommands = commandUpdate("current-command");
+  const sockets = [first, second];
+  resetKeptTailsForTests();
+  const drawn: AcpmuxSnapshot[] = [];
+  const Client = AcpmuxDirectClient as unknown as new (...args: unknown[]) => AcpmuxDirectClient;
+  const client = new Client(
+    {
+      protocolVersion: 1,
+      transport: "acpmux-websocket",
+      endpoint: "ws://peer.invalid/",
+      token: "t",
+      sessionId: SESSION,
+    },
+    (snapshot: AcpmuxSnapshot) => {
+      if (snapshot.type === "snapshot") drawn.push(snapshot);
+    },
+    undefined,
+    () => sockets.shift()!.socket(),
+  );
+  live.push(client);
+  const opening = client as unknown as { open(): Promise<void>; lastSeq: number };
+  await expect(opening.open()).rejects.toThrow();
+  await flush();
+  expect(opening.lastSeq).toBe(0);
+  expect(text(drawn.at(-1))).not.toContain("stray");
+  expect(drawn.at(-1)?.commands?.map((command) => command.name)).not.toContain("stray-command");
+  // The next open reads from nothing, not after the failed attempt's last streamed record (43).
+  await opening.open();
+  await flush();
+  const asked = second.asked.filter((message) => message.method === "_acpmux/events");
+  expect(asked.some((message) => message.params?.afterSeq === 43)).toBe(false);
+  const shown = text(drawn.at(-1));
+  expect(shown).not.toContain("stray");
+  for (const seq of [48, 49, 50]) expect(count(shown, ` ${seq}. `)).toBe(1);
+  expect(opening.lastSeq).toBe(50);
+  expect(drawn.at(-1)?.commands?.map((command) => command.name)).toEqual(["current-command"]);
+});
+
+test("a cold select refused as down with no copy keeps none of the records that came before it failed", async () => {
+  const daemon = new Daemon();
+  daemon.other = true;
+  const tab = open(daemon, undefined, OTHER);
+  const client = await tab.client;
+  live.push(client);
+  await flush();
+  // The Mac has no copy of the peer chat; its machine streams 41 and 42, then is refused as down.
+  daemon.beforeAttach = [record(41, "stray 41. "), record(42, "stray 42. ")];
+  await expect(client.select(SESSION)).rejects.toThrow();
+  await flush();
+  expect((client as unknown as { lastSeq: number }).lastSeq).toBe(0);
+  expect(text(tab.last())).not.toContain("stray");
+  // acpmux subscribed the socket before the attach failed, and the socket stays open: a record
+  // that comes live after the failure is not read either.
+  daemon.onmessage?.({
+    data: JSON.stringify({ jsonrpc: "2.0", method: "_acpmux/event", params: record(44, "stray 44. ") }),
+  });
+  await flush();
+  expect((client as unknown as { lastSeq: number }).lastSeq).toBe(0);
+  expect(text(tab.last())).not.toContain("stray");
+  // The machine back: its page is read, and none of the failed attach's records shows.
+  await client.select(OTHER);
+  daemon.down = false;
+  daemon.log = turn(1, 45, "log");
+  await client.select(SESSION);
+  await flush();
+  const shown = text(tab.last());
+  expect(shown).not.toContain("stray");
+  for (const seq of [43, 44, 45]) expect(count(shown, ` ${seq}. `)).toBe(1);
+});
+
+test("a reconnect whose attach fails keeps the rows it read, but not the records the attach streamed past them", async () => {
+  const first = new Daemon();
+  first.down = false;
+  first.peer = undefined;
+  first.log = turn(1, 10, "log");
+  // The socket was down while the chat ran on to 1002, which come live before the attach fails.
+  const failing = new Daemon();
+  failing.down = false;
+  failing.peer = undefined;
+  failing.beforeAttach = [record(1001, "stray 1001. "), record(1002, "stray 1002. ")];
+  failing.failAttach = 1;
+  const back = new Daemon();
+  back.down = false;
+  back.peer = undefined;
+  back.log = [...turn(1, 10, "log"), ...turn(1001, 1005, "log")];
+  const sockets = [first, failing, back];
+  resetKeptTailsForTests();
+  const drawn: AcpmuxSnapshot[] = [];
+  const Client = AcpmuxDirectClient as unknown as new (...args: unknown[]) => AcpmuxDirectClient;
+  const client = new Client(
+    {
+      protocolVersion: 1,
+      transport: "acpmux-websocket",
+      endpoint: "ws://peer.invalid/",
+      token: "t",
+      sessionId: SESSION,
+    },
+    (snapshot: AcpmuxSnapshot) => {
+      if (snapshot.type === "snapshot") drawn.push(snapshot);
+    },
+    undefined,
+    () => sockets.shift()!.socket(),
+  );
+  live.push(client);
+  const opening = client as unknown as { open(): Promise<void>; lastSeq: number };
+  await opening.open();
+  await flush();
+  expect(opening.lastSeq).toBe(10);
+  await expect(opening.open()).rejects.toThrow();
+  await flush();
+  expect(opening.lastSeq).toBe(10);
+  expect(text(drawn.at(-1))).toContain("log 10.");
+  expect(text(drawn.at(-1))).not.toContain("stray");
+  // The open closes that socket and reconnects: the pane does not say it is connected meanwhile.
+  expect(drawn.at(-1)?.connection).toBe("disconnected");
+  // Its page (1003..1005) does not follow 10, so the records between are read after 10.
+  await opening.open();
+  await flush();
+  const asked = back.asked.filter((message) => message.method === "_acpmux/events");
+  expect(asked.some((message) => message.params?.afterSeq === 10)).toBe(true);
+  const shown = text(drawn.at(-1));
+  expect(shown).not.toContain("stray");
+  for (const seq of [10, 1001, 1002, 1005]) expect(count(shown, ` ${seq}. `)).toBe(1);
+});
+
+test("a cold select whose attach fails before any record came reads none that comes after it", async () => {
+  const daemon = new Daemon();
+  daemon.other = true;
+  const tab = open(daemon, undefined, OTHER);
+  const client = await tab.client;
+  live.push(client);
+  await flush();
+  // The machine is refused as down at once, and the Mac has no copy: nothing streamed before.
+  await expect(client.select(SESSION)).rejects.toThrow();
+  await flush();
+  // acpmux subscribed the socket, which stays open: a record of the chat comes live after.
+  daemon.onmessage?.({
+    data: JSON.stringify({ jsonrpc: "2.0", method: "_acpmux/event", params: record(44, "stray 44. ") }),
+  });
+  await flush();
+  expect((client as unknown as { lastSeq: number }).lastSeq).toBe(0);
+  expect(text(tab.last())).not.toContain("stray");
+});
+
+test("a reconnect whose attach fails before any record came says the pane is disconnected", async () => {
+  const first = new Daemon();
+  first.down = false;
+  first.peer = undefined;
+  first.log = turn(1, 10, "log");
+  const failing = new Daemon();
+  failing.down = false;
+  failing.peer = undefined;
+  failing.failAttach = 1;
+  const sockets = [first, failing];
+  resetKeptTailsForTests();
+  const drawn: AcpmuxSnapshot[] = [];
+  const Client = AcpmuxDirectClient as unknown as new (...args: unknown[]) => AcpmuxDirectClient;
+  const client = new Client(
+    {
+      protocolVersion: 1,
+      transport: "acpmux-websocket",
+      endpoint: "ws://peer.invalid/",
+      token: "t",
+      sessionId: SESSION,
+    },
+    (snapshot: AcpmuxSnapshot) => {
+      if (snapshot.type === "snapshot") drawn.push(snapshot);
+    },
+    undefined,
+    () => sockets.shift()!.socket(),
+  );
+  live.push(client);
+  const opening = client as unknown as { open(): Promise<void>; lastSeq: number };
+  await opening.open();
+  await flush();
+  expect(drawn.at(-1)?.connection).not.toBe("disconnected");
+  await expect(opening.open()).rejects.toThrow();
+  await flush();
+  expect(opening.lastSeq).toBe(10);
+  expect(text(drawn.at(-1))).toContain("log 10.");
+  expect(drawn.at(-1)?.connection).toBe("disconnected");
 });
