@@ -11,6 +11,7 @@
 use std::cell::RefCell;
 use std::collections::HashSet;
 
+use cmux_layout_reducer::sidebar_doc::{WorkspaceRef, machine_section_id};
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 
 use super::values::{local_registry_id, workspace_public_id_for_key};
@@ -249,7 +250,7 @@ fn place_created_rows(
     bump_personal_revision(transaction)?;
     // The slot of the first new row; the others follow it in creation order.
     let current = created.current.as_deref();
-    // The client's current workspace in a group: `top` right after it and
+    // The client's current workspace in a group: `top` first in it and
     // `bottom` last in that group, as the client places it.
     let in_group = if created.from_client {
         beside_current_slot(transaction, &local, &placed, current, true)?
@@ -262,8 +263,10 @@ fn place_created_rows(
             Some((_, group)) => Some(end_of_group_slot(transaction, &local, &placed, group)?),
             None => None,
         },
-        NewWorkspacePlacement::Top if in_group.is_some() => in_group,
-        NewWorkspacePlacement::Top => Some(top_slot(transaction, &local, &placed)?),
+        NewWorkspacePlacement::Top => match in_group {
+            Some((_, group)) => Some(start_of_group_slot(transaction, &local, &placed, group)?),
+            None => Some(top_slot(transaction, &local, &placed)?),
+        },
         NewWorkspacePlacement::BeforeCurrent | NewWorkspacePlacement::AfterCurrent => {
             let after = placement == NewWorkspacePlacement::AfterCurrent;
             match beside_current_slot(transaction, &local, &placed, current, after)? {
@@ -343,6 +346,21 @@ fn top_slot(
     Ok((index, None))
 }
 
+/// First among the existing members of `group`, excluding the newly created rows.
+fn start_of_group_slot(
+    transaction: &Transaction<'_>,
+    local: &str,
+    placed: &[String],
+    group: Option<String>,
+) -> anyhow::Result<(usize, Option<String>)> {
+    let rows = read_workspaces(transaction)?
+        .into_iter()
+        .filter(|row| !(row.session_id == local && placed.contains(&row.workspace_key)))
+        .collect::<Vec<_>>();
+    let first = rows.iter().position(|row| row.group == group).unwrap_or(rows.len());
+    Ok((first, group))
+}
+
 /// Right after the last row of `group` (rows other than `placed`), in it.
 fn end_of_group_slot(
     transaction: &Transaction<'_>,
@@ -374,6 +392,19 @@ fn beside_current_slot(
     };
     if super::home_store::live_home(transaction)?.is_some_and(|(_, home)| home == current) {
         return Ok(None);
+    }
+    // Pinned and custom-section items retain their legacy personal rows. Only a current
+    // workspace in this machine's document section may anchor a newly created machine row.
+    if super::sidebar_doc_store::is_migrated(transaction)? {
+        let Some(id) = workspace_public_id_for_key(transaction, current)? else { return Ok(None) };
+        let in_machine = super::sidebar_doc_store::with_doc(transaction, |doc| {
+            Ok(doc
+                .workspace_item(&WorkspaceRef::new(local, &id))
+                .is_some_and(|item| item.section == machine_section_id(local)))
+        })?;
+        if !in_machine {
+            return Ok(None);
+        }
     }
     let rows = read_workspaces(transaction)?
         .into_iter()

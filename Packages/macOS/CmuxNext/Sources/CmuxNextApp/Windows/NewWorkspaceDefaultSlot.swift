@@ -146,9 +146,7 @@ enum NewWorkspacePlacements {
     static func forget(_ id: String, windows: WindowManager) {
         windows.pendingPlacements[id] = nil
         windows.pendingPlacementOrder.removeAll { $0 == id }
-        windows.newPlacements.placedByDaemon.remove(id)
-        windows.newPlacements.anchors[id] = nil
-        windows.newPlacements.groupAnchors[id] = nil
+        windows.newPlacements.forget(id)
     }
 
     /// The neighbour of a new workspace placed at `slot`, else by `byDefault`: right before or after
@@ -167,8 +165,8 @@ enum NewWorkspacePlacements {
             return byDefault.placement == .beforeCurrent || byDefault.placement == .afterCurrent ? .first : nil
         }
         switch byDefault.placement {
-        case .beforeCurrent: return .before(current)
-        case .afterCurrent: return .after(current)
+        case .beforeCurrent: return .before(current, fallbackFirst: true)
+        case .afterCurrent: return .after(current, fallbackFirst: true)
         case .top: return .firstInGroupOf(current)
         case .bottom: return .lastInGroupOf(current)
         }
@@ -180,35 +178,7 @@ enum NewWorkspacePlacements {
         machines.local.store.workspaces.first { $0.kind == SidebarMapping.homeKind }?.id
     }
 
-    /// What these keep for each new workspace between its create and the
-    /// sidebar placing it; one per `WindowManager` (`newPlacements`).
-    @MainActor
-    final class Ledger {
-        /// New workspaces whose create sent the rule (`WorkspaceCreation`, `CreateWorkspaceRequest.current`):
-        /// this Mac's daemon placed them at their slot in the commit that made them, under every value, so
-        /// `applyPendingPlacements` sends no second write for them (a second state change and render).
-        var placedByDaemon: Set<String> = []
-
-        /// The neighbour each new workspace lists beside until the sidebar document places it
-        /// (`SidebarDocSections.unplacedAnchor`), where the daemon's create puts it. Dropped once the
-        /// document places the workspace or it is gone (`unplacedAnchor(of:machines:)`); a create still on its way
-        /// (sent, its workspace not listed yet: ``placedByDaemon``) keeps its own.
-        var anchors: [String: SidebarDocSections.UnplacedAnchor] = [:]
-        /// `top` / `bottom` group anchors, armed into `anchors` once the create sends the rule (`sending`).
-        var groupAnchors: [String: SidebarDocSections.UnplacedAnchor] = [:]
-
-        /// The neighbour `workspace` lists beside while the document does not place it; prunes the ones placed or gone. A
-        /// create still on its way (a terminal, command or agent workspace the daemon has not listed yet) keeps its anchor.
-        func unplacedAnchor(of workspace: WorkspaceModel, machines: MachineRegistry) -> SidebarDocSections.UnplacedAnchor? {
-            guard !anchors.isEmpty else { return nil }
-            if anchors.count > 16 {
-                anchors = anchors.filter { id, _ in
-                    SidebarDocWiring.item(workspace: id, machines) == nil && (machines.workspace(id: id) != nil || placedByDaemon.contains(id))
-                }
-            }
-            return anchors[workspace.id]
-        }
-    }
+    typealias Ledger = WorkspacePlacementLedger
 
     /// The index a group formed for a new workspace takes (`createGroup`'s `index`, New Workspace in
     /// New Group): first under `workspaces.newPlacement` `top` (the default), else last (`Int.max`).
@@ -218,4 +188,18 @@ enum NewWorkspacePlacements {
     }
 
     static func newGroupIndex(for placement: NewWorkspacePlacement) -> Int { placement == .top ? 0 : .max }
+}
+
+extension WorkspacePlacementLedger {
+    /// The neighbour `workspace` lists beside while the document does not place it; prunes the ones placed or gone. A
+    /// create still on its way (a terminal, command or agent workspace the daemon has not listed yet) keeps its anchor.
+    func unplacedAnchor(of workspace: WorkspaceModel, machines: MachineRegistry) -> SidebarDocSections.UnplacedAnchor? {
+        guard !anchors.isEmpty else { return nil }
+        if anchors.count > 16 {
+            anchors = anchors.filter { id, _ in
+                SidebarDocWiring.item(workspace: id, machines) == nil && (machines.workspace(id: id) != nil || placedByDaemon.contains(id))
+            }
+        }
+        return anchors[workspace.id]
+    }
 }

@@ -63,14 +63,18 @@ enum WorkspaceCreation {
         repair: EmptyWorkspaceRepair,
         terminal: (WorkspaceKey) async throws -> T
     ) async throws -> T {
+        var completed = false
+        defer { if !completed { ledger?.forget(key.rawValue) } }
         let sent = await NewWorkspacePlacements.sending(rule, key: key, on: connection, ledger: ledger)
-        return try await repair.populating(key) {
+        let result = try await repair.populating(key) {
             try await withTerminal(
                 key, createWorkspace: { _ = try await connection.createWorkspaceRetryingLateReplies(name: name, key: key, placesBySetting: sent != nil, current: sent?.current.map { WorkspaceKey(rawValue: $0) }, placement: sent?.placement.rawValue) },
                 createTerminal: terminal,
                 closeWorkspace: { try await closeHalfCreated($0, on: connection, repair: repair) }
             )
         }
+        completed = true
+        return result
     }
 
     /// Creates workspace `key` and its first tab from `firstTab`, which gets
@@ -89,8 +93,10 @@ enum WorkspaceCreation {
         giveUp: ContinuousClock.Instant? = nil,
         firstTab: (WorkspaceMutationResult) async throws -> T
     ) async throws -> T {
+        var completed = false
+        defer { if !completed { ledger?.forget(key.rawValue) } }
         let sent = await NewWorkspacePlacements.sending(rule, key: key, on: connection, ledger: ledger)
-        return try await repair.populating(key) {
+        let result = try await repair.populating(key) {
             var created: WorkspaceMutationResult?
             return try await withTerminal(
                 key, createWorkspace: { created = try await connection.createWorkspaceRetryingLateReplies(name: name, key: key, placesBySetting: sent != nil, current: sent?.current.map { WorkspaceKey(rawValue: $0) }, placement: sent?.placement.rawValue, until: giveUp) },
@@ -101,6 +107,8 @@ enum WorkspaceCreation {
                 closeWorkspace: { try await closeHalfCreated($0, on: connection, repair: repair) }
             )
         }
+        completed = true
+        return result
     }
 
     /// Whether `spawn` opens on the New Tab page (or a first chat), not a terminal.

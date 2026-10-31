@@ -349,7 +349,16 @@ fn a_new_workspace_follows_the_creating_clients_current_workspace() {
     let ids = [&a, &b, &c, &d, &e, &f, &g, &h].map(String::as_str);
     assert_eq!(
         listed(&mux, Some("personal"), &ids),
-        [f.as_str(), b.as_str(), c.as_str(), d.as_str(), a.as_str(), g.as_str(), h.as_str(), e.as_str()]
+        [
+            f.as_str(),
+            b.as_str(),
+            c.as_str(),
+            d.as_str(),
+            a.as_str(),
+            g.as_str(),
+            h.as_str(),
+            e.as_str()
+        ]
     );
     let placements = read(&mux, "workspace.placement.list", json!({}));
     let group_of = |id: &str| {
@@ -381,23 +390,37 @@ fn a_new_workspace_ignores_a_pinned_current_workspace() {
         let bottom = NewWorkspacePlacement::Bottom.set_for_test();
         let a = empty_workspace(&mux, "a");
         let current = mux.create_empty_workspace(Some("b".into()), None, None).unwrap();
-        let b = mux.personal_state_read(|connection| {
-            crate::state::values::workspace_public_id_for_key(connection, &current.key)
-        }).unwrap().unwrap();
+        let b = mux
+            .personal_state_read(|connection| {
+                crate::state::values::workspace_public_id_for_key(connection, &current.key)
+            })
+            .unwrap()
+            .unwrap();
         let c = empty_workspace(&mux, "c");
         drop(bottom);
         let doc = read(&mux, "sidebar.get", json!({}));
-        let item = doc["items"].as_array().unwrap().iter()
-            .find(|item| item["body"]["ref"]["workspace_id"] == b).unwrap()["id"].clone();
+        let item = doc["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["body"]["ref"]["workspace_id"] == b)
+            .unwrap()["id"]
+            .clone();
         mutate(&mux, "sidebar.pin", json!({"items": [item]}), "pin-current");
         let placed = crate::state::personal_order::with_client_current(
             Some(crate::state::personal_order::ClientCurrent {
-                current: Some(current.key), placement: Some(placement),
-            }), || mux.create_empty_workspace(Some("d".into()), None, None)
-        ).unwrap();
-        let d = mux.personal_state_read(|connection| {
-            crate::state::values::workspace_public_id_for_key(connection, &placed.key)
-        }).unwrap().unwrap();
+                current: Some(current.key),
+                placement: Some(placement),
+            }),
+            || mux.create_empty_workspace(Some("d".into()), None, None),
+        )
+        .unwrap();
+        let d = mux
+            .personal_state_read(|connection| {
+                crate::state::values::workspace_public_id_for_key(connection, &placed.key)
+            })
+            .unwrap()
+            .unwrap();
         let ids = [&a, &b, &c, &d].map(String::as_str);
         assert_eq!(listed(&mux, Some("personal"), &ids), [b, d, a, c]);
         mux.shutdown();

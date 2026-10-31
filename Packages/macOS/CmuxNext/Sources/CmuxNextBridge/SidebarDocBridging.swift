@@ -96,8 +96,8 @@ public final class SidebarDocSections {
 
     /// A listed workspace a new one lists beside (``unplacedAnchor``).
     public enum UnplacedAnchor: Equatable, Sendable {
-        case before(String)
-        case after(String)
+        case before(String, fallbackFirst: Bool = false)
+        case after(String, fallbackFirst: Bool = false)
         /// First in its group when it is in a group (`top` from inside a group), else first or last as unanchored.
         case firstInGroupOf(String)
         /// Last in its group when it is in one (`bottom` from inside a group), else first or last as unanchored.
@@ -105,6 +105,15 @@ public final class SidebarDocSections {
         /// First among the machine's rows, below a leading Home row: `beforeCurrent` / `afterCurrent` when the
         /// window shows no workspace (Home, Chats, a pinned page) or shows Home, where the daemon puts it too.
         case first
+
+        /// A default before/after-current placement falls back to the machine's top when its neighbour is absent.
+        public var fallsBackToFirst: Bool {
+            switch self {
+            case .before(_, let first), .after(_, let first): first
+            case .first: true
+            case .firstInGroupOf, .lastInGroupOf: false
+            }
+        }
 
         /// Whether it applies only inside a group.
         public var isGroupAnchor: Bool {
@@ -226,7 +235,7 @@ public final class SidebarDocSections {
             if Self.insert(workspace, beside: anchor, into: &sections, within: own) { continue }
             if let trailing, Self.insert(workspace, beside: anchor, into: &sections, within: trailing + 1, from: trailing) { continue }
             // Its neighbour is not listed here: where the others go.
-            if first {
+            if first || anchor.fallsBackToFirst {
                 let before = sections.count
                 Self.insertFirst([workspace], into: &sections, machineSections: own)
                 own += sections.count - before
@@ -249,7 +258,7 @@ public final class SidebarDocSections {
                               within: Int, from start: Int = 0) -> Bool {
         let id: String
         switch anchor {
-        case .before(let anchor), .after(let anchor), .firstInGroupOf(let anchor), .lastInGroupOf(let anchor): id = anchor
+        case .before(let anchor, _), .after(let anchor, _), .firstInGroupOf(let anchor), .lastInGroupOf(let anchor): id = anchor
         case .first:
             insertFirst([workspace], into: &sections, machineSections: within)
             return true
