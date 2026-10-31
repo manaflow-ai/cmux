@@ -388,8 +388,8 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
         expect(initial.rows.every((row) => row.summary.width >= 60)).toBe(true);
         expect(initial.rows.every((row) => row.summary.right <= row.time.left + 0.5)).toBe(true);
         expect(initial.rows.every((row) => row.status.left >= row.time.right - 0.5)).toBe(true);
-        // Stop's track, then the chevron's, after the state.
-        expect(initial.rows.every((row) => row.stop.left >= row.status.right - 0.5)).toBe(true);
+        // Stop's track, then the chevron's, after the time (the state, when it has a word, sits before the time).
+        expect(initial.rows.every((row) => row.stop.left >= row.time.right - 0.5)).toBe(true);
         expect(initial.rows.every((row) => !row.chevron || row.chevron.left >= row.stop.right - 0.5)).toBe(true);
         expect(initial.rows.every((row) => !row.chevron || row.chevron.right <= initial.tray.right + 0.5)).toBe(true);
         expect(initial.rows.every((row) => row.time.lineCount <= 1)).toBe(true);
@@ -462,7 +462,7 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
             narrow.rows.every((row) => row.time.lineCount === 0 || row.time.textRight! <= row.time.boxRight + 0.5),
           ).toBe(true);
           expect(narrow.rows.every((row) => row.time.scrollWidth <= row.time.clientWidth + 1)).toBe(true);
-          expect(narrow.rows.every((row) => row.stop.left >= row.status.right - 0.5)).toBe(true);
+          expect(narrow.rows.every((row) => row.stop.left >= row.time.right - 0.5)).toBe(true);
           expect(narrow.rows.every((row) => !row.chevron || row.chevron.left >= row.stop.right - 0.5)).toBe(true);
           expect(narrow.rows.every((row) => !row.chevron || row.chevron.right <= narrow.tray.right + 0.5)).toBe(true);
           expect(narrow.rows.every((row) => row.stop.right <= narrow.tray.right + 0.5)).toBe(true);
