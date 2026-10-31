@@ -134,7 +134,8 @@ def step_smoke_type_now(j, step):
             # The slot's limit, not the build's: report it as not run (the gate counts that as no pass).
             how = ("the window lost key status after smoke_make_key made it key" if getattr(j, "smoke_key_ok", False)
                    else f"debug.window.focus said {json.dumps(getattr(j, 'smoke_key_reply', None))[:200]}")
-            raise D.NotRun(GAP + f" ({how}; windows now {json.dumps(windows)[:200]})")
+            front = _front_app()
+            raise D.NotRun(GAP + f" ({how}; front app {front[0]!r} {front[1] or ''}; windows now {json.dumps(windows)[:200]})")
         # Diagnostic: no key window, so held keys could not be replayed; type after the creation hold instead.
         waited = j.outwait_creation_hold(getattr(j, "last_key_at", D.now()))
     text = j.sub(step["text"])
@@ -367,13 +368,51 @@ def cond_smoke_panes(j, want, cache):
     return False, {"error": f"no terminal shows {line}"}
 
 
+def _front_app():
+    """(name, bundle id) of the Mac's frontmost app (`lsappinfo`, on the mini; no privacy grant needed), or (None, None)."""
+    try:
+        asn = subprocess.run(["lsappinfo", "front"], capture_output=True, text=True, timeout=5).stdout.strip()
+        info = subprocess.run(["lsappinfo", "info", "-only", "name", "-only", "bundleID", asn], capture_output=True,
+                              text=True, timeout=5).stdout
+    except (OSError, subprocess.SubprocessError):
+        return None, None
+    fields = {}
+    for line in info.splitlines():
+        key, sep, value = line.partition("=")
+        if sep:
+            fields[key.strip().strip('"').lower()] = value.strip().strip('"')
+    name = fields.get("lsdisplayname") or fields.get("name")
+    bundle = fields.get("cfbundleidentifier") or fields.get("bundleid")
+    return name, (bundle if bundle and bundle != "[ NULL ]" else None)
+
+
+def _key_lost_to_another_app(j, windows):
+    """When no window of the app is key: the frontmost app, if it is not this app (a system prompt, another app's
+    dialog on the mini's console): the host's limit, a known gap naming that app; else None (the app itself is front
+    and has no key window: the app's fault)."""
+    if any(w["key"] is True for w in windows) or not any(w["kind"] == "main" for w in windows):
+        return None  # another app window is key (the app's fault), or the app has no main window (the app's fault)
+    name, bundle = _front_app()
+    ours = str((getattr(j.app, "identity", None) or {}).get("bundle_id") or "")
+    if not bundle or not ours or bundle == ours:
+        return None  # the front app is unknown, or it is this app: no proof the host took the keys
+    return f"known gap: another app has the key window on this host ({name or '?'} {bundle or ''}): not a pass"
+
+
 def cond_smoke_key_window(j, want, cache):
-    """A main window is the app's key window: a read (debug.window_list), so the check does not make it key."""
+    """A main window is the app's key window: a read (debug.window_list), so the check does not make it key. When no
+    window of the app is key because another app is frontmost (a system prompt on the mini's console), the round is a
+    known gap (not run), never a fail: that is the host, not the build. A non-main app window key, or the app front
+    with no key window, fails."""
     key_now, windows = _main_key(j)
     if not key_now and _diagnostic(j) and not getattr(j, "smoke_key_ok", False) \
             and not any(w["key"] is True for w in windows) and any(w["kind"] == "main" for w in windows):
         # Diagnostic on a slot: no window was ever key; the step's other checks still count.
         return True, {"windows": windows, "diagnostic": "no key window on this slot (not checked)"}
+    if not key_now:
+        gap = _key_lost_to_another_app(j, windows)
+        if gap:
+            raise D.NotRun(gap + f" (windows {json.dumps(windows)[:200]})")
     return key_now, {"windows": windows}
 
 
@@ -737,8 +776,12 @@ def _frame_loss(j, panes, again=True):
         reasons, unproven = [], []
         term, tab = places.get(pane, (None, {}))
         ev["terminal"], ev["tab_dead"] = term, tab.get("dead") if isinstance(tab, dict) else None
-        if pane not in places:
-            reasons.append("the daemon topology has no such pane (or no terminal tab selected in it)")
+        topo_pane = next((pn for _w, pn, _t, _tm in j.places(j.topology()) if pn.get("id") == pane), None)
+        if topo_pane is None:
+            reasons.append("the daemon topology has no such pane")
+        elif pane not in places:
+            # A pane with no selected tab (null when no window mounts it): its terminal is not known here.
+            unproven.append("the topology pane has no selected tab (no window mounts it)")
         elif not term:
             reasons.append("the pane's selected tab has no terminal")
         else:
@@ -753,7 +796,7 @@ def _frame_loss(j, panes, again=True):
                 ev["exit"] = record.get("exit") if record else None
                 if record is None:
                     unproven.append("the terminal is not in the daemon's terminal list under that id")
-                elif record.get("exit") or (record.get("lifecycle") and record.get("lifecycle") != "running"):
+                elif record.get("exit") or record.get("lifecycle") == "exited":
                     reasons.append(f"the daemon's terminal list says lifecycle {record.get('lifecycle')!r}, "
                                    f"exit {record.get('exit')!r}")
             try:
@@ -804,8 +847,11 @@ def _no_frame_verdict(j, panes, what):
     if gone:
         raise getattr(D, "TerminalGone", D.StepError)(
             f"TERMINAL GONE under memory pressure ({what}): panes {gone}: " + json.dumps({p: evidence[p] for p in gone})[:1500])
-    raise D.NotRun(f"{what}: panes {sorted(panes)} have no view frame, but each terminal is alive (daemon pane, screen "
-                   f"and shell process): the view is hidden or discarded, not judged: " + json.dumps(evidence)[:1200])
+    unproven = sorted(p for p, ev in evidence.items() if ev.get("unproven"))
+    state = ("each terminal is alive (daemon pane, screen and shell process)" if not unproven else
+             f"no terminal is proven gone, but {unproven} could not be fully read")
+    raise D.NotRun(f"{what}: panes {sorted(panes)} have no view frame; {state}: the view is hidden or discarded, "
+                   f"not judged: " + json.dumps(evidence)[:1200])
 
 
 def step_smoke_widths(j, step):

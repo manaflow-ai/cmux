@@ -446,6 +446,27 @@ class NewTerminals(unittest.TestCase):
         ok, detail = self.ext.cond_smoke_key_window(j, {}, {})
         self.assertFalse(ok, detail)
 
+    def test_a_key_window_lost_to_another_app_is_a_known_gap_not_a_fail(self):
+        j = self.journey([("w", "p1", "a", "T0", True)], {}, "p1")
+        j.smoke_key_ok = True  # the window was key, then a system prompt on the console took the keys
+        j.app.rpc = lambda method, params=None: {"windows": [{"id": 1, "kind": "main", "key": False}]}
+        j.app.identity = {"bundle_id": "com.cmuxterm.app.debug.x"}
+        front = self.ext._front_app
+        try:
+            self.ext._front_app = lambda: ("UserNotificationCenter", "com.apple.UserNotificationCenter")
+            with self.assertRaises(self.NotRun) as caught:
+                self.ext.cond_smoke_key_window(j, {}, {})
+            self.assertIn("UserNotificationCenter", str(caught.exception))
+            # The app itself is front and has no key window: the app's fault, a fail.
+            self.ext._front_app = lambda: ("cmux DEV", "com.cmuxterm.app.debug.x")
+            ok, _detail = self.ext.cond_smoke_key_window(j, {}, {})
+            self.assertFalse(ok)
+            # The front app cannot be read: no proof the host took the keys, a fail.
+            self.ext._front_app = lambda: (None, None)
+            self.assertFalse(self.ext.cond_smoke_key_window(j, {}, {})[0])
+        finally:
+            self.ext._front_app = front
+
     def test_strict_mode_on_a_slot_with_no_key_window_is_a_known_gap(self):
         j = self.journey([("w", "p1", "a", "T0", True)], {}, "p1")
         j.smoke_key_ok, j.smoke_key_reply, typed = False, {"key": None}, []
