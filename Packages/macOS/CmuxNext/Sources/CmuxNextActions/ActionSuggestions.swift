@@ -44,4 +44,7 @@ public nonisolated struct ActionSuggestions: Sendable, Hashable {
     public static let notificationSounds = "notificationSounds"
     /// The agent kinds this Mac has seen (its agent chats' harnesses), for per-agent notification sounds.
     public static let notificationAgents = "notificationAgents"
+    /// The hosts New Remote Group offers (its `destination`): connected machines, online Tailscale
+    /// peers, then `~/.ssh/config` aliases, each once, by SSH destination.
+    public static let remoteHosts = "remoteHosts"
 }
