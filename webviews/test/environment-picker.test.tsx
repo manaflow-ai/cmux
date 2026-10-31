@@ -450,8 +450,9 @@ test("This Mac's name is the host's own name, never the machine a seeded chat ru
   expect(
     thisMacName(undefined, "kind-aqua-sandpiper", { hostKind: "cloud", host: "kind-aqua-sandpiper" }),
   ).toBeUndefined();
-  // An older host with a chat on this Mac: its `machineName` is this Mac's.
-  expect(thisMacName(undefined, "cosmic-gray", { hostKind: "local", host: "cosmic-gray" })).toBe("cosmic-gray");
+  // An older host's tab on another machine's daemon: that daemon reports the chat as local on its own
+  // host, and `machineName` names that machine, never this Mac.
+  expect(thisMacName(undefined, "build-mini", { hostKind: "local", host: "build-mini" })).toBeUndefined();
   expect(thisMacName(undefined, undefined)).toBeUndefined();
 });
 
