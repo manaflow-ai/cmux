@@ -188,7 +188,7 @@ pub enum MuxEvent {
     /// `subscribe` sends it only to a page relay whose page hears it
     /// (page-router.json `events`); other connections hear it as apps
     /// clients after their first `apps-*` command.
-    AppsChanged(Arc<serde_json::Value>),
+    AppsChanged(Arc<Value>),
     /// Every workspace is gone.
     Empty,
 }
