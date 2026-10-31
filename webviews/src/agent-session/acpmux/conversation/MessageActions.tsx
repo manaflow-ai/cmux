@@ -306,16 +306,19 @@ export function SentActions({ text }: { text: string }) {
 }
 
 /// The row at the end of another agent's message line (IncomingMessageCard.tsx IncomingMessageLine):
-/// its age, Copy, Retry and Pin. No read receipt: the message is the agent's to read.
-export function ReceivedActions({ row, text }: { row: AcpmuxRow; text: string }) {
+/// its age and Retry, then `more` (a waiting steer's ⋯, QueuedMessageCard.tsx) in the same group,
+/// never a second one beside it. No read receipt: the message is the agent's to read. No Pin and no
+/// hover Copy: another session's message is no prompt of this chat's to pin, and the opened card's
+/// corner Copy (CardCopy) and the right-click menu copy it (Leo, 2026-10-30: "all these weird button
+/// stuff from messages from other sessions... weird to be able to pin them etc").
+export function ReceivedActions({ row, more }: { row: AcpmuxRow; more?: ReactNode }) {
   return (
     <>
       <span className="cv-received-actions">
         <MessageFooterRow>
           <MessageTime at={row.at} className="cv-user__time" />
-          <MessageCopy text={text} />
           <PromptRetry rowId={row.id} prompt={row.resend ?? row.text ?? ""} />
-          <PinButton rowId={row.id} />
+          {more}
         </MessageFooterRow>
       </span>
       <PullRequestDock />

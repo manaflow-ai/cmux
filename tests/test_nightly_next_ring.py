@@ -255,6 +255,16 @@ printf {live_code}
         self.assertEqual(out, feed(item("400", "cmux-next-dev")))
 
 
+# A fixed clock for the legacy sign skip (LEGACY_NOW_EPOCH): 2026-10-31 00:00:00 UTC.
+NOW_EPOCH = 1793404800
+FRESH = "Fri, 30 Oct 2026 23:40:00 +0000"  # 20 min before NOW_EPOCH
+STALE = "Thu, 29 Oct 2026 19:55:25 +0000"  # the old feed's build on 2026-10-30
+
+
+def dated(entry: str, pub_date: str) -> str:
+    return entry.replace("            <sparkle:version>", f"            <pubDate>{pub_date}</pubDate>\n            <sparkle:version>", 1)
+
+
 class LegacySignSkipScriptTests(unittest.TestCase):
     """scripts/ci/nightly-steps/legacy-identity-sign-skip-published.sh with a stand-in curl that
     serves the old feed and the cmux NEXT feed from files."""
@@ -278,6 +288,7 @@ cp "${url#file://}" "$out"
             curl.chmod(0o755)
             output, summary = root / "out", root / "summary"
             env = {"PATH": f"{root / 'bin'}:/usr/bin:/bin", "RUNNER_TEMP": str(root), "GITHUB_OUTPUT": str(output),
+                   "LEGACY_NOW_EPOCH": str(NOW_EPOCH),
                    "GITHUB_STEP_SUMMARY": str(summary), "NIGHTLY_BUILD": build, "LEGACY_ACTION": action,
                    "LEGACY_APPCAST": "appcast-arm64.xml", "NIGHTLY_NEXT_LEGACY_FEED_BASE": f"file://{root}/old",
                    "NIGHTLY_NEXT_FEED_BASE": f"file://{root}/next"}
@@ -294,20 +305,34 @@ cp "${url#file://}" "$out"
         self.assertEqual((result.returncode, out), (0, "skip=true\n"), result.stderr)
 
     def test_a_new_submission_behind_the_next_feed_is_superseded(self):
-        result, out = self.run_script("250", feed(item("200")), feed(item("300"), item("250")))
+        result, out = self.run_script("250", feed(dated(item("200"), FRESH)), feed(item("300"), item("250")))
         self.assertEqual((result.returncode, out), (0, "skip=true\n"), result.stderr)
         self.assertIn("cmux NEXT feed Nightly build: 300", result.stdout)
 
+    def test_a_stale_old_feed_signs_a_build_behind_the_next_feed(self):
+        # Runs 41129836857, 41130873851, 41131599639, 41138268545 (2026-10-30): cmux NEXT
+        # publishes every ~10 min and a legacy sign starts 20-40 min after its target was
+        # picked, so every sign was superseded and the old feed sat at 4093446036501 for
+        # 28 hours. Once the old feed is stale, a build newer than it is signed.
+        result, out = self.run_script("250", feed(dated(item("200"), STALE)), feed(item("300"), item("250")))
+        self.assertEqual((result.returncode, out), (0, "skip=false\n"), result.stderr)
+        self.assertIn("old feed is stale", result.stdout)
+
+    def test_an_old_feed_with_no_date_signs_a_build_behind_the_next_feed(self):
+        result, out = self.run_script("250", feed(item("200")), feed(item("300"), item("250")))
+        self.assertEqual((result.returncode, out), (0, "skip=false\n"), result.stderr)
+
     def test_a_dev_item_on_the_next_feed_does_not_supersede_a_nightly_build(self):
-        result, out = self.run_script("250", feed(item("200")), feed(item("300", "cmux-next-dev"), item("250")))
+        result, out = self.run_script("250", feed(dated(item("200"), FRESH)),
+                                      feed(item("300", "cmux-next-dev"), item("250")))
         self.assertEqual((result.returncode, out), (0, "skip=false\n"), result.stderr)
 
     def test_a_continuation_is_kept_even_behind_the_next_feed(self):
-        result, out = self.run_script("250", feed(item("200")), feed(item("300")), action="continue")
+        result, out = self.run_script("250", feed(dated(item("200"), FRESH)), feed(item("300")), action="continue")
         self.assertEqual((result.returncode, out), (0, "skip=false\n"), result.stderr)
 
     def test_an_unreadable_next_feed_supersedes_nothing(self):
-        result, out = self.run_script("250", feed(item("200")), None)
+        result, out = self.run_script("250", feed(dated(item("200"), FRESH)), None)
         self.assertEqual((result.returncode, out), (0, "skip=false\n"), result.stderr)
 
 
@@ -488,7 +513,7 @@ class LegacyPublishedTests(unittest.TestCase):
         script = "\n".join(line[10:] for line in script.splitlines())
         base = {"DECIDED": "true", "ACTION": "new", "BUILD": "4023940374302", "NEXT_BUILD": "4023940374302",
                 "SIGN_SKIP": "false", "SIGN_PENDING": "false", "SIGN_OK": "true", "TESTED": "abc123", "ALREADY": "false",
-                "PUBLISHED": "true"}
+                "PUBLISHED": "true", "NEXT_OK": "true", "SOURCE_RUN": ""}
         return subprocess.run(["bash", "-c", script], env={"PATH": "/usr/bin:/bin", **base, **env},
                               capture_output=True, text=True)
 
@@ -497,11 +522,17 @@ class LegacyPublishedTests(unittest.TestCase):
         for env in ({"ACTION": "none", "BUILD": "", "PUBLISHED": ""}, {"SIGN_SKIP": "true", "PUBLISHED": ""},
                     {"ALREADY": "true", "PUBLISHED": "false"}, {"SIGN_PENDING": "true", "PUBLISHED": ""},
                     # A continued older build: the publisher runs only for this run's build.
-                    {"ACTION": "continue", "BUILD": "4023540480101", "PUBLISHED": ""}):
+                    {"ACTION": "continue", "BUILD": "4023540480101", "PUBLISHED": ""},
+                    # This run's own build, which cmux NEXT did not publish: the old feed waits for it.
+                    {"SOURCE_RUN": "41136161064", "NEXT_OK": "false", "PUBLISHED": ""},
+                    {"SOURCE_RUN": "41136161064", "NEXT_BUILD": "4023940374303", "PUBLISHED": ""}):
             self.assertEqual(self.gate(**env).returncode, 0, env)
         # A failed target leaves no outputs (continue-on-error reports it as success).
         for env in ({"DECIDED": "", "ACTION": "", "BUILD": "", "PUBLISHED": ""},
                     {"PUBLISHED": ""}, {"PUBLISHED": "false"},
+                    # A feed build a rescue's re-run signed (publish-nightly skipped there) that did not publish.
+                    {"NEXT_OK": "false", "NEXT_BUILD": "", "PUBLISHED": "false"},
+                    {"SOURCE_RUN": "41136161064", "PUBLISHED": "false"},
                     {"ACTION": "continue", "PUBLISHED": "false"},
                     # Pending, but the sign job failed after Apple took it (no stored bundle).
                     {"SIGN_PENDING": "true", "SIGN_OK": "false", "PUBLISHED": ""},
@@ -512,13 +543,18 @@ class LegacyPublishedTests(unittest.TestCase):
             self.assertEqual(result.returncode, 1, env)
             self.assertIn("::error title=cmux NIGHTLY feed not published::", result.stdout)
 
-    def test_the_gate_reads_outputs_and_runs_whenever_cmux_next_published(self):
+    def test_the_gate_reads_outputs_and_runs_in_every_run_the_target_ran_in(self):
+        # Runs 41126559170 and 41136161064 (2026-10-30): the rescue's re-runs skipped publish-nightly, so this gate
+        # skipped too and the old feed sat 27 hours behind with no red. It runs whatever cmux NEXT's publication did.
         body = self.job("nightly-identity-legacy-published")
         for need in ("publish-nightly", "legacy-identity-target", "sign-nightly-identity-legacy",
                      "verify-nightly-identity-legacy", "publish-nightly-identity-legacy"):
             self.assertIn(need, body.split("\n", 1)[0])
-        self.assertIn("always() && !cancelled()", body)
-        self.assertIn("needs.publish-nightly.result == 'success'", body)
+        condition = re.search(r'\n    if: "(.*)"\n', body).group(1)
+        self.assertIn("always() && !cancelled()", condition)
+        self.assertNotIn("publish-nightly", condition)
+        self.assertIn("NEXT_OK: ${{ needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.refused != 'true' }}", body)
+        self.assertIn("SOURCE_RUN: ${{ needs.legacy-identity-target.outputs.source_run }}", body)
         self.assertNotIn("\n    continue-on-error:", body)
         self.assertNotRegex(body, r"needs\.(?:legacy-identity-target|[a-z-]*identity-legacy)\.result")
         target = self.job("legacy-identity-target")

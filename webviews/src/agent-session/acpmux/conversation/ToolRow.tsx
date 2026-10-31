@@ -146,12 +146,16 @@ export const ToolRow = memo(function ToolRow({ item }: { item: AcpmuxActivity })
       )}
     </>
   );
+  // Every call's line opens (Leo, ask-486cb2cec3: "why the fuck did you guys ffucking ellipsis
+  // EVERYTHING WITH NO WAY TO EXPAND WHAT WAS SAID TO SEE"): opened, a line that is no shell's (whose
+  // Shell block shows its whole command) wraps to its whole label, so a search pattern, a URL or a
+  // path cut at the row's edge reads whole, and a call with no output opens to that alone.
   return (
     <>
-      {opens || shell || hasDiff ? (
+      {opens || shell || hasDiff || label ? (
         <button
           type="button"
-          className={`cv-tool is-toggle${running ? " is-live" : " is-strong"}`}
+          className={`cv-tool is-toggle${shell ? "" : " is-whole-open"}${running ? " is-live" : " is-strong"}`}
           data-tool-id={tool.id}
           aria-expanded={open}
           aria-controls={open ? detailsId : undefined}

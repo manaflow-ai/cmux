@@ -374,6 +374,7 @@ impl Hub {
             stuck_since: stuck.map(|s| s.1),
             stuck_error: stuck.map(|s| s.2.to_owned()),
             agent_session_id: m.agent_session_id.clone(),
+            retired_agent_session_ids: m.retired_agent_session_ids.clone(),
             created_at: m.created_at,
             updated_at: m.updated_at,
             last_seq: m.last_seq,
@@ -451,6 +452,7 @@ impl Hub {
                     from_harness: crate::prompt_provenance::sender_of(q.run.provenance.as_ref()).1,
                     class: q.run.class,
                     author: crate::author::listed(q.run.provenance.as_ref()),
+                    subagent_retry: super::subagent_retry::listed(q.run.provenance.as_ref()),
                     // By attachment id: `_acpmux/attachment` reads each back.
                     images: super::prompt_images::named(&q.run.blocks)
                         .into_iter()
@@ -518,6 +520,10 @@ impl Hub {
         summary.set("gitBranch", json!(self.git_branch_now(&m)));
         // Since when work it started runs on past its own turn (`work_below.rs`).
         summary.set("subagentsWorkingSince", json!(self.work_below_since(session)));
+        // The usage rules it breaks (`usage_warnings.rs`), read from `usageStats` above.
+        let limits = *self.usage_limits.lock().unwrap_or_else(|e| e.into_inner());
+        let warnings = super::usage_warnings::usage_warnings(&summary, &limits);
+        summary.set("usageWarnings", json!(warnings));
         decide(&mut summary);
         summary
     }
@@ -641,6 +647,9 @@ impl Hub {
             "peers": self.peers(),
             "remoteSessions": self.remote_sessions.lock().unwrap().len(),
             "openWaits": self.open_waits.load(Ordering::SeqCst),
+            // Messages this daemon sent near the per-message cap, or refused over it
+            // (`wire_size.rs`): the next one too large to send is seen coming.
+            "largeMessages": crate::wire_size::global().status(),
             "webUrl": web_url(&cfg),
             "listen": cfg.web_listener().map(|w| w.listen.clone()),
             "ready": self.startup_complete(),

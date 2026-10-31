@@ -57,15 +57,6 @@ extension SidebarBridge {
             services.windows.show(workspaceID: id.rawValue, in: state, from: .thisWindow)
         case let .selectTab(_, tab):
             _ = services.revealTab(tab.rawValue)
-        case let .closeTab(_, tab):
-            // A middle-click on a listed tab: Close Tab on that tab alone (an explicit target is never widened to the
-            // strip's selection), the tab strip's middle-click path, so Reopen Closed (Cmd-Shift-T) brings it back.
-            _ = services.registry.perform("closeTab", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab.rawValue), origin: .user))
-        case .moveTab:
-            // Tab drags are committed by TabDragSession. Keep this intent
-            // conservative until a sidebar-only tab move has a daemon
-            // transaction path of its own.
-            resync()
         case .reorder(let ids, let position):
             // A pending edit, as on the personal path: each command's echo shows no step between.
             SidebarDaemonReorder.reorder(ids, to: position, in: model.sections, edit: rows.add(intent), bridge: self)
@@ -184,6 +175,7 @@ extension SidebarBridge {
     func resync() {
         guard let state else { return }
         model.ungroupedFirst = !SidebarDocWiring.isActive && !usesMixedOrder
+        let shownAt = SidebarDocStore.current?.shownChanges
         var sections = Self.sections(services.machines, members: services.windows.registry.members(of: state.id), profile: state.profileID,
                                      hidesHome: Self.hidesHome(services.sidebarLayout.document), selection: state.selection,
                                      newTabPages: Self.newTabPages(services.agentTabs, in: services.machines.local.store), muted: services.notifications.preferences.mutedWorkspaces,
@@ -192,7 +184,7 @@ extension SidebarBridge {
             .applying(to: sections)
         // A connecting SSH machine keeps its pending row through a resync (cx-gaq9).
         if !model.groupsByComputer { sections = SSHConnectingRows.adding(services.machines, to: sections) }
-        rows.show(sections)
+        rows.show(sections, shownAt: shownAt)
         model.profiles = SidebarSpaceBar.profiles(services.machines.local)
         groupFlow.openPendingEditor()
     }
