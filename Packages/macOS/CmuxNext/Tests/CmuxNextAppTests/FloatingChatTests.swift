@@ -1,5 +1,5 @@
 import AppKit
-import CmuxNextAgentPane
+@testable import CmuxNextAgentPane
 import Foundation
 import Testing
 @testable import CmuxNextApp
@@ -54,6 +54,8 @@ struct FloatingChatTests {
         var pushed: [AgentPaneFloatingState] = []
         /// The session each made chat was bound to (nil: a new chat).
         var made: [String?] = []
+        /// The kept text each made chat's prompt started as.
+        var drafts: [String?] = []
         /// What the user is looking at in cmux, for Include focused tab.
         var focused: AgentPaneQuickContext?
         /// Weak: the controller's closures hold the rig, and the rig's deinit clears its defaults.
@@ -76,15 +78,17 @@ struct FloatingChatTests {
         }
     }
 
-    static func rig(floating: Bool, suite: String? = nil) throws -> (Rig, QuickComposerController) {
+    static func rig(floating: Bool, suite: String? = nil, drafts: AgentUnsentDrafts? = nil) throws -> (Rig, QuickComposerController) {
         let page = FileManager.default.temporaryDirectory.appending(path: "floating-chat-\(UUID().uuidString)/index.html")
         try FileManager.default.createDirectory(at: page.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data("<html></html>".utf8).write(to: page)
         let rig = Rig(suite: suite ?? "floating-chat-\(UUID().uuidString)", ownsSuite: suite == nil)
         let controller = QuickComposerController(
-            makeChat: { session in
+            makeChat: { session, draft, generation in
                 rig.made.append(session)
-                return AgentPaneView(model: AgentPaneModel(host: NoHost(), sessionId: session), source: .bundled(page))
+                rig.drafts.append(draft)
+                let seed = draft.map { AgentPaneSeedSource(AgentPaneSeed(draft: $0, draftGeneration: generation)) }
+                return AgentPaneView(model: AgentPaneModel(host: NoHost(), sessionId: session, seed: seed), source: .bundled(page))
             },
             makeWindow: { rig.window },
             openInWindow: { session in
@@ -98,7 +102,8 @@ struct FloatingChatTests {
             floating: { floating },
             pushState: { state, _ in rig.pushed.append(state) },
             context: { rig.focused },
-            defaults: rig.defaults)
+            defaults: rig.defaults,
+            drafts: drafts)
         rig.controller = controller
         return (rig, controller)
     }
@@ -371,5 +376,43 @@ struct FloatingChatTests {
         #expect(none["ok"] as? Bool == true)
         #expect(none["value"] is NSNull)
     }
-}
 
+    /// Leo (10-28): "when I updated, it removed my draft in one of the composer things". Start
+    /// Agent's panel has no tab, and its page lived only in memory, so an update's relaunch (or a
+    /// quit) took a new chat's typed text. It is kept as a new chat tab's is, comes back with the
+    /// next launch's first show, and goes once the chat's first prompt starts its session.
+    @Test func aNewChatsTypedTextSurvivesAnUpdateUntilItStarts() async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "quick-draft-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appending(path: AgentUnsentDrafts.fileName)
+        let suite = "quick-draft-\(UUID().uuidString)"
+
+        let (firstRig, first) = try Self.rig(floating: false, suite: suite, drafts: AgentUnsentDrafts(file: file))
+        first.show()
+        #expect(firstRig.drafts == [nil])
+        let firstChat = try #require(first.chat)
+        _ = await firstChat.model.respond(to: Self.request("chat.unsentDraft", ["text": "compare the two retry policies", "generation": 4]))
+        await first.prepareForQuit()
+
+        // The update's relaunch: the store reads its file again, and a new controller is the next launch.
+        let (secondRig, second) = try Self.rig(floating: false, suite: suite, drafts: AgentUnsentDrafts(file: file))
+        second.show()
+        #expect(secondRig.drafts == ["compare the two retry policies"])
+        let secondChat = try #require(second.chat)
+        #expect(await secondChat.model.seed?.peek()?.draftGeneration == 4)
+        // The person edits it: that text is the draft (the page had it), not a second copy.
+        _ = await secondChat.model.respond(to: Self.request("chat.unsentDraft", ["text": "compare the retry policies", "generation": 4]))
+        #expect(AgentUnsentDrafts(file: file).draft(for: QuickComposerController.draftKey) == "compare the retry policies")
+
+        // Its first prompt starts the session: the kept text goes, and the next panel starts empty.
+        _ = await secondChat.model.respond(to: Self.request("chat.persistSession", ["sessionId": "session-q"]))
+        #expect(AgentUnsentDrafts(file: file).draft(for: QuickComposerController.draftKey) == nil)
+        let (thirdRig, third) = try Self.rig(floating: false, suite: suite, drafts: AgentUnsentDrafts(file: file))
+        third.show()
+        #expect(thirdRig.drafts == [""])
+        let tombstone = await third.chat?.model.seed?.peek()
+        #expect(tombstone?.draftGeneration == 5)
+        withExtendedLifetime((firstRig, secondRig)) {}
+    }
+}

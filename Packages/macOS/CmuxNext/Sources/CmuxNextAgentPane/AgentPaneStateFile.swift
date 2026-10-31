@@ -19,10 +19,18 @@ import CmuxNextCompat
 /// of never holding the main thread for the disk. The files hold a new chat's unsent text and
 /// where each transcript was scrolled; the next settled edit or scroll saves again.
 public nonisolated final class AgentPaneStateFile: Sendable {
+    public enum ReadState: Sendable {
+        case missing
+        case readable(Data)
+        case unreadable
+    }
     public let url: URL
     private let queue: DispatchQueue
     /// The newest save's number; a queued save with an older one does nothing.
     private let newest = Mutex<UInt64>(0)
+    /// A failed quarantine refuses every subsequent save. The value is touched by the serial
+    /// queue, but Mutex also satisfies Sendable's stored-state checking.
+    private let preservesUnreadable = Mutex(false)
 
     /// Set on this file's queue only, so a read from inside one of its saves does not wait on
     /// itself, and a read of another file from inside a save still waits for that file's saves.
@@ -59,6 +67,16 @@ public nonisolated final class AgentPaneStateFile: Sendable {
             guard newest.withLock({ $0 == number }) else { return }
             let data: Data?
             do { data = try encode() } catch { return }  // a throw keeps the last good file
+            if preservesUnreadable.withLock({ $0 }) {
+                do {
+                    _ = try UnreadableStateFile.setAside(url)
+                    preservesUnreadable.withLock { $0 = false }
+                } catch CocoaError.fileNoSuchFile {
+                    preservesUnreadable.withLock { $0 = false }
+                } catch CocoaError.fileReadNoSuchFile {
+                    preservesUnreadable.withLock { $0 = false }
+                } catch { return }
+            }
             guard let data else {
                 try? FileManager.default.removeItem(at: url)
                 return
@@ -72,6 +90,38 @@ public nonisolated final class AgentPaneStateFile: Sendable {
         if DispatchQueue.getSpecific(key: onQueue) == true { return try? Data(contentsOf: url) }
         // concurrency-allow: one small local read per store (at its first use), after this file's queued saves
         return queue.sync { try? Data(contentsOf: url) }
+    }
+
+    /// Classifies the file on this state's serial queue, so existence and reads never block the
+    /// main actor and a present-but-unreadable file cannot be mistaken for a missing one.
+    public func readState() -> ReadState {
+        let read = {
+            do { return ReadState.readable(try Data(blockingContentsOf: self.url)) }
+            catch CocoaError.fileReadNoSuchFile { return .missing }
+            catch { return .unreadable }
+        }
+        return DispatchQueue.getSpecific(key: onQueue) == true ? read() : queue.blockingSync(execute: read)
+    }
+
+    /// Classifies the file after the queued saves before it, then delivers the result without
+    /// making the caller wait. App wiring uses this path; the synchronous form remains for
+    /// bounded test drains and the few explicitly allowed non-startup reads.
+    public func readStateAsync(_ completion: @escaping @Sendable (ReadState) -> Void) {
+        queue.async {
+            do {
+                completion(.readable(try Data(blockingContentsOf: self.url)))
+            } catch CocoaError.fileReadNoSuchFile {
+                completion(.missing)
+            } catch {
+                completion(.unreadable)
+            }
+        }
+    }
+
+    /// Ordered before subsequent saves, including coalesced writes. Quarantine and the write
+    /// both execute asynchronously on the serial I/O queue; failed quarantine refuses the write.
+    public func preserveUnreadableFile() {
+        queue.async { [self] in preservesUnreadable.withLock { $0 = true } }
     }
 
     /// Waits up to `limit` in all for every file's queued saves. App quit only (inside

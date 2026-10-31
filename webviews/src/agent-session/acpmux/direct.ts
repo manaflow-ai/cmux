@@ -115,6 +115,7 @@ export type AcpmuxHostConfig = {
   cwd?: string;
   /** Text the composer starts with. Shown, never sent by itself. */
   draft?: string;
+  draftGeneration?: number;
   /** A new chat's first prompt, sent once the client connects (onboarding's first task). */
   prompt?: string;
   /** The model a new chat starts on before its first prompt. */
@@ -3122,8 +3123,8 @@ export class AcpmuxDirectClient {
   }
 
   /// Persists or clears the selected session's composer draft in acpmux.
-  writeDraft(sessionId: string, text: string): Promise<unknown> {
-    return this.request("_acpmux/draft_set", { sessionId, text });
+  writeDraft(sessionId: string, text: string, generation = 0): Promise<unknown> {
+    return this.request("_acpmux/draft_set", { sessionId, text, generation });
   }
 
   /// The session's prompt bookmarks (`{bookmarks: [seq...]}`), kept in acpmux (threadMinimap/bookmarks.ts).

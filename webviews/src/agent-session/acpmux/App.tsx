@@ -880,7 +880,8 @@ const reportTabRowTools = (width: number) => void callNative("pane.tabRowTools",
 /// The composer's text changed: the chat tells acpmux this pane types (never the text itself).
 const postTyping = (text: string, sessionId?: string) =>
   void window.cmuxAcpmuxActions?.["chat.typing"]?.({ text, sessionId }).catch(() => undefined);
-const postUnsentDraft = (text: string) => callNative("chat.unsentDraft", { text }).catch(() => undefined);
+const postUnsentDraft = (text: string, generation = 0) =>
+  callNative("chat.unsentDraft", { text, generation }).catch(() => undefined);
 /// Each chat's unsent chips, kept by the host so reopening or restoring the chat brings them back
 /// (AgentPaneDraftAttachments.swift). A host without the store (the gallery, an older app) keeps none.
 const keptAttachments: KeptAttachments = {
@@ -4789,6 +4790,7 @@ function AcpmuxPane() {
   const [workflowLabsEnabled, setWorkflowLabsEnabled] = useState(false);
   /// What a chat opened from another tab inherited (#16620); the composer starts with it.
   const [draft, setDraft] = useState<string | undefined>();
+  const [draftGeneration, setDraftGeneration] = useState<number | undefined>();
   const [newSession, setNewSession] = useState(false);
   /// The chat whose recorded history plays back read-only in place of it (chat menu Replay, cx-osmw).
   const [replaying, setReplaying] = useState<string | undefined>();
@@ -8171,6 +8173,7 @@ function AcpmuxPane() {
           newTab?: unknown;
           cwd?: string;
           draft?: string;
+          draftGeneration?: number;
           prompt?: string;
           promptTicket?: { promptId?: unknown; ticket?: unknown };
           harness?: string;
@@ -8281,7 +8284,10 @@ function AcpmuxPane() {
         // A chat opened from another tab starts with what it inherited (#16620). Swift hands the
         // draft out once, so a retried `ready` after a failed connect has none and keeps this one.
         const seeded = composerDraft(host.draft);
-        if (seeded) setDraft(seeded);
+        if (seeded || typeof host.draftGeneration === "number") {
+          setDraft(seeded);
+          setDraftGeneration(typeof host.draftGeneration === "number" ? host.draftGeneration : 0);
+        }
         // Integrate a Harness… from the palette or the menu opened this tab (cx-uj5g8).
         if (host.harnesses === true) setHarnessesOpen(true);
         pendingPrompt = composerDraft(host.prompt) ?? pendingPrompt;
@@ -8843,7 +8849,8 @@ function AcpmuxPane() {
           "chat.hideFind": async () => findRef.current?.hide(),
           // Composer drafts belong to the daemon session so every host can restore them.
           "chat.readDraft": ({ sessionId }) => client.readDraft(String(sessionId)),
-          "chat.writeDraft": ({ sessionId, text }) => client.writeDraft(String(sessionId), String(text ?? "")),
+          "chat.writeDraft": ({ sessionId, text, generation }) =>
+            client.writeDraft(String(sessionId), String(text ?? ""), Number(generation ?? 0)),
           "acp.trust.get": ({ cwd }) => client.trustGet(String(cwd)),
           "acp.trust.set": ({ cwd, level }) => client.trustSet(String(cwd), String(level)),
           "file.search": ({ path, query, limit }) =>
@@ -9999,6 +10006,31 @@ function AcpmuxPane() {
     (sessionSelection?.state === "pending" || !snapshot.sessionId) &&
     snapshot.rows.length === 0 &&
     (handshaken || hostError === undefined);
+  // A host failure before the handshake takes the New Tab page (the error card shows in its place),
+  // and the retry that answers mounts it again: the page hands its draft (text and attachments) here
+  // as it goes, and the page mounted again takes it back. Leo (10-28): "when I updated, it removed
+  // my draft in one of the composer things".
+  const newTabHostFailureDraft = useRef<{ generation: number; text: string; attachments: ComposerAttachment[] }>(
+    undefined,
+  );
+  const newTabLeavesForHostFailure = useRef(false);
+  newTabLeavesForHostFailure.current = newTab !== undefined && !handshaken && hostError !== undefined;
+  const keepNewTabDraft = (text: string, attachments: ComposerAttachment[]) => {
+    if (!newTabLeavesForHostFailure.current) return false;
+    newTabHostFailureDraft.current = { generation: newTabGeneration, text, attachments };
+    return true;
+  };
+  // Read (not taken) while the page mounts, so a strict-mode second render reads it too; it goes
+  // once the page shows.
+  const takeNewTabDraft = () => {
+    const kept = newTabHostFailureDraft.current;
+    return kept && kept.generation === newTabGeneration
+      ? { text: kept.text, attachments: kept.attachments }
+      : undefined;
+  };
+  useEffect(() => {
+    if (showNewTab) newTabHostFailureDraft.current = undefined;
+  }, [showNewTab]);
   // Activity disconnects the hidden page's draft/attachment/choice holds during setup. Keep
   // the reload hold in the parent until the page is visible and its own effects reconnect.
   useWebSwapHold(showNewTab && harnessesOpen ? "newtab.setup" : null);
@@ -10186,8 +10218,8 @@ function AcpmuxPane() {
   };
   // Stable, so the composer's unsent-draft throttle is not rebuilt on every render.
   const onNewChatDraft = useCallback(
-    (text: string) => {
-      const sent = postUnsentDraft(text);
+    (text: string, generation: number) => {
+      const sent = postUnsentDraft(text, generation);
       const { harness } = freshPick.current;
       const cwd = freshPick.current.cwd ?? directClient.current?.newChatCwd();
       const target: PrewarmTarget | undefined = cwd ? { ...(harness ? { harness } : {}), cwd } : undefined;
@@ -10891,7 +10923,10 @@ function AcpmuxPane() {
             permissionAccess={permissionAccess}
             onOpenContext={inspector.reveal ? () => inspector.reveal?.("context") : undefined}
             draft={draft}
-            onUnsentDraft={quick ? undefined : onNewChatDraft}
+            draftGeneration={draftGeneration}
+            // Start Agent's panel keeps a new chat's text with its host too: an update or a quit
+            // never takes it (QuickComposerController's drafts). It warms no tab's start.
+            onUnsentDraft={quick ? postUnsentDraft : onNewChatDraft}
             onTyping={quick ? undefined : postTyping}
             keptAttachments={quick ? undefined : keptAttachments}
             onCmuxCommand={handleCmuxCommand}
@@ -11443,8 +11478,12 @@ function AcpmuxPane() {
                   }}
                   key={newTabGeneration}
                   environments={preview}
-                  // The tab's run, found by a read, takes the chat view: the page's draft goes to its composer.
+                  // A host failure keeps the page's draft for the page the retry mounts. The tab's run,
+                  // found by a read, takes the chat view: the page's draft goes to its composer.
+                  takeDraft={takeNewTabDraft}
                   onLeaveDraft={(text, attachments) => {
+                    if (keepNewTabDraft(text, attachments)) return;
+                    if (!text.trim() && !attachments.length) return;
                     // A Sandboxed send from the page already took its prompt (or held it back).
                     const handed = newTabSandboxSent.current;
                     newTabSandboxSent.current = false;
@@ -11567,6 +11606,8 @@ function AcpmuxPane() {
               importError={importError}
               importSandboxed={sandbox.mode === "sandboxed"}
               key={newTabGeneration}
+              takeDraft={takeNewTabDraft}
+              onLeaveDraft={keepNewTabDraft}
               snapshot={newTabSnapshot}
               hotkeys={newTab.hotkeys}
               initialKind={newTab.initialKind}

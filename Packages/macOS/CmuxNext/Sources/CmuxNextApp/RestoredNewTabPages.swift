@@ -21,7 +21,7 @@ enum RestoredNewTabPages {
         // Cheap lookups first: a restored chat leaves here, before the host checks.
         guard let record = tab.agentSession, tabs.views[key] == nil, tabs.tabStores[key] == nil,
               (tabs.sessions[key] ?? record.session) == nil, tabs.seeds[key] == nil, !tabs.linkedSessions.contains(key),
-              tabs.unsentDrafts.seed(for: key, session: nil) == nil,
+              !tabs.unsentDrafts.hasDraft(key),
               AgentPaneHostKind(record, localHost: tabs.localHost, chiefHost: tabs.chiefHost,
                                 listedHere: tabs.daemonListing(tab)?.isLocal != false) != .remote else { return false }
         // The daemon whose tree lists this record, found by identity (no tab-list read).

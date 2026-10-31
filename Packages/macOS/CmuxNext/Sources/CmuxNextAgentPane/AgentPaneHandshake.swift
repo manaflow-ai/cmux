@@ -23,7 +23,7 @@ public nonisolated struct AgentPaneHandshake: Codable, Sendable, Equatable {
 
     /// The coded fields: everything but ``connection``, which never reaches the page.
     private enum CodingKeys: String, CodingKey {
-        case protocolVersion, transport, sessionId, newSession, newTab, cwd, draft, prompt, promptTicket, harness, model, peer, adopt, surface,
+        case protocolVersion, transport, sessionId, newSession, newTab, cwd, draft, draftGeneration, prompt, promptTicket, harness, model, peer, adopt, surface,
              linkScheme, sessionMustExist, revealTurn, chooseFolder, startKind, folderNeeded, pastTurns, machineName, githubRepository, harnesses, wake,
              workspaceContext, sandboxState, cloudMachineID, cloudAccount, cloudCredentialRecoveryAvailable
     }
@@ -45,6 +45,8 @@ public nonisolated struct AgentPaneHandshake: Codable, Sendable, Equatable {
     public var cwd: String?
     /// Text a new chat's composer starts with. Shown, never sent by itself.
     public var draft: String?
+    /// The seed's replacement/clear boundary; absent in legacy handshakes means zero.
+    public var draftGeneration: Int?
     /// A new chat's first prompt, sent by the page once it connects.
     /// Pages that predate it ignore it (the chat just stays empty).
     public var prompt: String?

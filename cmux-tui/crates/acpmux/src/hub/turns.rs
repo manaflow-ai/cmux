@@ -600,12 +600,13 @@ impl Hub {
             (blocks, text)
         };
         let mut blocks = blocks;
-        {
+        let (draft_cleared, draft_before, draft_tombstone) = {
             let mut m = session.meta.lock().unwrap();
+            let draft_before = (m.composer_draft.clone(), m.composer_draft_generation);
             // Another agent's message leaves its sender and words, not its envelope (`prompt_line.rs`).
             let line = super::prompt_line::prompt_line(&text, client, provenance.as_ref());
             m.last_prompt = Some(short_text(&line, 200));
-            drafts::clear_sent_draft(&mut m, &text);
+            let draft_cleared = drafts::clear_sent_draft(&mut m, &text);
             super::titles::set_fallback_title(&mut m, &text);
             m.preview = Some(String::new());
             // The sender of a chat's first turn is its delegator (`inbox.rs`): named once the
@@ -620,7 +621,9 @@ impl Hub {
                 m.delegator = Some(from);
             }
             m.turn_count += 1;
-        }
+            let draft_tombstone = (m.composer_draft.clone(), m.composer_draft_generation);
+            (draft_cleared, draft_before, draft_tombstone)
+        };
         // A turn on lane reports only reports nothing (`lane_reports.rs`).
         self.lane_turn_started(session, provenance.as_ref());
         // A family prompt (`subsessions.rs`) never clears the floor a Web
@@ -636,6 +639,22 @@ impl Hub {
         session.compacting.store(false, Ordering::SeqCst);
         let msg = json!({"text": text, "client": client, "promptId": prompt_id, "turnId": turn_id});
         let msg = crate::prompt_provenance::marked(msg, provenance.as_ref());
+        // The accepted prompt may run for hours or outlive this daemon. Persist its draft
+        // tombstone before journaling the prompt, acknowledgement or dispatch. Otherwise a
+        // failed save leaves a journaled prompt paired with the old draft on restart. A failed
+        // save refuses the prompt before it reaches the journal.
+        if draft_cleared && let Err(error) = self.save_meta_result(session) {
+            // Restore the in-memory draft before failure handling saves metadata again, but only
+            // while this send's tombstone is still present. A concurrent draft_set must win.
+            {
+                let mut m = session.meta.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+                drafts::restore_after_failed_send(&mut m, &draft_before, &draft_tombstone);
+            }
+            let e = RpcError::internal(format!("save sent composer draft failed: {error}"));
+            self.fail_unstarted_turn(session, &prompt_id, &turn_id, &e, joined);
+            drop(guard);
+            return Err(e);
+        }
         self.append_prompt(session, msg, &blocks, display_parts.as_ref());
         if !waiting {
             // Started at once: only prompts a failed turn holds can wait under its key.

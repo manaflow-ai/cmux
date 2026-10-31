@@ -13,11 +13,12 @@ import os
 /// (cx-b9qi) Return keeps the started chat running in the panel instead,
 /// until ⌘Return or the header moves it to a tab, and a chat tab's Move to
 /// Floating Chat brings its session back into the panel. A chat the panel
-/// holds when cmux quits comes back to it on the next show.
+/// holds when cmux quits comes back to it on the next show, and so does a new
+/// chat's typed text: an update or a quit never takes the draft (`drafts`).
 final class QuickComposerController {
-    /// A quick chat's page on session `id` (nil: a new chat), nil when this
-    /// build has no agent page.
-    private let makeChat: (_ session: String?) -> AgentPaneView?
+    /// A quick chat's page on session `id` (nil: a new chat, its prompt
+    /// starting as `draft`), nil when this build has no agent page.
+    private let makeChat: (_ session: String?, _ draft: String?, _ generation: Int) -> AgentPaneView?
     private let makeWindow: () -> any QuickComposerWindow
     /// Opens `session` (nil: a new chat) as a tab in the main window and
     /// brings that window forward; false when there was nowhere to open it.
@@ -43,18 +44,24 @@ final class QuickComposerController {
     private let context: @MainActor () async -> AgentPaneQuickContext?
     /// Where the held chat's session is kept, so a quit does not lose it (`heldSessionKey`).
     private let defaults: UserDefaults
+    /// Where a new chat's typed text is kept until it has a session, as a new chat tab's is
+    /// (`AgentUnsentDrafts`, under `draftKey`): the panel has no tab, and its page lives only in
+    /// memory, so without it an update's relaunch or a quit lost what was typed.
+    private let drafts: AgentUnsentDrafts?
+    static let draftKey = "quick-composer"
     static let heldSessionKey = "quickComposer.floatingChatSession"
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.quickComposer")
 
     init(
-        makeChat: @escaping (_ session: String?) -> AgentPaneView?,
+        makeChat: @escaping (_ session: String?, _ draft: String?, _ generation: Int) -> AgentPaneView?,
         makeWindow: @escaping () -> any QuickComposerWindow,
         openInWindow: @escaping (String?) -> Bool,
         startInBackground: @escaping @MainActor (AgentPaneQuickStart) async -> Bool,
         floating: @escaping () -> Bool = { QuickComposerTunables.floatingChat.value },
         pushState: @escaping (AgentPaneFloatingState, AgentPaneView) -> Void = { AgentPaneFloatingState.push($0, to: $1) },
         context: (@MainActor () async -> AgentPaneQuickContext?)? = nil,
-        defaults: UserDefaults = .standard
+        defaults: UserDefaults = .standard,
+        drafts: AgentUnsentDrafts? = nil
     ) {
         self.makeChat = makeChat
         self.makeWindow = makeWindow
@@ -64,6 +71,7 @@ final class QuickComposerController {
         self.pushState = pushState
         self.context = context ?? { nil }
         self.defaults = defaults
+        self.drafts = drafts
     }
 
     var isShown: Bool { window?.isVisible == true }
@@ -84,7 +92,7 @@ final class QuickComposerController {
             if moveToFloatingChat(session: held) { return }
             defaults.removeObject(forKey: Self.heldSessionKey)
         }
-        guard let chat = chat ?? makeChat(nil).map(adopt) else {
+        guard let chat = chat ?? makeChat(nil, drafts?.handOut(Self.draftKey), drafts?.generation(for: Self.draftKey) ?? 0).map(adopt) else {
             logger.notice("quick agent chat unavailable: this build has no agent page")
             return
         }
@@ -147,7 +155,7 @@ final class QuickComposerController {
             guard !holdsChat else { show(); return false }
         }
         if !holdsChat {
-            guard let made = makeChat(session) else { return false }
+            guard let made = makeChat(session, nil, 0) else { return false }
             releaseChat()
             adopt(made)
             if window == nil { _ = makeWindowOnce() }
@@ -213,6 +221,8 @@ final class QuickComposerController {
             setCollapsed: { [weak self] collapsed in self?.setCollapsed(collapsed) },
             floatingState: { [weak self] in self?.floatingState ?? AgentPaneFloatingState() },
             context: { [weak self] in await self?.context() })
+        // A new chat's text is kept until its first prompt starts a session, which clears it.
+        if chat.model.sessionId == nil { drafts?.wire(chat.model) { Self.draftKey } }
         // A held chat that moves to another session (a fork, Continue In) is the one a quit keeps.
         let started = chat.model.onSessionChange
         chat.model.onSessionChange = { [weak self] session in
@@ -221,6 +231,13 @@ final class QuickComposerController {
         }
         self.chat = chat
         return chat
+    }
+
+    /// Before a quit (an update's relaunch too): a new chat's page hands over what was typed since its
+    /// last settled edit, as a chat tab's does (`pane.wakeState` settles the draft first).
+    func prepareForQuit() async {
+        guard drafts != nil, let chat, chat.model.sessionId == nil else { return }
+        _ = await chat.wakeState(limit: .seconds(1))
     }
 
     private func makeWindowOnce() -> any QuickComposerWindow {

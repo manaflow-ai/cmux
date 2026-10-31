@@ -69,13 +69,19 @@ import {
 } from "./slashCommands";
 import { BoltIcon } from "./BoltIcon";
 import {
+  cachePersistedDraft,
+  draftGeneration as validDraftGeneration,
   flushPendingDraftWrites,
   forgetQueuedDraft,
   hasPendingDraftWrite,
+  hydratedDraft,
   lastQueuedDraftText,
-  readDurableDraft,
+  mergedDraft,
+  readDurableDraftState,
   readPersistedDraft,
-  seededText,
+  readPersistedDraftGeneration,
+  readPersistedDraftVersion,
+  readPersistedDraftState,
   settlePendingDraftWrites,
   useDraftActionsVersion,
   writePersistedDraft,
@@ -195,7 +201,7 @@ export const COMPOSER_LABELS = {
 /// What the pane can do to the composer from outside it.
 export type ComposerHandle = {
   /// Puts a held-back prompt in: `text` before what is typed now, `attachments` before the rest.
-  restore(text: string, attachments: ComposerAttachment[]): void;
+  restore(text: string, attachments: ComposerAttachment[], generation?: number): void;
   /// Adds a chip after the ones held, leaving the prompt as typed (the floating chat's Include
   /// focused tab); one with the same id is replaced. Nothing changes when it holds the most it can.
   attach(attachment: ComposerAttachment): void;
@@ -262,6 +268,7 @@ type Props = {
   /// Text the prompt starts with, such as what a chat opened from another tab inherited.
   /// Each new value fills an empty prompt once, caret at the end; it is never sent by itself.
   draft?: string;
+  draftGeneration?: number;
   /// The durable session whose unsent prompt belongs in this composer.
   sessionId?: string;
   /// A harness switch is under way (another provider's model was picked): the session changes
@@ -291,7 +298,7 @@ type Props = {
   placeholder?: string;
   /// A new chat's typed text, before it has a session (acpmux keeps a session's draft): the host
   /// keeps it with the tab, so a relaunch opens the chat with it (cx-z5vd).
-  onUnsentDraft?(text: string): void | Promise<unknown>;
+  onUnsentDraft?(text: string, generation: number): void | Promise<unknown>;
   /// The person edited the prompt of a chat that has a session: the pane tells acpmux it types
   /// (multiplayer). A draft coming back is not an edit.
   onTyping?(text: string, sessionId?: string): void;
@@ -396,6 +403,7 @@ export function Composer({
   onQueueSideChat,
   queueImage,
   draft,
+  draftGeneration,
   leading,
   permissionAccess,
   accessory,
@@ -471,7 +479,21 @@ export function Composer({
   const importInput = useRef<HTMLInputElement>(null);
   // Seed from the handshake before the editor mounts. The relaunch draft and the local cache can
   // arrive in the same render; preferring the host value keeps it visible through initialization.
-  const [text, setText] = useState(() => draft ?? readPersistedDraft(sessionId) ?? "");
+  const [initialDraft] = useState(() => {
+    const local = readPersistedDraftState(sessionId);
+    const seededGeneration = validDraftGeneration(draftGeneration);
+    return {
+      generation: Math.max(local.generation, seededGeneration + (local.pendingReplacement ? 1 : 0)),
+      known: local.known || draftGeneration !== undefined,
+      pendingReplacement: local.pendingReplacement,
+      text: local.pendingReplacement
+        ? local.text
+        : mergedDraft(local.text, draft, local.known ? local.generation : seededGeneration, seededGeneration),
+    };
+  });
+  const generation = useRef(initialDraft.generation);
+  const generationKnown = useRef(initialDraft.known);
+  const [text, setText] = useState(initialDraft.text);
   const textRef = useRef(text);
   textRef.current = text;
   /// Shell mode: the prompt is a plain monospace field whose Enter runs a command. The markdown
@@ -558,7 +580,42 @@ export function Composer({
   /// The session id owns the prompt. A page can switch sessions without remounting the composer.
   const persistedSession = useRef(sessionId);
   const hydratedSession = useRef<string | undefined>(undefined);
+  // Read knowledge belongs to this mounted composer and active chat. Another client can
+  // change the daemon draft while this view is absent, even within the same generation.
+  const readSession = useRef<string | undefined>(undefined);
+  const draftWasRead = (session: string | undefined) => Boolean(session && readSession.current === session);
+  const markDraftRead = (session: string | undefined) => {
+    readSession.current = session;
+  };
   const restoringSession = useRef(false);
+  // An intentional boundary while offline must also supersede the first eventual durable read.
+  const pendingReplacement = useRef(initialDraft.pendingReplacement);
+  const versionKnowledge = () => ({ known: generationKnown.current, pendingReplacement: pendingReplacement.current });
+  const advanceGeneration = (replacement: string) => {
+    generation.current = Math.max(generation.current, readPersistedDraftGeneration(persistedSession.current)) + 1;
+    pendingReplacement.current =
+      hydratedSession.current !== persistedSession.current || !draftWasRead(persistedSession.current);
+    editedBeforeHydration.current = true;
+    restoringSession.current = false;
+    textRef.current = replacement;
+    writePersistedDraft(persistedSession.current, replacement, generation.current, versionKnowledge());
+    unsentDraft.current?.push(replacement, generation.current);
+    unsentDraft.current?.flush();
+  };
+  const mergeDurable = (current: string, saved: { draft: string | undefined; generation: number }) => {
+    if (pendingReplacement.current) {
+      generation.current = Math.max(generation.current, saved.generation + 1);
+      pendingReplacement.current = false;
+      generationKnown.current = true;
+      cachePersistedDraft(persistedSession.current, current, generation.current, versionKnowledge());
+      return current;
+    }
+    if (!generationKnown.current) generation.current = saved.generation;
+    generationKnown.current = true;
+    const next = mergedDraft(current, saved.draft, generation.current, saved.generation);
+    generation.current = Math.max(generation.current, saved.generation);
+    return next;
+  };
   /// Set while a switch runs and kept until the session change it brings (Lucas 2026-10-19).
   const carryPrompt = useRef(false);
   // Once a new chat has shown its location strip, keep its layout slot through the first send.
@@ -675,12 +732,14 @@ export function Composer({
   useImperativeHandle(
     handle,
     () => ({
-      restore(restoredText, restoredAttachments) {
+      restore(restoredText, restoredAttachments, restoredGeneration) {
         // Put back, not typed: the Enter that sent it says nothing about this change.
         notTyped();
         // What comes back goes first; what was typed or attached since stays after it.
         const typed = field.current?.value() ?? "";
-        const next = typed.trim() ? `${restoredText}\n\n${typed}` : restoredText;
+        if (restoredGeneration === undefined) advanceGeneration(typed);
+        const next = mergedDraft(typed, restoredText, generation.current, restoredGeneration ?? generation.current);
+        generation.current = Math.max(generation.current, restoredGeneration ?? generation.current);
         // A field whose editor is still starting (the chat composer that mounts as a New Tab page
         // leaves) takes it as its value, which becomes the editor's first content.
         if (!field.current?.type(next)) {
@@ -727,21 +786,47 @@ export function Composer({
       }),
       async settleDraft() {
         // The editor's value, not React's state: a keystroke whose effects have not run yet counts.
-        const typed = field.current?.value() ?? textRef.current;
+        let typed = field.current?.value() ?? textRef.current;
         const session = persistedSession.current;
+        // Typed while the chat loaded, and acpmux's draft never read: read it now, so the quit
+        // keeps both instead of writing the typed text over it (mergedDraft). No answer: as before.
+        let readAnswered = !session || draftWasRead(session);
+        if (session && hydratedSession.current !== session && editedBeforeHydration.current && !readAnswered) {
+          const saved = await readDurableDraftState(session);
+          if (persistedSession.current !== session) return;
+          if (!saved) {
+            // A failed read is not an empty draft. Keep the latest text in the remount cache and
+            // wait for a successful read before sending anything to acpmux, so reconnect cannot
+            // replace a durable draft with the text typed during the outage.
+            cachePersistedDraft(
+              session,
+              field.current?.value() ?? textRef.current,
+              generation.current,
+              versionKnowledge(),
+            );
+            const unsent = unsentDraft.current;
+            if (unsent) unsent.push(field.current?.value() ?? textRef.current, generation.current);
+            await Promise.all([unsent?.settle(), settlePendingDraftWrites()]);
+            return;
+          }
+          markDraftRead(session);
+          readAnswered = true;
+          // Re-read after the async call: the person may have typed while acpmux was answering.
+          typed = mergeDurable(field.current?.value() ?? textRef.current, saved);
+        }
         // A restore not yet committed (`restoringSession`) is acpmux's own draft: the editor still
         // shows what it had before, so writing it would clear the draft being restored.
         // Before the durable read answers, only what the person typed goes (the read keeps a typed
         // prompt over acpmux's the same way); an untouched editor leaves acpmux's draft alone.
-        const ready = hydratedSession.current === session || editedBeforeHydration.current;
+        const ready = hydratedSession.current === session || (editedBeforeHydration.current && readAnswered);
         const known =
           lastQueuedDraftText(session ?? "") ??
           (hydratedSession.current === session ? hydratedText.current : undefined);
         if (session && ready && !restoringSession.current && typed !== known) {
-          writePersistedDraft(session, typed);
+          writePersistedDraft(session, typed, generation.current, versionKnowledge());
         }
         const unsent = unsentDraft.current;
-        if (unsent) unsent.push(typed);
+        if (unsent) unsent.push(typed, generation.current);
         await Promise.all([unsent?.settle(), settlePendingDraftWrites()]);
       },
       wake(state) {
@@ -761,14 +846,27 @@ export function Composer({
     [setAttachments, attachLater],
   );
   useEffect(() => {
-    // The prompt's DOM value is the typed text; a draft never replaces it.
-    if (!draft || field.current?.value()) return;
+    if (draft === undefined && !draftGeneration) return;
+    // The prompt's DOM value is the typed text; a draft never replaces it. A draft that arrives
+    // after the person started typing (the handshake slower than their keys) goes before what
+    // they typed, so neither is lost (mergedDraft); before, it was dropped, and the typed text
+    // then replaced the tab's kept draft on disk.
+    const typed = field.current?.value() ?? textRef.current;
+    if (!generationKnown.current && !pendingReplacement.current)
+      generation.current = validDraftGeneration(draftGeneration);
+    if (pendingReplacement.current) {
+      generation.current = Math.max(generation.current, validDraftGeneration(draftGeneration) + 1);
+    }
+    generationKnown.current = true;
+    const next = mergedDraft(typed, draft, generation.current, validDraftGeneration(draftGeneration));
+    generation.current = Math.max(generation.current, validDraftGeneration(draftGeneration));
+    if (next === typed) return;
     notTyped();
-    field.current?.reset(draft);
-    setText((current) => seededText(current, draft));
-    setCaret(draft.length);
-    pendingCaret.current = draft.length;
-  }, [draft]);
+    field.current?.reset(next);
+    setText(next);
+    setCaret(next.length);
+    pendingCaret.current = next.length;
+  }, [draft, draftGeneration]);
   useEffect(() => {
     if (switching) carryPrompt.current = true;
   }, [switching]);
@@ -777,13 +875,25 @@ export function Composer({
     // A switch's new session has no draft yet: the prompt typed before the pick moves to it.
     const carried = carryPrompt.current ? (field.current?.value() ?? text) : "";
     const previous = persistedSession.current;
-    if (previous && hydratedSession.current === previous) writePersistedDraft(previous, field.current?.value() ?? text);
+    // The composer had no chat yet (the page still loading or reconnecting, a new chat whose
+    // session just started): what it holds was typed for this chat. It stays, merged with the
+    // chat's saved draft. Before, this reset the prompt to the saved draft or to empty, so text
+    // typed before the chat loaded was cleared.
+    const typedBefore = previous === undefined && !carryPrompt.current ? (field.current?.value() ?? text) : "";
+    if (previous && hydratedSession.current === previous)
+      writePersistedDraft(previous, field.current?.value() ?? text, generation.current, versionKnowledge());
     // This composer leaves that chat: only a quit compares its queued text, and only for the chat shown.
     forgetQueuedDraft(previous);
     persistedSession.current = sessionId;
+    if (previous !== undefined) {
+      generation.current = Math.max(readPersistedDraftGeneration(sessionId), validDraftGeneration(draftGeneration));
+      pendingReplacement.current = readPersistedDraftVersion(sessionId).pendingReplacement;
+      generationKnown.current = readPersistedDraftVersion(sessionId).known || draftGeneration !== undefined;
+    }
     // Another chat's prompt comes in: no key before it was typing for this one.
     notTyped();
     hydratedSession.current = undefined;
+    readSession.current = undefined;
     editedBeforeHydration.current = false;
     restoringSession.current = true;
     const restored = readPersistedDraft(sessionId) ?? "";
@@ -792,11 +902,23 @@ export function Composer({
     // draft before the editor has initialized.
     // A chat's own saved draft wins: carried text only fills a session that has none, which a
     // switch's new session always is, so moving to another chat mid-switch keeps that chat's draft.
-    const initial = restored || carried || draft || "";
+    const initial = typedBefore.trim()
+      ? mergedDraft(
+          typedBefore,
+          restored || draft,
+          generation.current,
+          restored ? readPersistedDraftGeneration(sessionId) : validDraftGeneration(draftGeneration),
+        )
+      : restored || carried || draft || "";
+    // Not yet acpmux's: the durable read merges it with acpmux's draft and writes the result.
+    if (typedBefore.trim()) {
+      editedBeforeHydration.current = true;
+      if (sessionId) cachePersistedDraft(sessionId, initial, generation.current, versionKnowledge());
+    }
     setText(initial);
     setCaret(initial.length);
     pendingCaret.current = initial.length;
-  }, [sessionId, text, draft]);
+  }, [sessionId, text, draft, draftGeneration]);
   // The pane closes: what it queued for its chat still goes to acpmux, but no quit compares it again.
   useEffect(() => () => forgetQueuedDraft(persistedSession.current), []);
   // The chat's own chips come back with its prompt; a switch carries the ones held (keptAttachments.ts).
@@ -828,26 +950,49 @@ export function Composer({
   }, [switching]);
   useEffect(() => {
     let current = true;
-    void readDurableDraft(sessionId).then((restored) => {
+    const firstRead = !draftWasRead(sessionId);
+    void readDurableDraftState(sessionId).then((state) => {
       if (!current) return;
-      const hasPendingWrite = hasPendingDraftWrite(sessionId);
+      // acpmux did not answer (its action map not installed yet, a connection that failed or
+      // dropped): nothing is known of its draft, so the chat is not hydrated. What the person types
+      // meanwhile stays in the remount cache and goes to acpmux only once a read answered and
+      // merged it (the action map's next version runs this again). Before, an unanswered read
+      // counted as "no draft", and the typed text then replaced the draft acpmux kept.
+      if (sessionId && !state) return;
+      markDraftRead(sessionId);
       const currentText = field.current?.value() ?? textRef.current;
       const edited = editedBeforeHydration.current;
       editedBeforeHydration.current = false;
-      if (!hasPendingWrite && restored && !currentText && !edited) {
-        restoringSession.current = true;
-        notTyped();
-        setText(restored);
-        setCaret(restored.length);
-        pendingCaret.current = restored.length;
-        hydratedText.current = restored;
-      } else {
-        hydratedText.current = currentText;
-        if (!hasPendingWrite && (currentText.trim() || edited)) {
-          // A local remount cache or keystroke arrived before the daemon read. Preserve it durably.
-          writePersistedDraft(sessionId, currentText);
-        }
+      const incomingGeneration = state?.generation ?? 0;
+      const replaced = pendingReplacement.current;
+      const localGeneration = generationKnown.current ? generation.current : incomingGeneration;
+      const merged = replaced && state ? mergeDurable(currentText, state) : currentText;
+      if (!replaced && state) {
+        generation.current = Math.max(localGeneration, incomingGeneration);
+        generationKnown.current = true;
       }
+      const next = replaced
+        ? { text: merged, shown: merged !== currentText, write: true }
+        : hydratedDraft({
+            current: currentText,
+            restored: state?.draft,
+            edited,
+            pendingWrite: hasPendingDraftWrite(sessionId),
+            firstRead,
+            generation: localGeneration,
+            restoredGeneration: incomingGeneration,
+          });
+      if (next.shown) {
+        // Its own write (below) or none: the text effect does not write it again.
+        restoringSession.current = next.text !== textRef.current;
+        notTyped();
+        setText(next.text);
+        setCaret(next.text.length);
+        pendingCaret.current = next.text.length;
+      }
+      hydratedText.current = next.text;
+      // A local remount cache or keystroke arrived before the daemon read: preserve it durably.
+      if (next.write) writePersistedDraft(sessionId, next.text, generation.current, versionKnowledge());
       hydratedSession.current = sessionId;
       flushPendingDraftWrites();
       // A web update reloaded the page while the prompt had the keyboard: it takes it back, the
@@ -867,8 +1012,13 @@ export function Composer({
       restoringSession.current = false;
       return;
     }
-    if (hydratedSession.current !== sessionId) return;
-    writePersistedDraft(sessionId, text);
+    if (hydratedSession.current !== sessionId) {
+      // Typed before the chat's draft was read: kept for a remount (the composer swapped out while
+      // the chat loads or reconnects), and merged by the read before it goes to acpmux.
+      if (editedBeforeHydration.current) cachePersistedDraft(sessionId, text, generation.current, versionKnowledge());
+      return;
+    }
+    writePersistedDraft(sessionId, text, generation.current, versionKnowledge());
   }, [sessionId, text]);
   // A new chat's text goes to the host at most every 300 ms while typing, and at once when the page is
   // hidden, the prompt loses focus or the prompt is sent (unsentDraftThrottle.ts).
@@ -892,7 +1042,7 @@ export function Composer({
     };
   }, [sessionId, onUnsentDraft]);
   useEffect(() => {
-    unsentDraft.current?.push(text);
+    unsentDraft.current?.push(text, generation.current);
   }, [text, sessionId, onUnsentDraft]);
   const commands = snapshot.commands;
   const remote = remoteComposer(snapshot);
@@ -981,7 +1131,9 @@ export function Composer({
     pendingCaret.current = undefined;
   });
 
-  const edit = (value: string, at: number) => {
+  const edit = (value: string, at: number, intentional = true) => {
+    if (intentional && !value.trim() && textRef.current.trim()) advanceGeneration(value);
+    textRef.current = value;
     setText(value);
     setCaret(at);
     setDismissed(undefined);
@@ -1140,6 +1292,7 @@ export function Composer({
     if (taken === false) return false;
     const written = field.current?.value() ?? "";
     const clear = (rest = "") => {
+      advanceGeneration(rest);
       const went = new Set(sent.map((attachment) => attachment.id));
       setAttachments((current) => current.filter((attachment) => !went.has(attachment.id)));
       setAttachError(undefined);
@@ -1480,6 +1633,7 @@ export function Composer({
 
   promptBeforeInput.current = (data, state) => {
     typedAt.current = performance.now();
+    if (state.paste) advanceGeneration(textRef.current);
     // `!` first: shell mode, in place. A pasted `!cmd` keeps what follows the `!`.
     if (!onShell || state.composing || !state.empty || !data.startsWith("!")) return false;
     enterShell(data.slice(1));
@@ -1489,8 +1643,9 @@ export function Composer({
   // IME composition. A value applied from outside (a draft coming back on open or a switch, a
   // failed prompt restored, the field normalizing either) comes with none.
   promptChange.current = (value, at) => {
-    edit(value, at);
-    if (performance.now() - typedAt.current >= TYPED_WINDOW_MS) return;
+    const intentional = performance.now() - typedAt.current < TYPED_WINDOW_MS;
+    edit(value, at, intentional);
+    if (!intentional) return;
     if (hydratedSession.current !== sessionId) editedBeforeHydration.current = true;
     // One change per key: what the field does after it (normalizing) is not another.
     typedAt.current = Number.NEGATIVE_INFINITY;

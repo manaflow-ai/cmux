@@ -22,7 +22,7 @@ async fn seqs(c: &mut TestClient, id: &str, kind: &str) -> Vec<u64> {
         .collect()
 }
 
-fn local_hub(dir: &std::path::Path) -> (Config, Arc<Hub>) {
+pub(super) fn local_hub(dir: &std::path::Path) -> (Config, Arc<Hub>) {
     let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
     let mut agents = BTreeMap::new();
     agents.insert(

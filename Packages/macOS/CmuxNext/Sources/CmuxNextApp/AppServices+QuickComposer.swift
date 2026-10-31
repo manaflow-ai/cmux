@@ -11,16 +11,18 @@ extension AppServices {
     /// focused pane of the frontmost main window.
     func makeQuickComposer() -> QuickComposerController {
         QuickComposerController(
-            makeChat: { [weak self] session in
+            makeChat: { [weak self] session, draft, generation in
                 guard let self, self.agentTabs.canHostChat,
-                      let chat = self.agentTabs.standaloneView(seed: AgentPaneSeed(surface: .quick), session: session) else { return nil }
+                      let chat = self.agentTabs.standaloneView(seed: AgentPaneSeed(draft: draft, draftGeneration: generation, surface: .quick), session: session) else { return nil }
                 let projects = NewTabPage.handler(self, cwd: nil) { _, _ in }
                 chat.model.onListProjects = { query in await projects.listProjects(query) }
                 return chat
             },
             makeWindow: { QuickComposerPanel() },
             openInWindow: { [weak self] session in self?.openQuickChat(session: session) ?? false },
-            startInBackground: { [weak self] start in await self?.startQuickChatInBackground(start) ?? false }, context: { [weak self] in await FloatingChatContext.focused(in: self) }
+            startInBackground: { [weak self] start in await self?.startQuickChatInBackground(start) ?? false }, context: { [weak self] in await FloatingChatContext.focused(in: self) },
+            // The tabs' store: one file of new chats' typed text, beside the launch snapshot.
+            drafts: agentTabs.unsentDrafts
         )
     }
 

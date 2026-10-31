@@ -103,14 +103,24 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-pane.prompt-journal")
     let url: URL
     let now: @Sendable () -> Date
+    private let readFile: @Sendable (URL) throws -> Data
     private let state = Mutex(State())
     /// The newest generation on disk; a write of an older one is skipped.
     private let written = Mutex(0)
+    /// The file was unreadable and could not be set aside: this run writes nothing over it.
+    private let keepsFile = Mutex(false)
     private let queue = DispatchQueue(label: "com.cmuxterm.app.next.agent-pane.prompt-journal", qos: .utility)
 
-    public init(url: URL, now: @escaping @Sendable () -> Date = { Date() }) {
+    public convenience init(url: URL, now: @escaping @Sendable () -> Date = { Date() }) {
+        self.init(url: url, now: now, readFile: { try Data(contentsOf: $0) })
+    }
+
+    /// The read seam permits deterministic I/O failures even in tests running as root.
+    init(url: URL, now: @escaping @Sendable () -> Date = { Date() },
+         readFile: @escaping @Sendable (URL) throws -> Data) {
         self.url = url
         self.now = now
+        self.readFile = readFile
     }
 
     private static func key(_ daemon: String, _ promptId: String) -> String { daemon + "\u{0}" + promptId }
@@ -285,13 +295,31 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
         return write(entries, pendingTrust: pendingTrust, generation: generation)
     }
 
-    /// Reads the file once; an unreadable one is an empty journal.
+    /// Reads the file once; an unreadable one is set aside (kept beside it) and the journal starts empty.
     private func load(_ state: inout State) {
         guard !state.loaded else { return }
         state.loaded = true
-        guard let data = try? Data(contentsOf: url) else { return }
+        let data: Data
+        do { data = try readFile(url) }
+        catch CocoaError.fileReadNoSuchFile { return }
+        catch CocoaError.fileNoSuchFile { return }
+        catch {
+            // A read error is not absence. Keep the original in place, including on writable
+            // directories where an atomic replacement would otherwise silently destroy it.
+            keepsFile.withLock { $0 = true }
+            Self.logger.error("agent pane prompt journal read failed; original kept in place")
+            return
+        }
         guard let document = try? Self.decoder.decode(Document.self, from: data) else {
-            Self.logger.error("agent pane prompt journal unreadable; starting empty")
+            // Set aside, never overwritten: the next write would replace what it holds. A file that
+            // cannot be moved stays where it is, and this run writes nothing over it.
+            do {
+                _ = try UnreadableStateFile.setAside(url, now: now())
+                Self.logger.error("agent pane prompt journal unreadable; set aside, starting empty")
+            } catch {
+                keepsFile.withLock { $0 = true }
+                Self.logger.error("agent pane prompt journal unreadable and not set aside; not written this run: \(String(describing: error), privacy: .public)")
+            }
             return
         }
         state.entries = Array(document.entries.suffix(Self.maximumEntries))
@@ -302,6 +330,10 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
     private func write(_ entries: [Entry], pendingTrust: [PendingTrust], generation: Int) -> Bool {
         written.withLock { last in
             guard generation > last else { return true }
+            guard !keepsFile.withLock({ $0 }) else {
+                Self.logger.error("agent pane prompt journal not written: its unreadable file is kept in place")
+                return false
+            }
             do {
                 let data = try Self.encoder.encode(Document(entries: entries, pendingTrust: pendingTrust))
                 try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)

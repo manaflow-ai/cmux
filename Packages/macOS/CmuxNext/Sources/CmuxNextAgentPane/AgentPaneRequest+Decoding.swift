@@ -89,7 +89,16 @@ extension AgentPaneRequest {
             }
         case "chat.unsentDraft":
             if let text = params?["text"] as? String {
-                self = .unsentDraft(text)
+                if let raw = params?["generation"] {
+                    guard let number = raw as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID(),
+                          let generation = Int(exactly: number.doubleValue), AgentUnsentDraft.valid(generation) else {
+                        self = .unsupported(method)
+                        return
+                    }
+                    self = .unsentDraft(text, generation: generation)
+                } else {
+                    self = .unsentDraft(text)
+                }
             } else {
                 self = .unsupported(method)
             }

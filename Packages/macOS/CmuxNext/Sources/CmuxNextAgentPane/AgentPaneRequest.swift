@@ -27,7 +27,7 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case missingChat(session: String, reason: String)
     /// A new chat's typed text before it has a session (`chat.unsentDraft`, cx-z5vd): the App
     /// keeps it with the tab, so a relaunch opens the chat with it.
-    case unsentDraft(String)
+    case unsentDraft(String, generation: Int? = nil)
     /// A settled transcript scroll's frame intervals in milliseconds, at
     /// most ``maximumPacingFrames``; returns the native display interval and rate mode.
     case framePacing([Double])

@@ -46,19 +46,21 @@ await requireBrowserLane("agent-pane-unsent-draft.test.ts", async () => {
   /// hands back with `chat.unsentDraft`.
   type ChatOptions = {
     draft?: string;
+    surface?: "quick";
     authState?: "signedOut" | "routeAuthNeeded";
     healthState?: "signedOut" | "unknown";
     started?: boolean;
   };
   async function newChat({
     draft,
+    surface,
     authState = "signedOut",
     healthState = authState === "signedOut" ? "signedOut" : "unknown",
     started = false,
   }: ChatOptions = {}): Promise<Page> {
     const page = await browser!.newPage({ viewport: { width: 900, height: 640 } });
     await page.addInitScript(
-      ({ draft, authState, healthState, started }) => {
+      ({ draft, surface, authState, healthState, started }) => {
         const unsent: string[] = [];
         const nativeCalls: { method: string; params: Record<string, unknown> }[] = [];
         Object.assign(window, {
@@ -102,12 +104,13 @@ await requireBrowserLane("agent-pane-unsent-draft.test.ts", async () => {
               protocolVersion: 1,
               transport: "mock",
               newSession: !started,
+              ...(surface ? { surface } : {}),
               ...(draft ? { draft } : {}),
             }),
           },
         });
       },
-      { draft, authState, healthState, started },
+      { draft, surface, authState, healthState, started },
     );
     const { port } = vite!.httpServer!.address() as { port: number };
     await page.goto(`http://127.0.0.1:${port}/`);
@@ -238,6 +241,21 @@ await requireBrowserLane("agent-pane-unsent-draft.test.ts", async () => {
       expect(await page.locator('[data-harness-notice="signedOut"]').count()).toBe(1);
       expect(await page.locator(".acpmux-composer-trust-note").count()).toBe(0);
       await page.close();
+    });
+
+    // Leo (10-28): "when I updated, it removed my draft in one of the composer things".
+    test("Start Agent's panel hands its typed text to the host, and gets it back after an update", async () => {
+      const page = await newChat({ surface: "quick" });
+      await page.locator('.acpmux-shell[data-surface="quick"]').waitFor();
+      await page.locator(".acpmux-composer-prompt").click();
+      await page.keyboard.type("compare the two retry policies");
+      expect(await lastUnsent(page, "compare the two retry policies")).toBe("compare the two retry policies");
+      await page.close();
+
+      const relaunched = await newChat({ draft: "compare the two retry policies", surface: "quick" });
+      await relaunched.locator('.acpmux-shell[data-surface="quick"]').waitFor();
+      await relaunched.getByText("compare the two retry policies").waitFor();
+      await relaunched.close();
     });
 
     test("a relaunched new chat shows its kept draft and keeps what is typed after it", async () => {

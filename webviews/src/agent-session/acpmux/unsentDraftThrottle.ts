@@ -10,7 +10,7 @@
  */
 export interface UnsentDraftThrottle {
   /** The composer's text changed. */
-  push(text: string): void;
+  push(text: string, generation?: number): void;
   /** Sends the waiting text now, if any. */
   flush(): void;
   /** Sends the waiting text now and resolves once the host answered the last send (a quit waits on it).
@@ -21,7 +21,7 @@ export interface UnsentDraftThrottle {
 }
 
 export interface UnsentDraftThrottleOptions {
-  send(text: string): unknown;
+  send(text: string, generation: number): unknown;
   intervalMs?: number;
   now?: () => number;
   setTimer?: (run: () => void, ms: number) => unknown;
@@ -34,17 +34,19 @@ export function createUnsentDraftThrottle(options: UnsentDraftThrottleOptions): 
   const setTimer = options.setTimer ?? ((run, ms) => setTimeout(run, ms));
   const clearTimer = options.clearTimer ?? ((timer) => clearTimeout(timer as ReturnType<typeof setTimeout>));
   let lastSent: string | undefined;
+  let lastGeneration = -1;
   let lastSentAt = -Infinity;
-  let pending: string | undefined;
+  let pending: { text: string; generation: number } | undefined;
   let timer: unknown;
   let sentNonEmpty = false;
   let lastDelivery: Promise<unknown> = Promise.resolve();
 
-  const deliver = (text: string) => {
+  const deliver = (text: string, generation: number) => {
+    lastGeneration = generation;
     lastSent = text;
     lastSentAt = now();
     if (text) sentNonEmpty = true;
-    lastDelivery = Promise.resolve(options.send(text)).catch(() => undefined);
+    lastDelivery = Promise.resolve(options.send(text, generation)).catch(() => undefined);
   };
   const stopTimer = () => {
     if (timer !== undefined) clearTimer(timer);
@@ -52,15 +54,17 @@ export function createUnsentDraftThrottle(options: UnsentDraftThrottleOptions): 
   };
   const sendPending = () => {
     stopTimer();
-    const text = pending;
+    const state = pending;
     pending = undefined;
-    if (text !== undefined && text !== lastSent) deliver(text);
+    if (state && (state.text !== lastSent || state.generation !== lastGeneration))
+      deliver(state.text, state.generation);
   };
   return {
-    push(text) {
-      if (!text && !sentNonEmpty) return; // the seed guard
-      if (text === lastSent && pending === undefined) return;
-      pending = text;
+    push(text, generation = 0) {
+      if (!text && !sentNonEmpty && generation === 0) return; // only a legacy empty seed is ignored
+      if (generation < lastGeneration || (pending && generation < pending.generation)) return;
+      if (text === lastSent && generation === lastGeneration && pending === undefined) return;
+      pending = { text, generation };
       const wait = lastSentAt + interval - now();
       if (wait <= 0) return sendPending();
       if (timer === undefined) timer = setTimer(sendPending, wait);

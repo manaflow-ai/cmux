@@ -321,6 +321,10 @@ pub struct SessionMeta {
     /// Unsent composer text owned by this acpmux session.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub composer_draft: Option<String>,
+    /// Monotonic draft lifetime; retained even without text so a delayed pre-clear write
+    /// cannot resurrect a sent draft after restart. Older records begin at generation zero.
+    #[serde(default)]
+    pub composer_draft_generation: u64,
     /// The session took its mode from the person's approval of its preset
     /// (`hub/person.rs` (b)): the approved contents' digest. A spawn from
     /// other contents leaves that mode (`hub/start_gate/preset_bind.rs`).

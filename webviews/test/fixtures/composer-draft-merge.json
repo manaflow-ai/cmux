@@ -1,0 +1,532 @@
+[
+  {
+    "name": "empty kept",
+    "kept": [
+      {
+        "text": "",
+        "count": 1
+      }
+    ],
+    "typed": [
+      {
+        "text": "typed",
+        "count": 1
+      }
+    ],
+    "expected": [
+      {
+        "text": "typed",
+        "count": 1
+      }
+    ]
+  },
+  {
+    "name": "empty typed",
+    "kept": [
+      {
+        "text": "saved",
+        "count": 1
+      }
+    ],
+    "typed": [
+      {
+        "text": "",
+        "count": 1
+      }
+    ],
+    "expected": [
+      {
+        "text": "saved",
+        "count": 1
+      }
+    ]
+  },
+  {
+    "name": "both empty",
+    "kept": [
+      {
+        "text": "",
+        "count": 1
+      }
+    ],
+    "typed": [
+      {
+        "text": "",
+        "count": 1
+      }
+    ],
+    "expected": [
+      {
+        "text": "",
+        "count": 1
+      }
+    ]
+  },
+  {
+    "name": "blank kept",
+    "kept": [
+      {
+        "text": " \t\n",
+        "count": 1
+      }
+    ],
+    "typed": [
+      {
+        "text": "typed",
+        "count": 1
+      }
+    ],
+    "expected": [
+      {
+        "text": "typed",
+        "count": 1
+      }
+    ]
+  },
+  {
+    "name": "blank typed",
+    "kept": [
+      {
+        "text": "saved",
+        "count": 1
+      }
+    ],
+    "typed": [
+      {
+        "text": " \t\n",
+        "count": 1
+      }
+    ],
+    "expected": [
+      {
+        "text": "saved",
+        "count": 1
+      }
+    ]
+  },
+  {
+    "name": "both blank",
+    "kept": [
+      {
+        "text": " \t",
+        "count": 1
+      }
+    ],
+    "typed": [
+      {
+        "text": "\n",
+        "count": 1
+      }
+    ],
+    "expected": [
+      {
+        "text": "\n",
+        "count": 1
+      }
+    ]
+  },
+  {
+    "name": "ECMAScript blank kept",
+    "kept": [
+      {
+        "text": "﻿  ",
+        "count": 1
+      }
+    ],
+    "typed": [
+      {
+        "text": "typed",
+        "count": 1
+      }
+    ],
+    "expected": [
+      {
+        "text": "typed",
+        "count": 1
+      }
+    ]
+  },
+  {
+    "name": "nonblank control",
+    "kept": [
+      {
+        "text": "",
+        "count": 1
+      }
+    ],
+    "typed": [
+      {
+        "text": "typed",
+        "count": 1
+      }
+    ],
+    "expected": [
+      {
+        "text": "\n\ntyped",
+        "count": 1
+      }
+    ]
+  },
+  {
+    "name": "identical",
+    "kept": [
+      {
+        "text": "same",
+        "count": 1
+      }
+    ],
+    "typed": [
+      {
+        "text": "same",
+        "count": 1
+      }
+    ],
+    "expected": [
+      {
+        "text": "same",
+        "count": 1
+      }
+    ]
+  },
+  {
+    "name": "typed contains kept",
+    "kept": [
+      {
+        "text": "world",
+        "count": 1
+      }
+    ],
+    "typed": [
+      {
+        "text": "hello world again",
+        "count": 1
+      }
+    ],
+    "expected": [
+      {
+        "text": "hello world again",
+        "count": 1
+      }
+    ]
+  },
+  {
+    "name": "kept contains typed",
+    "kept": [
+      {
+        "text": "hello world again",
+        "count": 1
+      }
+    ],
+    "typed": [
+      {
+        "text": "world",
+        "count": 1
+      }
+    ],
+    "expected": [
+      {
+        "text": "hello world again",
+        "count": 1
+      }
+    ]
+  },
+  {
+    "name": "boundary overlap",
+    "kept": [
+      {
+        "text": "hello world",
+        "count": 1
+      }
+    ],
+    "typed": [
+      {
+        "text": "world again",
+        "count": 1
+      }
+    ],
+    "expected": [
+      {
+        "text": "hello world again",
+        "count": 1
+      }
+    ]
+  },
+  {
+    "name": "longest overlap",
+    "kept": [
+      {
+        "text": "ababab",
+        "count": 1
+      }
+    ],
+    "typed": [
+      {
+        "text": "abab again",
+        "count": 1
+      }
+    ],
+    "expected": [
+      {
+        "text": "ababab again",
+        "count": 1
+      }
+    ]
+  },
+  {
+    "name": "single unit is not overlap",
+    "kept": [
+      {
+        "text": "cat",
+        "count": 1
+      }
+    ],
+    "typed": [
+      {
+        "text": "tree",
+        "count": 1
+      }
+    ],
+    "expected": [
+      {
+        "text": "cat\n\ntree",
+        "count": 1
+      }
+    ]
+  },
+  {
+    "name": "no overlap",
+    "kept": [
+      {
+        "text": "saved",
+        "count": 1
+      }
+    ],
+    "typed": [
+      {
+        "text": "typed",
+        "count": 1
+      }
+    ],
+    "expected": [
+      {
+        "text": "saved\n\ntyped",
+        "count": 1
+      }
+    ]
+  },
+  {
+    "name": "whitespace is preserved",
+    "kept": [
+      {
+        "text": " hello ",
+        "count": 1
+      }
+    ],
+    "typed": [
+      {
+        "text": " world ",
+        "count": 1
+      }
+    ],
+    "expected": [
+      {
+        "text": " hello \n\n world ",
+        "count": 1
+      }
+    ]
+  },
+  {
+    "name": "emoji overlap",
+    "kept": [
+      {
+        "text": "hello 😀",
+        "count": 1
+      }
+    ],
+    "typed": [
+      {
+        "text": "😀 again",
+        "count": 1
+      }
+    ],
+    "expected": [
+      {
+        "text": "hello 😀 again",
+        "count": 1
+      }
+    ]
+  },
+  {
+    "name": "no canonical normalization",
+    "kept": [
+      {
+        "text": "é",
+        "count": 1
+      }
+    ],
+    "typed": [
+      {
+        "text": "é",
+        "count": 1
+      }
+    ],
+    "expected": [
+      {
+        "text": "é\n\né",
+        "count": 1
+      }
+    ]
+  },
+  {
+    "name": "one million adversarial",
+    "kept": [
+      {
+        "text": "a",
+        "count": 1000000
+      }
+    ],
+    "typed": [
+      {
+        "text": "a",
+        "count": 499999
+      },
+      {
+        "text": "b",
+        "count": 1
+      },
+      {
+        "text": "a",
+        "count": 500000
+      }
+    ],
+    "expected": [
+      {
+        "text": "a",
+        "count": 1000000
+      },
+      {
+        "text": "b",
+        "count": 1
+      },
+      {
+        "text": "a",
+        "count": 500000
+      }
+    ]
+  },
+  {
+    "name": "stale saved draft then fresh paste",
+    "kept": [
+      {
+        "text": "look at these",
+        "count": 1
+      }
+    ],
+    "typed": [
+      {
+        "text": "what the heck",
+        "count": 1
+      }
+    ],
+    "expected": [
+      {
+        "text": "what the heck",
+        "count": 1
+      }
+    ],
+    "keptGeneration": 3,
+    "typedGeneration": 4
+  },
+  {
+    "name": "late same generation keeps both",
+    "kept": [
+      {
+        "text": "saved before load",
+        "count": 1
+      }
+    ],
+    "typed": [
+      {
+        "text": "typed while loading",
+        "count": 1
+      }
+    ],
+    "expected": [
+      {
+        "text": "saved before load\n\ntyped while loading",
+        "count": 1
+      }
+    ],
+    "keptGeneration": 4,
+    "typedGeneration": 4
+  },
+  {
+    "name": "edit after send cannot revive sent text",
+    "kept": [
+      {
+        "text": "sent prompt",
+        "count": 1
+      }
+    ],
+    "typed": [
+      {
+        "text": "next edit",
+        "count": 1
+      }
+    ],
+    "expected": [
+      {
+        "text": "next edit",
+        "count": 1
+      }
+    ],
+    "keptGeneration": 4,
+    "typedGeneration": 5
+  },
+  {
+    "name": "clear tombstone rejects old saved text",
+    "kept": [
+      {
+        "text": "old text",
+        "count": 1
+      }
+    ],
+    "typed": [
+      {
+        "text": "",
+        "count": 1
+      }
+    ],
+    "expected": [
+      {
+        "text": "",
+        "count": 1
+      }
+    ],
+    "keptGeneration": 4,
+    "typedGeneration": 5
+  },
+  {
+    "name": "newer saved replacement wins",
+    "kept": [
+      {
+        "text": "replacement",
+        "count": 1
+      }
+    ],
+    "typed": [
+      {
+        "text": "older local text",
+        "count": 1
+      }
+    ],
+    "expected": [
+      {
+        "text": "replacement",
+        "count": 1
+      }
+    ],
+    "keptGeneration": 6,
+    "typedGeneration": 5
+  }
+]

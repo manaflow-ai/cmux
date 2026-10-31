@@ -9,6 +9,8 @@ public nonisolated struct AgentPaneSeed: Sendable, Equatable {
     public var cwd: String?
     /// The composer's first text (a selection, a page's title and URL).
     public var draft: String?
+    /// The draft's clear/replacement boundary, including when its text is empty.
+    public var draftGeneration: Int
     /// The first prompt, sent without the user pressing Send.
     public var prompt: String?
     /// Who seeded ``prompt``. Only a person's own action or onboarding's first task gets the
@@ -62,7 +64,7 @@ public nonisolated struct AgentPaneSeed: Sendable, Equatable {
         public var sendsBySelf: Bool { self != .automation }
     }
 
-    public init(cwd: String? = nil, draft: String? = nil, prompt: String? = nil, promptBy: PromptBy = .automation,
+    public init(cwd: String? = nil, draft: String? = nil, draftGeneration: Int = 0, prompt: String? = nil, promptBy: PromptBy = .automation,
                 adopt: AgentPaneAdopt? = nil, surface: AgentPaneSurface? = nil, harness: String? = nil, model: String? = nil,
                 host: String? = nil,
                 folderNeeded: AgentPaneFolderNeeded? = nil, pastChat: String? = nil, showsHarnesses: Bool = false) {
@@ -72,6 +74,7 @@ public nonisolated struct AgentPaneSeed: Sendable, Equatable {
         self.pastChat = pastChat
         self.cwd = cwd
         self.draft = draft
+        self.draftGeneration = draftGeneration
         self.prompt = prompt
         self.adopt = adopt
         self.surface = surface

@@ -173,6 +173,9 @@ export type NewTabScreenActions = NewTabCommandActions & {
   /// The page goes with an unsent draft (a typed prompt, staged attachments): handed over so the
   /// view that replaces it can keep it (the tab's Sandboxed run taking the chat view).
   onLeaveDraft?(text: string, attachments: ComposerAttachment[]): void;
+  /// The chat view's composer stood in for this page while the host failed before its handshake:
+  /// what was typed there, taken once as the page's own draft when the page comes back.
+  takeDraft?(): { text: string; attachments: ComposerAttachment[] } | undefined;
 };
 
 /// The agent's model, effort and speed chip (App's composer chips), for the agent and project a
@@ -300,12 +303,14 @@ export function NewTabScreen(props: Props) {
   const onEditWidgets = template === "minimal" ? props.onEditWidgets : undefined;
   const editing = useWidgetEditing(onEditWidgets);
   const order = shownMovable(widgets);
-  const [text, setText] = useState(location ?? "");
+  const [carried] = useState(() => props.takeDraft?.());
+  const restoreFocusPending = useRef(Boolean(carried?.text));
+  const [text, setText] = useState(carried?.text || (location ?? ""));
   const [commandActive, setCommandActive] = useState(0);
   const [commandDismissed, setCommandDismissed] = useState<string>();
   const requestedCommands = useRef<string | undefined>(undefined);
   // The location stays a suggestion until edited: no rows for it.
-  const [touched, setTouched] = useState(false);
+  const [touched, setTouched] = useState(Boolean(carried?.text));
   // The highlighted row, by its rowKey (NO_ROW: none, so Enter is the prompt's). A key, not an
   // index: new tabs or pages from the host can reorder the rows under a highlight.
   const [selected, setSelected] = useState<string | undefined>(undefined);
@@ -397,6 +402,9 @@ export function NewTabScreen(props: Props) {
     ...(props.upload ? { upload: props.upload } : {}),
     ...(props.localPaths ? { localPaths: props.localPaths } : {}),
   });
+  useEffect(() => {
+    if (carried?.attachments.length) setAttachments(carried.attachments);
+  }, [carried, setAttachments]);
   // Unlike a chat's composer, the new tab waits for uploads too (#25191): the page goes when the
   // chat starts, so a file still streaming has no next prompt to go with. A video's read is waited
   // for a few seconds at most (composer/videoAttachments.ts).
@@ -424,8 +432,9 @@ export function NewTabScreen(props: Props) {
   useEffect(
     () => () => {
       const draft = leaving.current;
-      if ((draft.typed && draft.text.trim()) || draft.attachments.length)
-        draft.onLeaveDraft?.(draft.text, draft.attachments);
+      // An empty handoff is a clear, including after a carried draft was deleted before retry.
+      // The untouched location is a suggestion, not a draft to restore.
+      draft.onLeaveDraft?.(draft.typed ? draft.text : "", draft.attachments);
     },
     [],
   );
@@ -788,17 +797,24 @@ export function NewTabScreen(props: Props) {
   // field has focus before the next key) and on Cmd-L (FOCUS_LOCATION_EVENT); only then, so an
   // update or a click into the field never moves its caret or restarts its blink.
   useLayoutEffect(() => {
-    const focus = () => {
+    const focus = (initialRestore = false) => {
       field.current?.focus();
-      field.current?.select();
+      if (initialRestore && restoreFocusPending.current) {
+        restoreFocusPending.current = false;
+        const end = field.current?.value.length ?? 0;
+        field.current?.setSelectionRange(end, end);
+      } else {
+        field.current?.select();
+      }
     };
-    if (focusOnShow) focus();
+    if (focusOnShow) focus(true);
     if (inputToken && inputReadyReported.current !== inputToken) {
       inputReadyReported.current = inputToken;
       onInputReady.current?.(inputToken);
     }
     const view = field.current?.ownerDocument.defaultView;
-    view?.addEventListener(FOCUS_LOCATION_EVENT, focus);
+    const focusLocation = () => focus();
+    view?.addEventListener(FOCUS_LOCATION_EVENT, focusLocation);
     // The page got the keyboard back (a tab or pane switch back: WebKit focuses the window as its
     // web view becomes first responder) with nothing in it focused, as after a press on the page's
     // background: the field takes it, as the chat composer does (composerFocus.ts), keeping its
@@ -809,7 +825,7 @@ export function NewTabScreen(props: Props) {
     };
     if (focusOnShow) view?.addEventListener("focus", reclaim);
     return () => {
-      view?.removeEventListener(FOCUS_LOCATION_EVENT, focus);
+      view?.removeEventListener(FOCUS_LOCATION_EVENT, focusLocation);
       view?.removeEventListener("focus", reclaim);
     };
   }, [inputToken, focusOnShow]);
