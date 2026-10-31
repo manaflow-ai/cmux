@@ -11400,6 +11400,138 @@
         }
       }
     },
+    "handlers.refusal.gatherTabCollision": {
+      "comment": "Refusal of Move Space to This Window or Merge All Windows when a moved pane's id matches a pane in the receiving window that keeps browser tabs.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A pane from another machine has the same id as one in this window, so its browser tabs can't move here."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يحمل جزء من جهاز آخر المعرّف نفسه لجزء في هذه النافذة، لذا لا يمكن نقل علامات تبويب المتصفح الخاصة به إلى هنا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Okno s druge mašine ima isti ID kao jedno u ovom prozoru, pa se njegove kartice preglednika ne mogu premjestiti ovdje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En rude fra en anden maskine har samme id som en i dette vindue, så dens browserfaner kan ikke flyttes hertil."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ein Bereich von einem anderen Rechner hat dieselbe ID wie einer in diesem Fenster, daher können seine Browser-Tabs nicht hierher verschoben werden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un panel de otra máquina tiene el mismo id que uno de esta ventana, así que sus pestañas del navegador no pueden moverse aquí."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un volet d'une autre machine a le même identifiant qu'un volet de cette fenêtre : ses onglets de navigateur ne peuvent pas être déplacés ici."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un riquadro di un'altra macchina ha lo stesso id di uno in questa finestra, quindi le sue schede del browser non possono essere spostate qui."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "別のマシンのペインがこのウインドウのペインと同じ ID を持っているため、そのブラウザタブをここに移動できません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្ទាំងពីម៉ាស៊ីនផ្សេងមាន ID ដូចផ្ទាំងមួយក្នុងបង្អួចនេះ ដូច្នេះផ្ទាំងកម្មវិធីរុករករបស់វាមិនអាចផ្លាស់ទីមកទីនេះបានទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "다른 머신의 패널이 이 창의 패널과 같은 ID를 가지고 있어 해당 브라우저 탭을 여기로 옮길 수 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En rute fra en annen maskin har samme id som en i dette vinduet, så nettleserfanene kan ikke flyttes hit."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Panel z innej maszyny ma ten sam identyfikator co panel w tym oknie, więc jego karty przeglądarki nie mogą zostać tu przeniesione."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Um painel de outra máquina tem o mesmo id de um desta janela, então as abas do navegador dele não podem ser movidas para cá."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Панель с другого компьютера имеет тот же идентификатор, что и панель в этом окне, поэтому её вкладки браузера нельзя перенести сюда."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "บานหน้าต่างจากเครื่องอื่นมี ID เดียวกับบานหน้าต่างในหน้าต่างนี้ จึงย้ายแท็บเบราว์เซอร์ของบานนั้นมาที่นี่ไม่ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Başka bir makinedeki bir bölme bu penceredeki bir bölmeyle aynı kimliğe sahip, bu yüzden tarayıcı sekmeleri buraya taşınamaz."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Панель з іншого комп'ютера має той самий ідентифікатор, що й панель у цьому вікні, тож її вкладки браузера не можна перенести сюди."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Một ngăn từ máy khác có cùng id với một ngăn trong cửa sổ này, nên các tab trình duyệt của nó không thể chuyển sang đây."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "另一台机器上的窗格与此窗口中的一个窗格 ID 相同，因此无法将其浏览器标签页移到这里。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "另一台機器上的窗格與此視窗中的一個窗格 ID 相同，因此無法將其瀏覽器分頁移到這裡。"
+          }
+        }
+      }
+    },
     "handlers.refusal.unknownTheme": {
       "extractionState": "manual",
       "localizations": {
