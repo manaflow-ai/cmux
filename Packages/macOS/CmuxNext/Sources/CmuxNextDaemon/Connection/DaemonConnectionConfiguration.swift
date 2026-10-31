@@ -11,15 +11,17 @@ public struct DaemonConnectionConfiguration: Sendable {
     /// A connection that stays up this long resets the reconnect backoff.
     public var healthyAfter: Duration
     /// The connection asks the daemon this often whether it still answers;
-    /// `heartbeatMisses` unanswered asks in a row close it (`.disconnected`,
-    /// then reconnect). A bridged connection always asks (a lost server: the
-    /// link itself waits 10 min); a local one only with `localHeartbeat`.
+    /// `heartbeatMisses` unanswered asks in a row mark it not answering
+    /// (`DaemonConnection.daemonAnswering`) while its process is alive, and close a
+    /// bridged connection or one whose daemon exited (`.disconnected`, then
+    /// reconnect; ``ConnectionHeartbeat``). A bridged connection always asks (a
+    /// lost server: the link itself waits 10 min); a local one only with `localHeartbeat`.
     public var heartbeat: Duration = .seconds(15)
     public var heartbeatMisses = 2
     /// Heartbeat a local daemon too: an owner stopped (SIGSTOP) or wedged
     /// keeps its socket open, so no EOF ends the connection (cx-jniyz.4).
-    /// Only the app's main connection sets it (it drives the not-connected
-    /// state), so page relays and short reads add no idle wakeups.
+    /// Only the app's main connection sets it (it drives the not-answering
+    /// state and the Restart offer), so page relays and short reads add no idle wakeups.
     public var localHeartbeat = false
     /// Extra events that may let a reconnect succeed (network, sign-in).
     /// The connection also watches its daemon socket through it.
@@ -55,11 +57,16 @@ public struct DaemonConnectionConfiguration: Sendable {
     /// with the install-key proof when a key is set (P8 3b-2). Only the
     /// app's own control connection to its local daemon sets it.
     public var clientHello: ClientHelloIdentity?
+    /// This build orders sidebar rows from the sidebar document only, so the
+    /// connection echoes `placement-shift-v1` with `sidebar-doc-v1` and the daemon
+    /// sends no `workspace_placement` restatement. The App's composition root sets it
+    /// (`SidebarMirror.isLinked`) on the connections that feed the sidebar; off by default.
+    public var echoesPlacementShift = false
 
     public init(
         clientName: String = "cmux-next",
-        requiredCapabilities: [String] = DaemonCapabilities.shared.required,
-        advertisedCapabilities: [String] = DaemonCapabilities.shared.advertised,
+        requiredCapabilities: [String] = DaemonCapability.required,
+        advertisedCapabilities: [String] = DaemonCapability.advertised,
         treeEvents: TreeEventMode = .deltas,
         retry: RetryPolicy = .reconnect,
         healthyAfter: Duration = .seconds(10),
@@ -107,7 +114,8 @@ public struct ClientHelloIdentity: Sendable {
 extension DaemonConnectionConfiguration {
     /// What the connection echoes in `set-client-info`.
     var handshakeCapabilities: [String] {
-        DaemonCapabilities.shared.handshakeCapabilities(advertisedCapabilities,
-                                                        resolvesShellIntegration: resolvesShellIntegration)
+        DaemonCapability.handshakeCapabilities(advertisedCapabilities,
+                                                 resolvesShellIntegration: resolvesShellIntegration,
+                                                 echoesPlacementShift: echoesPlacementShift)
     }
 }

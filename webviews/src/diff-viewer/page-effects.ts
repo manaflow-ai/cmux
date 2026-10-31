@@ -12,8 +12,8 @@ function setDataset(dataset: DOMStringMap, key: string, value: string): void {
 
 export function usePageDataAttributes(state: AppState) {
   // The files panel shows and hides through its motion (files-panel-motion.ts),
-  // which flips `data-files-hidden` in this commit's frame and slides the
-  // panel on the compositor afterwards.
+  // which slides the panel on the compositor at once and flips
+  // `data-files-hidden` two frames after the toggle.
   const filesPanelMotion = useRef<FilesPanelMotion | null>(null);
   useLayoutEffect(() => {
     filesPanelMotion.current ??= createFilesPanelMotion({

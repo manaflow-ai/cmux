@@ -58,6 +58,10 @@ impl SessionReceipt {
     }
 
     /// Serializes this receipt for a session summary or another receipt.
+    #[allow(
+        clippy::expect_used,
+        reason = "strings, an optional string and a u64 with derived Serialize always serialize"
+    )]
     pub fn to_value(&self) -> Value {
         serde_json::to_value(self).expect("SessionReceipt is always serializable")
     }

@@ -1,8 +1,9 @@
-// RUNNING-WAVE (Leo 2026-10-21: the Subagents avatars "glimmer at different intervals ... it would
-// look cool if they went in a wave, like how thinking glimmers in ChatGPT"). Running indicators side
-// by side share one shimmer: consecutive wave indices for the running ones, none for finished or
-// failed ones, one shared start for every item, and no wave under Reduce Motion or the motion gate.
-// running-wave-loops.test.ts runs the stylesheet in Chromium.
+// RUNNING-WAVE (Leo 2026-10-21: the Subagents avatars, now its running lines, "glimmer at different
+// intervals ... it would look cool if they went in a wave, like how thinking glimmers in ChatGPT").
+// Running indicators side by side share one shimmer: consecutive wave indices for the running ones,
+// none for finished or failed ones, one shared start for every item, and no wave under Reduce
+// Motion or the motion gate. running-wave-loops.test.ts runs the stylesheet in Chromium.
+import { JSDOM } from "jsdom";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { expect, test } from "bun:test";
@@ -69,7 +70,7 @@ const agent = (id: string, state: string, startedAt: number): Subagent => ({
   startedAt,
 });
 
-test("the Inspector's avatar row puts its running avatars in the wave, in order; ended ones stay still", () => {
+test("the Inspector's running Subagents lines are in the wave, top to bottom; the ended row stays still", () => {
   const agents = [
     agent("done-1", "completed", 5),
     agent("run-old", "running", 1),
@@ -77,15 +78,24 @@ test("the Inspector's avatar row puts its running avatars in the wave, in order;
     agent("run-new", "running", 3),
   ];
   const html = renderToStaticMarkup(<SubagentsSection agents={agents} waiting={new Set()} onOpen={() => {}} />);
-  const avatars = [
-    ...html.matchAll(/<span class="cv-subagent-avatar([^"]*)"(?: style="([^"]*)")? data-state="(\w+)"/g),
+  // Running lines keep their wave; the collapsed ended row renders still avatars.
+  const icons = [
+    ...html.matchAll(/<span class="acpmux-lineage__icon([^"]*)"(?: style="([^"]*)")? data-state="(\w+)"/g),
   ];
-  expect(avatars.map((match) => [match[3], match[1].trim(), match[2] ?? ""])).toEqual([
+  expect(icons.map((match) => [match[3], match[1].trim(), match[2] ?? ""])).toEqual([
     ["running", WAVE_CLASS, "--wave-index:0"],
     ["running", WAVE_CLASS, "--wave-index:1"],
-    ["completed", "", ""],
-    ["failed", "", ""],
   ]);
+  const dom = new JSDOM(html);
+  try {
+    const ended = dom.window.document.querySelector(".acpmux-chat-inspector-subagents__ended")!;
+    expect(ended.getAttribute("aria-expanded")).toBe("false");
+    expect(ended.textContent).toContain("1 done · 1 failed");
+    expect(ended.querySelectorAll(".acpmux-chat-inspector-subagents__avatars > span")).toHaveLength(2);
+    expect(ended.querySelector(`.${WAVE_CLASS}, [style*='--wave-index']`)).toBeNull();
+  } finally {
+    dom.window.close();
+  }
 });
 
 test("the wave runs only with motion: Reduce Motion, the motion gate, static indicators and a hidden page stop it", () => {

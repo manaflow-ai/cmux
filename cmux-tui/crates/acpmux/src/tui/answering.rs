@@ -39,6 +39,12 @@ impl Answering {
     fn multi(&self) -> bool {
         self.active().and_then(|i| i["multiSelect"].as_bool()).unwrap_or(false)
     }
+
+    /// The active item is a typed number (an MCP form's number field): its
+    /// digits are its text, never option shortcuts.
+    fn typed_number(&self) -> bool {
+        self.active().is_some_and(|i| i["input"] == "number")
+    }
 }
 
 impl App {
@@ -127,6 +133,10 @@ impl App {
         let empty = self.editor().is_empty();
         let Some(flow) = self.live_answering() else { return false };
         let (multi, highlight, count) = (flow.multi(), flow.highlight, flow.option_count());
+        // Digits pick options, except on an item that is typed (a number, or
+        // no options at all): there they are the answer's text.
+        let typed = flow.typed_number() || count == 0;
+        let shortcut = |c: char| !typed && c.is_ascii_digit() && c != '0';
         let plain = !key.modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT);
         let shift = key.modifiers.contains(KeyModifiers::SHIFT);
         match key.code {
@@ -135,7 +145,7 @@ impl App {
                 self.status = "question left unanswered  (y answers · n declines)".into();
             }
             KeyCode::Enter if plain && !shift => self.answer_confirm(),
-            KeyCode::Char(c) if plain && empty && c.is_ascii_digit() && c != '0' => {
+            KeyCode::Char(c) if plain && empty && shortcut(c) => {
                 self.answer_pick(c as usize - '1' as usize)
             }
             KeyCode::Char(' ') if plain && empty && multi => self.answer_pick(highlight),

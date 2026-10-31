@@ -21,6 +21,7 @@ public struct Team: Identifiable, Hashable, Sendable {
     /// Up to `limit` dots for the sidebar row, online Macs first, then the overflow count.
     public func macDots(limit: Int = 5) -> (dots: [Bool], overflow: Int) {
         // Online first; stable by name within each group.
+        let macs = listedMacs
         let ordered = macs.sorted {
             $0.isOnline != $1.isOnline ? $0.isOnline : $0.name.localizedStandardCompare($1.name) == .orderedAscending
         }
@@ -147,11 +148,20 @@ public struct MacDevice: Identifiable, Hashable, Sendable, Codable {
     public var name: String
     public var isOnline: Bool
     public var lastSeenAt: Date?
+    /// Who registered the Mac (nil when not known: mock data, older snapshots).
+    public var ownerUserID: String?
+    /// The computer it runs on (PROTOCOL.md "Devices"): the same for every cmux
+    /// build on one Mac, so ``MacRoster`` lists that Mac once. Nil when the Mac
+    /// never said (an older host); a name is never used instead.
+    public var machineID: String?
 
-    public init(id: String, name: String, isOnline: Bool, lastSeenAt: Date? = nil) {
+    public init(id: String, name: String, isOnline: Bool, lastSeenAt: Date? = nil, ownerUserID: String? = nil,
+                machineID: String? = nil) {
         self.id = id
         self.name = name
         self.isOnline = isOnline
         self.lastSeenAt = lastSeenAt
+        self.ownerUserID = ownerUserID
+        self.machineID = machineID
     }
 }

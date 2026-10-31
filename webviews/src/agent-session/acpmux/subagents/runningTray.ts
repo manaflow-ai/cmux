@@ -17,8 +17,9 @@ import type { AcpmuxRow } from "../model";
 import type { StartedSession } from "../started/startedSessions";
 import type { BackgroundCommand } from "../inspector/processes";
 import { nestAgents } from "./AgentsPill";
-import { isSubagentGroup, SUBAGENT_DONE } from "./subagentRows";
+import { isRunGroup, isSubagentGroup, SUBAGENT_DONE, WORKFLOW_CARD } from "./subagentRows";
 import type { Subagent } from "./subagentFold";
+import { retrying, retryKey, sessionRetry, type RetryState } from "./retryState";
 
 let trayOn = true;
 const listeners = new Set<() => void>();
@@ -47,8 +48,11 @@ export type TrayItem =
   | { kind: "command"; id: string; command: BackgroundCommand }
   | { kind: "session"; id: string; session: StartedSession };
 
-/// What the tray lists: the running subagents, each nested one right under the one that spawned
-/// it, then the background commands still running, then the started chats that run.
+/// What the tray lists and its header counts: what runs or waits on the person, never what ended
+/// (Leo 2026-10-21 on "2 subagents running · 2 commands · 32 sessions": "THIS IS LYING"). The
+/// running subagents, each nested one right under the one that spawned it, then the background
+/// commands still running, then the started chats whose turn runs or that wait on the person.
+/// What ended is shown as bounded status cards after the live rows (``finishedTrayItems``).
 ///
 /// Between turns only work that outlives its turn shows. A foreground subagent a cancel or a
 /// reconnect left "running" pins nothing. A command shows whenever acpmux's process registry says
@@ -61,15 +65,82 @@ export function trayItems(
   sessions: readonly StartedSession[],
   working: boolean,
 ): TrayItem[] {
+  const retries = childRetries(sessions);
   const live = agents
-    .filter((agent) => agent.state === "running" && (working || agent.background === true))
+    // One acpmux retries is about to run again: it shows with the running ones, turn or not. A
+    // sub-session's retry is on its own session row: its line carries it, to read "Retrying (2/4)".
+    .flatMap((agent) => {
+      if (agent.state === "running" && (working || agent.background === true)) return [agent];
+      const retry = retries(agent);
+      return retry ? [agent.retry ? agent : { ...agent, retry }] : [];
+    })
     .sort((a, b) => a.startedAt - b.startedAt || a.id.localeCompare(b.id));
   const items: TrayItem[] = nestAgents(live).map(({ agent, depth }) => ({ kind: "agent", id: agent.id, agent, depth }));
   for (const command of commands)
     if (command.state === "running" && (working || command.processId !== undefined))
       items.push({ kind: "command", id: command.id, command });
   for (const session of sessions)
-    if (session.state === "running") items.push({ kind: "session", id: session.sessionId, session });
+    if (liveSession(session)) items.push({ kind: "session", id: session.sessionId, session });
+  return items;
+}
+
+/// The retry acpmux waits to run for `agent`, if any: a sub-session's is on its own session row
+/// (retryState.ts ``subagentRetry``), found among the chats this one started.
+function childRetries(sessions: readonly StartedSession[]): (agent: Subagent) => RetryState | undefined {
+  const byId = new Map(sessions.map((session) => [session.sessionId, session]));
+  return (agent) => retrying(agent, agent.child ? byId.get(agent.child) : undefined);
+}
+
+const liveSession = (session: StartedSession) =>
+  session.state === "running" || session.state === "waiting" || sessionRetry(session).kind === "retrying";
+
+/// The chat's subagents and started chats that ended, for the tray's bounded status cards: the
+/// subagents that ended last first, so the few the tray shows under what runs are the latest. A
+/// nested one stays under its parent, and a parent's place is its subtree's latest end, so a child
+/// that ended after the others is never hidden behind older ones. Then the chats, newest first
+/// (their end is not known here), those with no creation time last.
+export function finishedTrayItems(agents: readonly Subagent[], sessions: readonly StartedSession[]): TrayItem[] {
+  const retries = childRetries(sessions);
+  const ended = agents.filter((agent) => agent.state !== "running" && !retries(agent));
+  // Each subtree's latest end, in one pass over a parent-to-children map (a loop is cut where it
+  // meets an agent already on the path).
+  const ids = new Set(ended.map((agent) => agent.id));
+  const children = new Map<string, Subagent[]>();
+  for (const agent of ended) {
+    if (agent.parent === null || !ids.has(agent.parent)) continue;
+    const under = children.get(agent.parent);
+    if (under) under.push(agent);
+    else children.set(agent.parent, [agent]);
+  }
+  const latest = new Map<string, number>();
+  const visiting = new Set<string>();
+  const subtreeEnd = (agent: Subagent): number => {
+    const known = latest.get(agent.id);
+    if (known !== undefined) return known;
+    let end = agent.endedAt ?? agent.startedAt;
+    if (visiting.has(agent.id)) return end;
+    visiting.add(agent.id);
+    for (const child of children.get(agent.id) ?? []) end = Math.max(end, subtreeEnd(child));
+    visiting.delete(agent.id);
+    latest.set(agent.id, end);
+    return end;
+  };
+  for (const agent of ended) subtreeEnd(agent);
+  ended.sort((a, b) => latest.get(b.id)! - latest.get(a.id)! || b.startedAt - a.startedAt || a.id.localeCompare(b.id));
+  const items: TrayItem[] = nestAgents(ended).map(({ agent, depth }) => ({
+    kind: "agent",
+    id: agent.id,
+    agent,
+    depth,
+  }));
+  const chats = sessions
+    .filter((session) => !liveSession(session))
+    .sort((a, b) =>
+      a.createdAt === undefined || b.createdAt === undefined
+        ? Number(a.createdAt === undefined) - Number(b.createdAt === undefined)
+        : b.createdAt - a.createdAt,
+    );
+  for (const session of chats) items.push({ kind: "session", id: session.sessionId, session });
   return items;
 }
 
@@ -90,7 +161,9 @@ function versionOf(key: string): number {
 
 function doneLine(agent: Subagent, endedAt: number, cache: DoneLineCache, made: Set<string>): AcpmuxRow {
   const id = `${SUBAGENT_DONE}:${agent.id}`;
-  const key = [agent.state, agent.name, agent.startedAt, endedAt].join("\u0000");
+  const key = [agent.state, agent.name, agent.startedAt, endedAt, agent.stopReason ?? "", retryKey(agent)].join(
+    "\u0000",
+  );
   made.add(id);
   const kept = cache.get(id);
   if (kept?.key === key) return kept.row;
@@ -105,19 +178,84 @@ function doneLine(agent: Subagent, endedAt: number, cache: DoneLineCache, made: 
   return row;
 }
 
+const isWorkflow = (agent: Subagent) => agent.kind === "workflow";
+
+/// What a workflow's card draws, as a key: its name, state, times, size and each agent's live
+/// presentation fields. Keeping the message/action fields here makes the card update in place as
+/// workflow events arrive; WorkflowCard itself never scans the transcript.
+function cardKey(node: Subagent): string {
+  const agents = node.workflowAgents instanceof Map ? [...node.workflowAgents.values()] : [];
+  return [
+    node.id,
+    node.state,
+    node.paused ? "paused" : "",
+    node.name,
+    node.startedAt,
+    node.endedAt ?? "",
+    node.agents?.started ?? "",
+    node.agents?.done ?? "",
+    node.agents?.failed ?? "",
+    node.agents?.queued ?? "",
+    node.tokens ?? "",
+    node.action ?? "",
+    node.phases?.map((phase) => `${phase.index}:${phase.title}`).join(",") ?? "",
+    agents
+      .map((agent) =>
+        [
+          agent.index,
+          agent.state ?? "",
+          agent.action ?? "",
+          agent.result ?? "",
+          (agent as typeof agent & { lastMessage?: string }).lastMessage ?? "",
+          agent.model ?? "",
+          agent.tokens ?? "",
+          agent.startedAt ?? "",
+          agent.elapsedMs ?? "",
+          agent.phaseIndex ?? "",
+        ].join(":"),
+      )
+      .join(","),
+  ].join("\u0000");
+}
+
+/// A workflow's card row, one per workflow so each row is one card's height (model.ts).
+function workflowCard(row: AcpmuxRow, node: Subagent, cache: DoneLineCache, made: Set<string>): AcpmuxRow {
+  const id = `${WORKFLOW_CARD}:${node.id}`;
+  const key = cardKey(node);
+  made.add(id);
+  const kept = cache.get(id);
+  if (kept?.key === key) return kept.row;
+  const card: AcpmuxRow = { id, version: versionOf(key), at: row.at, kind: WORKFLOW_CARD, subagents: [node] };
+  cache.set(id, { key, row: card });
+  return card;
+}
+
 /// The transcript as the tray draws it: no subagent group where the subagents started (the tray
 /// shows them while they run), and for each subagent that ended a done line where it ended, after
-/// the last row that came before its end. Rows are otherwise the same objects, so a transcript with
-/// no subagents is returned as it is.
-export function withSubagentLines(rows: readonly AcpmuxRow[], cache: DoneLineCache = new Map()): readonly AcpmuxRow[] {
+/// the last row that came before its end. With `workflowCards` (Labs), a workflow a group started
+/// is a card in the group's place instead, running or ended, and leaves no done line. Rows are
+/// otherwise the same objects, so a transcript with no subagents is returned as it is.
+export function withSubagentLines(
+  rows: readonly AcpmuxRow[],
+  cache: DoneLineCache = new Map(),
+  workflowCards = false,
+): readonly AcpmuxRow[] {
   if (!rows.some(isSubagentGroup)) return rows;
   // Each ended subagent goes before the first row after its group that came after its end.
   const before = new Map<number, AcpmuxRow[]>();
+  const cards = new Map<number, AcpmuxRow[]>();
   const made = new Set<string>();
   rows.forEach((row, index) => {
-    if (!isSubagentGroup(row)) return;
+    // An agent a shell call started keeps its card where it started (AgentRunCard.tsx).
+    if (!isSubagentGroup(row) || isRunGroup(row)) return;
+    const workflows = workflowCards ? (row.subagents ?? []).filter(isWorkflow) : [];
+    if (workflows.length > 0)
+      cards.set(
+        index,
+        workflows.map((node) => workflowCard(row, node, cache, made)),
+      );
     for (const agent of row.subagents ?? []) {
-      if (agent.state === "running") continue;
+      if (agent.state === "running" || (workflowCards && isWorkflow(agent))) continue;
       const endedAt = agent.endedAt ?? agent.startedAt;
       let at = index + 1;
       while (at < rows.length && (isSubagentGroup(rows[at]!) || rows[at]!.at <= endedAt)) at += 1;
@@ -132,7 +270,8 @@ export function withSubagentLines(rows: readonly AcpmuxRow[], cache: DoneLineCac
   };
   rows.forEach((row, index) => {
     flush(index);
-    if (!isSubagentGroup(row)) out.push(row);
+    if (!isSubagentGroup(row) || isRunGroup(row)) out.push(row);
+    else out.push(...(cards.get(index) ?? []));
   });
   flush(rows.length);
   // Only this pass's lines stay cached, so another chat's do not pile up.

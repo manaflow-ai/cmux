@@ -17,7 +17,7 @@ enum GroupIconHandlers {
     }
 
     private static func bindScreenGroups(_ registry: ActionRegistry, _ ctx: AppActionContext) {
-        let capability = DaemonCapabilities.shared.screenGroupIcon
+        let capability = DaemonCapability.screenGroupIcon.rawValue
         registry.bind("screenGroup.setIcon", requires: capability, daemon: ctx.services.activeDaemon, run: { invocation in
             guard let ref = ctx.screenGroup(invocation) else { return }
             try require(capability, on: ref.daemon)
@@ -41,7 +41,7 @@ enum GroupIconHandlers {
     }
 
     private static func bindTabGroups(_ registry: ActionRegistry, _ ctx: AppActionContext) {
-        let capability = DaemonCapabilities.shared.tabGroupIcon
+        let capability = DaemonCapability.tabGroupIcon.rawValue
         registry.bind("tabGroup.setIcon", requires: capability, daemon: ctx.services.activeDaemon, run: { invocation in
             guard let (group, pane) = TabGroupHandlers.group(invocation, ctx) else { return }
             let daemon = ctx.services.daemon(for: pane)

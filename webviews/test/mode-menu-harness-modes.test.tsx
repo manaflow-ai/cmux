@@ -1,8 +1,9 @@
 // l10n-allow-file: test fixtures.
+// l10n-allow-file: test fixtures.
 // The mode menu lists the harness's OWN modes (Leo 2026-10-21, "WHY ARE YOU HALLUCINATING THINGS?"):
 // Claude Code's Mode menu (Auto [Recommended], Manual, Accept edits, Plan, Bypass permissions, keys 1
-// to 5) and Codex's "How should actions be approved?" (Ask for approval, Approve for me, Full
-// access, each with its own icon), with their labels, descriptions and order. Never an invented
+// to 5) and Codex's approval choices (Ask for approval, Approve for me, Full access, each with its
+// own icon), with their labels, descriptions and order. Never an invented
 // "Normal" or a Claude "Full access". The mode button shows the mode's symbol and its label, with no
 // pill at rest; the chosen row's check is the theme's lit accent (--agent-lit-glyph).
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
@@ -170,7 +171,7 @@ const heading = () => text(dom.window.document.querySelector(".acpmux-access-men
 
 test("a Claude chat's menu is Claude Code's own Mode menu, in its order, with its keys", async () => {
   await render(summary("claude", "bypassPermissions", CLAUDE_REPORTED));
-  expect(heading()).toBe("Mode");
+  expect(heading()).toBe("");
   expect(rows().map(({ name, description, key, badge }) => ({ name, description, key, badge }))).toEqual([
     { name: "Auto", description: "Claude handles permission decisions", key: "1", badge: "Recommended" },
     { name: "Manual", description: "Always ask before making changes", key: "2", badge: "" },
@@ -186,7 +187,7 @@ test("a Claude chat's menu is Claude Code's own Mode menu, in its order, with it
 
 test("a Codex chat's menu is Codex's own approval menu, with its icons and descriptions", async () => {
   await render(summary("codex", "agent-full-access", CODEX_REPORTED));
-  expect(heading()).toBe("How should actions be approved?");
+  expect(heading()).toBe("");
   expect(rows().map(({ name, description, icon, key }) => ({ name, description, icon, key }))).toEqual([
     {
       name: "Ask for approval",
@@ -222,7 +223,7 @@ test("a Codex chat on today's bridge (no auto review) shows Codex's rows it repo
       CODEX_REPORTED.filter((mode) => mode.id !== "auto-review"),
     ),
   );
-  expect(heading()).toBe("How should actions be approved?");
+  expect(heading()).toBe("");
   expect(rows().map(({ name, icon, checked }) => ({ name, icon, checked }))).toEqual([
     { name: "Ask for approval", icon: "hand", checked: true },
     { name: "Full access", icon: "shield-alert", checked: false },

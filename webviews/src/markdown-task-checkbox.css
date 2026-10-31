@@ -16,7 +16,6 @@
   border-radius: 4px;
   background: transparent;
   color: var(--cmux-markdown-checkbox-ink, Canvas);
-  cursor: default;
   pointer-events: none;
   vertical-align: top;
 }

@@ -4,8 +4,10 @@ import CmuxNextWakeups
 /// (`showLaunchImage`). Deferred launch work (`LaunchSettle`: the palette's
 /// warm-up steps) waits until none is left: a step run at the first idle
 /// moment held the main thread just as WebKit needed it to start the page's
-/// navigation (about 70 ms on a cold launch, cx-z9kz0). Each image goes when
-/// its page paints, or at its limit (`paneLaunchImageLimit`).
+/// navigation (about 70 ms on a cold launch, cx-z9kz0). An image goes when its
+/// page paints; one standing in for a page that has not painted stays past
+/// `paneLaunchImageLimit` (`launchImageMayClear`), so what bounds the wait for
+/// deferred work is the backstop below, not the image.
 @MainActor
 final class LaunchImageHold {
     static let shared = LaunchImageHold()

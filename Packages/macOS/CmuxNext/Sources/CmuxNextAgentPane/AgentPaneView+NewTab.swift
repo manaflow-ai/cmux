@@ -32,6 +32,28 @@ extension AgentPaneView {
         evaluateScript("window.dispatchEvent(new CustomEvent('acpmux-newtab-places', {detail: \(json)}))")
     }
 
+    /// The Commands palette's actions for the bar arrived (they are listed on the frame after the page
+    /// shows, so Cmd-T does not wait for them): the page takes them in place, in the same
+    /// `acpmux-newtab-places` event, with no remount, so what is typed stays.
+    public func refreshNewTabActions(_ actions: [AgentPaneOmnibar.Action]) {
+        guard model.sessionId == nil, var page = model.newTab, page.omnibar.actions != actions else { return }
+        page.omnibar.actions = actions
+        model.adoptNewTab(page)
+        guard let data = try? JSONEncoder().encode(page.omnibar), let json = String(data: data, encoding: .utf8) else { return }
+        evaluateScript("window.dispatchEvent(new CustomEvent('acpmux-newtab-places', {detail: \(json)}))")
+    }
+
+    /// The weather widget's reading arrived or changed while this page shows (``AgentPaneNewTab/weather``):
+    /// the page takes it in place, as an `acpmux-newtab-weather` event, with no remount. nil (the
+    /// widget turned off) takes the reading away.
+    public func refreshNewTabWeather(_ weather: AgentPaneNewTabWeather?) {
+        guard model.sessionId == nil, var page = model.newTab, page.weather != weather else { return }
+        page.weather = weather
+        model.adoptNewTab(page)
+        let json = weather.flatMap { try? JSONEncoder().encode($0) }.flatMap { String(data: $0, encoding: .utf8) } ?? "null"
+        evaluateScript("window.dispatchEvent(new CustomEvent('acpmux-newtab-weather', {detail: \(json)}))")
+    }
+
     private func show(_ page: AgentPaneNewTab) {
         guard model.newTab == page, let data = try? JSONEncoder().encode(page),
               let json = String(data: data, encoding: .utf8) else { return }

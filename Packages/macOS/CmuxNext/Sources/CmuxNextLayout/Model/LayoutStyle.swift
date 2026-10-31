@@ -69,7 +69,7 @@ public nonisolated struct LayoutStyle: Hashable, Sendable {
     /// subtler when it marks tabs (`ChromeEmphasis.forPane`).
     public var focusIndicator: FocusIndicator = .tabs
     public var inactiveTabStyle: InactiveTabStyle = .fade
-    public var inactiveTabStrength: CGFloat = 0.6
+    public var inactiveTabStrength: CGFloat = 0.4
     /// Fraction of a pane's extent that counts as an edge drop zone
     /// (DESIGN.md (c)2: a quarter, half of the half a split gives).
     public var dropEdgeFraction: CGFloat = 0.25

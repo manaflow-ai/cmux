@@ -37,7 +37,7 @@ struct PinnedDockMoveRequestTests {
 struct PinnedDockMoveLiveTests {
     @Test func aScreensOnlyTabBecomesALonePinnedDock() async throws {
         try await BranchDaemonHarness.with { h in
-            #expect(await h.connection.identity?.supports(DaemonCapabilities.shared.pinnedDockAlone) == true)
+            #expect(await h.connection.identity?.supports(DaemonCapability.pinnedDockAlone.rawValue) == true)
             let only = try await h.workspaceWithTerminal("home-dock")
             let dock = DockSnapshot(edge: .left, mode: .docked, role: .agentChat, isPinned: true)
             _ = try await h.connection.moveTabToColumn(only.surface, target: .pane(only.pane), width: 0.5, dock: dock)

@@ -17,7 +17,7 @@ import Testing
             window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 600), styleMask: [.titled],
                               backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false
-            page = WebKitEngine().makeWebKitTab()
+            page = WebKitEngine(fileInput: NoFileInput(), stores: .inMemory()).makeWebKitTab()
             chrome = BrowserChromeView(tab: page)
             chrome.frame = window.contentLayoutRect
             window.contentView = chrome

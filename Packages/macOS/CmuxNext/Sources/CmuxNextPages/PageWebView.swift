@@ -6,6 +6,7 @@ import Observation
 import os
 import CmuxNextErrorJournal
 public import WebKit
+import CmuxNextWakeups
 
 /// A view that is a cmux page. The key dispatcher reads it to know the focused surface is a page
 /// (`surfaceKind == page`); a page view adds no key handling of its own.
@@ -55,6 +56,8 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     var chromiumDragFile: (url: URL, at: Date)?
     /// Shows the Chromium page's context menu at a point of this view (tests capture it).
     var chromiumMenuPresenter: @MainActor (NSMenu, NSPoint, NSView) -> Void = { menu, point, view in
+        // A view in no window cannot anchor a menu (AppKit raises): the page closed meanwhile.
+        guard view.window != nil else { return }
         menu.popUp(positioning: nil, at: point, in: view)
     }
     /// Making the Chromium page (cancelled when the view closes or falls back).
@@ -66,7 +69,14 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// Makes Chromium pages; the app sets it once at startup (its composition root). Nil keeps every
     /// page on WebKit (tests, a build without Chromium).
     public static var chromiumHosting: (any PageChromiumHosting)?
+    /// The app's made-ahead open panel for a page's `<input type="file">`; the app sets it once at startup with
+    /// ``chromiumHosting`` (its composition root). Nil: a file input does nothing (tests).
+    public static var openPanel: MadeAheadOpenPanel?
+    /// This page's file chooser (its web view holds the UI delegate weakly).
+    private var fileChooser: PageOpenPanel?
     var loaded = false
+    /// The tab closed (``close()``): its web view is retired and never loads again.
+    var isClosed = false
     var loadWaiters: [CheckedContinuation<Void, Never>] = []
     var shouldFocusOnAttach = false
     /// The page's popup past the window's edge (PageWebView+Popup.swift), made on first use.
@@ -81,7 +91,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     private var uiScaleObservation: Task<Void, Never>?
     /// The static status look (`WebTheme.statusIndicators`): the setting and Reduce Motion.
     private var statusLookObservation: Task<Void, Never>?
-    private var reduceMotionObservers: [any NSObjectProtocol] = []
+    private var reduceMotionObservers: [MainActorObservation] = []
     public var additionalZoom: Double = 1 {
         didSet { if additionalZoom != oldValue { applyUIScale() } }
     }
@@ -108,6 +118,10 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// ``PageCrashReloads`` allows: the page is not reloaded, and the host shows its notice (with a
     /// button that calls ``reloadAfterCrashes()``).
     public var onCrash: ((PageWebView, _ reloading: Bool) -> Void)?
+    /// Whether a crashed page reloads by itself (up to ``PageCrashReloads/limit``). A host whose page
+    /// holds the person's state (the agent chat: an open menu, the caret, an IME composition) sets it
+    /// false: every crash shows its notice, and only its Reload button reloads.
+    public var reloadsAfterCrash = true
     /// The surface whose web theme the page gets (`--cmux-*`; nil: the scope's own), for a page that
     /// shows a surface with its own overrides (the agent pane: new tab page, then agent chat).
     /// `data-*` attributes of `<html>` the host keeps current (`setDocumentAttribute`): set again
@@ -150,6 +164,9 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// The crash clock (tests set it).
     var now: () -> Date = { Date() }
     var crashReloads = PageCrashReloads()
+    /// Chromium ended under a host that shows the crash notice: the page reopens in WebKit only on
+    /// the notice's Reload (``reloadAfterCrashes()``).
+    var webKitLoadsOnReload = false
     let claimState = PageClaimState()
 
     public var pageID: String { descriptor.id }
@@ -175,13 +192,32 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
 
     /// The script that sets `data-<name>` attributes on `<html>`; nil for none. Names keep only
     /// lowercase letters, digits and dashes; values are JSON string literals.
+    ///
+    /// WebKit runs a document-start script once `<html>` exists, but Chromium runs a new-document
+    /// script (``PageChromiumDocumentScripts``) before the parser makes it, when
+    /// `document.documentElement` is null: setting the attributes then threw, and a Chromium page
+    /// (the agent chat by default) got none of them, so `data-needs-you="off"` never hid Needs you.
+    /// Without `<html>` the script waits for it with a MutationObserver, whose callback runs before
+    /// the page's first script.
     nonisolated static func attributesScript(_ attributes: [String: String]) -> String? {
         let safe = attributes.filter { name, _ in !name.isEmpty && name.allSatisfy { $0.isLowercase || $0.isNumber || $0 == "-" } }
         guard !safe.isEmpty else { return nil }
         let lines = safe.keys.sorted().map { name in
             "document.documentElement.setAttribute(\(JSONValue.string("data-" + name).compactText), \(JSONValue.string(safe[name] ?? "").compactText));"
         }
-        return lines.joined(separator: "\n")
+        return """
+        (() => {
+        const set = () => {
+        \(lines.joined(separator: "\n"))
+        };
+        if (document.documentElement) { set(); return; }
+        new MutationObserver((_, observer) => {
+          if (!document.documentElement) return;
+          observer.disconnect();
+          set();
+        }).observe(document, { childList: true });
+        })();
+        """
     }
 
     /// The DEBUG root override of a page (`CMUX_NEXT_PAGE_ROOT_cmux_history=/path`), else nil.
@@ -195,9 +231,12 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     }
 
     /// Whether `descriptor` may be served from `root`: any root for an app page; for a first-party
-    /// page only its bundled root or its DEBUG override.
-    nonisolated static func mayServe(_ descriptor: PageDescriptor, from root: URL) -> Bool {
+    /// page only its bundled root or its DEBUG override, or in DEBUG a `testRoot`.
+    nonisolated static func mayServe(_ descriptor: PageDescriptor, from root: URL, testRoot: Bool = false) -> Bool {
         guard PageID.isReserved(descriptor.id) else { return true }
+        #if DEBUG
+        if testRoot { return true }
+        #endif
         let wanted = root.standardizedFileURL.resolvingSymlinksInPath().path
         let allowed = [PageSchemeHandler.bundledRoot(for: descriptor), PageID.bundledRoot(for: descriptor.id),
                        debugRoot(for: descriptor)].compactMap { $0 }
@@ -217,13 +256,17 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// `appearance.surfaces.diff` reaches `--cmux-surface-background`); `dynamicResources` answers
     /// the descriptor's dynamic prefixes (a 404 without one).
     ///
+    /// `testRoot` (DEBUG only; a Release build ignores it): `root` is a test's own fixture, served for a
+    /// reserved page too. `swift test` links every test target into one process, so the page's registered
+    /// root (``PageID/registerBundledRoot(_:for:)``, the first wins) may be another test's.
+    ///
     /// `chromium` makes the page's Chromium view when the policy picks Chromium (the app's
     /// ``chromiumHosting`` by default; tests pass a fake).
-    public convenience init?(descriptor: PageDescriptor, root: URL, routes: [PageRoute], route: String? = nil,
+    public convenience init?(descriptor: PageDescriptor, root: URL, testRoot: Bool = false, routes: [PageRoute], route: String? = nil,
                              documentAttributes: [String: String] = [:], options: PageEngineOptions = .standard,
                              surface: SurfaceKind? = nil, dynamicResources: (any PageDynamicResourceSource)? = nil,
                              chromium: (any PageChromiumHosting)? = PageWebView.chromiumHosting) {
-        guard Self.mayServe(descriptor, from: root) else { return nil }
+        guard Self.mayServe(descriptor, from: root, testRoot: testRoot) else { return nil }
         let host = Self.hostConfiguration(handler: PageSchemeHandler(page: descriptor, root: root,
                                                                        dynamicSource: dynamicResources),
                                           documentAttributes: documentAttributes, options: options)
@@ -273,9 +316,13 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         // Web Inspector in every build (Inspect Element, Cmd-Opt-I).
         webView.isInspectable = true
         webView.navigationDelegate = self
-        webView.uiDelegate = PageOpenPanel.shared
+        fileChooser = Self.openPanel.map { PageOpenPanel(openPanel: $0) }
+        webView.uiDelegate = fileChooser
         webView.onUserEvent = { [weak self] in self?.noteTouch() }
-        webView.pageAcceptsFirstMouse = { [weak self] in self?.descriptor.acceptsFirstMouse ?? false }
+        webView.pageAcceptsFirstMouse = { [weak self] in
+            guard let self else { return false }
+            return descriptor.acceptsFirstMouse || engineOptions.acceptsFirstMouse
+        }
         setAccessibilityIdentifier("cmux.page.\(descriptor.id)")
         addSubview(webView)
         applyUIScale()
@@ -283,14 +330,16 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         PageRegistry.add(self)
         let scripts = scripts
         router.send = { envelope in scripts.send(envelope) }
+        router.sendWithDrop = { envelope, onDrop in scripts.send(envelope, onDrop: onDrop) }
         router.didClose = { [weak self] in
             scripts.reset()
             self?.popupHost?.hide()
         }
         router.titleBarDoubleClick = { [weak self] in self?.performTitleBarDoubleClick() }
         router.popup = { [weak self] op, params in self?.popup(op, params: params) ?? .object(["shown": .bool(false)]) }
+        router.contextMenu = { [weak self] params in await self?.contextMenu(params) ?? .object(["picked": .null]) }
         router.userGestureEvent = { [weak self] in self?.recentUserGestureEvent() }
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         // Automation launches (no activation, a GUI host whose windows macOS reports occluded):
         // WebKit stops drawing an occluded window, so captures saw an empty page. DEBUG only;
         // users keep WebKit's occlusion throttling.
@@ -310,12 +359,18 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         if engineDecision.engine == .cef, let hosting = chromium {
             startChromium(hosting: hosting)
         } else {
+            #if DEBUG || CMUX_BENCH_HOOKS
+            traceMark(.navigationStart)
+            #endif
             webView.load(URLRequest(url: descriptor.url(route: route)))
         }
     }
 
     /// The current document painted its first frame (``PagePaintProbe``, either engine).
     func notePainted() {
+        #if DEBUG || CMUX_BENCH_HOOKS
+        traceMark(.pagePainted)
+        #endif
         paintedUptime = ProcessInfo.processInfo.systemUptime
         let waiters = paintWaiters
         paintWaiters = []
@@ -331,8 +386,6 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         MainActor.assumeIsolated {
             uiScaleObservation?.cancel()
             statusLookObservation?.cancel()
-            reduceMotionObservers.forEach { NotificationCenter.default.removeObserver($0) }
-            reduceMotionObservers.forEach { NSWorkspace.shared.notificationCenter.removeObserver($0) }
         }
     }
 
@@ -347,16 +400,15 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         }
         // Reduce Motion is not observable through Observation.
         reduceMotionObservers = [
-            NSWorkspace.shared.notificationCenter.addObserver(
-                forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.applyTheme() } // main-proof: observer on queue: .main
+            MainActorObservation(NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, center: NSWorkspace.shared.notificationCenter) { [weak self] in
+                self?.applyTheme()
             },
-            NotificationCenter.default.addObserver(forName: Motion.reduceMotionDidChange, object: nil, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.applyTheme() } // main-proof: observer on queue: .main
+            MainActorObservation(Motion.reduceMotionDidChange) { [weak self] in
+                self?.applyTheme()
             },
             // The master motion switch, a category switch or the speed: `data-cmux-motion` follows.
-            NotificationCenter.default.addObserver(forName: Motion.speedDidChange, object: nil, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.applyTheme() } // main-proof: observer on queue: .main
+            MainActorObservation(Motion.speedDidChange) { [weak self] in
+                self?.applyTheme()
             },
         ]
     }
@@ -370,11 +422,12 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         }
     }
 
-    /// Page zoom follows `uiScale`; the chrome multiplier is only the `--cmux-interface-scale` token.
+    /// Page zoom follows `uiScale` times this page's additional zoom; the chrome multiplier remains
+    /// a separate `--cmux-interface-scale` token.
     func applyUIScale() {
+        evaluateInPage(DesignSettings.shared.interfaceScaleScript(pageZoom: pageZoom))
         webView.pageZoom = pageZoom
         chromiumSession?.page.setZoom(pageZoom)
-        evaluateInPage(DesignSettings.shared.interfaceScaleScript)
         if loaded { glassFeed.refresh() } // the zoom moves the art's rect in CSS px
     }
 
@@ -505,7 +558,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         super.viewDidMoveToWindow()
         // Its tab or window closed: the page's popup ends with it.
         if window == nil { popupHost?.dismiss() }
-        chromiumSession?.page.setVisible(window != nil && !isHiddenOrHasHiddenAncestor)
+        setChromiumVisibility(true)
         applyTheme()
         windowDidChangeChrome()
         if shouldFocusOnAttach, window != nil {
@@ -518,12 +571,12 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public override func viewDidHide() {
         super.viewDidHide()
         popupHost?.dismiss()
-        chromiumSession?.page.setVisible(false)
+        setChromiumVisibility(false)
     }
 
     public override func viewDidUnhide() {
         super.viewDidUnhide()
-        chromiumSession?.page.setVisible(window != nil)
+        setChromiumVisibility(true)
     }
 
     public override func viewDidChangeEffectiveAppearance() {
@@ -560,7 +613,9 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction) async -> WKNavigationActionPolicy {
         let url = action.request.url
         switch PageNavigation.policy(for: url, page: descriptor, userClicked: action.navigationType == .linkActivated,
-                                     mainFrame: action.targetFrame?.isMainFrame ?? true, hook: onNavigate) {
+                                     mainFrame: action.targetFrame?.isMainFrame ?? true,
+                                     targetFrameURL: action.targetFrame?.request.url,
+                                     sourceFrameURL: action.sourceFrame.request.url, hook: onNavigate) {
         case .allow:
             return .allow
         case .openExternal:

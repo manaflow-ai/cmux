@@ -2,25 +2,24 @@
 // The thread minimap's motion, measured in WebKit (the engine the app draws the pane in) against the
 // Codex desktop app's recordings (minimap-ref SPEC): hover grows the tick to 26 px within 120 ms
 // (the motion scale's micro step; Codex's spring curve, run faster than its 160 ms)
-// with no delay; a click scrolls on cubic-bezier(0.35, 0.05, 0, 1) for about 400 ms and lands the
-// prompt's bubble 35 px below the transcript's top; its bubble's highlight runs 1400 ms. Under
+// with no delay; a click lands the prompt's bubble 35 px below the transcript's top at once, with no
+// glide (Leo, 2026-10-29: "faster scrttoll"; it scrolled about 400 ms on Codex's curve before); its bubble's highlight runs 1400 ms. Under
 // Reduce Motion none of them animate.
-import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
+import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { webkit, type Browser, type Page } from "playwright";
 import { installPaintedFrames } from "./support/paintedFrames";
-import { requireBrowserLane } from "./support/requireBrowserLane";
+import { probeEngineOrSkip, requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("thread-minimap-motion.test.ts", async () => {
   setDefaultTimeout(120_000);
-  try {
-    await (await webkit.launch({ headless: true })).close();
-  } catch {
-    console.warn("thread-minimap-motion: skipping (run `bunx playwright install webkit`)");
-    describe.skip("thread minimap motion", () => test("webkit", () => {}));
-    return;
-  }
+  // The probe gets 30 s, not Playwright's 180 s default, which is longer than the runner's 120 s per-file
+  // limit (run-webviews-tests.sh). On the fleet's aws Macs, where steps run over SSH as ec2-user, WebKit
+  // never answers its launch (Chromium starts there in 300 ms). The default made the runner kill the
+  // file before its skip could run (TIMEOUT on aws-m4pro-3 and -6, 2026-10-22). Where the lane is
+  // required (GitHub Actions), a WebKit that does not launch fails the file instead (probeEngineOrSkip).
+  if (!(await probeEngineOrSkip("thread minimap motion", "webkit", webkit))) return;
   const { createServer } = await import("vite");
   const webviews = path.resolve(import.meta.dir, "..");
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
@@ -131,10 +130,18 @@ await requireBrowserLane("thread-minimap-motion.test.ts", async () => {
     const page = await open(false);
     const style = await page.evaluate(() => {
       const css = getComputedStyle(document.querySelector<HTMLElement>('[data-tick="5"] .acpmux-minimap__bar')!);
-      return { delay: css.transitionDelay, duration: css.transitionDuration, easing: css.transitionTimingFunction };
+      return {
+        property: css.transitionProperty,
+        delay: css.transitionDelay,
+        duration: css.transitionDuration,
+        easing: css.transitionTimingFunction,
+      };
     });
-    expect(style.delay).toBe("0s");
-    expect(style.duration).toBe("0.12s"); // at rest and hovered alike: the scale's micro step
+    // At rest the bar also fades its opacity as the band moves (the wave): both properties start
+    // at once and run the scale's micro step.
+    expect(style.property).toBe("transform, opacity");
+    expect(style.delay).toBe("0s, 0s");
+    expect(style.duration).toBe("0.12s, 0.12s");
     const point = await tickPoint(page, 5);
     await page.mouse.move(point.x + 300, point.y);
     // The pointer's arrival starts a transform transition at once (no dwell). Its timeline is read
@@ -204,7 +211,7 @@ await requireBrowserLane("thread-minimap-motion.test.ts", async () => {
     await page.close();
   });
 
-  test("a click scrolls about 400 ms on the measured curve, lands the bubble 35 px down and highlights it 1400 ms", async () => {
+  test("a click lands the bubble 35 px down at once, with no glide, and highlights it 1400 ms", async () => {
     const page = await open(false);
     // The mounted prompt about 650 px down.
     const target = await page.evaluate(() => {
@@ -215,7 +222,7 @@ await requireBrowserLane("thread-minimap-motion.test.ts", async () => {
     });
     const point = await tickPoint(page, target);
     await page.mouse.move(point.x, point.y);
-    // The hover settles: the tick grown and, after the hover delay, its preview card open.
+    // The hover settles: the tick grown and its preview card open.
     await page.locator(".acpmux-minimap__card").waitFor({ timeout: 5_000 });
     await settled(page);
     const sampling = sample(page, 900);
@@ -232,14 +239,9 @@ await requireBrowserLane("thread-minimap-motion.test.ts", async () => {
     const scrolls = (await samples(page)).filter((entry) => entry.t >= clicked);
     const final = scrolls.at(-1)!.scroll;
     expect(final).toBeGreaterThan(500);
-    const landed = scrolls.find((entry) => Math.abs(entry.scroll - final) < 0.5)!;
-    // About 400 ms for about 650 px.
-    expect(landed.t - clicked).toBeGreaterThan(320);
-    expect(landed.t - clicked).toBeLessThan(500);
-    // The curve: slow out of the start (cubic-bezier(0.35, 0.05, 0, 1)), past 85% by 60% of the time.
-    const progress = (ms: number) => scrolls.find((entry) => entry.t - clicked >= ms)!.scroll / final;
-    expect(progress(40)).toBeLessThan(0.12);
-    expect(progress(240)).toBeGreaterThan(0.85);
+    // Every frame after the click already shows the landing: the scroll was set in the click's task.
+    expect(scrolls.length).toBeGreaterThan(0);
+    for (const entry of scrolls) expect(Math.abs(entry.scroll - final)).toBeLessThanOrEqual(1);
     const landing = await page.evaluate((index) => {
       const view = document.querySelector<HTMLElement>(".acpmux-scroll")!.getBoundingClientRect();
       const bubble = document.querySelector<HTMLElement>(`.acpmux-row[data-row-id="t${index}-user"] .cv-user__bubble`)!;
@@ -254,6 +256,71 @@ await requireBrowserLane("thread-minimap-motion.test.ts", async () => {
     expect(Math.abs(landing.offset - 35)).toBeLessThanOrEqual(1);
     expect(landing.duration).toBe(1400);
     expect(landing.easing?.replace(/\s/g, "")).toBe("cubic-bezier(0.23,1,0.32,1)");
+    await page.close();
+  });
+
+  // Only a rail click lands at once; Next Turn (Ctrl-Opt-Down) keeps its glide on the step curve.
+  test("Next Turn still glides to the next prompt over the step's duration", async () => {
+    const page = await open(false);
+    await page.mouse.move(900, 400);
+    await settled(page);
+    const sampling = sample(page, 900);
+    await page.evaluate(() => {
+      (window as unknown as { __over: number }).__over = performance.now();
+      window.dispatchEvent(new CustomEvent("cmux-acpmux-nextTurn"));
+    });
+    await sampling;
+    const started = await page.evaluate(() => (window as unknown as { __over: number }).__over);
+    const scrolls = (await samples(page)).filter((entry) => entry.t >= started);
+    const final = scrolls.at(-1)!.scroll;
+    expect(final).toBeGreaterThan(0);
+    // Some painted frame shows the scroll part of the way there, and it lands after a few frames.
+    expect(scrolls.some((entry) => entry.scroll > 1 && entry.scroll < final - 1)).toBe(true);
+    const landed = scrolls.find((entry) => Math.abs(entry.scroll - final) <= 1)!;
+    expect(landed.t - started).toBeGreaterThan(50);
+    await page.close();
+  });
+
+  /// The flash's keyframe colors' alpha, read off the landing animation on the clicked prompt's bubble.
+  async function landingAlphas(page: Page, index: number): Promise<number[]> {
+    return page.evaluate(async (index) => {
+      document.querySelector<HTMLElement>(`[data-tick="${index}"]`)!.click();
+      await window.cmuxPaintFrame();
+      await window.cmuxPaintFrame();
+      const bubble = document.querySelector<HTMLElement>(`.acpmux-row[data-row-id="t${index}-user"] .cv-user__bubble`)!;
+      const animation = bubble.getAnimations().find((entry) => entry.id === "acpmux-landing");
+      const frames = (animation?.effect as KeyframeEffect | null)?.getKeyframes() ?? [];
+      // Resolve each color through a probe, so color-mix() and named colors come back as rgb()/color().
+      const probe = document.createElement("div");
+      document.body.append(probe);
+      const alphas = frames.map((frame) => {
+        probe.style.backgroundColor = String(frame.backgroundColor ?? "");
+        const color = getComputedStyle(probe).backgroundColor;
+        const alpha = /\/\s*([\d.]+)\s*\)$/.exec(color)?.[1] ?? /^rgba\([^)]*,\s*([\d.]+)\)$/.exec(color)?.[1];
+        return alpha === undefined ? 1 : Number(alpha);
+      });
+      probe.remove();
+      return alphas;
+    }, index);
+  }
+
+  // Leo 2026-10-20: the prompt bubble is glass, never opaque, not even while it flashes.
+  test("the landing flash stays glass: every frame is translucent", async () => {
+    const page = await open(false);
+    const alphas = await landingAlphas(page, 9);
+    expect(alphas.length).toBe(3);
+    for (const alpha of alphas) expect(alpha).toBeLessThan(1);
+    await page.close();
+  });
+
+  // Reduce Transparency makes the bubble opaque (glass.css), and its flash with it: no frame lets the
+  // backdrop through.
+  test("under Reduce Transparency every frame of the landing flash is opaque", async () => {
+    const page = await open(false);
+    await page.evaluate(() => document.documentElement.setAttribute("data-reduce-transparency", ""));
+    const alphas = await landingAlphas(page, 9);
+    expect(alphas.length).toBe(3);
+    for (const alpha of alphas) expect(alpha).toBe(1);
     await page.close();
   });
 

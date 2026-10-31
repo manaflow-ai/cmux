@@ -114,6 +114,21 @@ running, or creates one outside `cmuxnp-dev-`. It changes only
 of one env plus the channel file (old value kept as `previous`): new machines only, never a
 running VM.
 
+**Promote from CI** (`.github/workflows/cloud-vm-image-promote.yml`, dev only): after a
+`cloud-vm-image-bake.yml` run with `keep_snapshot` passes, run
+`gh workflow run cloud-vm-image-promote.yml --repo manaflow-ai/cmux --ref feat-cmux-next -f channel=dev -f snapshot=<sh-id> -f bake_run=<bake run id>`.
+It runs in the bake's environment `cmux-next-vm-image-dev` with the same `FREESTYLE_API_KEY`
+secret (given to promote.ts only as a 0600 file in `$RUNNER_TEMP`) and a token that can only read
+(`contents: read`, `actions: read`). It appends the bake run's `channel-dev.json` to
+`channels/dev.json` `history`, runs promote.ts (fresh-clone smoke), and uploads the diff of
+`channels/dev.json` and `wrangler.jsonc` as the artifact `promote-dev-<sh-id>.diff`, with the
+smoke result in the job summary. It pushes nothing: a lane downloads the artifact, `git apply`s it
+on a branch from feat-cmux-next, opens the channel PR linking the run, and lands it after review;
+the next development deploy ships it. `-f delete_snapshot=<sh-id>` (alone or with a promotion)
+deletes one spare image snapshot by exact id (`cleanup.ts --snapshot`); it refuses an id or name
+that any `channels/*.json` (pointer, previous, history, notes) or `wrangler.jsonc` mentions, or a
+snapshot not named `cmuxnp-dev-vmimg-*`, in the checkout and in feat-cmux-next fetched just before the delete, and prints every reference it found.
+
 ## Ship a migration end to end
 
 ```bash

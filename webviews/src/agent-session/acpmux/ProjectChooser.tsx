@@ -1,17 +1,24 @@
-import React, { useEffect, useId, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronIcon } from "./ComposerPickers";
 import { useT } from "./i18n";
 import { Popover } from "../../ui/Popover";
+import { Combobox } from "../../ui/Combobox";
 import { AddProjectDialog } from "./AddProjectPanel";
 import type { ProjectDirectoryHost } from "./projectDirectory";
 import { ProjectBadge } from "./ProjectBadge";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
-import type { ProjectRepo } from "./projectRepos";
+import { chooserRows, type ProjectRepo } from "./projectRepos";
 
 /// A folder to start a chat in. `peer` (with its display name `host`) is another machine's folder:
 /// its row carries a globe and the machine's name, and a pick starts the chat there. `repo` is the
 /// folder's repository as this Mac's host read it (projectRepos.ts).
-export type Project = { cwd: string; label: string; peer?: string; host?: string; repo?: ProjectRepo };
+export type Project = {
+  cwd: string;
+  label: string;
+  peer?: string;
+  host?: string;
+  repo?: ProjectRepo;
+};
 
 /// One row of the chooser: a project, or Do not work in a project (`project` undefined).
 type Row = { key: string; project?: Project };
@@ -20,7 +27,7 @@ const NO_PROJECT_KEY = "\u0000none";
 const rowKey = (project: Project) => (project.peer ? `${project.peer}\u0000${project.cwd}` : project.cwd);
 
 /// The project pill on the composer's tray: it opens a menu above the tray with a search field over the
-/// projects the user has chats in, newest first. Picking one other than the current
+/// projects the user has chats in, newest first, one row per repository. Picking one other than the current
 /// project starts a new chat there. The search field keeps focus; arrows move the
 /// highlight, Enter picks and Escape closes back to the pill.
 /// `inline` draws the trigger as the project's name inside a sentence (the new chat's "What should
@@ -60,39 +67,32 @@ export function ProjectChooser({
   const [open, setOpen] = useState(false);
   const [adding, setAdding] = useState(false);
   const [query, setQuery] = useState("");
-  // The highlighted row, by key: the list re-sorts as chats update while the menu is open.
-  const [active, setActive] = useState<string | undefined>(undefined);
   const trigger = useRef<HTMLButtonElement>(null);
   const search = useRef<HTMLInputElement>(null);
-  const menuId = useId();
   const currentKey = current
     ? rowKey({ cwd: current, label: "", ...(currentPeer ? { peer: currentPeer } : {}) })
     : undefined;
 
-  const shown = useMemo(() => {
-    const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
-    return projects.filter((project) => {
-      const text = `${project.label} ${project.cwd} ${project.host ?? ""}`.toLowerCase();
-      return words.every((word) => text.includes(word));
-    });
-  }, [projects, query]);
+  // One row per repository; a lane's worktree or a scratch folder only when the search names it
+  // (projectRepos.ts chooserRows).
+  const shown = useMemo(
+    () => chooserRows(projects, query, currentPeer ? undefined : current),
+    [projects, query, current, currentPeer],
+  );
   const rows = useMemo<Row[]>(() => {
     const listed: Row[] = shown.map((project) => ({ key: rowKey(project), project }));
-    if (onNoProject && !query.trim()) listed.push({ key: NO_PROJECT_KEY });
+    if (onNoProject) listed.unshift({ key: NO_PROJECT_KEY });
     return listed;
-  }, [shown, onNoProject, query]);
+  }, [shown, onNoProject]);
+  const rowsByKey = useMemo(() => new Map(rows.map((row) => [row.key, row])), [rows]);
+  const isCurrent = (key: string) =>
+    rowsByKey.has(key) && (key === currentKey || (noProject && key === NO_PROJECT_KEY));
   const typedPath = useMemo(() => {
     const value = query.trim();
     return value.startsWith("/") || value.startsWith("~/") ? value : undefined;
   }, [query]);
-  const selected = Math.max(
-    0,
-    rows.findIndex((row) => row.key === active),
-  );
-
   const show = () => {
     setQuery("");
-    setActive(currentKey ?? (onNoProject && noProject ? NO_PROJECT_KEY : undefined));
     setOpen(true);
   };
   const close = (refocus: boolean) => {
@@ -123,19 +123,17 @@ export function ProjectChooser({
     return () => window.removeEventListener("blur", blur);
   }, [open]);
 
-  const keyDown = (event: React.KeyboardEvent) => {
-    if (event.key === "Escape") {
-      event.preventDefault();
-      event.stopPropagation();
-      close(true);
-    } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-      event.preventDefault();
-      if (rows.length > 0)
-        setActive(rows[(selected + (event.key === "ArrowDown" ? 1 : -1) + rows.length) % rows.length]!.key);
-    } else if (event.key === "Enter") {
-      event.preventDefault();
-      pick(rows[selected]);
-    }
+  const pinned = [...(onNoProject ? [NO_PROJECT_KEY] : []), ...(onBrowse ? [ADD_PROJECT_KEY] : [])];
+  const suggestions = [...pinned, ...rows.filter((row) => row.key !== NO_PROJECT_KEY).map((row) => row.key)];
+  if (typedPath && shown.length === 0) suggestions.push(typedPath);
+  const rowLabel = (key: string) => {
+    if (key === ADD_PROJECT_KEY) return t("project.new");
+    const project = rowsByKey.get(key)?.project;
+    return project
+      ? [project.label, project.host, project.cwd].filter(Boolean).join(" ")
+      : key === NO_PROJECT_KEY
+        ? t("project.noProject")
+        : key;
   };
 
   const label = currentLabel ?? t("project.choose");
@@ -147,11 +145,17 @@ export function ProjectChooser({
         className={inline ? "acpmux-project-button" : "acpmux-context-chip acpmux-project-button"}
         aria-label={inline ? `${t("project.label")}: ${label}` : t("project.label")}
         aria-haspopup="dialog"
+        // tooltip-allow: a truncated project label keeps its full path available.
+        title={current}
         aria-expanded={open}
-        aria-controls={open ? menuId : undefined}
         {...press}
       >
-        {!inline && icon}
+        {!inline &&
+          (current ? (
+            <ProjectBadge project={{ cwd: current, label, ...(currentPeer ? { peer: currentPeer } : {}) }} />
+          ) : (
+            icon
+          ))}
         <span>{label}</span>
         <ChevronIcon />
       </button>
@@ -166,61 +170,67 @@ export function ProjectChooser({
         finalFocus={false}
       >
         <div>
-          <div className="acpmux-project-search">
-            <SearchIcon />
-            <input
-              ref={search}
-              type="text"
-              // A combobox that owns the project list: the role carries aria-expanded and aria-controls.
-              // oxlint-disable-next-line jsx-a11y/no-redundant-roles
-              role="combobox"
-              aria-label={t("project.search")}
-              aria-expanded="true"
-              aria-controls={menuId}
-              aria-autocomplete="list"
-              aria-activedescendant={rows.length > 0 ? `${menuId}-${selected}` : undefined}
-              placeholder={t("project.search")}
-              value={query}
-              spellCheck={false}
-              autoComplete="off"
-              onChange={(event) => {
-                setQuery(event.target.value);
-                setActive(undefined);
-              }}
-              onKeyDown={keyDown}
-            />
-          </div>
-          <div
-            id={menuId}
-            // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-            role="listbox"
-            aria-label={t("project.label")}
-          >
-            {rows.map((row, index) => {
-              const project = row.project;
-              const checked = project ? row.key === currentKey : noProject;
-              const name = project ? project.label : t("project.noProject");
+          <Combobox
+            inputRef={search}
+            suggestions={suggestions}
+            pinnedSuggestions={pinned}
+            onQuery={setQuery}
+            onSubmit={(key) => {
+              if (key === ADD_PROJECT_KEY) {
+                close(false);
+                setAdding(true);
+                return;
+              }
+              const row =
+                rowsByKey.get(key) ??
+                (!key && !query.trim()
+                  ? (rows.find(
+                      (candidate) => candidate.key === currentKey || (noProject && candidate.key === NO_PROJECT_KEY),
+                    ) ?? rows[0])
+                  : undefined);
+              if (row || (typedPath && key === typedPath)) pick(row);
+            }}
+            onCancel={() => close(true)}
+            cancelOnBlur={false}
+            autoHighlight
+            label={t("project.search")}
+            placeholder={t("project.search")}
+            inputClassName="acpmux-project-search-field"
+            listClassName="acpmux-project-folders m-0 list-none p-0"
+            itemClassName="acpmux-menu-item rounded-lg data-[highlighted]:bg-hover"
+            itemLabel={rowLabel}
+            isItemCurrent={isCurrent}
+            completionText={(key) => (key === NO_PROJECT_KEY ? "" : rowLabel(key))}
+            renderItem={(key) => {
+              if (key === ADD_PROJECT_KEY)
+                return (
+                  <>
+                    <span className="acpmux-project-lead" aria-hidden="true">
+                      <PlusIcon />
+                    </span>
+                    <span className="acpmux-menu-text">
+                      <span className="acpmux-menu-label">{t("project.new")}</span>
+                    </span>
+                  </>
+                );
+              const row = rowsByKey.get(key);
+              const project = row?.project;
+              const checked = isCurrent(key);
+              const name = project ? project.label : row ? t("project.noProject") : t("project.usePath", { path: key });
               return (
-                <div
-                  key={row.key}
-                  id={`${menuId}-${index}`}
-                  // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-                  role="option"
-                  tabIndex={-1}
-                  aria-selected={index === selected}
-                  aria-checked={checked}
-                  aria-label={project ? [project.label, project.host, project.cwd].filter(Boolean).join(", ") : name}
-                  className={`acpmux-menu-item${index === selected ? " acpmux-menu-active" : ""}${project ? "" : " acpmux-project-none"}`}
-                  onPointerMove={() => setActive(row.key)}
-                  onMouseDown={(event) => {
-                    event.preventDefault();
-                    pick(row);
-                  }}
-                >
-                  {project ? <ProjectBadge project={project} /> : <NoProjectIcon />}
+                <>
+                  {project ? (
+                    <ProjectBadge project={project} />
+                  ) : (
+                    <span className="acpmux-project-lead" aria-hidden="true">
+                      {row ? <NoProjectIcon /> : icon}
+                    </span>
+                  )}
                   <span className="acpmux-menu-text">
                     <span className="acpmux-menu-label">{name}</span>
-                    {project && <span className="acpmux-menu-description" data-path={project.cwd} />}
+                    {project && !titledByPath(project) && (
+                      <span className="acpmux-menu-description" data-path={project.cwd} />
+                    )}
                   </span>
                   {project?.host && (
                     <span className="acpmux-project-host">
@@ -231,41 +241,13 @@ export function ProjectChooser({
                   <span className="acpmux-project-check" aria-hidden="true">
                     {checked ? "✓" : ""}
                   </span>
-                </div>
+                </>
               );
-            })}
-            {shown.length === 0 &&
-              (typedPath ? (
-                <button
-                  type="button"
-                  className="acpmux-menu-item acpmux-menu-active"
-                  onMouseDown={(event) => {
-                    event.preventDefault();
-                    pick(undefined);
-                  }}
-                >
-                  {icon}
-                  <span className="acpmux-menu-label">{t("project.usePath", { path: typedPath })}</span>
-                </button>
-              ) : (
-                (query.trim() || !onNoProject) && (
-                  <div className="acpmux-project-empty">{t(query.trim() ? "project.none" : "project.noneYet")}</div>
-                )
-              ))}
-          </div>
-          {onBrowse && (
-            <button
-              type="button"
-              className="acpmux-project-browse"
-              onMouseDown={(event) => {
-                event.preventDefault();
-                close(false);
-                setAdding(true);
-              }}
-            >
-              <PlusIcon />
-              {t("project.new")}
-            </button>
+            }}
+            inline
+          />
+          {shown.length === 0 && !typedPath && (query.trim() || !onNoProject) && (
+            <div className="acpmux-project-empty">{t(query.trim() ? "project.none" : "project.noneYet")}</div>
           )}
         </div>
       </Popover>
@@ -283,24 +265,11 @@ export function ProjectChooser({
   );
 }
 
-function SearchIcon() {
-  return (
-    <svg
-      className="acpmux-icon"
-      width={14}
-      height={14}
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.25}
-      strokeLinecap="round"
-      aria-hidden="true"
-      focusable="false"
-    >
-      <circle cx="7" cy="7" r="4.25" />
-      <path d="m10.25 10.25 3 3" />
-    </svg>
-  );
+/// A folder the host names by its own path (a home folder has no project name): its title is
+/// already the path, so the row shows it once (Leo, ":( alignemnt").
+function titledByPath(project: Project) {
+  const trim = (path: string) => path.trim().replace(/(.)\/+$/, "$1");
+  return trim(project.label) === trim(project.cwd);
 }
 
 function GlobeIcon() {
@@ -360,3 +329,5 @@ function PlusIcon() {
     </svg>
   );
 }
+
+const ADD_PROJECT_KEY = "__add_project__";

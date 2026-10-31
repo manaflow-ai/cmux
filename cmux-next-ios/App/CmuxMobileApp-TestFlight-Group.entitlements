@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- APNs for TestFlight and App Store builds: the production gateway
+	     (api.push.apple.com). Must match the "cmux Internal Distribution"
+	     profile and the token environment the backend sends to. -->
+	<key>aps-environment</key>
+	<string>production</string>
+	<!-- Sign in with Apple (the first Welcome button). The Stack SDK uses the
+	     native ASAuthorizationController flow; the identity token's audience
+	     is this bundle id, which the production Stack project must accept. -->
+	<key>com.apple.developer.applesignin</key>
+	<array>
+		<string>Default</string>
+	</array>
+	<!-- Stack tokens live in this app's own keychain group. -->
+	<key>keychain-access-groups</key>
+	<array>
+		<string>$(AppIdentifierPrefix)$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+		<string>$(DEVELOPMENT_TEAM).$(CMUX_MOBILE_APP_BUNDLE_ID).push</string>
+	</array>
+	<!-- The App Group the notification content extension shares with the app:
+	     its outbox and chat snapshots (verify/rich-push.md). -->
+	<key>com.apple.security.application-groups</key>
+	<array>
+		<string>group.$(CMUX_MOBILE_APP_BUNDLE_ID)</string>
+	</array>
+</dict>
+</plist>

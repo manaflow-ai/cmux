@@ -36,7 +36,7 @@ import Testing
         try await settings.resetAllSettings(by: .user)
 
         for key in SettingsSchema.retiredKeys.keys {
-            #expect(try await settings.file.value(at: CmuxConfigFile.keyPath(from: key)) == nil, key)
+            #expect(try await settings.file.value(at: CmuxConfigFile.keyPath(from: key)) == nil, Comment(rawValue: key))
         }
         #expect(try await settings.file.value(at: ["custom", "keep"]) == .bool(true))
     }

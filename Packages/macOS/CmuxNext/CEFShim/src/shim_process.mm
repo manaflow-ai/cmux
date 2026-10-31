@@ -302,6 +302,9 @@ static void BindForkApi(const char* framework_binary) {
   CMUX_BIND(tab_navigation_state, "cmux_tab_navigation_state");
   CMUX_BIND(tab_restore_navigation, "cmux_tab_restore_navigation");
   CMUX_BIND(browser_set_background_color, "cmux_browser_set_background_color");
+  CMUX_BIND(tab_set_transparent_background, "cmux_tab_set_transparent_background");
+  CMUX_BIND(browser_set_layer_hosting, "cmux_browser_set_layer_hosting");
+  CMUX_BIND(browser_set_resize_sync, "cmux_browser_set_resize_sync");
   CMUX_BIND(set_new_tab_page_url, "cmux_set_new_tab_page_url");
   CMUX_BIND(set_install_prompt_handler, "cmux_set_install_prompt_handler");
   CMUX_BIND(install_prompt_reply, "cmux_install_prompt_reply");
@@ -331,6 +334,15 @@ static void BindForkApi(const char* framework_binary) {
   CMUX_BIND(set_password_generation_enabled, "cmux_set_password_generation_enabled");
   CMUX_BIND(bookmarks_observe, "cmux_bookmarks_observe");
   CMUX_BIND(bookmarks_sync, "cmux_bookmarks_sync");
+  CMUX_BIND(browser_set_detached_hosting, "cmux_browser_set_detached_hosting");
+  CMUX_BIND(browser_set_embedder_active, "cmux_browser_set_embedder_active");
+  CMUX_BIND(post_user_input_task, "cmux_post_user_input_task");
+  CMUX_BIND(browser_send_wheel, "cmux_browser_send_wheel");
+  CMUX_BIND(browser_text_input_watch, "cmux_browser_text_input_watch");
+  CMUX_BIND(browser_accessibility_token, "cmux_browser_accessibility_token");
+  CMUX_BIND(set_drag_source_handler, "cmux_set_drag_source_handler");
+  CMUX_BIND(browser_drag_source_ended, "cmux_browser_drag_source_ended");
+  CMUX_BIND(browser_drag_target_enter_source, "cmux_browser_drag_target_enter_source");
 #undef CMUX_BIND
 }
 
@@ -401,6 +413,25 @@ int cmux_shim_prepare_application(void) {
              : 0;
 }
 
+// Chromium's page window (NativeWidgetMacNSWindow) re-encodes its restorable state after every
+// key, order or frame change (invalidateRestorableState -> saveRestorableState ->
+// reallySaveRestorableState -> -encodeRestorableStateWithCoder:), for Chrome's own session restore
+// (OnWindowStateRestorationDataChanged). Each encode asks the WindowServer for the window's Space
+// name, a synchronous round trip on the main thread; in cmux it ran after every pane focus move
+// across Chromium panes (a515). CEF never restores these windows and cmux restores its own, so the
+// encode becomes a no-op. A CEF without that private method keeps its behavior.
+static void StopChromiumWindowRestorationData() {
+  Class window_class = NSClassFromString(@"NativeWidgetMacNSWindow");
+  SEL selector = NSSelectorFromString(@"reallySaveRestorableState");
+  Method method = window_class ? class_getInstanceMethod(window_class, selector) : nullptr;
+  if (!method) {
+    return;
+  }
+  IMP no_op = imp_implementationWithBlock(^(id) {
+  });
+  class_replaceMethod(window_class, selector, no_op, method_getTypeEncoding(method));
+}
+
 int cmux_shim_initialize(const char* framework_dir, const char* main_bundle_path, const char* subprocess_path,
                          const char* root_cache_path, const char* log_file, int log_severity,
                          const char* locale, const char* accept_languages,
@@ -443,7 +474,11 @@ int cmux_shim_initialize(const char* framework_dir, const char* main_bundle_path
     switches.emplace_back(*it);
   }
   CefMainArgs args(0, nullptr);
-  return CefInitialize(args, settings, MakeApp(std::move(switches)), nullptr) ? 1 : 0;
+  if (!CefInitialize(args, settings, MakeApp(std::move(switches)), nullptr)) {
+    return 0;
+  }
+  StopChromiumWindowRestorationData();
+  return 1;
 }
 
 void cmux_shim_do_work(void) {

@@ -64,6 +64,10 @@ public protocol PageChromiumPage: AnyObject {
     func setFocused(_ focused: Bool)
     /// Shows or hides and pauses the page.
     func setVisible(_ visible: Bool)
+    /// Makes the page see-through (true) or gives it its opaque page color back: where the document
+    /// draws no background of its own, the view under the page shows, as under a WebKit page that
+    /// draws no background.
+    func setSeeThrough(_ seeThrough: Bool)
     /// Tears the page down. Idempotent.
     func close()
 }

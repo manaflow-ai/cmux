@@ -21,7 +21,7 @@ import {
 } from "./repository";
 import { listTeamMemberIdsWithTimeout, type VmTeamDirectory } from "./teamDirectory";
 import { isProviderTunnelNetworkOverlap } from "./providerErrors";
-import type { ProviderNetwork, ProviderTunnel } from "./drivers";
+import type { ProviderNetwork, ProviderTunnel, ProviderCredential } from "./drivers";
 
 /**
  * Private networking: one provider network per cmux account, and one WireGuard
@@ -239,13 +239,15 @@ type PrivateAccessRepo = PrivateNetworkingRepo & {
  * here means "this composition has no private networking", not an error.
  */
 function privateNetworkGateway(gateway: VmProviderGatewayShape, provider: ProviderId): PrivateNetworkGateway | null {
-  if (!gateway.supportsPrivateNetworking?.(provider)) return null;
+  const supportsProvisioning = gateway.supportsNetworkProvisioning ?? gateway.supportsPrivateNetworking;
+  if (!supportsProvisioning?.(provider)) return null;
   const { ensureNetwork, getNetwork } = gateway;
   if (!ensureNetwork) return null;
   return { ensureNetwork, getNetwork };
 }
 
 function privateNetworkingGateway(gateway: VmProviderGatewayShape, provider: ProviderId): PrivateNetworkingGateway | null {
+  if (!gateway.supportsPrivateNetworking?.(provider)) return null;
   const network = privateNetworkGateway(gateway, provider);
   const { createTunnel, getTunnel, rotateTunnelKey, deleteTunnel } = gateway;
   if (!network || !createTunnel || !getTunnel || !rotateTunnelKey || !deleteTunnel) return null;
@@ -362,6 +364,8 @@ function resolveTeamNetwork(input: {
   readonly teamDirectory?: VmTeamDirectory;
   readonly directoryTimeoutMs?: number;
   readonly provider: ProviderId;
+  readonly providerCredential?: ProviderCredential;
+  readonly providerMetadata?: Record<string, unknown>;
   readonly providers: PrivateNetworkGateway;
 }): Effect.Effect<TeamNetworkResolution, import("./errors").VmProviderOperationError> {
   return Effect.gen(function* () {
@@ -391,6 +395,9 @@ function resolveTeamNetwork(input: {
       slug,
       displayName: slug,
       membersRule: false,
+      providerCredential: input.providerCredential,
+      providerProject: providerProject(input.providerMetadata),
+      providerRegion: providerRegion(input.providerMetadata),
     });
     return { network: teamNetworkFromProvider(network, slug), fallbackReason: null };
   });
@@ -410,6 +417,8 @@ export function resolveOwnerNetwork(input: {
   readonly billingTeamId?: string | null;
   readonly teamDirectory?: VmTeamDirectory;
   readonly directoryTimeoutMs?: number;
+  readonly providerCredential?: ProviderCredential;
+  readonly providerMetadata?: Record<string, unknown>;
 }): Effect.Effect<
   (CloudVmNetworkRow | TeamNetwork) & { readonly memberIngress: boolean; readonly scope: "user" | "team" },
   VmDatabaseError | VmPrivateNetworkUnavailableError | import("./errors").VmProviderOperationError,
@@ -465,7 +474,7 @@ function requireOwnerNetworkComposition(provider: ProviderId) {
 }
 
 function resolveUserNetwork(
-  input: { readonly userId: string; readonly provider: ProviderId },
+  input: { readonly userId: string; readonly provider: ProviderId; readonly providerCredential?: ProviderCredential; readonly providerMetadata?: Record<string, unknown> },
   providers: PrivateNetworkGateway,
   repo: PrivateNetworkRepo,
   preloaded?: CloudVmNetworkRow | null,
@@ -477,7 +486,11 @@ function resolveUserNetwork(
     // dev database created before namespaces holds a row for the user's
     // production network. The upsert below replaces that row. Production
     // reuses its row whatever slug it stores.
-    if (existing && (vmNetworkNamespace() === null || existing.slug === slug)) return existing;
+    // A provider whose network lives in the user's own project (its calls
+    // carry the user's credential) is revalidated on every resolve: the
+    // project, region, VPC, firewall and NAT can change outside cmux, and only
+    // a credentialed call can see or repair them.
+    if (existing && (vmNetworkNamespace() === null || existing.slug === slug) && !input.providerCredential) return existing;
 
     // Production networks get a /20 (see userNetworkCidr). A namespaced
     // deployment keeps the platform's derived /24, which is unique within the
@@ -490,6 +503,9 @@ function resolveUserNetwork(
       slug,
       displayName: "cmux machines",
       ...(cidr ? { cidr } : {}),
+      providerCredential: input.providerCredential,
+      providerProject: providerProject(input.providerMetadata),
+      providerRegion: providerRegion(input.providerMetadata),
     });
     // The provider call is idempotent by slug and the upsert is idempotent by
     // (user, provider), so two machines created at once converge on one row
@@ -503,6 +519,18 @@ function resolveUserNetwork(
       cidrV6: network.cidrV6,
     });
   });
+}
+
+function providerProject(metadata: Record<string, unknown> | undefined): string | undefined {
+  const value = metadata?.project ?? metadata?.gcpProject;
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function providerRegion(metadata: Record<string, unknown> | undefined): string | undefined {
+  const zone = metadata?.zone ?? metadata?.gcpZone;
+  if (typeof zone !== "string") return undefined;
+  const parts = zone.trim().split("-");
+  return parts.length > 1 ? parts.slice(0, -1).join("-") : undefined;
 }
 
 /**

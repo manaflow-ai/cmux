@@ -20,7 +20,7 @@ import Testing
 
     func install() -> (ControlRouter, RecordingExecutor) {
         let executor = RecordingExecutor()
-        let router = ControlRouter(identity: testIdentity(), executor: executor)
+        let router = ControlRouter(identity: testIdentity(), executor: executor, configuration: .loadTolerant)
         BrowserPageService(engine: NoEngine()).install(on: router)
         var snapshot = ControlSnapshot.sample()
         snapshot.catalog = ControlCatalog(actions: [

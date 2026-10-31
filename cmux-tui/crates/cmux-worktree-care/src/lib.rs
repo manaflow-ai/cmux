@@ -26,12 +26,14 @@
 
 pub mod archive;
 pub mod disk;
+mod finished_memo;
 mod git;
 pub mod inventory;
 pub mod pass;
 pub mod policy;
 pub mod procs;
 pub mod restore;
+pub mod schedule;
 pub mod store;
 
 pub use inventory::{Facts, Repo, Worktree};

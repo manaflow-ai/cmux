@@ -41,6 +41,7 @@ extension DaemonStore {
         }
         mirrorFingerprintTakenAt = now
         mirrorFingerprint = layoutFingerprint()
+        verifyUnreadTotals()
         #endif
     }
 

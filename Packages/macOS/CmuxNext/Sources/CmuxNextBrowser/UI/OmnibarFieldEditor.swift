@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 
 /// What the omnibar's field editor reports. Every user change becomes one
 /// `OmnibarInput`; the state machine decides what it means.
@@ -205,8 +206,11 @@ final class OmnibarFieldEditor: NSTextView {
     }
 }
 
-/// Hands the omnibar its own field editor.
-final class AddressFieldCell: NSTextFieldCell {
+/// Hands the omnibar its own field editor. The resting address is drawn where that editor draws
+/// it (`EditorAlignedTextFieldCell`), so focus moves no pixel of the address: with the bundled
+/// Inter at 14 pt the editor's baseline sits 1 pt below the cell's string drawing (-1 to +3 pt
+/// from 12 to 18 pt).
+final class AddressFieldCell: EditorAlignedTextFieldCell {
     let editor = OmnibarFieldEditor()
 
     override func fieldEditor(for controlView: NSView) -> NSTextView? { editor }

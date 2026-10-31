@@ -43,6 +43,8 @@ public struct FeedItem: Identifiable, Hashable, Sendable {
     public var agentName: String
     public var harness: String
     public var workspaceTitle: String
+    /// The tab the agent runs in, as the Mac names it ("Fix login redirect"); empty when unknown.
+    public var tabTitle = ""
     public var markdown: String
     public var quote: Quote?
     public var createdAt: Date
@@ -63,6 +65,9 @@ public struct FeedItem: Identifiable, Hashable, Sendable {
     /// The event came from a terminal tab (a terminal agent's notification):
     /// opening it shows the terminal, and it takes no inline reply.
     public var opensTerminal = false
+    /// The Mac whose agent sent the event: answers, replies and opens go to
+    /// that Mac's link, never the chosen one's (nil: mock content, old archives).
+    public var macID: String?
 
     public init(
         id: String, kind: Kind, workspaceID: String, tabID: String, agentName: String, harness: String,
@@ -78,6 +83,23 @@ public struct FeedItem: Identifiable, Hashable, Sendable {
         self.markdown = markdown
         self.quote = quote
         self.createdAt = createdAt
+    }
+
+    /// The card takes a typed reply: a chat's events, and a terminal agent's
+    /// finished turn (typed into that terminal). A terminal agent's question,
+    /// approval or error is handled in the terminal (after an error the agent
+    /// may still be working).
+    public var takesReply: Bool {
+        !opensTerminal || kind == .response || kind == .finished
+    }
+
+    /// Where it happened: "api-server › Fix login redirect", or the workspace alone when the tab
+    /// is unnamed or only repeats the agent's name.
+    public var place: String {
+        let tab = tabTitle.trimmingCharacters(in: .whitespaces)
+        let repeats = [agentName, harness, workspaceTitle].contains { $0.caseInsensitiveCompare(tab) == .orderedSame }
+        guard !tab.isEmpty, !repeats else { return workspaceTitle }
+        return workspaceTitle.isEmpty ? tab : "\(workspaceTitle) › \(tab)"
     }
 
     public var needsYou: Bool {
@@ -169,7 +191,7 @@ public final class FeedStore {
             recordReadMarks()
             refreshDerived()
             #if DEBUG
-            if FeedStressRig.shared.config.isActive { FeedStore.logChange(from: oldValue, to: items) }
+            if FeedStressRig.shared.config.logsChurn { FeedStore.logChange(from: oldValue, to: items) }
             #endif
             onItemsChange?(items)
         }
@@ -252,6 +274,19 @@ public final class FeedStore {
         }
     }
 
+    /// Recovery finishes opening the Macs' feeds before reading them again.
+    public func retry(reconnect: @MainActor () async -> Void = {}) async {
+        await reconnect()
+        guard !Task.isCancelled else { return }
+        await refresh()
+    }
+
+    #if DEBUG
+    public func setRefreshErrorForDemo() {
+        refreshError = Self.notConnectedMessage
+    }
+    #endif
+
     public func clearRefreshError() { refreshError = nil }
 
     /// No Mac to send to: the item keeps its question and says why.
@@ -276,6 +311,15 @@ public final class FeedStore {
     }
 
     public func markRead(_ id: String) { mutate(id) { $0.isRead = true } }
+    /// Mark All Notifications as Read: every event in the Feed, in one write.
+    public func markAllRead() {
+        guard items.contains(where: { !$0.isRead }) else { return }
+        items = items.map { item in
+            var item = item
+            item.isRead = true
+            return item
+        }
+    }
     public func markUnread(_ id: String) {
         readIDs.removeAll { $0 == id }
         readMarks?.save(readIDs)
@@ -350,6 +394,9 @@ public final class FeedStore {
                 merged.isDone = next[index].isDone
                 merged.resolution = next[index].resolution ?? item.resolution
                 merged.replies = next[index].replies
+                // A reply on its way, or why the last one failed, outlives a read of the ledger.
+                merged.pending = next[index].pending ?? item.pending
+                merged.error = next[index].error ?? item.error
                 merged.createdAt = next[index].createdAt
                 next[index] = merged
             } else {
@@ -528,6 +575,32 @@ public final class FeedStore {
         mutate(id) {
             $0.resolution = option.isAllow ? Self.allowedText(option.name) : "Denied"
             $0.isRead = true
+        }
+    }
+
+    /// "Typing into the terminal…" while a terminal agent's reply is on its way.
+    public static let typingIntoTerminal = "Typing into the terminal…"
+
+    /// A reply to a terminal agent's event, typed into that terminal by
+    /// `send` (nil: sent; else why not). Its state lives on the item, so a
+    /// recycled cell neither loses the outcome nor sends it twice.
+    public func replyToTerminal(_ id: String, text: String, send: @escaping (FeedItem, String) async -> String?) {
+        guard let item = item(id: id), item.pending == nil else { return }
+        mutate(id) {
+            $0.pending = Self.typingIntoTerminal
+            $0.error = nil
+        }
+        Task { @MainActor in
+            let refusal = await send(item, text)
+            mutate(id) {
+                $0.pending = nil
+                if let refusal {
+                    $0.error = refusal
+                } else {
+                    $0.replies.append(text)
+                    $0.isRead = true
+                }
+            }
         }
     }
 

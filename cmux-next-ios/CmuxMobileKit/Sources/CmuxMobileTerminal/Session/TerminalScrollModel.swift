@@ -100,6 +100,15 @@ public struct TerminalScrollModel: Equatable, Sendable {
     /// Jump to bottom.
     public mutating func jumpToBottom() { state = .following }
 
+    /// A fling moving toward newer rows reached the bottom: it follows from
+    /// here, while UIKit finishes the deceleration and its rubber band past
+    /// the end (the controller leaves a decelerating page alone). The end of
+    /// the deceleration changes nothing more (`settled` needs a gesture).
+    public mutating func flingReachedBottom() {
+        guard isInteracting else { return }
+        state = .following
+    }
+
     /// The mirror was reset and replayed (reattach, resize) or the scrollback
     /// was cleared: the rows being read are gone.
     public mutating func reset() { state = .following }
@@ -109,6 +118,17 @@ public struct TerminalScrollModel: Equatable, Sendable {
     public mutating func restoreReading(_ anchor: Anchor) {
         guard state == .following else { return }
         state = .reading(anchor)
+    }
+
+    /// Find revealed a match: the page reads from `row` plus `delta` points (its top
+    /// edge; a negative delta starts above the row, under the top bar's inset), unless a
+    /// finger owns the page. Output then never moves the match away.
+    public mutating func reveal(row: Int, delta: CGFloat = 0) {
+        guard !isInteracting else { return }
+        touchedBottom = false
+        movedUp = false
+        lastOffsetY = nil
+        state = .reading(Anchor(row: max(0, row), delta: delta))
     }
 
     /// Ghostty pruned `-rows` of its oldest rows (`TerminalHistoryPrune`):

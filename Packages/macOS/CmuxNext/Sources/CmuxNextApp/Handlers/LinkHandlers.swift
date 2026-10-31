@@ -12,13 +12,19 @@ enum LinkHandlers {
         registry.bind("link.open", run: { invocation in
             let text = invocation["url"]?.stringValue ?? ""
             let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard let url = URL(string: trimmed), let parsed = DeepLink.read(url, scheme: services.linkScheme) else {
-                throw ActionFailure(message: RefusalStrings.linkNotRecognized(text))
-            }
             // Read before anything moves: a run this client's user did not
             // start (a script, an agent) still navigates, as it asked, but
             // never takes the key window.
             let background = invocation["background"]?.boolValue == true || !ActionRunScope.viewChangeAllowed()
+            // `<scheme>://stashed` (opened from another app, Open Link…) is the Stashed Tabs page.
+            if let url = URL(string: trimmed), url.scheme?.caseInsensitiveCompare(services.linkScheme) == .orderedSame,
+               url.host()?.lowercased() == "stashed" {
+                _ = try StashHandlers.show(services, focus: !background)
+                return
+            }
+            guard let url = URL(string: trimmed), let parsed = DeepLink.read(url, scheme: services.linkScheme) else {
+                throw ActionFailure(message: RefusalStrings.linkNotRecognized(text))
+            }
             try DeepLinkNavigator(services: services).open(parsed.link, background: background)
             // A parameter cmux does not use never costs an agent link its chat: it opens, and a
             // toast names what was left out, so a stray `?cwd=…` is visible instead of silent.
@@ -34,11 +40,13 @@ enum LinkHandlers {
             if case .agent = parsed.link.target, !background, !registry.isCapturingRefusal,
                let notice = RefusalStrings.linkParametersIgnored(parsed.ignoredParameters,
                                                                  used: parsed.link.usedParameters) {
-                services.refusalHUD.show(notice, in: services.windows.active?.window ?? NSApp.keyWindow)
+                services.refusalHUD.show(notice, in: services.windows.active?.window ?? services.keyWindowSource())
             }
         })
-        registry.bind("palette.copyWorkspaceLink", run: { invocation in
-            context.copy(try services.link(workspace: try context.workspace(invocation).model))
+        // Every selected row, one link per line, as classic's Copy Workspace Links (#27709).
+        registry.bindEffect("palette.copyWorkspaceLink", requires: nil, effect: { invocation in
+            context.copy(try WindowMembershipHandlers.rowTargets(invocation, context).map { try services.link(workspace: $0) }.joined(separator: "\n"))
+            return .done
         })
         registry.bind("palette.copyPaneLink", run: { invocation in
             guard let pane = context.daemonPane(invocation) else { return }

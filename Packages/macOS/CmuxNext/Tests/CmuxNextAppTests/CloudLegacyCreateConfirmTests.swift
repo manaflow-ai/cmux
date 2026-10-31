@@ -5,8 +5,8 @@ import CmuxNextSettings
 import Foundation
 import Testing
 
-/// The legacy `/api/vm` create (the default link) asks the person first for a create no person
-/// started, the same way the Cloud app server path does: an agent's create waits in the sidebar's
+/// With the opt-in "ask before creating" on (default off), the legacy `/api/vm` create (the default link) asks the person first for a create no person
+/// started: an agent's create waits in the sidebar's
 /// card and sends nothing until a click on Create; Cancel sends nothing; the person's own gesture
 /// creates without asking. The legacy size is the plan's default, so the card names no size.
 @MainActor @Suite(.serialized) struct CloudLegacyCreateConfirmTests {
@@ -30,7 +30,7 @@ import Testing
     func create(_ services: AppServices, in window: NSWindow, sent: Sent) async throws -> (Task<String, any Error>, SidebarNoticeCard) {
         let asks = services.machineAsks
         let task = Task {
-            try await CloudMachineCreateFlow.legacy(name: "builder", startedByPerson: false,
+            try await CloudMachineCreateFlow.legacy(name: "builder", startedByPerson: false, askFirst: true,
                                                     confirm: { await CloudPresenter.confirmCreate($0, in: window, asks: asks) },
                                                     create: { sent.send() })
         }

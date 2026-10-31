@@ -38,6 +38,7 @@ impl Mux {
                 sizing.terminal_size_policies.remove(&runtime);
             } else {
                 sizing.note_size_state(runtime, changed);
+                self.refresh_host_policy_locked(&mut sizing, runtime);
                 self.apply_terminal_grid(&sizing, runtime);
             }
         }
@@ -66,16 +67,19 @@ impl Mux {
         self.output_store.forget(terminal_id);
         // Terminal lifecycle does not flow through `agent.*` journal events
         // yet, so a closed terminal retires its roster entry explicitly.
-        // The snapshot persists so a restart does not resurrect the entry;
-        // the roster lock is released before the registry lock per the
-        // host's lock-ordering rule.
+        // The snapshot persists so a restart does not resurrect the entry.
+        // The fold lock orders this save with `fold_agent_roster`'s, so
+        // neither writes an older snapshot over the other's. The write takes
+        // the registry connection alone, never the workspace registry lock,
+        // so state commits do not wait behind it (issue 23038).
+        let fold = self.agent_roster_fold.lock().unwrap();
         let retired = {
             let mut host = self.agent_roster.lock().unwrap();
             let retired = host.roster.retire_terminal(terminal_id.as_str());
             retired.then(|| (host.cursor, host.roster.snapshot().to_string()))
         };
         if let Some((cursor, snapshot)) = retired
-            && let Err(error) = self.workspace_registry.lock().unwrap().put_journal_reducer_state(
+            && let Err(error) = self.registry_connection.put_journal_reducer_state(
                 crate::journal_reducers::AGENT_ROSTER_REDUCER_ID,
                 crate::journal_reducers::AGENT_ROSTER_REDUCER_VERSION,
                 cursor,
@@ -84,6 +88,7 @@ impl Mux {
         {
             eprintln!("cmux-tui: persisting the agent roster snapshot failed: {error}");
         }
+        drop(fold);
         // Read the terminal's open local items and drop its ring together.
         self.close_terminal_feed_items(terminal_id);
     }
@@ -114,6 +119,8 @@ impl Mux {
         self.shutting_down.store(true, Ordering::Release);
         // An in-flight maintenance tick must not delay the rest of shutdown.
         self.stop_journal_maintenance();
+        #[cfg(unix)]
+        self.stop_agent_chat_notices();
         self.begin_session_shutdown();
         self.terminal_respawns.wake_all();
         self.startup_adoption_gate.wake_all();
@@ -228,6 +235,8 @@ impl Mux {
         // (cx-b4sjc); unit tests start no daemon and install nothing.
         #[cfg(all(unix, not(test)))]
         crate::host_exe::prepare_in_background();
+        #[cfg(all(unix, not(test)))]
+        crate::holder_runtime::prepare_in_background();
     }
 
     pub fn server_lifecycle_ready(&self) -> bool {
@@ -284,6 +293,8 @@ impl Mux {
     /// and remain available for the replacement daemon to adopt.
     pub fn request_daemon_shutdown(&self) {
         self.shutting_down.store(true, Ordering::Release);
+        #[cfg(unix)]
+        self.stop_agent_chat_notices();
         self.begin_session_shutdown();
         self.terminal_respawns.wake_all();
         self.startup_adoption_gate.wake_all();

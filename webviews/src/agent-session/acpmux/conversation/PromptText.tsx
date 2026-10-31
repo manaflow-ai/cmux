@@ -5,7 +5,7 @@
 // choice is kept by the row's id (transcriptDisclosure.tsx), so a prompt scrolled out and back, or
 // drawn again from history, stays as the reader left it. Find opens a collapsed prompt, or a closed
 // chip, that holds its current match. The bubble keeps the whole text; Copy copies all of it.
-import { useContext, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useT, usePaneLanguage } from "../i18n";
 import { FindReveal } from "./chatFind";
 import {
@@ -17,12 +17,21 @@ import {
   promptParts,
 } from "./promptCollapse";
 import { useTranscriptDisclosure } from "./transcriptDisclosure";
+import { foldMotion, foldMs, markHeightFold } from "./fold";
+import { holdHeader } from "./useAnchoredCollapse";
+import { Markdown } from "./Markdown";
+import { SoftBroken } from "./softBreaks";
+
+// Ordinary text keeps its literal whitespace and cheap span. Anything that can contain Markdown
+// uses the shared transcript parser, including a list, code or link with no quote in the prompt.
+const PROMPT_MARKDOWN = /[`*_~[\]$<>|#\\]|https?:\/\/|(^|\n)[ \t]*(?:[-+]|\d+[.)])[ \t]/;
 
 export function PromptText({
   rowId,
   text,
   pasted,
   show,
+  children,
 }: {
   rowId: string;
   /// The prompt as recorded: what Find searches and the paste ranges point into.
@@ -30,6 +39,8 @@ export function PromptText({
   pasted?: readonly PasteRange[];
   /// How a typed part reads in the bubble (a `data:` image as its name, UserBubble.tsx).
   show: (text: string) => string;
+  /// Ordered attachments share this fold; opening a pasted block also opens the prompt.
+  children?: (open: () => void) => ReactNode;
 }) {
   const t = useT();
   const id = useId();
@@ -68,8 +79,75 @@ export function PromptText({
     // The bubble: a text drawn whole has no box to observe.
     observer.observe(node.parentElement ?? node);
     return () => observer.disconnect();
-  }, [parts, long, open]);
+  }, [parts, long, open, children]);
   const collapsed = long && !open;
+  // Show more and Show less (Leo 2026-10-21: "these all need animations for expand and collpase"),
+  // over the fold's token, without moving what the reader looks at ("just expand the area at the
+  // bottom and you're in the same place"):
+  // - Show more holds the bubble's top: the text grows below it, and the button rides the bubble's
+  //   bottom edge down instead of jumping there.
+  // - Show less holds the button, where the reader clicked it: the text shrinks back above it into
+  //   its first lines, fully drawn until it is clipped.
+  // A toggle midway starts from the drawn height; unmounting cancels what plays.
+  const resized = useRef<number | undefined>(undefined);
+  const resizing = useRef<Animation[]>([]);
+  const stopResize = () => {
+    for (const animation of resizing.current) animation.cancel();
+    resizing.current = [];
+  };
+  useEffect(() => stopResize, []);
+  const more = () => body.current?.parentElement?.querySelector<HTMLElement>(":scope > .cv-user__more") ?? null;
+  const showMore = (next: boolean) => {
+    const bubble = body.current?.parentElement;
+    if (bubble) {
+      holdHeader(next ? bubble : (more() ?? bubble));
+      resized.current = bubble.getBoundingClientRect().height;
+    }
+    stopResize();
+    setOpen(next);
+  };
+  useLayoutEffect(() => {
+    const from = resized.current;
+    resized.current = undefined;
+    const bubble = body.current?.parentElement;
+    const text = body.current;
+    // A mount has no previous height to animate. Avoid resolving motion styles until a toggle
+    // actually requested a fold; those computed-style reads otherwise flush the cold send layout.
+    if (from === undefined || !bubble || !text) return;
+    const ms = foldMs(bubble);
+    if (ms <= 0) return;
+    const to = bubble.getBoundingClientRect().height;
+    if (Math.abs(to - from) < 1) return;
+    const timing = { duration: ms, easing: foldMotion.easing(bubble) };
+    // The rows below are placed before paint while the bubble resizes, as under a fold.
+    markHeightFold(bubble, ms);
+    if (collapsed) {
+      // The clamped text is a box again: it starts as tall as the whole text was drawn.
+      const clamped = text.getBoundingClientRect().height;
+      resizing.current.push(
+        text.animate(
+          [
+            { height: `${clamped + from - to}px`, maxHeight: "none" },
+            { height: `${clamped}px`, maxHeight: "none" },
+          ],
+          timing,
+        ),
+      );
+      return;
+    }
+    resizing.current.push(
+      bubble.animate(
+        [
+          { height: `${from}px`, overflow: "hidden" },
+          { height: `${to}px`, overflow: "hidden" },
+        ],
+        timing,
+      ),
+    );
+    const button = more();
+    if (button)
+      resizing.current.push(button.animate([{ translate: `0 ${from - to}px` }, { translate: "0 0" }], timing));
+  }, [collapsed]);
   // Find's current match in this prompt opens it; one in a typed part past the fold, or in a paste,
   // needs it open to draw.
   const reveal = useContext(FindReveal);
@@ -86,23 +164,23 @@ export function PromptText({
   return (
     <>
       <div ref={body} id={id} className={`cv-user__text${collapsed ? " is-clamped is-faded" : ""}`}>
-        {parts.map((part, index) =>
-          part.kind === "text" ? (
-            <span key={index} className="cv-user__typed">
-              {show(part.text)}
-            </span>
-          ) : (
-            <PasteChip
-              key={index}
-              rowId={rowId}
-              index={part.index}
-              text={part.text}
-              needle={needle}
-              // An opened paste shows whole, not cut at the prompt's tenth line.
-              onOpen={() => setOpen(true)}
-            />
-          ),
-        )}
+        {children
+          ? children(() => setOpen(true))
+          : parts.map((part, index) =>
+              part.kind === "text" ? (
+                <PromptTyped key={index} text={part.text} show={show} />
+              ) : (
+                <PasteChip
+                  key={index}
+                  rowId={rowId}
+                  index={part.index}
+                  text={part.text}
+                  needle={needle}
+                  // An opened paste shows whole, not cut at the prompt's tenth line.
+                  onOpen={() => setOpen(true)}
+                />
+              ),
+            )}
       </div>
       {long && (
         <button
@@ -111,7 +189,7 @@ export function PromptText({
           aria-expanded={!collapsed}
           aria-controls={id}
           data-find-skip=""
-          onClick={() => setOpen(collapsed)}
+          onClick={() => showMore(collapsed)}
         >
           {t(collapsed ? "message.more" : "message.less")}
         </button>
@@ -120,8 +198,24 @@ export function PromptText({
   );
 }
 
-/// One pasted block: the chip, and the paste under it once opened.
-function PasteChip({
+/// One typed block of a sent prompt: Markdown when it can hold any, else its literal text with
+/// break points in long tokens. A sent prompt's inline parts draw theirs with it too
+/// (InlinePromptContent.tsx), so a placed prompt reads as a legacy one does.
+export function PromptTyped({ text, show }: { text: string; show: (text: string) => string }) {
+  return PROMPT_MARKDOWN.test(text) ? (
+    <Markdown className="cv-user__markdown" thumbnails={false}>
+      {show(text)}
+    </Markdown>
+  ) : (
+    <span className="cv-user__typed">
+      <SoftBroken text={show(text)} />
+    </span>
+  );
+}
+
+/// One pasted block: the chip, and the paste under it once opened. A sent prompt's inline parts
+/// draw theirs with it too (InlinePromptContent.tsx).
+export function PasteChip({
   rowId,
   index,
   text,
@@ -142,6 +236,7 @@ function PasteChip({
   const reveal = useContext(FindReveal);
   useLayoutEffect(() => {
     if (!hit || open) return;
+    onOpen();
     setOpen(true);
     reveal?.repaint();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- a new match opens, not a new callback

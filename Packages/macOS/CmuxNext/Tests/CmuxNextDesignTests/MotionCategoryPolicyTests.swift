@@ -1,5 +1,6 @@
 @testable import CmuxNextDesign
 import Testing
+import CmuxNextDesignTokens
 
 /// The motion gate's rules (plans/cmux-next/motion-DESIGN.md): an animation runs only when the
 /// master switch `ui.animations.enabled` is on, its category's `ui.animations.<category>` is on,

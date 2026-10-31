@@ -98,6 +98,7 @@ public struct ChiefMemoryInspectorView: View {
                     }
                 }
             }
+            .thinScrollers()
             .padding(6)
         }
     }
@@ -135,6 +136,7 @@ public struct ChiefMemoryInspectorView: View {
                 Divider()
                 changeList
             }
+            .thinScrollers()
             .padding(12)
             .frame(maxWidth: .infinity, alignment: .leading)
         }

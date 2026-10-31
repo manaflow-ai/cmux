@@ -151,6 +151,64 @@ fn private_process_modes_run_under_the_cmux_name() {
     }
 }
 
+/// A classic cmux verb that has no route here names its resource command
+/// (tests/tool-evals r3h: an agent tried `rename-workspace` and
+/// `workspace-action --action rename` before finding `workspace rename`).
+#[test]
+fn a_classic_verb_names_its_resource_command() {
+    let names = Names::new("classic-verbs");
+    for (args, command) in [
+        (&["rename-workspace", "shop api"][..], "cmux workspace current rename <name>"),
+        (
+            &["workspace-action", "--action", "rename", "--title", "x"][..],
+            "cmux workspace current rename <name>",
+        ),
+        (&["list-workspaces"][..], "cmux workspace list"),
+        (&["send", "ls"][..], "cmux terminal <terminal> write --text <text>"),
+        (&["list-surfaces"][..], "cmux tab list"),
+        (&["list-pane-surfaces"][..], "cmux tab list"),
+        (&["new-surface"][..], "cmux tab create terminal"),
+        (&["rename-surface", "x"][..], "cmux tab <tab> rename <name>"),
+        (&["close-surface"][..], "cmux tab <tab> close"),
+        (&["rpc", "action.list", "{}"][..], "cmux action list"),
+        (&["rpc", "snapshot.get"][..], "cmux action list"),
+    ] {
+        let output = names.run("cmux", args);
+        let stderr = text(&output.stderr);
+        assert!(!output.status.success(), "{args:?}");
+        assert!(stderr.contains(command), "{args:?}: {stderr}");
+    }
+}
+
+/// An app action the CLI offers (`cmux pane screenshot`) with no app to run it says it
+/// needs the app, not "unknown or incomplete pane action", which sent agents looking
+/// for another way (tests/tool-evals r13d).
+#[test]
+fn an_app_action_with_no_app_says_it_needs_the_app() {
+    let names = Names::new("no-app-action");
+    let dir = cmux_unix_socket::short_test_dir("cmux-noapp");
+    let missing = dir.path().join("app.sock");
+    let socket = missing.display().to_string();
+    let output = names.run(
+        "cmux",
+        &[
+            "--app-socket",
+            socket.as_str(),
+            "pane",
+            "screenshot",
+            "--target",
+            "pane_1",
+            "--out",
+            "x.png",
+        ],
+    );
+    let stderr = text(&output.stderr);
+    assert!(!output.status.success(), "{stderr}");
+    // `--app-socket` names a socket where nothing listens: the error says so.
+    assert!(stderr.contains("nothing is listening at"), "{stderr}");
+    assert!(!stderr.contains("unknown or incomplete"), "{stderr}");
+}
+
 /// A one-connection app socket that answers every request with `result`.
 /// The socket lives in a short directory from the shared helper, so its path
 /// fits sun_path whatever $TMPDIR is. The returned guard removes it.
@@ -289,6 +347,39 @@ fn every_routed_scope_prints_its_own_help() {
         assert!(!stdout.contains("cmux screen list"), "{args:?} printed screen help:\n{stdout}");
         assert!(!stdout.starts_with("cmux - terminal multiplexer"), "{args:?} printed root help");
     }
+}
+
+/// `cmux route` is gone (Leo, 2026-10-21: "literally nobody but us is using
+/// cmux "route" so just removing it is fine"): neither `cmux route …` nor
+/// `cmux acp route …` answers with the route grammar any more, and
+/// `cmux accounts` keeps its own help.
+#[test]
+fn cmux_route_is_gone() {
+    let names = Names::new("route-gone");
+    for args in [&["route", "--help"][..], &["route", "add", "--help"], &["acp", "route", "--help"]]
+    {
+        let output = names.run("cmux", args);
+        let all = format!("{}{}", text(&output.stdout), text(&output.stderr));
+        assert!(!all.contains("route file"), "{args:?} still describes routes:\n{all}");
+        assert!(!all.contains("--kind"), "{args:?} still takes route add's flags:\n{all}");
+    }
+    let acp = names.run("cmux", &["acp", "route", "--help"]);
+    assert!(!acp.status.success(), "acp route is still a subcommand");
+    assert!(text(&acp.stderr).contains("unrecognized subcommand 'route'"), "{}", text(&acp.stderr));
+    let accounts = names.run("cmux", &["accounts", "--help"]);
+    assert!(accounts.status.success(), "{}", text(&accounts.stderr));
+    assert!(text(&accounts.stdout).contains("cmux accounts list"), "{}", text(&accounts.stdout));
+}
+
+/// `cmux route list` reaches the resource grammar, which refuses the word
+/// before touching a socket or starting an acpmux daemon.
+#[test]
+fn cmux_route_list_is_an_unknown_scope() {
+    let names = Names::new("route-unknown");
+    let output = names.run("cmux", &["route", "list"]);
+    let stderr = text(&output.stderr);
+    assert_eq!(output.status.code(), Some(2), "{stderr}");
+    assert!(stderr.contains("\"route\""), "{stderr}");
 }
 
 /// `cmux notify --help` names the flags `notify` takes (cx-894rb): it said

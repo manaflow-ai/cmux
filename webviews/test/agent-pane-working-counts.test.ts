@@ -1,6 +1,6 @@
 // l10n-allow-file: test fixture prompts, replies, commands and subagent names, not shipped UI.
 // The running turn's line counts the work still going in the background, after Claude's phone
-// app ("Working… · 5 running tasks"): "Read app.ts 3s · 2 agents · 1 command", on the turn's one
+// app ("Working… · 5 running tasks"): "Read app.ts 3s · 2 subagents · 1 command", on the turn's one
 // live line at its bottom. It counts only
 // subagents still running and background shells that have not ended, each count opens what it
 // counts, and a count never moves the line or the rows under it. That is the presentation with the
@@ -224,7 +224,9 @@ await requireBrowserLane("agent-pane-working-counts.test.ts", async () => {
   test("the line counts the subagents and background shells still running", async () => {
     const page = await open(BUSY);
     // The Linter finished and the watcher stopped: neither counts.
-    expect((await line(page).innerText()).replace(/\s+/g, " ").trim()).toMatch(/^Read [^·]+ · 2 agents · 1 command$/);
+    expect((await line(page).innerText()).replace(/\s+/g, " ").trim()).toMatch(
+      /^Read [^·]+ · 2 subagents · 1 command$/,
+    );
     await page.close();
     const plain = await open(QUIET);
     expect((await line(plain).innerText()).replace(/\s+/g, " ").trim()).toMatch(/^Read [^·]+$/);
@@ -235,8 +237,13 @@ await requireBrowserLane("agent-pane-working-counts.test.ts", async () => {
     const page = await open(BUSY, 900, true);
     const tray = page.locator(".acpmux-running-tray");
     await tray.waitFor({ timeout: 5_000 });
-    const lines = await tray.locator(".acpmux-agent-line .acpmux-summary-agent__name").allInnerTexts();
+    // What runs is listed first; the Linter that ended stays as a finished card under it
+    // (49acdd1d589d keeps finished cards mounted in the tray).
+    const lines = await tray
+      .locator("li:not([data-finished]) .acpmux-agent-line .acpmux-summary-agent__name")
+      .allInnerTexts();
     expect(lines).toEqual(["Reviewer", "Tester", "npm run dev"]);
+    expect(await tray.locator("li[data-finished] .acpmux-summary-agent__name").allInnerTexts()).toEqual(["Linter"]);
     expect((await line(page).innerText()).replace(/\s+/g, " ").trim()).toMatch(/^Read [^·]+$/);
     await page.close();
   });
@@ -248,16 +255,24 @@ await requireBrowserLane("agent-pane-working-counts.test.ts", async () => {
         const box = await line(page).evaluate((node) => {
           const label = node.querySelector(".cv-thinking")!.getBoundingClientRect();
           const row = node.getBoundingClientRect();
-          return { height: row.height, labelLeft: label.left - row.left, labelHeight: label.height };
+          const style = getComputedStyle(node);
+          const px = (name: string) => parseFloat(style.getPropertyValue(name));
+          return {
+            height: row.height,
+            labelLeft: label.left - row.left,
+            labelHeight: label.height,
+            // The line's box is one meta row plus the turn gap it reserves under it (625f2e3d1b32).
+            oneLine: px("--cv-meta-row") + px("--cv-turn-gap"),
+          };
         });
         await page.close();
         return box;
       };
       const busyBox = await measure(BUSY);
       expect(busyBox).toEqual(await measure(QUIET));
-      // One 20px line, even in a narrow pane: the line's box holds one line (a second would make
-      // it 44px or more).
-      expect(busyBox.height).toBeLessThan(40);
+      // One 20px line, even in a narrow pane: the line's box holds one line and the turn gap it
+      // reserves below it (fec3ac0e5125, 625f2e3d1b32); a second line would grow it by 20px.
+      expect(busyBox.height).toBe(busyBox.oneLine);
       expect(busyBox.labelHeight).toBe(20);
     }
   });
@@ -291,7 +306,7 @@ await requireBrowserLane("agent-pane-working-counts.test.ts", async () => {
 
   test("the agent count opens the list of the chat's agents", async () => {
     const page = await open(BUSY);
-    await line(page).getByRole("button", { name: "2 agents" }).click();
+    await line(page).getByRole("button", { name: "2 subagents" }).click();
     const list = page.getByRole("region", { name: "Subagents" });
     await list.waitFor({ timeout: 5_000 });
     expect(await list.getByText("Reviewer").isVisible()).toBe(true);

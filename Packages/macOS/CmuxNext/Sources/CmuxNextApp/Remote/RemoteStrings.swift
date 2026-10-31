@@ -1,4 +1,5 @@
 import CmuxNextRemote
+import CmuxNextRemoteLocalhostService
 import Foundation
 
 /// User-facing SSH machine text. Keys live in Resources/Remote.xcstrings. One accessor per line
@@ -17,10 +18,18 @@ enum RemoteStrings {
     static var placeholderNoSnapshot: String { String(localized: "remote.terminal.noSnapshot", defaultValue: "No saved screen", table: "Remote", bundle: .module) }
     static func terminalOn(_ machine: String) -> String { String(format: String(localized: "remote.terminal.title", defaultValue: "Terminal on %@", table: "Remote", bundle: .module), machine) }
     static var moveTabAcrossMachines: String { String(localized: "remote.tab.cannotMoveAcrossMachines", defaultValue: "Home, conversation and app tabs cannot move to a workspace on another machine.", table: "Remote", bundle: .module) }
+    static func openRemoteHostNotFound(_ host: String) -> String { String(format: String(localized: "remote.openRemote.hostNotFound", defaultValue: "No machine named %@ is added. Add it first, or check the name.", table: "Remote", bundle: .module), host) }
+    static func openRemoteBadRatio(_ text: String) -> String { String(format: String(localized: "remote.openRemote.badRatio", defaultValue: "The ratio %@ must be a number between 0 and 1.", table: "Remote", bundle: .module), text) }
+    static var splitRightOrDown: String { String(localized: "remote.terminal.splitRightOrDown", defaultValue: "A terminal from another machine can split right or down only.", table: "Remote", bundle: .module) }
     static var needsRemoteTerminalTabs: String { String(localized: "remote.terminal.needsCapability", defaultValue: "This workspace's machine runs a cmux-tui without terminals from other machines. Update it first.", table: "Remote", bundle: .module) }
     static var machineHasNoTerminal: String { String(localized: "remote.terminal.noResource", defaultValue: "That machine's cmux-tui cannot name the terminal. Update it first.", table: "Remote", bundle: .module) }
+    static var signInToCheck: String { String(localized: "remote.joined.signInToCheck", defaultValue: "Sign in to cmux to check this machine.", table: "Remote", bundle: .module) }
+    static var checkStopped: String { String(localized: "remote.joined.checkStopped", defaultValue: "The check stopped before it finished. Try again.", table: "Remote", bundle: .module) }
+    // The Touch ID or password confirm's reasons for Settings' switches that widen another machine's access (SettingsPageProvider.widen).
+    static var fullAccessConfirmReason: String { String(localized: "settings.personGate.fullAccessReason", defaultValue: "turn on Full access, so another machine's chats can edit files and run commands on this Mac without asking", table: "Remote", bundle: .module) }
+    static var vmHostConfirmReason: String { String(localized: "settings.personGate.vmHostReason", defaultValue: "turn on Dedicated agent machine, so this Mac's chats run on that Cloud machine without the sandbox", table: "Remote", bundle: .module) }
     static var noClient: String { String(localized: "remote.unavailable.noClient", defaultValue: "The bundled cmux-tui is missing, so SSH machines cannot connect.", table: "Remote", bundle: .module) }
-    static var noMachine: String { String(localized: "remote.failed.noMachine", defaultValue: "No SSH machine is selected. Right-click a machine or pass --machine <name>.", table: "Remote", bundle: .module) }
+    static var noMachine: String { String(localized: "remote.failed.noMachine", defaultValue: "No SSH machine is selected. Choose Connect to Machine in the command palette, or pass --machine <name>.", table: "Remote", bundle: .module) }
     static var workspaceNotOnSSHMachine: String { String(localized: "remote.failed.workspaceNotSSH", defaultValue: "This workspace does not run on an SSH machine.", table: "Remote", bundle: .module) }
     static var tabNotOnSSHMachine: String { String(localized: "remote.failed.tabNotSSH", defaultValue: "This tab does not run on an SSH machine.", table: "Remote", bundle: .module) }
     static func unknownMachine(_ name: String) -> String { String(format: String(localized: "remote.failed.unknownMachine", defaultValue: "No SSH machine is named “%@”.", table: "Remote", bundle: .module), name) }
@@ -39,6 +48,9 @@ enum RemoteStrings {
     static func invalidPath(_ path: String) -> String { String(format: String(localized: "remote.failed.path", defaultValue: "“%@” is not a usable path. Use a plain path, optionally starting with ~/.", table: "Remote", bundle: .module), path) }
     static var noPinnedBuild: String { String(localized: "remote.failed.noPinnedBuild", defaultValue: "This build does not know which cmux-tui to install.", table: "Remote", bundle: .module) }
     static func unsupportedPlatform(_ name: String) -> String { String(format: String(localized: "remote.failed.unsupportedPlatform", defaultValue: "cmux-tui has no build for %@. It runs on macOS and Linux (x86_64 and arm64).", table: "Remote", bundle: .module), name) }
+    static var retry: String { String(localized: "remote.recovery.retry", defaultValue: "Retry", table: "Remote", bundle: .module) }
+    static var copyError: String { String(localized: "remote.recovery.copyError", defaultValue: "Copy Error", table: "Remote", bundle: .module) }
+    static var checkMachine: String { String(localized: "remote.recovery.checkMachine", defaultValue: "Check Machine", table: "Remote", bundle: .module) }
     static var connectTitle: String { String(localized: "remote.connect.title", defaultValue: "Connect to Machine", table: "Remote", bundle: .module) }
     static var notARemoteGroup: String { String(localized: "remote.removeGroup.notAGroup", defaultValue: "This machine is not a remote group.", table: "Remote", bundle: .module) }
     static var newGroupTitle: String { String(localized: "remote.newGroup.title", defaultValue: "New Remote Group", table: "Remote", bundle: .module) }
@@ -94,7 +106,7 @@ enum RemoteStrings {
         case .offline:
             return String(localized: "remote.status.offline", defaultValue: "Disconnected. Choose Reconnect Machine to connect.", table: "Remote", bundle: .module)
         case .connecting, .connected:
-            if let failure = session.daemonFailure { return daemonFailed(failure) }
+            if let failure = session.daemonFailure { return daemonFailed(failure.error) }
             return session.lastError
         case .reconnecting:
             return String(localized: "remote.status.reconnecting", defaultValue: "The connection dropped. cmux reconnects on its own; programs keep running on the machine.", table: "Remote", bundle: .module)
@@ -120,7 +132,7 @@ enum RemoteStrings {
         case .authFailed(let message), .hostKeyUntrusted(let message), .unreachable(let message),
              .installFailed(let message), .failed(let message): message
         case .needsInstall(let need): needText(need, session)
-        case .connecting, .connected, .reconnecting: session.daemonFailure ?? session.lastError
+        case .connecting, .connected, .reconnecting: session.daemonFailure?.error ?? session.lastError
         case .offline, .installing: session.lastError
         }
         guard let text = text?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else { return nil }
@@ -140,6 +152,35 @@ enum RemoteStrings {
     static func browserRunsOnThisMac(_ machine: String) -> String {
         String(format: String(localized: "remote.browser.runsOnThisMac",
                               defaultValue: "This tab runs on this Mac, not on %@.", table: "Remote", bundle: .module), machine)
+    }
+
+    /// The notice under a browser tab of another machine's workspace, by what
+    /// its `localhost` reaches: forwarded to the machine, or this Mac (and why).
+    /// No route (unknown) keeps the plain text.
+    static func browserRunsOnThisMac(_ machine: String, route: RemoteLocalhostRoute?) -> String {
+        switch route {
+        case .machine(let name):
+            return String(format: String(localized: "remote.browser.runsOnThisMac.forwarded",
+                                         defaultValue: "This tab runs on this Mac. localhost goes to %@.",
+                                         table: "Remote", bundle: .module), name)
+        case .thisMacInstead(let name, let reason):
+            let why: String = switch reason {
+            case .turnedOff:
+                String(localized: "remote.browser.localhostReason.turnedOff",
+                       defaultValue: "forwarding is turned off", table: "Remote", bundle: .module)
+            case .updateMachine:
+                String(format: String(localized: "remote.browser.localhostReason.updateMachine",
+                                      defaultValue: "%@ needs a cmux update", table: "Remote", bundle: .module), name)
+            case .webKit:
+                String(localized: "remote.browser.localhostReason.webKit",
+                       defaultValue: "WebKit tabs cannot forward localhost", table: "Remote", bundle: .module)
+            }
+            return String(format: String(localized: "remote.browser.runsOnThisMac.fallback",
+                                         defaultValue: "This tab runs on this Mac, and localhost is this Mac too (%@).",
+                                         table: "Remote", bundle: .module), why)
+        case .thisMac, nil:
+            return browserRunsOnThisMac(machine)
+        }
     }
 
     /// The refusal of a new browser tab in a workspace of a machine that is not connected.

@@ -5,7 +5,7 @@ import QuartzCore
 
 /// Small borderless icon button with the shared chrome hover and pressed
 /// fills (`ChromeHover`, no blue).
-final class SidebarIconButton: NSButton {
+final class SidebarIconButton: ClickableButton {
     private(set) lazy var hover = ChromeHover(self, behindContent: true)
     var onPress: (() -> Void)?
     /// A fixed glyph color for a button on a colored surface (the group
@@ -80,6 +80,15 @@ final class SidebarIconButton: NSButton {
 
     @objc private func pressed() { onPress?() }
 
+    /// A first click in a window that is not key presses the button rather than only making the
+    /// window key (a card's x over a page: a Chromium page's own window holds the key while the
+    /// person works in a chat). Off by default, AppKit's answer.
+    var takesFirstClick = false
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        takesFirstClick || super.acceptsFirstMouse(for: event)
+    }
+
     /// AXPress runs `onPress` and reports success. NSButton's own press ran the action yet
     /// answered -25205 (kAXErrorActionUnsupported) for the sidebar's New Workspace, so a
     /// computer-use agent that read the error pressed again and made a second workspace.
@@ -96,6 +105,23 @@ final class SidebarIconButton: NSButton {
 
     override func menu(for event: NSEvent) -> NSMenu? {
         menuProvider?() ?? super.menu(for: event)
+    }
+
+    /// Told `true` while a right-click menu this button opened is open, `false` once it closes
+    /// (the sidebar keeps its hover-revealed + shown meanwhile).
+    var onMenuOpenChange: ((Bool) -> Void)?
+
+    /// The button stays pressed (lit) while its own menu is open, after the pointer leaves it.
+    override func willOpenMenu(_ menu: NSMenu, with event: NSEvent) {
+        super.willOpenMenu(menu, with: event)
+        changeHover { $0.pressed = true }
+        onMenuOpenChange?(true)
+    }
+
+    override func didCloseMenu(_ menu: NSMenu, with event: NSEvent?) {
+        super.didCloseMenu(menu, with: event)
+        changeHover { $0.pressed = false }
+        onMenuOpenChange?(false)
     }
 
     private func renderIcon() {
@@ -153,6 +179,11 @@ final class SidebarIconButton: NSButton {
         change(&hover.state)
         needsDisplay = true
     }
+
+    /// A middle press is the row's, never the button's: it goes up the responder chain to the sidebar list, so a
+    /// middle-click on a hovered row's ✕ closes that row as anywhere else on it does (`SidebarMiddleClick`).
+    override func otherMouseDown(with event: NSEvent) { nextResponder?.otherMouseDown(with: event) }
+    override func otherMouseUp(with event: NSEvent) { nextResponder?.otherMouseUp(with: event) }
 
     /// NSButton tracks the click inside `super.mouseDown` and returns on release.
     override func mouseDown(with event: NSEvent) {

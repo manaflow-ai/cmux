@@ -31,9 +31,88 @@ import Testing
         }
 
         func tearDown() {
+            // A test that ends with its frame still up (one whose page never painted) would leave
+            // `LaunchImageHold.shared` counting it for the rest of the process: the pane's deinit
+            // does not end the hold by design, so the next test to await it would take the 4 s
+            // backstop instead of returning at once.
+            pane.clearLaunchImage()
             window.orderOut(nil)
             window.close()
         }
+    }
+
+    /// A stand-in for an agent page's last frame (`AgentPaneLaunchImages`).
+    private static func lastFrame() -> NSImage {
+        NSImage(size: NSSize(width: 40, height: 30), flipped: false) { rect in
+            NSColor.textBackgroundColor.setFill()
+            rect.fill()
+            return true
+        }
+    }
+
+    /// Leo 2026-10-22, on a chat at launch: it "flickers the initial thing/paints and renders it...
+    /// and then it just goes to black screen for a while". The pane drew the chat's last frame, took
+    /// it back at `paneLaunchImageLimit`, and showed its empty loading state until the page reported
+    /// a first frame — which waits on acpmux reading the chat, several seconds on a busy daemon. The
+    /// frame stays while the page it stands in for is still coming; the pane's own give-up on a page
+    /// that never reports is what ends it then (`AgentPaneLoadingView`).
+    @Test func theLastFrameWaitsForThePageItStandsInFor() async throws {
+        let launch = LaunchWindow()
+        defer { launch.tearDown() }
+        launch.pane.showLaunchImage(Self.lastFrame(), limit: .milliseconds(40))
+        launch.pane.launchImageMayClear = { false }
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(launch.pane.launchImageView != nil,
+                "the pane took back the chat's last frame while its page was still coming, leaving it empty")
+    }
+
+    /// A frame held over a page that has drawn is the other half: its limit still takes it, so a
+    /// cover that outlived its purpose never stays (`coverMove`).
+    @Test func theLastFrameGoesAtItsLimitOnceThePageDrew() async throws {
+        let launch = LaunchWindow()
+        defer { launch.tearDown() }
+        launch.pane.showLaunchImage(Self.lastFrame(), limit: .milliseconds(40))
+        launch.pane.launchImageMayClear = { true }
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(launch.pane.launchImageView == nil, "a frame over a page that had drawn stayed past its limit")
+    }
+
+    @Test func aPreviousPageCannotClearTheNextPagesFrame() throws {
+        let launch = LaunchWindow()
+        defer { launch.tearDown() }
+        launch.pane.showLaunchImage(Self.lastFrame())
+        let previous = try #require(launch.pane.launchImageView)
+        launch.pane.showLaunchImage(Self.lastFrame())
+        let current = try #require(launch.pane.launchImageView)
+        launch.pane.clearLaunchImage(ifShowing: previous)
+        #expect(launch.pane.launchImageView === current,
+                "the previous tab's delayed reveal took back the next tab's frame")
+        launch.pane.clearLaunchImage(ifShowing: current)
+        #expect(launch.pane.launchImageView == nil)
+    }
+
+    @Test func resizingThePaneDropsTheOldSizeFrame() {
+        let launch = LaunchWindow()
+        defer { launch.tearDown() }
+        launch.pane.showLaunchImage(Self.lastFrame())
+        #expect(launch.pane.launchImageView != nil)
+        launch.pane.setFrameSize(NSSize(width: 700, height: 600))
+        launch.pane.layoutSubtreeIfNeeded()
+        #expect(launch.pane.launchImageView == nil,
+                "a launch snapshot from the old pane width remained visible after resize")
+    }
+
+    @Test(arguments: [false, true])
+    func aPageThatLeavesThePaneTakesItsUnpaintedFrameWithIt(parks: Bool) {
+        let launch = LaunchWindow()
+        defer { launch.tearDown() }
+        launch.pane.show(NSView())
+        launch.pane.showLaunchImage(Self.lastFrame())
+        launch.pane.launchImageMayClear = { false }
+        launch.pane.detachContent(parks: parks)
+        #expect(launch.pane.launchImageView == nil,
+                "a closed or displaced page left its last frame covering the empty pane")
+        #expect(launch.pane.launchImageMayClear == nil)
     }
 
     @Test func tabsThatArriveBeforeTheFirstFrameDrawInIt() {

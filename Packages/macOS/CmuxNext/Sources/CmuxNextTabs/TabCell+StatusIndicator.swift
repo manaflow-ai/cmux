@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CmuxNextDesign
 import QuartzCore
 
@@ -102,11 +103,9 @@ extension TabCell: StatusIndicatorConfigClient {
         isSpinnerExiting = true
         layer.isHidden = false
         CATransaction.begin()
-        CATransaction.setCompletionBlock { [weak self, weak spinner] in
-            Task { @MainActor [weak self, weak spinner] in
-                guard let self, let spinner, self.spinnerLayer === spinner, !self.item.isBusy else { return }
-                self.removeSpinner(spinner)
-            }
+        CATransaction.setMainCompletion { [weak self, weak spinner] in
+            guard let self, let spinner, self.spinnerLayer === spinner, !self.item.isBusy else { return }
+            self.removeSpinner(spinner)
         }
         switch variant {
         case .fade:
@@ -138,6 +137,18 @@ extension TabCell: StatusIndicatorConfigClient {
         spinner.layer.removeFromSuperlayer()
         spinnerLayer = nil
         isSpinnerExiting = false
+    }
+
+    /// Checks the indicator again (the app came back, a window became main, the Mac woke): now
+    /// when the strip shows, else when it shows again.
+    func statusIndicatorResync() {
+        guard isStripShown else {
+            owesIndicatorResync = true
+            return
+        }
+        owesIndicatorResync = false
+        StatusIndicatorAppearance.resyncs &+= 1
+        statusIndicatorConfigDidChange(StatusIndicatorAppearance.shared.config)
     }
 
     func statusIndicatorConfigDidChange(_ config: StatusIndicatorConfig) {

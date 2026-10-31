@@ -1,7 +1,7 @@
 public import Foundation
 import CmuxNextCompat
 
-/// The live web loop of a Debug or NIGHTLY app (plans/cmux-next/web-live-reload.md): `web-dev.json`
+/// The live web loop of a Debug, NIGHTLY or cmux NEXT DEV app (plans/cmux-next/web-live-reload.md): `web-dev.json`
 /// next to `cmux-next.json` points the app's web surfaces at a loopback Vite server (hot reload)
 /// or at an overlay folder of built bundles, with no app build and no relaunch.
 ///
@@ -20,7 +20,7 @@ import CmuxNextCompat
 /// A server wins over an overlay for the files it serves. `"enabled": false`, an empty object or
 /// a deleted file restores the bundled pages. ``WebDevOverrideWatcher`` keeps ``current`` and
 /// reloads every page and agent pane on a change. Release and RC builds never read the file:
-/// ``isEnabled`` is the DevTools rule (a Debug compile or a nightly bundle).
+/// ``isEnabled`` follows ``isAvailable`` (a Debug compile, a nightly bundle or cmux NEXT DEV).
 public nonisolated struct WebDevOverride: Sendable, Equatable {
     /// The Vite server pages load from, nil for none.
     public var server: PageDevServer?

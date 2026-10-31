@@ -119,6 +119,8 @@ async fn run(args: &Args, kind: TransportKind) -> Result<serde_json::Value> {
         name: "cmux-mobile-dial".into(),
         team_id: args.team.clone(),
         wg_public_key: None,
+        machine_id: None,
+        sibling_device_ids: Vec::new(),
     })
     .await
     .context("POST /v1/devices")?;

@@ -1,6 +1,7 @@
 import CmuxNextDaemon
 import CmuxNextDesign
 import SwiftUI
+import CmuxNextTasks
 
 /// One checklist item on the Todo page: its state mark (click toggles complete), its text
 /// (double-click edits), how many images it has, and a menu of its actions.

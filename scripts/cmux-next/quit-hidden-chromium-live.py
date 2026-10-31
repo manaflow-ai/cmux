@@ -82,15 +82,48 @@ Apple event's send):
     never registered (with the fix no browser is registered once the wait began, so it was asked
     for before; it was closed at AFTER_CREATED, or never made in time).
 
-  scripts/cmux-next/quit-hidden-chromium-live.py --app PATH [--case hidden|in-flight] [--runs N]
-      [--windows N] [--tabs N] [--profiles N] [--quit-after-opens N] [--open-interval-ms MS]
-      [--quit-bound S] [--out DIR]
+--case windowless: the first Chromium browser's creation is under way, and no Chromium window
+exists yet, when quit stops Chromium. `CEFRuntime.shutdown` found no window and no browser, so its
+sequence was ready at once and it called CefShutdown under the creation (`pendingWindows`). Each run
+is a first launch (wipe_state: no saved workspaces, no Chromium profile data or use record) with
+its own cmux-next.json (new tabs in WebKit, so the first launch's new-tab page is not Chromium):
+
+  1. the new-tab page's tab is replaced by a terminal workspace: only terminals, Chromium never
+     started, no spare window (`debug.cef` state idle, spare_window none);
+  2. one fresh browser profile; Chromium starts with no tab (`browser.defaultEngine.chromium` is a
+     warm-up signal: CefInitialize at the next idle moment). The warm-up builds the spare window
+     (CEFSpareWindow) at the idle moment after that, unless a host has a tab or a page is being
+     made, so the open goes as soon as `debug.cef` says ready (spare_window still none);
+  3. the Quit Apple event, then (--quit-at before-open) one front Chromium tab of the fresh profile
+     --quit-delay-ms after the send. The tab's create_window must land after the quit's decision
+     and before its stop of Chromium (about 15 ms wide on a capture mini). Earlier, the open's
+     daemon round trip holds up the quit's record flush and Chromium's window build holds the main
+     thread, so AFTER_CREATED comes first ("early"); later, the quit already stopped Chromium and
+     no create_window runs ("late"). --staircase-ms moves the next run's delay after each miss and
+     --until-landed N stops after N landed runs. Opening first and quitting right after
+     (--quit-at present, or during CefInitialize: --quit-at initialize) never landed: the Apple
+     event waits behind Chromium's window build (about 100 ms) and AFTER_CREATED came first.
+
+Landed: `create_window` is in `debug.cef` start_steps (it runs only before `shutdown` began:
+`acceptsNewBrowsers`, #23383) and neither `attach` (journal) nor `first_window` (start_steps) was
+recorded while the app still answered (from the shutdown's start AFTER_CREATED goes to its own
+branch, which records neither). A missed run is reported, not judged. On a landed run: the common
+checks, `CEF shutdown complete`, no `CEF shutdown timed out`. run-N/timeline.json has the ms from the
+Apple event's send. Seen on a capture mini (2026-10-21): base dies in CefShutdown (SIGSEGV), the fix
+logs `CEF shutdown complete` about 190 ms after create_window and exits 0.
+
+  scripts/cmux-next/quit-hidden-chromium-live.py --app PATH [--case hidden|in-flight|windowless]
+      [--runs N] [--windows N] [--tabs N] [--profiles N] [--quit-after-opens N] [--open-interval-ms MS]
+      [--quit-bound S] [--chromium running|cold] [--quit-at before-open|open|initialize|present]
+      [--quit-delay-ms MS[,MS...]] [--staircase-ms MS] [--until-landed N] [--out DIR]
 
 GUI host only (a leased capture mini; ssh is outside the Aqua session, so the app starts with
 `open -n`). Ends the tag's daemons between runs and at the end (tag_teardown.py). Writes
-run-N/app.log, run-N/setup.json (and for in-flight run-N/timeline.json) and verdict.json to --out. Exit 1 when a check fails.
+run-N/app.log, run-N/setup.json (and for in-flight and windowless run-N/timeline.json) and
+verdict.json to --out. Exit 1 when a check fails (windowless: a landed run's check, or fewer landed
+runs than --until-landed).
 """
-import argparse, datetime, glob, http.server, json, os, plistlib, re, socket, subprocess, sys, tempfile, threading, time
+import argparse, datetime, glob, http.server, json, os, plistlib, re, shutil, socket, subprocess, sys, tempfile, threading, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from tag_teardown import TagTeardown  # noqa: E402
@@ -103,12 +136,30 @@ parser.add_argument("--runs", type=int, default=3)
 parser.add_argument("--windows", type=int, default=2)
 parser.add_argument("--tabs", type=int, default=2, help="background Chromium tabs per pane before the park")
 parser.add_argument("--ips-wait", type=float, default=45, help="seconds to wait for a crash report")
-parser.add_argument("--case", choices=["hidden", "in-flight"], default="hidden",
-                    help="hidden: never-made tabs in parked workspaces (default); in-flight: creations under way at quit")
+parser.add_argument("--case", choices=["hidden", "in-flight", "windowless"], default="hidden",
+                    help="hidden: never-made tabs in parked workspaces (default); in-flight: creations under way at quit; "
+                         "windowless: the first Chromium tab's creation under way at quit, no Chromium window yet")
 parser.add_argument("--profiles", type=int, default=24,
                     help="in-flight: fresh profiles, one first tab each in the burst (it stops once quit closed the browsers)")
 parser.add_argument("--quit-after-opens", type=int, default=1, help="in-flight: burst opens sent before the Quit Apple event")
 parser.add_argument("--open-interval-ms", type=float, default=200, help="in-flight: time between the burst's opens")
+parser.add_argument("--quit-delay-ms", default="0",
+                    help="windowless: ms between --quit-at's moment and the Quit Apple event (before-open: between the "
+                         "Apple event and the open); a comma list is cycled over the runs")
+parser.add_argument("--staircase-ms", type=float, default=0,
+                    help="windowless before-open: after a run whose open came too early (AFTER_CREATED registered the "
+                         "browser before the shutdown) the next open goes this much later; too late (no create_window), "
+                         "this much earlier")
+parser.add_argument("--until-landed", type=int, default=0,
+                    help="windowless: stop after this many runs landed (--runs is then the most attempts)")
+parser.add_argument("--chromium", choices=["running", "cold"], default="running",
+                    help="windowless: start Chromium before the open with no tab (the warm-up the default-engine "
+                         "switch starts; the open goes before it builds the spare window), or leave it to the open")
+parser.add_argument("--quit-at", choices=["before-open", "open", "initialize", "present"], default="present",
+                    help="windowless: send the Quit Apple event while Chromium's start holds the main thread "
+                         "(CefInitialize, before the tab's create_window; default), or once the tab asked for its "
+                         "browser (`host-present ... created=false`; AFTER_CREATED came before the shutdown in "
+                         "every such run on a capture mini)")
 parser.add_argument("--quit-bound", type=float, default=None,
                     help="in-flight: fail a quit-to-exit longer than this many seconds (default: report it only)")
 opts = parser.parse_args()
@@ -124,6 +175,7 @@ SOCKET = f"/tmp/cmux-debug-{TAG}.sock"
 CLI = os.path.join(APP, "Contents/Resources/bin/cmux")
 REPORTS = os.path.expanduser("~/Library/Logs/DiagnosticReports")
 runs = []
+staircase = {"delay": None}  # windowless before-open: the next run's open delay (--staircase-ms)
 ENGINE_CLOSE_WAIT = 3.0  # CEFEngine.shutdown(timeout:)'s default: how long quit waits for Chromium's windows
 streams = []  # LogStream and fallback osascript processes, stopped in the end's `finally` too
 
@@ -493,13 +545,14 @@ class JournalWatch:
     `ensureCreated`, create_window for a new window) and `attach ...` (AFTER_CREATED registered the
     browser for the tab). The ring is in memory only, so it is read while the app still runs."""
 
-    def __init__(self):
-        self.entries, self.reads, self.stop = {}, 0, False
+    def __init__(self, seconds=30):
+        self.entries, self.reads, self.stop, self.last_read = {}, 0, False, None
+        self.seconds = seconds
         self.thread = threading.Thread(target=self.loop, daemon=True)
         self.thread.start()
 
     def loop(self):
-        misses, deadline = 0, time.monotonic() + 30
+        misses, deadline = 0, time.monotonic() + self.seconds
         while not self.stop and misses < 3 and time.monotonic() < deadline:  # test harness: bounded read of the app's own ring
             reply = rpc("debug.journal", {"last": 600}, timeout=2) or {}
             if "error" in reply:
@@ -509,6 +562,7 @@ class JournalWatch:
                 self.reads += 1
                 for entry in reply.get("entries") or []:
                     self.entries[entry.get("seq")] = entry
+                self.last_read = time.time()  # the ring as of this moment is in `entries`
             time.sleep(0.01)
 
     def finish(self):
@@ -736,24 +790,294 @@ def in_flight_evidence(run, quit, exit_seconds):
     return timeline
 
 
+class CEFWatch:
+    """Reads `debug.cef` every 20 ms from before the open until the socket is gone, keeping each
+    change of Chromium's `state` (idle, loading, loaded, ready, shutDown) and of `spare_window`, with
+    the time it was first seen, and the last `start_steps` (the first window's `create_window` call
+    and its `first_window`, OnAfterCreated through the pane's own path, on CLOCK_UPTIME_RAW)."""
+
+    def __init__(self, seconds=90):
+        self.changes, self.steps, self.last_read, self.stop, self.inflight = [], [], None, False, None
+        self.seconds = seconds
+        self.thread = threading.Thread(target=self.loop, daemon=True)
+        self.thread.start()
+
+    def loop(self):
+        misses, deadline, last = 0, time.monotonic() + self.seconds, None
+        while not self.stop and misses < 3 and time.monotonic() < deadline:  # test harness: bounded read of the app's own report
+            self.inflight = time.time()
+            reply = rpc("debug.cef", timeout=2) or {}
+            self.inflight = None
+            if "error" in reply:
+                misses += 1
+            else:
+                misses, self.last_read = 0, time.time()
+                now = (reply.get("state"), reply.get("spare_window"))
+                if now != last:
+                    self.changes.append((self.last_read, *now))
+                    last = now
+                self.steps = reply.get("start_steps") or self.steps
+            time.sleep(0.02)
+
+    def finish(self):
+        self.thread.join(timeout=100)
+        self.stop = True
+
+    def initializing(self, held=0.04):
+        """True while Chromium's start holds the main thread: the framework load began (`loading`)
+        and a `debug.cef` request (a main-actor call) has waited over `held` s. CefInitialize is that
+        hold: the first tab's create_window follows it."""
+        since = self.inflight
+        return bool(self.changes and self.changes[-1][1] in ("loading", "loaded") and since and time.time() - since > held)
+
+    def step(self, name):
+        """The epoch time of start step `name`, or None."""
+        offset = time.time() - time.clock_gettime(time.CLOCK_UPTIME_RAW)
+        found = next((s for s in self.steps if s.get("name") == name), None)
+        return found["start_uptime_ns"] / 1e9 + offset if found else None
+
+
+def wipe_state():
+    """A first launch of this tag: no saved workspaces (the daemon's state), no Chromium profile data
+    and no Chromium use record (`cmux-last-tab-opened.json`: launch would warm Chromium up and build
+    the spare window), no saved window state. The Chromium runtime (`<bundle id>/ChromiumRuntime`)
+    stays. Runs only between runs, with the tag's processes ended (end_tag)."""
+    if ".debug." not in BUNDLE_ID:
+        raise SystemExit(f"refusing to wipe the state of non-DEV bundle {BUNDLE_ID}")
+    slug = re.sub(r"[^a-z0-9]+", ".", TAG.lower()).strip(".")
+    # An empty or foreign tag would name every tag's folder, or another tag's.
+    if not slug or "/" in TAG or TAG in (".", "..") or not BUNDLE_ID.endswith("." + slug):
+        raise SystemExit(f"refusing to wipe: tag {TAG!r} is not the tag of bundle {BUNDLE_ID}")
+    library = os.path.expanduser("~/Library")
+    for path in (os.path.join(library, "Application Support", BUNDLE_ID, "Chromium"),
+                 os.path.join(library, "Application Support/cmux/tags", TAG),
+                 os.path.join(library, "Saved Application State", BUNDLE_ID + ".savedState"),
+                 os.path.join(library, "Caches", BUNDLE_ID),
+                 os.path.expanduser(f"~/.acpmux/builds/com.cmuxterm.app.debug.{slug}"),
+                 os.path.expanduser(f"~/.cmux/mux/tags/{TAG}")):
+        shutil.rmtree(path, ignore_errors=True)
+
+
+def windowless_quit(run, pid):
+    """--case windowless: a first launch of only terminals (Chromium not started, no spare window),
+    exactly one front Chromium tab of a fresh profile, and the Quit Apple event (--quit-at). The
+    quit's timing, or None when setup failed."""
+    window = wait(lambda: next((w.get("id") for w in windows()), None), 30)
+    if not window:
+        action("newWindow", focus=True)
+        window = wait(lambda: next((w.get("id") for w in windows()), None), 30)
+    if not run.check(window, "a window", window):
+        return None
+    # A first launch shows the new-tab page (a WebKit page, content kind browser): a terminal
+    # workspace takes its place, and the page's tab closes.
+    first = [(p["pane"], t) for p in panes_of(window) for t in pane_tabs(p["pane"])]
+    if any(t.get("content_kind") != "terminal" for _, t in first):
+        shown = next((w.get("selected") for w in windows() if w.get("id") == window), None)
+        action("newTab", target=f"workspace:{shown}" if shown else None, focus=True)
+        wait(lambda: (lambda w: w if w and w.get("workspace") != shown and len(w.get("topology") or []) == 1 else None)(focus_window(window)), 20)
+        for _, tab in first:
+            if tab.get("content_kind") != "terminal":
+                action("closeTab", target=f"tab:{tab.get('id')}", focus=False, confirm=True)
+        time.sleep(1)
+    panes = panes_of(window)
+    every = [t for w in windows() for p in panes_of(w.get("id")) for t in pane_tabs(p["pane"])]
+    kinds = sorted({t.get("content_kind") for t in every})
+    terminal = (panes or [{}])[0].get("selected")
+    cef = rpc("debug.cef") or {}
+    before = {k: cef.get(k) for k in ("state", "spare_window", "likely", "trigger", "default_engine")}
+    run.note(f"before the open: Chromium {json.dumps(before)}; tab kinds {kinds}; replaced first-launch tabs "
+             f"{[t.get('content_kind') + ':' + str(t.get('id')) for _, t in first if t.get('content_kind') != 'terminal']}")
+    if not run.check(terminal and kinds == ["terminal"] and not shown_chromium_tabs(),
+                     "only terminals, no Chromium tab ever opened", kinds):
+        return None
+    # The spare window (CEFSpareWindow) is built only by the warm-up (ChromiumWarmup) after Chromium
+    # started: at launch for a recent Chromium user (the use record, wiped), or on a Chromium-likely
+    # signal (a Chromium tab, the "+" menu, the palette). None of them fired, so Chromium is not
+    # running and no spare exists.
+    run.check(cef.get("state") in ("idle", "loading", "loaded") and cef.get("spare_window") == "none",
+              "Chromium not started and no spare window before the open", before)
+    profile = profile_id(cli("browser", "profile", "create", "--name", f"quit-windowless-{os.getpid()}-{run.index}"))
+    if not run.check(profile, "a fresh browser profile", profile):
+        return None
+    time.sleep(2)  # the app's mirror of the profile record follows the daemon's reply
+    log = LogStream(os.path.join(run.dir, "quit-log.ndjson"), app_quit_predicate(pid))
+    run.check(log.attached, "log stream attached before the quit")
+    quit_event = QuitEvent(BUNDLE_ID)
+    journal, watch = JournalWatch(seconds=120), CEFWatch(seconds=120)
+    time.sleep(0.3)
+    journal.entries.clear()
+    opened = {}
+
+    def open_tab():
+        opened["sent"] = time.time()
+        # Short timeout once the quit went: the socket is gone when the app ends.
+        reply = rpc("action.run", {"action": "openBrowser", "origin": "script", "focus": True, "target": f"tab:{terminal}",
+                                   "args": {"engine": "cef", "profile": profile, "url": f"{ORIGIN}/fresh-r{run.index}-0"}},
+                    timeout=60) or {}
+        opened.update(reply_ms=round((time.time() - opened["sent"]) * 1000, 1), created=created(reply), error=reply.get("error"))
+
+    def asked():
+        """The first `host-present ... created=false` in the ring: (tab, epoch seconds)."""
+        for t, tab, event in journal.content():
+            if event.startswith("host-present") and "created=false" in event:
+                return tab, t
+        return None
+
+    opener = threading.Thread(target=open_tab, daemon=True)
+    if opts.chromium == "running":
+        # Chromium starts with no tab: the default-engine switch is a warm-up signal (ChromiumWarmup:
+        # CefInitialize at the next idle moment). The warm-up builds the spare window at the idle
+        # moment after that (750 ms with no input), unless a Chromium page is being made then
+        # (`pagesPending`) or a host has a tab: the open goes as soon as Chromium runs.
+        action("browser.defaultEngine.chromium", focus=False)
+        ready = wait(lambda: watch.changes and watch.changes[-1][1] == "ready", 60, step=0.002)
+        run.check(ready and watch.changes[-1][2] == "none", "Chromium runs with no tab and no spare window before the open",
+                  watch.changes[-1][1:] if watch.changes else None)
+    trigger = True
+    delays = [float(d) for d in str(opts.quit_delay_ms).split(",") if d.strip()] or [0.0]
+    delay_ms = staircase["delay"] if staircase["delay"] is not None else delays[(run.index - 1) % len(delays)]
+    run.delay_ms = delay_ms
+    run.note(f"--quit-at {opts.quit_at}, delay {delay_ms:g} ms")
+    if opts.quit_at == "before-open":
+        # The open goes --quit-delay-ms after the Apple event's send, timed from the send itself
+        # (AESendMessage takes some ms to return), between the quit's decision and its stop of
+        # Chromium (about 15 ms on a capture mini: the quit reads facts, saves, then stops Chromium).
+        gate = threading.Event()
+
+        def open_later():
+            gate.wait(5)
+            due = quit_moment[0] + delay_ms / 1000
+            while time.time() < due:  # test harness: a bounded wait for the open's moment
+                time.sleep(max(0.0, min(0.001, due - time.time())))
+            open_tab()
+
+        quit_moment = [None]
+        opener = threading.Thread(target=open_later, daemon=True)
+        opener.start()
+    else:
+        opener.start()
+        if opts.quit_at != "open":
+            trigger = wait(watch.initializing if opts.quit_at == "initialize" else asked, 60, step=0.002)
+        if delay_ms:
+            time.sleep(delay_ms / 1000)
+    quit_wall, quit_at = time.time(), time.monotonic()
+    if opts.quit_at == "before-open":
+        quit_moment[0] = quit_wall
+        gate.set()
+    sent_by = quit_event.send()
+    run.note(f"Quit Apple event: {sent_by}; sent at {opts.quit_at} ({'seen' if trigger else 'NOT seen in 60 s'})")
+    opener.join(timeout=15)
+    with open(os.path.join(run.dir, "setup.json"), "w") as handle:
+        json.dump({"pid": pid, "window": window, "terminal": terminal, "profile": profile, "before": before,
+                   "open": opened, "replaced": first}, handle, indent=1)
+    return {"quit_at": quit_at, "quit_wall": quit_wall, "log": log, "journal": journal, "watch": watch,
+            "asked": asked, "opened": opened}
+
+
+def windowless_evidence(run, quit, exit_seconds):
+    """Times the windowless quit against the Apple event's send: the open, the tab's host-present
+    (its create_window), Chromium's `create_window` step, AFTER_CREATED through the pane's own path
+    (`attach`, `first_window`: only while quit had not begun stopping Chromium), the page's first GET
+    (the browser exists), its held request ending (Chromium tore it down), the quit's lines and the
+    exit."""
+    log = quit["log"]
+    log.stop()
+    events = log.events()
+    zero = quit["quit_wall"]
+    ms = lambda t: round((t - zero) * 1000) if t is not None else None
+    journal, watch = quit["journal"], quit["watch"]
+    journal.finish()
+    watch.finish()
+    content = journal.content()
+    with open(os.path.join(run.dir, "journal-content.json"), "w") as handle:
+        json.dump([(ms(t), tab, event) for t, tab, event in content], handle, indent=0)
+    tab, present = quit["asked"]() or (None, None)  # read once the journal watch ended
+    attach = next((t for t, which, event in content if which == tab and event.startswith("attach")), None)
+    origin = next((t for t, c, m in events if c == "app.quit" and m.startswith("quit origin")), None)
+    choice = next((t for t, c, m in events if c == "app.quit" and m.startswith("quit choice")), None)
+    shutdown = [(t, m) for t, c, m in events if c == "cef" and m.startswith("CEF shutdown")]
+    path = f"/fresh-r{run.index}-0"
+    get = next((t for t, method, p in hits if method == "GET" and p == path), None)
+    torn_down = next((t for t, method, p in hits if method == "CLOSED" and p == "/hold" + path), None)
+    shutdown_at = shutdown[0][0] if shutdown else None
+    timeline = {
+        "open_sent_ms": ms(quit["opened"].get("sent")), "open_reply_ms": quit["opened"].get("reply_ms"),
+        "host_present_ms": ms(present), "create_window_ms": ms(watch.step("create_window")),
+        "initialize_ms": ms(watch.step("initialize")),
+        "initialize_took_ms": next((round(m.get("ms", 0)) for m in watch.steps if m.get("name") == "initialize"), None),
+        "first_window_ms": ms(watch.step("first_window")),
+        "attach_ms": ms(attach), "quit_origin_ms": ms(origin), "quit_choice_ms": ms(choice),
+        "page_get_ms": ms(get), "page_torn_down_ms": ms(torn_down),
+        "shutdown_line": [(ms(t), m) for t, m in shutdown],
+        "cef_state": [(ms(t), state, spare) for t, state, spare in watch.changes],
+        "last_journal_read_ms": ms(journal.last_read), "last_cef_read_ms": ms(watch.last_read),
+        "exit_ms": round(exit_seconds * 1000), "journal_reads": journal.reads}
+    with open(os.path.join(run.dir, "timeline.json"), "w") as handle:
+        json.dump(timeline, handle, indent=1)
+    run.note("quit timeline (ms from the Apple event's send): " + json.dumps(timeline))
+    # The landing. `create_window` (start_steps) runs only while quit has not begun stopping Chromium
+    # (`ensureCreated` checks `acceptsNewBrowsers`, false from `shutdown`'s first line, #23383), so a
+    # recorded `create_window` started before the shutdown began. AFTER_CREATED through the pane's
+    # own path (`attach`, `first_window`) comes only before it too: from then on AFTER_CREATED goes
+    # to the shutdown branch, which records neither. So `create_window` without them, read while the
+    # app still answered, is a creation under way when the shutdown began.
+    covered = journal.last_read is not None and (shutdown_at is None or journal.last_read >= shutdown_at)
+    run.landing = ("late" if watch.step("create_window") is None else
+                   "early" if attach is not None or watch.step("first_window") is not None else
+                   "landed" if covered else "unknown")
+    timeline["landing"] = run.landing
+    if opts.staircase_ms and opts.quit_at == "before-open" and run.landing in ("early", "late"):
+        staircase["delay"] = run.delay_ms + (opts.staircase_ms if run.landing == "early" else -opts.staircase_ms)
+    run.check(run.landing == "landed",
+              "the timing landed: create_window ran before quit began stopping Chromium, and AFTER_CREATED had "
+              "not registered the browser when it began", {k: timeline[k] for k in
+              ("open_sent_ms", "host_present_ms", "create_window_ms", "attach_ms", "first_window_ms", "last_journal_read_ms")})
+    if run.landing == "landed":
+        # Seen on a capture mini (2026-10-21): base calls CefShutdown at once under the creation and
+        # dies in it (SIGSEGV, KERN_INVALID_ADDRESS 0xefefefefefefefef, CefShutdown <-
+        # CEFRuntime.shutdown), with no `CEF shutdown` line; the fix closes the browser when Chromium
+        # makes it and logs `CEF shutdown complete` about 190 ms after create_window. The late
+        # AFTER_CREATED itself shows nowhere (the shutdown branch records nothing, and its page never
+        # loads), so only the line and the clean exit tell them apart.
+        complete = [t for t, m in shutdown if m == "CEF shutdown complete"]
+        run.check(complete, "`CEF shutdown complete` logged (CefShutdown ran and returned)", [m for t, m in shutdown] or "no CEF shutdown line")
+        run.check(not any("timed out" in m for t, m in shutdown), "no `CEF shutdown timed out`", [m for t, m in shutdown] or "none")
+        if complete and watch.step("create_window") is not None:
+            run.note(f"CEF shutdown complete {round((complete[0] - watch.step('create_window')) * 1000)} ms after create_window")
+    run.note(f"journal read {'past' if covered else 'NOT past'} the first CEF shutdown line")
+    run.note(f"quit to exit {exit_seconds:.2f} s")
+    return timeline
+
+
 def one_run(index):
     run = Run(index)
     runs.append(run)
     end_tag()  # a clean start: no app, daemon or terminal host of this tag left
+    if opts.case == "windowless":
+        wipe_state()  # a first launch: nothing restored, Chromium never used
     app_log = os.path.join(run.dir, "app.log")
     reports_before = set(glob.glob(os.path.join(REPORTS, "*.ips")))
     print(f"run {index}: launching {os.path.basename(APP)} ({BUNDLE_ID})", flush=True)
+    extra = []
+    if opts.case == "windowless":
+        # Its own cmux-next.json, which the default-engine switch writes (never the account's file).
+        # New tabs start in WebKit: with Chromium the default, the first launch's new-tab page is a
+        # Chromium tab.
+        config = os.path.join(run.dir, "cmux-next.json")
+        with open(config, "w") as handle:
+            json.dump({"browser": {"defaultEngine": "webkit"}}, handle)
+        extra = ["--env", f"CMUX_NEXT_CONFIG_FILE={config}"]
     subprocess.run(["open", "-n", "-g", "--stdout", app_log, "--stderr", app_log,
                     "--env", "CMUX_NEXT_SOCKET_MODE=automation", "--env", "CMUX_NEXT_NO_ACTIVATE=1",
                     "--env", "ACPMUX_AGENT_LAUNCH=deny", "--env", "CMUX_NEXT_TEST_WINDOW_FRAME=60,60,1280,820",
-                    APP], check=False, timeout=60)
+                    *extra, APP], check=False, timeout=60)
     pid = wait(lambda: (app_pids() or [None])[0], 60)
     if not run.check(pid, "the app starts", pid):
         return run
     if not run.check(wait(lambda: "error" not in (rpc("debug.focus") or {"error": 1}), 180), "the app answers its socket"):
         return run
     # A relaunch restores the last run's windows and workspaces; start from none.
-    restored = windows()
+    restored = windows() if opts.case != "windowless" else []
     if restored:
         run.note(f"restored {len(restored)} windows with {sum(len(w.get('workspaces') or []) for w in restored)} workspaces; closing them")
         action("workspace.closeAllInAllWindows", focus=True, confirm=True)
@@ -764,7 +1088,8 @@ def one_run(index):
     start = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time.time() - 2))
     # RunningBoard's exit line, streamed from before the quit (see LogStream).
     rb_stream = LogStream(os.path.join(run.dir, "termination.ndjson"), termination_predicate(pid))
-    in_flight = in_flight_quit(run, pid) if opts.case == "in-flight" else None
+    in_flight = in_flight_quit(run, pid) if opts.case == "in-flight" else \
+        windowless_quit(run, pid) if opts.case == "windowless" else None
     if in_flight:
         quit_at = in_flight["quit_at"]
     else:
@@ -839,10 +1164,12 @@ def one_run(index):
     if opts.case == "hidden":
         run.note("refusals of ensureCreated/create_window are not logged by the fix; not observable after exit")
     timeline = None
-    if in_flight:
+    if in_flight and opts.case == "windowless":
+        timeline = windowless_evidence(run, in_flight, exit_seconds)
+    elif in_flight:
         timeline = in_flight_evidence(run, in_flight, exit_seconds)
-    elif opts.case == "in-flight":
-        run.check(False, "the in-flight setup ran (see the failures above)")
+    elif opts.case in ("in-flight", "windowless"):
+        run.check(False, f"the {opts.case} setup ran (see the failures above)")
     run.result = {"pid": pid, "wait_status": status, "signal": signal_number or None, "exit_code": exit_code,
                   "crash_reports": ips, "fatal": fatal[:2], "stack": stack[:8], "cef_log": shutdown,
                   "termination": termination[-1:], "quit_to_exit_s": round(exit_seconds, 3), "timeline": timeline}
@@ -855,6 +1182,8 @@ teardown.install()
 try:
     for n in range(1, opts.runs + 1):
         one_run(n)
+        if opts.until_landed and sum(1 for r in runs if getattr(r, "landing", None) == "landed") >= opts.until_landed:
+            break
 finally:
     for stream in streams:
         if stream.poll() is None:
@@ -862,12 +1191,24 @@ finally:
     teardown.end()
     end_tag()
     server.shutdown()
-    verdict = [{"run": r.index, "ok": not r.failures, "failures": r.failures, "notes": r.notes,
+    verdict = [{"run": r.index, "ok": not r.failures, "landing": getattr(r, "landing", None), "failures": r.failures, "notes": r.notes,
                 "result": getattr(r, "result", None), "checks": r.checks} for r in runs]
     with open(os.path.join(opts.out, "verdict.json"), "w") as handle:
         json.dump({"app": os.path.basename(APP), "bundle_id": BUNDLE_ID, "runs": verdict}, handle, indent=1)
 
+def died(r):
+    return bool(getattr(r, "result", {}) and (r.result.get("signal") or r.result.get("crash_reports") or r.result.get("fatal")))
+
+
+aborted = sum(1 for r in runs if died(r))
+if opts.case == "windowless":
+    # A run whose timing missed (the open too early or too late) tested nothing: it is reported, not judged.
+    landed = [r for r in runs if getattr(r, "landing", None) == "landed"]
+    clean = sum(1 for r in landed if not r.failures)
+    missed = {k: sum(1 for r in runs if getattr(r, "landing", None) == k) for k in ("early", "late", "unknown", None)}
+    print(f"verdict: {clean}/{len(landed)} landed runs clean, {sum(1 for r in landed if died(r))} aborted; "
+          f"missed {json.dumps({str(k): v for k, v in missed.items() if v})} of {len(runs)} attempts; artifacts in {opts.out}", flush=True)
+    sys.exit(1 if clean != len(landed) or not landed or len(landed) < opts.until_landed else 0)
 clean = sum(1 for r in runs if not r.failures)
-aborted = sum(1 for r in runs if getattr(r, "result", {}) and (r.result.get("signal") or r.result.get("crash_reports") or r.result.get("fatal")))
 print(f"verdict: {clean}/{len(runs)} runs clean, {aborted} aborted; artifacts in {opts.out}", flush=True)
 sys.exit(1 if clean != len(runs) else 0)

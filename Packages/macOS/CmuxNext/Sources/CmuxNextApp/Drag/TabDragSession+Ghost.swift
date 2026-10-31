@@ -35,7 +35,7 @@ extension TabDragSession {
     }
 
     /// One ghost frame; false once the ghost settled.
-    func tick(_ current: Drag, elapsed dt: Double) -> Bool {
+    func tick(_ current: Drag, elapsed dt: Double) -> Bool { // perf-hot: 2ms drag-frame (every frame of a drag)
         guard current === drag || current === landing else { return false }
         var moving = current.motion.step(dt)
         if current === drag, autoscroll(current, dt: dt) {
@@ -94,6 +94,8 @@ extension TabDragSession {
             land(drag, at: drag.source.screenFrame, cardness: 0, opacity: 0, scale: 1)
         case .moveWorkspaceToNewWindow, .moveWorkspace:
             // The tabs stay in their workspace; the workspace itself moves.
+            // Its winning sidebar still owns a gap, even when the workspace stays in its current slot.
+            winner?.provider.dropEnded(committed: winner?.proposal)
             drag.lifecycle.cancel()
             moveSourceWorkspace(outcome, drag: drag)
             land(drag, at: drag.source.screenFrame, cardness: 0, opacity: 0, scale: 1)
@@ -152,7 +154,6 @@ extension TabDragSession {
     func removeMonitors(_ drag: Drag) {
         if let monitor = drag.monitor { NSEvent.removeMonitor(monitor) }
         drag.monitor = nil
-        if let resignObserver { NotificationCenter.default.removeObserver(resignObserver) }
         resignObserver = nil
     }
 

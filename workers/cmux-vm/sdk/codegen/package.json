@@ -1,0 +1,10 @@
+{
+  "name": "@cmux/vm-codegen",
+  "private": true,
+  "description": "Pins the schema generator with the TypeScript 5 compiler API it prints with; the SDK itself typechecks with TypeScript 7",
+  "type": "module",
+  "devDependencies": {
+    "openapi-typescript": "7.13.0",
+    "typescript": "5.9.3"
+  }
+}

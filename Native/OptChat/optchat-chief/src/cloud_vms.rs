@@ -6,6 +6,11 @@ use std::path::PathBuf;
 
 /// Starts and pauses the VM behind an acpmux peer.
 pub trait CloudVms: Send + Sync {
+    /// Whether the pool tool is set up (it can make VMs). False: cloud is
+    /// not the default placement (cloud-subagents-DESIGN.md, v2).
+    fn available(&self) -> bool {
+        true
+    }
     /// Makes sure peer `peer`'s VM runs (a no-op when it does); it blocks
     /// until the VM is up.
     fn resume(&self, peer: &str) -> Result<(), String>;
@@ -18,6 +23,19 @@ pub trait CloudVms: Send + Sync {
     fn put_agent_key(&self, peer: &str, agent: &str, file: &str) -> Result<(), String> {
         let _ = (peer, agent, file);
         Err("this pool tool cannot place agent keys".into())
+    }
+    /// Makes subagent VM `peer` (`chief-sub-<id>`) at `size` (`small`,
+    /// `medium`, `large`) from the shared base image when it does not exist
+    /// yet, else resumes it; it blocks until the VM is up and is an acpmux
+    /// peer. One VM per subagent (cloud-subagents-DESIGN.md).
+    fn provision(&self, peer: &str, size: &str) -> Result<(), String> {
+        let _ = size;
+        self.resume(peer)
+    }
+    /// Deletes subagent VM `peer` and forgets the peer. Refused (Err) while
+    /// a worktree there holds unpushed commits or edits.
+    fn destroy(&self, peer: &str) -> Result<(), String> {
+        Err(format!("this pool tool cannot delete {peer}"))
     }
     /// Removes subagent `agent`'s agent key file from peer `peer`'s VM.
     fn drop_agent_key(&self, peer: &str, agent: &str) -> Result<(), String> {
@@ -92,6 +110,10 @@ impl CommandVms {
 }
 
 impl CloudVms for CommandVms {
+    fn available(&self) -> bool {
+        std::fs::read_to_string(&self.file).is_ok_and(|c| !c.trim().is_empty())
+    }
+
     fn resume(&self, peer: &str) -> Result<(), String> {
         self.run("resume", peer)
     }
@@ -112,6 +134,29 @@ impl CloudVms for CommandVms {
 
     fn drop_agent_key(&self, peer: &str, agent: &str) -> Result<(), String> {
         self.run_with(&["agent-key-rm", peer, agent], None)
+    }
+
+    fn provision(&self, peer: &str, size: &str) -> Result<(), String> {
+        if !self.has_tool() {
+            return Err("no pool tool (~/.config/cloud-subagents/vm-cmd)".into());
+        }
+        self.run_with(&["resume", peer, "--size", size], None)
+    }
+
+    fn destroy(&self, peer: &str) -> Result<(), String> {
+        if !self.has_tool() {
+            return Err("no pool tool (~/.config/cloud-subagents/vm-cmd)".into());
+        }
+        self.run_with(&["destroy", peer], None)
+    }
+}
+
+impl CommandVms {
+    /// Whether the file names a pool tool that exists.
+    fn has_tool(&self) -> bool {
+        std::fs::read_to_string(&self.file)
+            .map(|c| !c.trim().is_empty() && std::path::Path::new(c.trim()).exists())
+            .unwrap_or(false)
     }
 }
 

@@ -61,7 +61,9 @@ import Testing
         }
         let lift = try #require(list.subviews.first { $0 is DragLiftView } as? DragLiftView)
         let last = try #require(list.displayed.row(for: .workspace(WorkspaceID("m3"))))
-        let block = list.frame(for: header).union(list.frame(for: last))
+        // The group's block: its rows and its members' line, which runs just left of them (#23975).
+        let line = try #require(SidebarGroupLine.lines(list.displayed.rows, colors: list.groups) { list.frame(for: $0) }.first)
+        let block = list.frame(for: header).union(list.frame(for: last)).union(line.frame)
         #expect(lift.frame.size == block.size, "the card is not the group's size")
         #expect(lift.frame.minX == block.minX, "the card moved sideways")
         #expect(CATransform3DIsIdentity(try #require(lift.layer).sublayerTransform))

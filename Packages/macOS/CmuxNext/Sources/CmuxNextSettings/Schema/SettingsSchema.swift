@@ -12,13 +12,15 @@ public nonisolated enum SettingsSchema {
     /// reads it twice before the first window (about 20 ms in all on a cold launch, bd cx-z9kz0).
     public static let all: [SettingDescriptor] = {
         let next = general + ShortcutHintsSettingsSchema.descriptors + UpdateSettingsSchema.descriptors + UpdateSettingsSchema.announcements
-            + ComputerUseSettingsSchema.descriptors + FreeModelSettingsSchema.descriptors + SessionSettingsSchema.descriptors + SessionSettingsSchema.phoneDescriptors + SubsessionSettingsSchema.descriptors + TrustSettingsSchema.descriptors + MobileSettingsSchema.descriptors + ColumnLayoutSettingsSchema.descriptors
+            + ComputerUseSettingsSchema.descriptors + FreeModelSettingsSchema.descriptors + SessionSettingsSchema.descriptors + SessionSettingsSchema.phoneDescriptors + [MachineColorsSetting.descriptor, SSHLinkHostsSetting.descriptor] + SubsessionSettingsSchema.descriptors + TrustSettingsSchema.descriptors + MobileSettingsSchema.descriptors + ColumnLayoutSettingsSchema.descriptors
             + PanePlacementSettingsSchema.descriptors + WorkspaceListSettingsSchema.descriptors + PaletteSettingsSchema.descriptors
-            + ChatSettingsSchema.descriptors + PickerSettingsSchema.descriptors + ScreenshotsSettingsSchema.descriptors + TaskSettingsSchema.descriptors + appearance + TerminalSettingsSchema.descriptors + EditorSettingsSchema.descriptors
-            + SidebarSectionSettingsSchema.descriptors + HoverCardSettingsSchema.descriptors + NowPlayingSettingsSchema.descriptors + NowPlayingSettingsSchema.newTabDescriptors + NewTabWidgetSettingsSchema.descriptors + NewTabWidgetSettings.editDescriptors + ColorTransitionSettingsSchema.descriptors + WorkspaceRowSetting.descriptors() + BrowserSettingsSchema.descriptors + HomeSettingsSchema.descriptors
-            + NotificationSettingsSchema.descriptors + LabsSettingsSchema.descriptors + FeedSettingsSchema.descriptors + AgentPaneSettingsSchema.descriptors
+            + ChatSettingsSchema.descriptors + PickerSettingsSchema.descriptors + ScreenshotsSettingsSchema.descriptors + AutoArchiveSettingsSchema.descriptors + WorkspaceHibernationSettingsSchema.descriptors + TaskSettingsSchema.descriptors + appearance + TerminalSettingsSchema.descriptors + EditorSettingsSchema.descriptors
+            + SidebarSectionSettingsSchema.descriptors + HoverCardSettingsSchema.descriptors + NowPlayingSettingsSchema.descriptors + NowPlayingSettingsSchema.newTabDescriptors + NowPlayingSettingsSchema.pictureInPictureDescriptors + NewTabWidgetSettingsSchema.descriptors + NewTabWidgetSettings.editDescriptors + ColorTransitionSettingsSchema.descriptors + WorkspaceRowSetting.descriptors() + BrowserSettingsSchema.descriptors + HomeSettingsSchema.descriptors + ChiefReactionSettingsSchema.descriptors
+            + NotificationSettingsSchema.descriptors + NotificationSoundSettingsSchema.descriptors + LabsSettingsSchema.descriptors + FeedSettingsSchema.descriptors + AgentPaneSettingsSchema.descriptors
             + AgentPaneEditedFilesSettingsSchema.descriptors + AgentPaneComposerSettingsSchema.descriptors + AgentPaneZoomSettingsSchema.descriptors
-            + AgentDefaultsSettingsSchema.descriptors
+            + AgentDefaultsSettingsSchema.descriptors + HangReportsSettingsSchema.descriptors
+            + MacScreenSettingsSchema.descriptors + MacScreenDebugSettingsSchema.descriptors
+            + DeviceHubSettingsSchema.descriptors + [ContextMenusSetting.showCustomizeItemDescriptor]
         return next.map { sharedWithBrowser.contains($0.id) ? $0.consumed(by: [.cmuxNext, .cmuxBrowser]) : $0 }
             + BrowserAppSettingsSchema.descriptors
     }()
@@ -59,14 +61,15 @@ public nonisolated enum SettingsSchema {
         case .terminal: ["palette.openGhosttySettings", "reloadConfiguration"]
         case .editor: ["fileEditor.importEditorSettings"]
         case .browser: ["importFromBrowser", "browser.extensions.manage", "browser.extensions.webStore", "browser.extensions.loadUnpacked"]
-        case .home: []
+        case .home: ["diagnostics.viewHangReport"]
         case .keyboard: ["keybindings.open", "palette.searchShortcuts"]
         case .notifications: []
-        case .accounts: ["accounts.refresh", "openTeamPicker"]
+        case .accounts: ["accounts.refresh", "palette.mobileConnect"]
         case .rooms: ["space.new", "space.switch", "space.rename", "space.setTheme", "space.clearTheme"]
-        case .machines: ["machine.add", "remote.connect", "newCloudMachine", "palette.auth.signIn"]
+        case .machines: ["device.add", "remote.connect", "newCloudMachine", "palette.auth.signIn"]
         // The page draws Open <settings file> itself, named from the loaded path.
         case .advanced: ["reloadConfiguration"]
+        case .development: []
         }
     }
 
@@ -158,7 +161,7 @@ public nonisolated enum SettingsSchema {
                 TitlebarButtonsSetting.configPath, section: .general, group: window,
                 title: SettingsText.keyed("settings.window.titlebarButtons", "Titlebar Buttons"),
                 help: SettingsText.keyed("settings.window.titlebarButtons.help",
-                                        "On Hover hides Back and Forward until the pointer is over the top row. The sidebar button always shows."),
+                                        "With the sidebar hidden, On Hover hides the sidebar button, Back and Forward until the pointer is over the top row. With the sidebar open, they always show."),
                 kind: .choice([
                     SettingChoice(TitlebarButtonsMode.hover.rawValue, SettingsText.keyed("settings.choice.onHover", "On Hover")),
                     SettingChoice(TitlebarButtonsMode.always.rawValue, SettingsText.keyed("settings.choice.always", "Always")),
@@ -194,7 +197,17 @@ public nonisolated enum SettingsSchema {
                 default: .bool(CmuxConfigSnapshot.hideDockIconWithoutWindowsFallback),
                 keywords: ["dock", "icon", "menu bar", "background", "app switcher", "command tab", "accessory", "windows"]
             ),
+            SettingDescriptor(
+                CmuxConfigSnapshot.showMenuBarIconPath, section: .general, group: window,
+                title: SettingsText.keyed("settings.app.showMenuBarIcon", "Show Menu Bar Icon"),
+                help: SettingsText.keyed("settings.app.showMenuBarIcon.help",
+                                        "A cmux item in the menu bar: open cmux, your account, working agents, help, Discord, updates, logs and Quit."),
+                kind: .toggle,
+                default: .bool(CmuxConfigSnapshot.showMenuBarIconFallback),
+                keywords: ["menu bar", "status item", "menubar", "tray", "icon", "raycast", "extra", "discord", "logs"]
+            ),
             TabSettingsSchema.newTabTemplate(group: tabs),
+            TabSettingsSchema.nativeNewTabPage(group: tabs),
             TabSettingsSchema.terminalFirst(group: tabs),
             TabSettingsSchema.newTabPosition(group: tabs),
             TabSettingsSchema.plusButton(group: tabs),
@@ -246,7 +259,7 @@ public nonisolated enum SettingsSchema {
                     SettingChoice(StripScrollbarMode.always.rawValue, SettingsText.keyed("settings.choice.always", "Always")),
                     SettingChoice(StripScrollbarMode.off.rawValue, SettingsText.keyed("settings.choice.off", "Off")),
                 ]),
-                default: .string(StripScrollbarSetting.fallback.rawValue), keywords: ["scroll", "scrollbar", "minimap"]
+                default: .string(StripScrollbarSetting.fallback.rawValue), keywords: ["scroll", "scrollbar", "column", "visible range", "overview"]
             ),
             SettingDescriptor(
                 CloseFocusSetting.configPath, section: .general, group: columns,

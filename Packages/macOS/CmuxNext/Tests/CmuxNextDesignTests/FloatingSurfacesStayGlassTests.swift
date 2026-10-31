@@ -2,6 +2,7 @@ import AppKit
 import CmuxTheme
 @testable import CmuxNextDesign
 import Testing
+import CmuxNextDesignTokens
 
 /// Leo, 2026-10-21, on his nightly: "WHY IS THIS SOLID COLOR AGAIN". The What's New popover beside
 /// the Update Ready card, the session hover cards and the tab cards all show in the app's one hover

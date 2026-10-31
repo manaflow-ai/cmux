@@ -8,10 +8,14 @@ from __future__ import annotations
 import json
 import os
 import plistlib
+import re
+import shutil
+import signal
 import stat
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -31,6 +35,13 @@ server.listen(8)
 lock = threading.Lock()
 with open(log, "a") as out:
     out.write(json.dumps({"method": "_launch", "params": {"no_activate": os.environ.get("CMUX_NEXT_NO_ACTIVATE")}}) + "\n")
+    markers = {key: os.environ[key] for key in ("CMUX_SOCKET_PATH", "CMUX_BUNDLE_ID", "CMUX_TAG", "MUX_AGENT_TOKEN_FILE")
+               if key in os.environ}
+    out.write(json.dumps({"method": "_markers", "params": markers}) + "\n")
+    home = os.environ.get("CMUX_CAPTURE_SHELL_HOME") or ""
+    zshrc = os.path.join(home, ".zshrc")
+    out.write(json.dumps({"method": "_fixture", "params": {"shell_home": home,
+        "zshrc": open(zshrc).read() if home and os.path.isfile(zshrc) else None}}) + "\n")
 def answer(connection):
     with connection:
         data = b""
@@ -186,6 +197,39 @@ class AppWindowCaptureTests(unittest.TestCase):
         launches = [entry["params"] for entry in launches if entry["method"] == "_launch"]
         self.assertEqual(launches, [{"no_activate": "1"}], "the app refuses activation itself")
 
+    def test_the_app_runs_as_under_capture_with_a_fixture_prompt(self) -> None:
+        # pr-media's privacy check refused every core-tour shot for the CI Mac's name in the
+        # composer's machine picker and in the zsh prompt (`cmux@<host> ~ %`). Under capture
+        # (CMUX_CAPTURE_SHELL_HOME) the app names the showcase Mac and its zsh reads this home.
+        sys.path.insert(0, str(ROOT / "scripts/ci"))
+        try:
+            import pr_media_privacy
+        finally:
+            sys.path.pop(0)
+        done, _ = self.run_tour()
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        entries = [json.loads(line) for line in self.log.read_text(encoding="utf-8").splitlines()]
+        [fixture] = [entry["params"] for entry in entries if entry["method"] == "_fixture"]
+        self.assertTrue(Path(fixture["shell_home"]).is_absolute())
+        self.assertFalse(Path(fixture["shell_home"]).is_relative_to(self.root / "out"), "never published as media")
+        # What a shot shows: the machine label, and the prompt zsh draws in the tour's home (`%1~` is `~`).
+        match = re.search(r"(?m)^PROMPT='([^']*)'$", fixture["zshrc"])
+        self.assertIsNotNone(match, fixture["zshrc"])
+        prompt = match.group(1).replace("%1~", "~").replace("%#", "%")
+        self.assertNotRegex(prompt, r"%[^ ]", "no other prompt escape (%m, %n) names the host or account")
+        prompt += " echo hello from the cmux-next tour"
+        # "Studio Mac": AgentTabStore.showcaseMachineName, the name the app shows under capture.
+        found = pr_media_privacy.findings(["Studio Mac", prompt], list(pr_media_privacy.GENERIC_PATTERNS))
+        self.assertEqual(found, [])
+
+    def test_no_other_cmux_marker_reaches_the_app(self) -> None:
+        # Any of LaunchIdentity.otherCmuxMarkers makes the app drop the tour's socket and capture home
+        # as another cmux's, so a tour run from an agent's terminal would show the runner's prompt again.
+        done, _ = self.run_tour(MUX_AGENT_TOKEN_FILE=str(self.root / "token"))
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        entries = [json.loads(line) for line in self.log.read_text(encoding="utf-8").splitlines()]
+        self.assertEqual([entry["params"] for entry in entries if entry["method"] == "_markers"], [{}])
+
     def test_a_working_window_snapshot_never_probes_the_desktop(self) -> None:
         # A desktop capture shows whatever covers the window (permission
         # prompts, other jobs' windows), so it is only the fallback.
@@ -235,6 +279,27 @@ class AppWindowCaptureTests(unittest.TestCase):
         self.assertEqual(step["status"], "ok")
         self.assertEqual(step["postcondition"]["status"], "passed")
         self.assertIn("matched windows.0.frame", step["postcondition"]["detail"])
+
+    def test_a_shot_no_expect_checked_is_reported_unchecked(self) -> None:
+        # "ok" on a shot step only says the step ran: without an `expect` nothing read the screen it
+        # shows (a palette still with an empty field passed as "the command is selected", #28323).
+        self.tour.write_text(json.dumps({"title": "Demo", "steps": [
+            {"title": "Launch", "wait": 0, "shot": False},
+            {"title": "Unchecked shot", "cmux": ["action", "run", "splitRight"], "wait": 0},
+            {"title": "Checked shot", "wait": 0,
+             "expect": {"method": "debug.layers", "fields": {"windows.0.frame": [100, 100, 800, 600]}}},
+        ]}), encoding="utf-8")
+        done, manifest = self.run_tour()
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertEqual(manifest["result"], "pass")
+        launch, unchecked, checked = manifest["steps"]
+        self.assertEqual([step["status"] for step in manifest["steps"]], ["ok", "ok", "ok"])
+        self.assertEqual([step["checked"] for step in manifest["steps"]], [False, False, True])
+        self.assertNotIn("shot", launch)
+        self.assertIn("shot", unchecked)
+        self.assertRegex(done.stdout, r"02 unchecked +Unchecked shot")
+        self.assertRegex(done.stdout, r"03 ok +Checked shot")
+        self.assertRegex(done.stdout, r"01 ok +Launch")
 
     def test_required_rendered_state_mismatch_fails(self) -> None:
         self.tour.write_text(json.dumps({"title": "Demo", "steps": [
@@ -446,6 +511,225 @@ class EveryWindowCaptureTests(AppWindowCaptureTests):
             {"title": "Launch", "wait": 0, "windows": False}]}), encoding="utf-8")
         _, manifest = self.run_tour()
         self.assertNotIn("windows", manifest["steps"][0])
+
+
+
+# The bundled CLI for --stop: logs its argv, one line per call.
+LOGGING_CLI = r'''#!/usr/bin/env python3
+import json, os, sys
+with open(os.environ["FAKE_LOG"], "a") as out:
+    out.write(json.dumps(sys.argv[1:]) + "\n")
+'''
+
+# tour.py's CLI with a short SIGKILL grace, so a process that ignores SIGTERM costs a second.
+STOP_LAUNCHER = r'''import sys
+sys.path.insert(0, sys.argv[1])
+import tour
+tour.STOP_GRACE = 1.0
+sys.exit(tour.main(sys.argv[2:]))
+'''
+
+
+class StopTests(unittest.TestCase):
+    """--stop ends what a built app left running: its tagged daemon through the CLI, then every process whose
+    executable is in the bundle (run 39199091515's chief host and acpmux daemon held cmux10s's DerivedData
+    open for days), and nothing that only names the bundle in its arguments."""
+
+    def setUp(self) -> None:
+        self.temp = tempfile.TemporaryDirectory(prefix="tour-stop-test.")
+        self.root = Path(self.temp.name)
+        self.log = self.root / "cli.jsonl"
+        executable(self.root / "bin/stat", FAKE_TOOLS["stat"])
+        self.launcher = self.root / "stop.py"
+        self.launcher.write_text(STOP_LAUNCHER, encoding="utf-8")
+        self.processes: list[subprocess.Popen] = []
+
+    def tearDown(self) -> None:
+        for process in self.processes:
+            if process.poll() is None:
+                process.kill()
+            process.wait()
+        self.temp.cleanup()
+
+    def bundle(self, path: Path, tag: str) -> Path:
+        (path / "Contents").mkdir(parents=True)
+        with (path / "Contents/Info.plist").open("wb") as plist:
+            plistlib.dump({"CFBundleExecutable": "fakeapp", "LSEnvironment": {"CMUX_TAG": tag}}, plist)
+        executable(path / "Contents/MacOS/fakeapp", "#!/bin/sh\nexit 0\n")
+        executable(path / "Contents/Resources/bin/cmux", LOGGING_CLI)
+        return path
+
+    def start(self, argv: list[str], ignore_term: bool = False) -> subprocess.Popen:
+        # An ignored SIGTERM survives exec, so `sleep` then needs SIGKILL.
+        ignore = (lambda: signal.signal(signal.SIGTERM, signal.SIG_IGN)) if ignore_term else None
+        process = subprocess.Popen(argv, start_new_session=True, preexec_fn=ignore)
+        self.processes.append(process)
+        return process
+
+    def run_from(self, bundle: Path, name: str, ignore_term: bool = False) -> subprocess.Popen:
+        """`sleep` started from inside the bundle, as the app starts the chief host: the command starts with
+        the bundle's path. (A link, since macOS kills a copied system binary.)"""
+        link = bundle / "Contents/Resources/bin" / name
+        link.symlink_to(shutil.which("sleep"))
+        return self.start([str(link), "600"], ignore_term)
+
+    def leftovers(self, bundle: Path) -> tuple[subprocess.Popen, subprocess.Popen, subprocess.Popen]:
+        chief = self.run_from(bundle, "optchat-chief")
+        stubborn = self.run_from(bundle, "acpmux", ignore_term=True)
+        bystander = self.start(["/bin/sh", "-c", f"sleep 600; : '{bundle}/Contents/Resources/bin/optchat-chief'"])
+        time.sleep(0.5)
+        self.assertTrue(all(process.poll() is None for process in (chief, stubborn, bystander)))
+        return chief, stubborn, bystander
+
+    def environment(self) -> dict[str, str]:
+        env = {key: value for key, value in os.environ.items() if not key.startswith("CMUX_")}
+        env.update(PATH=f"{self.root / 'bin'}{os.pathsep}{env.get('PATH', '')}", FAKE_LOG=str(self.log))
+        return env
+
+    def stop(self, *bundles: Path) -> subprocess.CompletedProcess:
+        argv = [sys.executable, str(self.launcher), str(SCRIPT.parent)]
+        for bundle in bundles:
+            argv += ["--stop", str(bundle)]
+        return subprocess.run(argv, capture_output=True, text=True, timeout=120, env=self.environment())
+
+    def calls(self) -> list[list[str]]:
+        if not self.log.exists():
+            return []
+        return [json.loads(line) for line in self.log.read_text(encoding="utf-8").splitlines()]
+
+    def test_it_ends_the_daemon_and_everything_run_from_the_bundle(self) -> None:
+        bundle = self.bundle(self.root / "cmux DEV ci-media-slot0-head.app", "ci-media-slot0-head")
+        chief, stubborn, bystander = self.leftovers(bundle)
+        done = self.stop(bundle)
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertIn(["--session", "cmux-app-ci-media-slot0-head", "server", "stop", "--end-terminals"],
+                      self.calls())
+        self.assertIsNotNone(chief.poll(), "the chief host is still running")
+        self.assertIsNotNone(stubborn.poll(), "a process that ignores SIGTERM is still running")
+        self.assertIsNone(bystander.poll(), "a process that only names the bundle was ended")
+        self.assertIn("nothing left running", done.stdout)
+
+    def test_it_stops_every_bundle_it_is_given(self) -> None:
+        base = self.bundle(self.root / "base/cmux DEV ci-media-slot0-base.app", "ci-media-slot0-base")
+        head = self.bundle(self.root / "head/cmux DEV ci-media-slot0-head.app", "ci-media-slot0-head")
+        left = [self.run_from(base, "optchat-chief"),
+                self.run_from(head, "optchat-chief")]
+        done = self.stop(base, head)
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertTrue(all(process.poll() is not None for process in left), done.stdout)
+        sessions = [call[1] for call in self.calls() if call[:1] == ["--session"]]
+        self.assertEqual(sessions, ["cmux-app-ci-media-slot0-base", "cmux-app-ci-media-slot0-head"])
+
+    def test_a_bundle_without_its_cli_still_has_its_processes_ended(self) -> None:
+        bundle = self.bundle(self.root / "cmux DEV ci-media-slot1-head.app", "ci-media-slot1-head")
+        chief = self.run_from(bundle, "optchat-chief")
+        (bundle / "Contents/Resources/bin/cmux").unlink()
+        done = self.stop(bundle)
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertIsNotNone(chief.poll())
+
+    def test_a_missing_app_is_nothing_to_stop(self) -> None:
+        done = self.stop(self.root / "never built.app")
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertIn("nothing to stop", done.stdout)
+
+    def test_tours_or_stop_are_required(self) -> None:
+        done = subprocess.run([sys.executable, str(SCRIPT)], capture_output=True, text=True, timeout=60)
+        self.assertEqual(done.returncode, 2)
+
+    def test_the_tour_job_stops_both_apps_whatever_happened(self) -> None:
+        import yaml
+
+        workflow = yaml.safe_load((ROOT / ".github/workflows/cmux-next-media.yml").read_text(encoding="utf-8"))
+        steps = workflow["jobs"]["tour"]["steps"]
+        names = [step.get("name") for step in steps]
+        self.assertIn("Stop this tour's apps and daemons", names)
+        index = names.index("Stop this tour's apps and daemons")
+        step = steps[index]
+        self.assertGreater(index, names.index("Capture before and after interactions"))
+        self.assertLess(index, names.index("Keep the media for the publish job"))
+        self.assertIn("always()", step["if"])
+        self.assertTrue(step.get("continue-on-error"))
+        home = self.root / "home"
+        apps = home / "Library/Developer/Xcode/DerivedData"
+        base = self.bundle(apps / "cmux-ci-media-slot0-base/Build/Products/Debug/cmux DEV ci-media-slot0-base.app",
+                           "ci-media-slot0-base")
+        head = self.bundle(apps / "cmux-ci-media-slot0-head/Build/Products/Debug/cmux DEV ci-media-slot0-head.app",
+                           "ci-media-slot0-head")
+        other = self.bundle(apps / "cmux-ci-media-slot1-head/Build/Products/Debug/cmux DEV ci-media-slot1-head.app",
+                            "ci-media-slot1-head")
+        mine = [self.run_from(base, "optchat-chief"),
+                self.run_from(head, "optchat-chief")]
+        theirs = self.run_from(other, "optchat-chief")
+        env = dict(self.environment(), HOME=str(home), TOUR_TAG="ci-media-slot0", RUNNER_TEMP=str(self.root),
+                   GITHUB_SHA="0" * 40)
+        done = subprocess.run(["bash", "-c", step["run"]], cwd=ROOT, env=env, capture_output=True, text=True,
+                              timeout=120)
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertTrue(all(process.poll() is not None for process in mine), done.stdout + done.stderr)
+        self.assertIsNone(theirs.poll(), "another slot's app was ended")
+
+
+class CheckedInToursTests(unittest.TestCase):
+    """Every tour under scripts/cmux-next/media/tours loads: one bad file (a step key tour.py does not
+    know, as #26274's "record" was) stops every pull request's tour before it starts, since the
+    runner checks them all."""
+
+    def test_every_checked_in_tour_loads(self) -> None:
+        sys.path.insert(0, str(SCRIPT.parent))
+        import tour
+        tours = sorted((SCRIPT.parent / "tours").glob("*.json"))
+        self.assertTrue(tours)
+        for path in tours:
+            with self.subTest(tour=path.name):
+                tour.load_tour(path)
+
+
+class FocusAfterCloseTests(unittest.TestCase):
+    """A directional focus right after a pane close is refused at load: the close already focused a
+    neighbour, and with one pane left the move fails ("no pane left of the focused pane") and fails
+    the whole capture, as the main-pane tour's "Focus the chat" did on #27839."""
+
+    def setUp(self) -> None:
+        sys.path.insert(0, str(SCRIPT.parent))
+        import tour
+        self.tour_module = tour
+        self.scratch = Path(tempfile.mkdtemp(prefix="tour-focus-close-"))
+        self.addCleanup(shutil.rmtree, self.scratch, ignore_errors=True)
+
+    def load(self, steps: list[dict]) -> dict:
+        path = self.scratch / "demo.json"
+        path.write_text(json.dumps({"title": "Demo", "steps": steps}), encoding="utf-8")
+        return self.tour_module.load_tour(path)
+
+    @staticmethod
+    def run_action(action: str) -> dict:
+        return {"title": action, "cmux": ["action", "run", action], "shot": False}
+
+    def test_a_directional_focus_right_after_a_close_is_refused(self) -> None:
+        for focus in ("focusLeft", "focusRight", "focusUp", "focusDown"):
+            with self.subTest(focus=focus), self.assertRaisesRegex(self.tour_module.TourError, "step 3 runs " + focus):
+                self.load([{"title": "Launch"}, self.run_action("closePane"), self.run_action(focus)])
+
+    def test_steps_that_open_no_pane_do_not_hide_the_close(self) -> None:
+        tunable = {"title": "Tunable", "rpc": {"method": "debug.tunables", "params": {"key": "x", "value": "off"}}}
+        setting = {"title": "Setting", "cmux": ["settings", "set", "sidebar.density", "compact"]}
+        with self.assertRaisesRegex(self.tour_module.TourError, "step 5 runs focusLeft after closePane"):
+            self.load([self.run_action("closePane"), tunable, setting, {"title": "Wait", "wait": 1},
+                       self.run_action("focusLeft")])
+
+    def test_other_focus_moves_do_not_hide_the_close(self) -> None:
+        for move in ("focusPaneByNumber", "focusNextPane", "focusPreviousPane", "pane.focus",
+                     "column.focusLeft", "focusHistoryBack"):
+            with self.subTest(move=move), self.assertRaisesRegex(
+                    self.tour_module.TourError, "step 3 runs focusLeft after closePane"):
+                self.load([self.run_action("closePane"), self.run_action(move), self.run_action("focusLeft")])
+
+    def test_a_pane_opened_after_the_close_allows_the_focus(self) -> None:
+        link = {"title": "Link", "rpc": {"method": "debug.terminal.links", "params": {"agentLink": "https://example.com"}}}
+        self.load([self.run_action("closePane"), link, self.run_action("focusLeft")])
+        self.load([self.run_action("closePane"), self.run_action("splitRight"), self.run_action("focusLeft")])
+        self.load([self.run_action("focusRight"), self.run_action("closePane"), self.run_action("focusPaneByNumber")])
 
 
 if __name__ == "__main__":

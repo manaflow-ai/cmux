@@ -5,6 +5,7 @@
 
 use super::node_json;
 use crate::model::State;
+use crate::panic_free::JsonFields;
 
 use super::Command;
 use super::LayoutRequest;
@@ -186,7 +187,7 @@ pub(super) fn set_column_dock(
     )?;
     let mut data = json!({"column": outcome.column, "dock": outcome.dock});
     if let Some(transaction) = transaction {
-        data["transaction"] = json!(transaction);
+        data.insert("transaction", json!(transaction));
     }
     Ok(data)
 }
@@ -345,15 +346,18 @@ fn export_layout_json(state: &State, screen_id: Option<ScreenId>) -> anyhow::Res
         }).collect::<Vec<_>>(),
     });
     if !screen.viewport_splits.is_empty() {
-        value["viewport_splits"] = json!(
-            screen
-                .viewport_splits
-                .iter()
-                .map(|(split, width)| json!({"split": split, "width": width}))
-                .collect::<Vec<_>>()
+        value.insert(
+            "viewport_splits",
+            json!(
+                screen
+                    .viewport_splits
+                    .iter()
+                    .map(|(split, width)| json!({"split": split, "width": width}))
+                    .collect::<Vec<_>>()
+            ),
         );
         if let Some(width) = screen.viewport_base_width {
-            value["viewport_base_width"] = json!(width);
+            value.insert("viewport_base_width", json!(width));
         }
     }
     Ok(value)

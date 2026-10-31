@@ -15,7 +15,7 @@
 // Twice: once with the daemon quiet, once with BUSY_LANES chats working, each reporting a change
 // of its own — the "high load" half of the ask, which a list of 120 idle chats does not measure.
 // What that load reaches is not the same in both phases. A cold open holds the pane's last
-// snapshot while its attach goes out, for up to SWITCH_HOLD_MS (400 ms, direct.ts), and a change
+// snapshot while its attach goes out, for up to SWITCH_HOLD_MS (1500 ms, direct.ts), and a change
 // arriving under that hold is folded into the client's sessions and drawn nowhere — so a cold draw
 // (244-330 ms here, inside the cap) is the one part of a run the load does not redraw. Everything
 // else it does: a cached open releases the hold on the frame it draws, and both phases then watch
@@ -79,6 +79,12 @@ await requireBrowserLane("chat-open-perf.test.ts", async () => {
   /// cached open from a cold one here: a cold open takes ten-plus frames, so the few frames allowed
   /// leave room for a loaded runner without letting an acpmux round trip through.
   const CACHED_DRAW_FRAMES = 3;
+  /// The longest fade a chat read cold may take to show (Leo, 2026-10-21: "a fast fade in"), and
+  /// the frame the fade's end lands on: one frame late at most, the longest frame the fade spanned
+  /// or FADE_FRAME_SLACK_MS, whichever is more (a dev-bundle frame of 130 ms during a 120 ms fade
+  /// shows its end at 250 ms; the fade's own length is held exactly, from its animation).
+  const FADE_MS = 150;
+  const FADE_FRAME_SLACK_MS = 50;
   /// How long after a chat draws the sampler watches it for shifts and blank frames.
   const SETTLE_MS = 700;
   /// `CMUX_CHAT_OPEN_PERF_VIDEO=<dir>` records the run, for a before/after on a pull request.
@@ -157,8 +163,10 @@ await requireBrowserLane("chat-open-perf.test.ts", async () => {
   const byId = new Map(chats.map((entry) => [entry.sessionId, entry]));
 
   let attaches = 0;
-  /// The chats one run opens: far apart in the list, as a person picks them out of the sidebar.
-  const picked = [...Array(VISITS).keys()].map((at) => chats[7 + at * 17]!);
+  /// The chats one run opens: far apart in the list, as a person picks them out of the sidebar, and
+  /// below the recent chats the pane reads ahead (direct.ts READ_AHEAD_RECENT), so the first visit
+  /// to each is the cold open this measures (chat-switch-prefetch.test.ts holds the read-ahead).
+  const picked = [...Array(VISITS).keys()].map((at) => chats[20 + at * 17]!);
   /// The chats that keep working under load. None of them is one the run opens: a reader's own
   /// chat redrawing is its attach, not the load around it.
   const busyLanes = chats.filter((entry) => !picked.includes(entry)).slice(-BUSY_LANES);
@@ -183,6 +191,14 @@ await requireBrowserLane("chat-open-perf.test.ts", async () => {
         return null;
     }
   }
+
+  /// A chat whose attach outlasts the switch's hold (SWITCH_HOLD_MS, 1500 ms since 42200fa63cc5)
+  /// and whose agent says LIVE_MARKER at SLOW_LIVE_MS, after the hold gave up and before the attach
+  /// lands at SLOW_ATTACH_MS. None of the runs above opens it and it is not a busy lane.
+  const slowChat = chats[3]!;
+  const SLOW_LIVE_MS = 1_800;
+  const SLOW_ATTACH_MS = 2_400;
+  const LIVE_MARKER = "Live line before the read.";
 
   let daemon: ReturnType<typeof Bun.serve> | undefined;
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
@@ -234,10 +250,41 @@ await requireBrowserLane("chat-open-perf.test.ts", async () => {
           const message = JSON.parse(String(raw)) as { id?: number; method: string; params?: Record<string, any> };
           if (message.id === undefined) return;
           const result = answer(message.method, message.params ?? {});
+          const slow = message.method === "_acpmux/attach" && message.params?.sessionId === slowChat.sessionId;
+          // The slow chat's agent says something while its attach is still out, after the switch's
+          // hold gave up: a live row the pane draws before it read the chat.
+          if (slow)
+            setTimeout(
+              () =>
+                ws.send(
+                  JSON.stringify({
+                    jsonrpc: "2.0",
+                    method: "_acpmux/event",
+                    params: {
+                      sessionId: slowChat.sessionId,
+                      seq: slowChat.events.length + 1,
+                      at: START + 3_600_000,
+                      dir: "in",
+                      kind: "agent_message_chunk",
+                      msg: {
+                        method: "session/update",
+                        params: {
+                          sessionId: slowChat.sessionId,
+                          update: {
+                            sessionUpdate: "agent_message_chunk",
+                            content: { type: "text", text: LIVE_MARKER },
+                          },
+                        },
+                      },
+                    },
+                  }),
+                ),
+              SLOW_LIVE_MS,
+            );
           // Every call costs a round trip, an attach the chat's read on top: the daemon is busy.
           setTimeout(
             () => ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result })),
-            message.method === "_acpmux/attach" ? ATTACH_MS : CALL_MS,
+            slow ? SLOW_ATTACH_MS : message.method === "_acpmux/attach" ? ATTACH_MS : CALL_MS,
           );
         },
       },
@@ -290,6 +337,18 @@ await requireBrowserLane("chat-open-perf.test.ts", async () => {
     first: unknown;
     /// When each frame before the chat drew ran.
     cadence: number[];
+    /// The transcript's opacity on the frame the chat drew: 1 shows it whole at once, less starts a
+    /// fade in.
+    drawOpacity: number;
+    /// Milliseconds from that frame to the first frame at full opacity (0 when it drew whole).
+    fadeMs: number;
+    /// The longest time between two painted frames while the fade ran.
+    fadeFrameMs: number;
+    /// Frames where the transcript's opacity went down, or the page's background changed: a flash.
+    flashes: number;
+    /// What the animations running on the transcript at the draw changed and for how long: a fade
+    /// is opacity only, no slide or scale.
+    animated: { properties: string[]; duration: number }[];
   };
 
   /// Selects `sessionId` from the page and samples every frame until the chat has been drawn for
@@ -356,27 +415,66 @@ await requireBrowserLane("chat-open-perf.test.ts", async () => {
     /// When each frame before the chat drew ran: a wait on acpmux is many short frames, the
     /// chat's own first render one long one.
     const cadence: number[] = [];
-    const result = new Promise<{
-      drawn: number | null;
-      shifted: number;
-      moved: number;
-      blank: number;
-      frames: number;
-      first: unknown;
-      cadence: number[];
-    }>((resolve) => {
+    /// The transcript's opacity as painted, and the page's backdrop (whatever paints first, the
+    /// shell or the body): a fade only ever rises, and the backdrop never changes under a chat.
+    const opacity = () => Number(getComputedStyle(scroller).opacity);
+    const backdrop = () =>
+      [document.body, document.querySelector<HTMLElement>(".acpmux-shell")]
+        .map((node) => (node ? getComputedStyle(node).backgroundColor : ""))
+        .join("|");
+    let drawOpacity = 1;
+    let fadeMs = 0;
+    let fadeFrameMs = 0;
+    let lastFrameAt = 0;
+    let flashes = 0;
+    let lastOpacity = 1;
+    let lastBackdrop = backdrop();
+    let animated: { properties: string[]; duration: number }[] = [];
+    const result = new Promise<Opened>((resolve) => {
       window.cmuxAfterPaint(() => {
         const at = performance.now() - start;
         const shows = scroller.innerText.includes(marker);
+        const seen = opacity();
+        const behind = backdrop();
+        if (behind !== lastBackdrop) {
+          flashes += 1;
+          first ??= { at, backdrop: { from: lastBackdrop, to: behind } };
+        }
+        lastBackdrop = behind;
         if (drawn === null) {
           cadence.push(Math.round(at));
           if (shows) {
             drawn = at;
             before = rowTops();
             scrollTop = scroller.scrollTop;
+            drawOpacity = seen;
+            lastOpacity = seen;
+            animated = scroller.getAnimations().map((animation) => {
+              const effect = animation.effect as KeyframeEffect | null;
+              const timing = effect?.getComputedTiming();
+              return {
+                properties: [
+                  ...new Set(
+                    (effect?.getKeyframes() ?? []).flatMap((frame) =>
+                      Object.keys(frame).filter(
+                        (key) => !["offset", "computedOffset", "easing", "composite"].includes(key),
+                      ),
+                    ),
+                  ),
+                ],
+                duration: Number(timing?.duration ?? 0),
+              };
+            });
           }
         } else {
           frames += 1;
+          if (seen < lastOpacity - 0.001) {
+            flashes += 1;
+            first ??= { at, opacity: { from: lastOpacity, to: seen } };
+          }
+          if (lastOpacity < 0.999) fadeFrameMs = Math.max(fadeFrameMs, at - lastFrameAt);
+          if (lastOpacity < 0.999 && seen >= 0.999) fadeMs = at - drawn;
+          lastOpacity = seen;
           const covers = coverage();
           if (!covers.covered) {
             blank += 1;
@@ -400,8 +498,24 @@ await requireBrowserLane("chat-open-perf.test.ts", async () => {
           before = tops;
           scrollTop = scroller.scrollTop;
         }
+        lastFrameAt = at;
         if (at < limitMs && (drawn === null || at < drawn + settleMs)) return;
-        resolve({ drawn, shifted, moved, blank, frames, first, cadence });
+        // A fade that never finished inside the window is as long as the window.
+        if (drawn !== null && lastOpacity < 0.999) fadeMs = at - drawn;
+        resolve({
+          drawn,
+          shifted,
+          moved,
+          blank,
+          frames,
+          first,
+          cadence,
+          drawOpacity,
+          fadeMs,
+          fadeFrameMs,
+          flashes,
+          animated,
+        });
         return false;
       });
     });
@@ -423,7 +537,12 @@ await requireBrowserLane("chat-open-perf.test.ts", async () => {
         `shifted frames ${opened.map((entry) => entry.shifted).join("/")} (worst move ${Math.max(...opened.map((entry) => entry.moved)).toFixed(1)} px), ` +
         `blank frames ${opened.map((entry) => entry.blank).join("/")}, ` +
         `frames ${opened.map((entry) => entry.frames).join("/")}, ` +
-        `frames to the draw ${opened.map((entry) => entry.cadence.join(",")).join(" | ")}` +
+        `frames to the draw ${opened.map((entry) => entry.cadence.join(",")).join(" | ")}, ` +
+        `opacity at the draw ${opened.map((entry) => entry.drawOpacity.toFixed(2)).join("/")}, ` +
+        `fade ${opened.map((entry) => entry.fadeMs.toFixed(0)).join("/")} ms ` +
+        `(longest frame in it ${opened.map((entry) => entry.fadeFrameMs.toFixed(0)).join("/")} ms), ` +
+        `flashes ${opened.map((entry) => entry.flashes).join("/")}, ` +
+        `animated ${JSON.stringify(opened.map((entry) => entry.animated))}` +
         (opened.some((entry) => entry.first)
           ? `, first bad frame ${JSON.stringify(opened.find((entry) => entry.first)!.first)}`
           : ""),
@@ -444,6 +563,8 @@ await requireBrowserLane("chat-open-perf.test.ts", async () => {
         `draw frame count ${cadence.join("/")}` +
         (phase === "cached" ? ` of ${CACHED_DRAW_FRAMES} allowed` : "") +
         `, shifted frames ${opened.reduce((all, entry) => all + entry.shifted, 0)}, ` +
+        `fade ${opened.map((entry) => entry.fadeMs.toFixed(0)).join("/")} ms (opacity at the draw ${opened.map((entry) => entry.drawOpacity.toFixed(2)).join("/")}), ` +
+        `flashes ${opened.reduce((all, entry) => all + entry.flashes, 0)}, ` +
         `blank frames ${opened.reduce((all, entry) => all + entry.blank, 0)}, ` +
         `${CHAT_COUNT} chats, ${CALL_MS} ms a call and ${ATTACH_MS} ms an attach` +
         // In the notice, not only the log: the load each window ran under is the one number that
@@ -517,6 +638,29 @@ await requireBrowserLane("chat-open-perf.test.ts", async () => {
       // Leo: "no blank-then-pop"; every frame from the first draws the transcript.
       expect(opened.blank).toBe(0);
       expect(opened.frames).toBeGreaterThan(5);
+      // Leo, 2026-10-21: "does it still flash/flicker?" The transcript's opacity only ever rises
+      // once the chat drew, and the page's backdrop never changes under it.
+      expect(opened.flashes).toBe(0);
+    }
+    // Leo, 2026-10-21: "no layout shift then a fast fade in, instant if cached". A chat read for
+    // the first time draws in its place (the rules above), then fades in once: opacity only, no
+    // slide or scale, over at most FADE_MS. The fade's own length is held exactly; the frames that
+    // show it get one dev-bundle frame of slack, since the last frame of the fade lands on a frame.
+    for (const opened of cold) {
+      expect(opened.drawOpacity).toBeLessThan(1);
+      expect(opened.animated.length).toBeGreaterThan(0);
+      for (const animation of opened.animated) {
+        expect(animation.properties).toEqual(["opacity"]);
+        expect(animation.duration).toBeLessThanOrEqual(FADE_MS);
+      }
+      expect(opened.fadeMs).toBeGreaterThan(0);
+      expect(opened.fadeMs).toBeLessThanOrEqual(FADE_MS + Math.max(FADE_FRAME_SLACK_MS, opened.fadeFrameMs) + slack);
+    }
+    // A chat the page holds is whole on the frame it draws: no fade, nothing animating it.
+    for (const opened of cached) {
+      expect(opened.drawOpacity).toBe(1);
+      expect(opened.fadeMs).toBe(0);
+      expect(opened.animated).toEqual([]);
     }
     // Leo: "instant if cached". This is what tells a cached open from a cold one here, and what a
     // regression would break: the chat draws in the first frames after the select, with no wait on
@@ -531,6 +675,69 @@ await requireBrowserLane("chat-open-perf.test.ts", async () => {
 
   test(`opening chats with ${CHAT_COUNT} in the list draws fast, with no shift and no blank frame`, async () => {
     holdToTheBrief(await openEachTwice("quiet"));
+  });
+
+  /// The transcript stays mounted across a switch, so a fade belongs to the chat it started for
+  /// (the Codex review of #24113): a chat the page holds, opened while a chat read cold is still
+  /// fading in, shows whole on the frame it draws, never under the other chat's fade.
+  test("a cached chat opened while a cold chat fades in shows whole at once", async () => {
+    const page = await browser!.newPage({ viewport: { width: 1000, height: 760 } });
+    try {
+      await installPaintedFrames(page);
+      await page.goto(url(chats[0].sessionId));
+      await page.getByText(chats[0].marker).waitFor();
+      const [held, fresh] = [picked[0]!, picked[1]!];
+      const opening = (entry: (typeof chats)[number], settleMs: number) =>
+        `(${openChat.toString()})(${JSON.stringify({
+          sessionId: entry.sessionId,
+          marker: entry.marker,
+          settleMs,
+          limitMs: 8_000,
+        })})`;
+      // Read once, so the page holds it.
+      await page.evaluate(opening(held, SETTLE_MS));
+      // In one page task: the held chat is selected on the frame the cold one first drew, while
+      // its fade still runs.
+      const { cold, cached } = (await page.evaluate(
+        `(async () => { const cold = await ${opening(fresh, 0)}; const cached = await ${opening(held, SETTLE_MS)}; return { cold, cached }; })()`,
+      )) as { cold: Opened; cached: Opened };
+      expect(cold.drawOpacity).toBeLessThan(1);
+      expect(cached.drawn).not.toBeNull();
+      expect(cached.drawOpacity).toBe(1);
+      expect(cached.animated).toEqual([]);
+      expect(cached.flashes).toBe(0);
+    } finally {
+      await page.close();
+    }
+  });
+
+  /// A row on screen is never taken back to nothing (the Codex review of #24113): a chat read cold
+  /// whose agent speaks while its attach is still out draws that live row whole, and the read that
+  /// lands under it later does not fade the transcript either.
+  test("a live row drawn before a slow chat is read shows whole, with no fade after", async () => {
+    const page = await browser!.newPage({ viewport: { width: 1000, height: 760 } });
+    try {
+      await installPaintedFrames(page);
+      await page.goto(url(chats[0].sessionId));
+      await page.getByText(chats[0].marker).waitFor();
+      const opened = (await page.evaluate(
+        `(${openChat.toString()})(${JSON.stringify({
+          sessionId: slowChat.sessionId,
+          marker: LIVE_MARKER,
+          settleMs: SLOW_ATTACH_MS,
+          limitMs: 8_000,
+        })})`,
+      )) as Opened;
+      expect(opened.drawn).not.toBeNull();
+      expect(opened.drawOpacity).toBe(1);
+      expect(opened.animated).toEqual([]);
+      expect(opened.fadeMs).toBe(0);
+      expect(opened.flashes).toBe(0);
+      // The read landed inside the watch: the chat's own tail is on screen now.
+      await page.getByText(slowChat.marker).waitFor({ timeout: 5_000 });
+    } finally {
+      await page.close();
+    }
   });
 
   /// The other half of Leo's ask: "even with a high number of chats and high load?". Every working

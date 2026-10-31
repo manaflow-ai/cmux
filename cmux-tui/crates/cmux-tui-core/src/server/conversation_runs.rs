@@ -20,6 +20,8 @@ use crate::conversation_store::runs::{
 /// `conversation-run-changed` event on `subscribe` for a connection that
 /// echoes this capability in `set-client-info`.
 pub const CONVERSATION_RUNS_CAPABILITY: &str = "conversation-runs-v1";
+/// Exact answer-ID lookup for silent runs whose start predates the visible message window.
+pub const CONVERSATION_RUN_ANSWERS_CAPABILITY: &str = "conversation-run-answers-v1";
 
 /// `conversation-run-append`: the bound agent's own run (`run.id` and the
 /// summary fields it sets) and up to 64 steps, each replaced by id.
@@ -41,6 +43,8 @@ pub(super) struct RunsParams {
     conversation: String,
     #[serde(default)]
     turns: Option<Vec<String>>,
+    #[serde(default)]
+    answers: Option<Vec<String>>,
     #[serde(default)]
     before_started_at: Option<u64>,
     #[serde(default)]
@@ -109,7 +113,7 @@ pub(super) fn append(mux: &Mux, client: u64, params: AppendParams) -> anyhow::Re
 
 pub(super) fn runs(mux: &Mux, client: u64, params: RunsParams) -> anyhow::Result<Value> {
     require_local(mux, client)?;
-    let RunsParams { conversation, turns, before_started_at, limit } = params;
+    let RunsParams { conversation, turns, answers, before_started_at, limit } = params;
     let limit = limit.unwrap_or(50);
     anyhow::ensure!(
         (1..=MAX_RUNS_PAGE).contains(&limit),
@@ -121,8 +125,15 @@ pub(super) fn runs(mux: &Mux, client: u64, params: RunsParams) -> anyhow::Result
             "bad request: turns must be at most {MAX_RUNS_PAGE} keys"
         );
     }
+    if let Some(answers) = &answers {
+        anyhow::ensure!(
+            answers.len() <= MAX_RUNS_PAGE as usize
+                && answers.iter().all(|answer| !answer.is_empty() && answer.len() <= 128),
+            "bad request: answers must be at most {MAX_RUNS_PAGE} keys"
+        );
+    }
     let (runs, has_more) = mux.with_conversations(|store| {
-        store.runs(&conversation, turns.as_deref(), before_started_at, limit)
+        store.runs(&conversation, turns.as_deref(), answers.as_deref(), before_started_at, limit)
     })?;
     Ok(json!({"runs": runs, "has_more": has_more}))
 }

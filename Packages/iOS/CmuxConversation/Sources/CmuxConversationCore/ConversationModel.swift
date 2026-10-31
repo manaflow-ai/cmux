@@ -289,6 +289,8 @@ public struct ConversationMessage: Sendable, Hashable, Identifiable {
     public var mentions: [ConversationMention]
     /// Formatting and animated text effects over `text`. Empty when plain.
     public var textRuns: [ConversationTextRun]
+    /// Markdown links over `text` (an agent's `[label](url)`, label kept).
+    public var links: [ConversationTextLink]
     /// Rich link card for the URL that opens or ends `text`, if any.
     public var linkPreview: ConversationLinkPreview?
     /// "Send with effect"; nil for a plain message.
@@ -326,6 +328,7 @@ public struct ConversationMessage: Sendable, Hashable, Identifiable {
         delivery: ConversationDelivery? = nil,
         mentions: [ConversationMention] = [],
         textRuns: [ConversationTextRun] = [],
+        links: [ConversationTextLink] = [],
         linkPreview: ConversationLinkPreview? = nil,
         effect: ConversationMessageEffect? = nil,
         unsendFailed: Bool = false,
@@ -351,6 +354,7 @@ public struct ConversationMessage: Sendable, Hashable, Identifiable {
         self.delivery = delivery
         self.mentions = mentions
         self.textRuns = textRuns
+        self.links = links
         self.linkPreview = linkPreview
         self.effect = effect
         self.unsendFailed = unsendFailed

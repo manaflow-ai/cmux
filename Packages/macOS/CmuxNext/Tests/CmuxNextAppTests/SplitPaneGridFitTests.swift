@@ -33,10 +33,12 @@ struct SplitPaneGridFitTests {
             // Shown again, the split workspace's terminals follow both.
             let other = try await services.windows.createWorkspace(WorkspaceSpawn(), into: controller.state.id)
             try await Self.until({ Self.shown(controller, workspace: other).count == 1 && Self.allLive(controller) },
-                                 report: { Self.describe(controller) })
-            let tabs = a.orderedIDs.count
+                                 report: { "want \(other) (split \(id)): " + Self.describe(controller) })
+            // The daemon's tab: A's strip is suspended while its workspace is parked (0964d17bd5c) and
+            // maps the new tab once the workspace is shown again.
+            let tabs = a.pane.tabs.count
             #expect(services.registry.perform("newSurface", invocation: Self.at(a)))
-            try await Self.until({ a.orderedIDs.count == tabs + 1 }, report: { Self.describe(controller) })
+            try await Self.until({ a.pane.tabs.count == tabs + 1 }, report: { Self.describe(controller) })
             let window = try #require(controller.window)
             let tall = window.frame
             window.setFrame(NSRect(x: tall.minX, y: tall.minY + 60, width: tall.width, height: tall.height - 60), display: true)
@@ -103,14 +105,16 @@ struct SplitPaneGridFitTests {
     }
 
     private static func describe(_ controller: WindowController) -> String {
-        let frame = controller.window.map { "window \(Int($0.frame.width))x\(Int($0.frame.height))\n" } ?? ""
+        let shows = "shows \(controller.state.workspaceID ?? "nil"), content \(controller.workspaceContent?.workspace.id ?? "nil")"
+            + " (parked \(controller.workspaceContent?.isParked == true), draws nothing \(controller.workspaceContent?.drawsNothing == true)), page \(String(describing: controller.state.page))"
+        let frame = (controller.window.map { "window \(Int($0.frame.width))x\(Int($0.frame.height)) " } ?? "") + shows + "\n"
         return frame + panes(controller).map { pane in
             let status = pane.surfaceStatus
             let terminal = status.terminal
             let grid = terminal?.grid.map { "\($0.columns)x\($0.rows)" } ?? "-"
             let fit = terminal?.fitGrid.map { "\($0.columns)x\($0.rows)" } ?? "-"
             let view = terminal.map { "\(Int($0.viewSize.width))x\(Int($0.viewSize.height))" } ?? "-"
-            return "\(pane.paneKey) kind=\(status.kind) tabs=\(pane.orderedIDs.count) presence=\(status.presence) content=\(Int(status.contentSize.width))x\(Int(status.contentSize.height)) view=\(view) grid=\(grid) fit=\(fit)"
+            return "\(pane.paneKey) suspended=\(pane.isSuspended) kind=\(status.kind) tabs=\(pane.orderedIDs.count) presence=\(status.presence) content=\(Int(status.contentSize.width))x\(Int(status.contentSize.height)) view=\(view) grid=\(grid) fit=\(fit)"
         }.joined(separator: "\n")
     }
 

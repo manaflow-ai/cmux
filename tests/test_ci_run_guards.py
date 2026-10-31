@@ -278,6 +278,95 @@ class CleanTreeStepsRunAlone(unittest.TestCase):
         self.assertEqual(started_before, [], f"steps started while the workload profile ran: {events}")
 
 
+class AptStepsTakeTurns(unittest.TestCase):
+    """Two guard steps that install packages with apt-get (tesseract, zsh) ran at once in the pool
+    and one failed on the dpkg lock (pane-toolbar, after #24005). The runner runs apt-get steps one
+    at a time, host-wide, and every apt-get in ci-guards.yml waits for the lock instead of failing
+    when another job on the same host holds it."""
+
+    WORKFLOW = ROOT / ".github/workflows/ci-guards.yml"
+
+    def test_every_apt_get_in_the_guard_workflow_waits_for_the_lock(self) -> None:
+        unguarded = []
+        for number, line in enumerate(self.WORKFLOW.read_text(encoding="utf-8").splitlines(), 1):
+            # One command per apt-get, up to the next command separator.
+            for command in re.findall(r"\bapt-get\b[^;|&]*", line):
+                if re.search(r"\s(update|install|upgrade|dist-upgrade|remove|purge)\b", command) \
+                        and "DPkg::Lock::Timeout=" not in command:
+                    unguarded.append(f"ci-guards.yml:{number}: {command.strip()}")
+        self.assertEqual(unguarded, [], "pass -o DPkg::Lock::Timeout=300 to apt-get")
+
+    def test_the_lock_check_sees_options_before_the_subcommand(self) -> None:
+        self.assertEqual(re.findall(r"\bapt-get\b[^;|&]*", "sudo apt-get -qq update || sudo apt-get -o DPkg::Lock::Timeout=300 install -y zsh"),
+                         ["apt-get -qq update ", "apt-get -o DPkg::Lock::Timeout=300 install -y zsh"])
+
+    def test_an_interrupted_run_stops_waiting_for_another_runners_turn(self) -> None:
+        # Another guard run on the host holds the apt turn (a hung test after its install). This run is
+        # interrupted while its apt-get step waits for the turn: it must skip the step and exit.
+        with tempfile.TemporaryDirectory() as temp:
+            lock = Path(temp) / "apt.lock"
+            holder = subprocess.Popen(
+                [sys.executable, "-c",
+                 "import fcntl, sys, time\n"
+                 "handle = open(sys.argv[1], 'a')\n"
+                 "fcntl.flock(handle, fcntl.LOCK_EX)\n"
+                 "print('held', flush=True)\n"
+                 "time.sleep(120)\n", str(lock)],
+                stdout=subprocess.PIPE, text=True)
+            try:
+                self.assertEqual(holder.stdout.readline().strip(), "held")
+                runner = (
+                    "import sys, threading, time\n"
+                    "from pathlib import Path\n"
+                    f"sys.path.insert(0, {str(ROOT / 'scripts' / 'ci')!r})\n"
+                    "import run_ci_guards as r\n"
+                    f"r.APT_LOCK = Path({str(lock)!r})\n"
+                    "step = r.Step('apt', 'sudo apt-get install -y zsh', {}, None)\n"
+                    "result = []\n"
+                    f"worker = threading.Thread(target=lambda: result.append(r.run_step(step, Path({temp!r}), {{}}, Path({temp!r}) / 'log')))\n"
+                    "worker.start()\n"
+                    "time.sleep(0.5)\n"
+                    "r.stop_running()\n"
+                    "worker.join()\n"
+                    "print(result[0][0])\n"
+                )
+                try:
+                    done = subprocess.run([sys.executable, "-c", runner], capture_output=True, text=True, timeout=20)
+                except subprocess.TimeoutExpired:
+                    self.fail("the interrupted run kept waiting for the other runner's apt turn")
+                self.assertEqual(done.stdout.strip(), "130", done.stderr)
+            finally:
+                holder.kill()
+                holder.wait()
+
+    def test_two_apt_get_steps_never_overlap(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            # Each step holds a directory while it runs; a second step running at the same time
+            # finds it taken and exits 9.
+            run = f'# apt-get install stand-in\nmkdir "{temp}/held" || exit 9\nsleep 0.5\nrmdir "{temp}/held"\n'
+            steps = [run_ci_guards.Step(f"apt {n}", run, {}, None) for n in range(2)]
+            with concurrent.futures.ThreadPoolExecutor(2) as pool:
+                futures = [
+                    pool.submit(run_ci_guards.run_step, step, Path(temp), {"PATH": "/usr/bin:/bin"},
+                                Path(temp) / f"log{n}")
+                    for n, step in enumerate(steps)
+                ]
+                codes = [future.result(timeout=60)[0] for future in futures]
+        self.assertEqual(codes, [0, 0])
+
+    def test_steps_without_apt_get_still_run_together(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            run = f'touch "{temp}/$STEP"\nfor _ in $(seq 50); do [ -e "{temp}/a" ] && [ -e "{temp}/b" ] && exit 0; sleep 0.1; done\nexit 9\n'
+            with concurrent.futures.ThreadPoolExecutor(2) as pool:
+                futures = [
+                    pool.submit(run_ci_guards.run_step, run_ci_guards.Step(name, run, {}, None), Path(temp),
+                                {"PATH": "/usr/bin:/bin", "STEP": name}, Path(temp) / f"log-{name}")
+                    for name in ("a", "b")
+                ]
+                codes = [future.result(timeout=60)[0] for future in futures]
+        self.assertEqual(codes, [0, 0])
+
+
 class PortableSubstitutes(unittest.TestCase):
     PAYLOAD = ROOT / "scripts/ci/run_ci_guard_payload.sh"
 

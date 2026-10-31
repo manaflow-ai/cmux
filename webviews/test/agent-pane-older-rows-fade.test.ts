@@ -151,7 +151,11 @@ await requireBrowserLane("agent-pane-older-rows-fade.test.ts", async () => {
         (event) => {
           const row = event.target as HTMLElement;
           if (!row.classList?.contains("acpmux-row")) return;
-          fades.push({ id: row.dataset.rowId ?? "", text: row.textContent ?? "", name: event.animationName });
+          // A message's age ("3 weeks ago", #23769) runs straight on from its text, so "Question 130"
+          // would read as turn 1303: the row's text without it.
+          const words = row.cloneNode(true) as HTMLElement;
+          for (const time of words.querySelectorAll("time")) time.remove();
+          fades.push({ id: row.dataset.rowId ?? "", text: words.textContent ?? "", name: event.animationName });
         },
         true,
       );
@@ -173,7 +177,10 @@ await requireBrowserLane("agent-pane-older-rows-fade.test.ts", async () => {
         () => (window as unknown as { __rowAnimations: { id: string; text: string; name: string }[] }).__rowAnimations,
       )
     )
-      .filter((animation) => animation.name !== "cv-enter" && animation.name !== "cv-enter-fade")
+      .filter(
+        (animation) =>
+          animation.name !== "cv-enter" && animation.name !== "cv-enter-fade" && animation.name !== "cv-message-enter",
+      )
       .map(({ id, text }) => ({ id, text }));
   /// The turn a row belongs to, from its prompt or its answer (a "Worked for" footer has none).
   const turnOf = (text: string) => {

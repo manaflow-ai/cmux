@@ -14,8 +14,14 @@ enum Strings {
     static var closeRefused: String { String(localized: "sidebar.close.refused", defaultValue: "The workspace could not be closed.", bundle: .module) }
     static var dismissCard: String { String(localized: "sidebar.card.dismiss", defaultValue: "Dismiss", bundle: .module) }
     static var newWorkspace: String { String(localized: "sidebar.newWorkspace", defaultValue: "New Workspace", bundle: .module) }
+    /// The chevron beside the sidebar's +: its VoiceOver label (it opens the workspace chooser).
+    static var newWorkspaceOptions: String {
+        String(localized: "sidebar.newWorkspace.options", defaultValue: "New Workspace Options", bundle: .module)
+    }
     /// The footer's Search button: its VoiceOver label and tooltip.
     static var searchButton: String { String(localized: "sidebar.search", defaultValue: "Search", bundle: .module) }
+    /// The thin rail's VoiceOver label (`sidebar.style` = rail).
+    static var railLabel: String { String(localized: "sidebar.rail.label", defaultValue: "Workspaces", bundle: .module) }
     static var rename: String { String(localized: "sidebar.rename", defaultValue: "Rename", bundle: .module) }
     static var pinned: String { String(localized: "sidebar.section.pinned", defaultValue: "Pinned", bundle: .module) }
     static var moveToGroup: String { String(localized: "sidebar.group.moveTo", defaultValue: "Move to Group", bundle: .module) }
@@ -23,10 +29,34 @@ enum Strings {
     static var noFolder: String { String(localized: "sidebar.folder.none", defaultValue: "No Folder", bundle: .module) }
     static var pinnedEmpty: String { String(localized: "sidebar.section.pinned.empty", defaultValue: "Drop here to pin", bundle: .module) }
     static var sectionEmpty: String { String(localized: "sidebar.section.empty", defaultValue: "No workspaces", bundle: .module) }
+    static func sectionEmptyHint(shortcut: String?) -> String {
+        guard let shortcut else {
+            return String(localized: "sidebar.section.empty.hint.unbound", defaultValue: "New workspace: +", bundle: .module)
+        }
+        return String(format: String(localized: "sidebar.section.empty.hint", defaultValue: "New workspace: + or %@", bundle: .module), shortcut)
+    }
+    /// An open empty group's row (`EmptyGroupRowView`).
+    static var groupEmpty: String { String(localized: "sidebar.group.empty", defaultValue: "No workspaces · drag one here", bundle: .module) }
     static var statusConnected: String { String(localized: "sidebar.machine.connected", defaultValue: "Connected", bundle: .module) }
     static var statusConnecting: String { String(localized: "sidebar.machine.connecting", defaultValue: "Connecting…", bundle: .module) }
     static var statusReconnecting: String { String(localized: "sidebar.machine.reconnecting", defaultValue: "Reconnecting…", bundle: .module) }
     static var statusOffline: String { String(localized: "sidebar.machine.offline", defaultValue: "Offline", bundle: .module) }
+    nonisolated static func costRate(_ price: String) -> String { String(localized: "sidebar.machine.cost.rate", defaultValue: "\(price)/h", bundle: .module) }
+    nonisolated static func costRateWhenRunning(_ price: String) -> String {
+        String(localized: "sidebar.machine.cost.rateWhenRunning", defaultValue: "\(price)/h when running", bundle: .module)
+    }
+    nonisolated static func costRunning(_ duration: String) -> String { String(localized: "sidebar.machine.cost.running", defaultValue: "Running \(duration)", bundle: .module) }
+    nonisolated static func costSoFar(_ price: String) -> String { String(localized: "sidebar.machine.cost.soFar", defaultValue: "About \(price) so far", bundle: .module) }
+    nonisolated static func costUnderSoFar(_ price: String) -> String {
+        String(localized: "sidebar.machine.cost.underSoFar", defaultValue: "Under \(price) so far", bundle: .module)
+    }
+    nonisolated static func capOf(_ running: Int, _ max: Int) -> String {
+        String(localized: "sidebar.machine.cap.of", defaultValue: "\(running) of \(max) machines running", bundle: .module)
+    }
+    nonisolated static func capNone(_ running: Int) -> String {
+        String(localized: "sidebar.machine.cap.none", defaultValue: "\(running) running, no machine cap", bundle: .module)
+    }
+    nonisolated static var capClosed: String { String(localized: "sidebar.machine.cap.closed", defaultValue: "Machines are closed on this plan", bundle: .module) }
     static var statusUpdateAvailable: String { String(localized: "sidebar.machine.updateAvailable", defaultValue: "Update available", bundle: .module) }
     static var statusUpdateRequired: String { String(localized: "sidebar.machine.updateRequired", defaultValue: "Update needed", bundle: .module) }
     static var statusInstallRequired: String { String(localized: "sidebar.machine.installRequired", defaultValue: "Install needed", bundle: .module) }
@@ -34,8 +64,14 @@ enum Strings {
     static var statusAuthFailed: String { String(localized: "sidebar.machine.authFailed", defaultValue: "Sign-in failed", bundle: .module) }
     static var statusUnreachable: String { String(localized: "sidebar.machine.unreachable", defaultValue: "Unreachable", bundle: .module) }
     static var statusFailed: String { String(localized: "sidebar.machine.failed", defaultValue: "Failed to start", bundle: .module) }
+    /// A Cloud machine that ran and lost its link (not one that failed to start).
+    static var statusDisconnected: String { String(localized: "sidebar.machine.disconnected", defaultValue: "Disconnected", bundle: .module) }
+    static var statusPaused: String { String(localized: "sidebar.machine.paused", defaultValue: "Paused", bundle: .module) }
+    /// A Cloud machine the idle auto-pause parked (not a failure).
+    static var statusPausedIdle: String { String(localized: "sidebar.machine.pausedIdle", defaultValue: "Paused (idle)", bundle: .module) }
     /// The status of a computer that cannot connect until the person acts,
-    /// nil otherwise: its workspace rows name it in one list (cx-mdo0).
+    /// nil otherwise: its workspace rows name it in one list (cx-mdo0). A
+    /// paused machine is named too (it resumes on attach, nothing to fix).
     static func attentionStatus(_ status: SidebarMachine.Status) -> String? {
         switch status {
         case .authFailed: statusAuthFailed
@@ -44,7 +80,11 @@ enum Strings {
         case .installRequired: statusInstallRequired
         case .updateRequired: statusUpdateRequired
         case .failed: statusFailed
-        case .connected, .connecting, .offline, .updateAvailable, .installing: nil
+        case .disconnected: statusDisconnected
+        case .paused: statusPaused
+        case .pausedIdle: statusPausedIdle
+        case .connecting: statusConnecting
+        case .connected, .offline, .updateAvailable, .installing: nil
         }
     }
     static func unreadCount(_ value: Int) -> String { String(localized: "sidebar.a11y.unread", defaultValue: "\(value) unread", bundle: .module) }
@@ -53,9 +93,10 @@ enum Strings {
     static var hideTabs: String { String(localized: "sidebar.workspace.hideTabs", defaultValue: "Hide Tabs", bundle: .module) }
     static func tabCount(_ value: Int) -> String { String(localized: "sidebar.a11y.tabCount", defaultValue: "Tabs: \(value)", bundle: .module) }
     /// The hover card's machine line on a workspace the Chief started for a subagent.
-    static var startedByChief: String { String(localized: "sidebar.hover.startedByChief", defaultValue: "Started by Chief", bundle: .module) }
     /// Status entries a row folds past its limit.
     static func statusMore(_ value: Int) -> String { String(localized: "sidebar.status.more", defaultValue: "\(value) more", bundle: .module) }
+    /// A listed tab's name when its own title says nothing (a bare "~", the workspace's name again).
+    static var untitledTerminal: String { String(localized: "sidebar.tab.untitledTerminal", defaultValue: "Terminal", bundle: .module) }
     static var unreadDot: String { String(localized: "sidebar.a11y.unreadDot", defaultValue: "Unread", bundle: .module) }
     /// The bell-slash mark's tooltip on a muted workspace's row.
     static var notificationsMuted: String {
@@ -88,6 +129,8 @@ enum Strings {
         }
     }
     static var closeButton: String { String(localized: "sidebar.a11y.closeWorkspace", defaultValue: "Close workspace", bundle: .module) }
+    /// A listed tab row's hover close.
+    static var closeTab: String { String(localized: "sidebar.a11y.closeTab", defaultValue: "Close tab", bundle: .module) }
     static var pinWorkspace: String { String(localized: "sidebar.a11y.pinWorkspace", defaultValue: "Pin workspace", bundle: .module) }
     static var unpinWorkspace: String { String(localized: "sidebar.a11y.unpinWorkspace", defaultValue: "Unpin workspace", bundle: .module) }
     /// The workspace row's more button (cx-a9h6): its menu.

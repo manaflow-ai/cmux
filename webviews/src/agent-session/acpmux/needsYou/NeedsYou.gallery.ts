@@ -2,8 +2,9 @@
 // Needs you (needsYou/NeedsYou.tsx): the header badge counts every open ask, from this chat, the
 // Chief, its subagents and the other agent chats; a press opens the pinned list with one-click
 // answers, Go to source and Ask about this. While asks are open, Jump to latest is the Needs your
-// input pill (JumpPill.tsx). Both are Debug Settings toggles, on by default; `before` is the pane
-// with both off, as it drew before. Light and dark come from the gallery's appearance control.
+// input pill (JumpPill.tsx), for this chat's asks and its started chats' only. Both are Debug
+// Settings toggles; `before` is the pane with both off, as it drew before. Light and dark come from
+// the gallery's appearance control.
 import { agentPaneEntry } from "../../../gallery/format";
 import type { PlayContext } from "../../../gallery/play";
 import { activity, assistant, chat, session, SESSION_ID, tool, user } from "../../../gallery/fixtures/acpmux";
@@ -92,18 +93,52 @@ const sessions = [
     indicator: "input",
     updatedAt: ago(14),
   }),
+  // Its ask lives on the other computer: the row reads the question acpmux names
+  // (`waitingPrompt`), never the agent's last message (`preview`).
   session({
     sessionId: "s-remote",
     title: "Release notes on build box",
     host: "build-box",
     hostKind: "cloud",
+    peer: "build-box",
     indicator: "input",
+    pendingPermissions: 1,
     // Its ask lives on the build box: the row says the question its summary names, never this reply.
-    preview: "Drafted the notes from the merged pull requests.",
     waitingOn: { on: "question", prompt: "Which tag should the notes start from?" },
+    preview: "I drafted the notes from the merged PRs since the last nightly.",
     updatedAt: ago(32),
   }),
+  // A permission whose tool is not read here reads as a permission, not a question.
+  session({
+    sessionId: "s-grouped",
+    title: "Clean the build cache",
+    pendingPermissions: 1,
+    indicator: "input",
+    waitingOn: { on: "permission" },
+    preview: "The cache holds 14 GB of old builds.",
+    updatedAt: ago(45),
+  }),
 ];
+
+// A sub-session this chat's agent started (acpmux `startedBy`): its ask is this chat's work, so the
+// pill counts it.
+const started = session({
+  sessionId: "s-tests",
+  title: "Run the integration tests",
+  startedBy: SESSION_ID,
+  shortName: "tests",
+  pendingPermissions: 1,
+  indicator: "input",
+  updatedAt: ago(2),
+});
+const startedAsk: AcpmuxPermission = {
+  permissionId: "ask-tests",
+  title: "Start the test database",
+  kind: "execute",
+  command: "docker compose up -d db",
+  pending: true,
+  options: yesNo,
+};
 
 const rows = [
   user("Make the retry helper back off exponentially", 4),
@@ -135,20 +170,28 @@ export default agentPaneEntry({
   covers: ["agent-session/acpmux/needsYou/NeedsYou.tsx", "agent-session/acpmux/needsYou/JumpPill.tsx#NeedsYouPill"],
   variants: {
     list: {
-      note: "The list open: this chat's command, the Chief's merge, a subagent's choice, a verify ask and a chat on another computer.",
+      note: "The list open: this chat's command, the Chief's merge, a subagent's choice, a verify ask, a question on another computer (its prompt, not the last message) and a permission not read here.",
       snapshot: snapshot(),
       play: openList,
     },
     "badge-and-pill": {
-      note: "Closed: the badge counts five asks and Jump to latest reads Needs your input · 5.",
+      note: "Closed: the badge counts six asks. Only this chat's is the pill's, and its card waits at the latest message, so Jump to latest stays hidden there.",
       snapshot: snapshot(),
     },
     "pill-one-ask": {
-      note: "One ask, in another chat: the pill reads Needs your input and goes there.",
+      note: "One ask, in a chat this one did not start (Leo's screenshot: a Codex audit on another computer): nothing here waits, so there is no pill, only the header's count.",
       snapshot: {
         ...chat(rows),
         sessions: [chat(rows).sessions[0]!, sessions[0]!],
         asks: [asks[1]!],
+      },
+    },
+    "pill-started-chat": {
+      note: "One ask, in a chat this one started (acpmux startedBy): the pill reads Needs your input at the latest message and goes there.",
+      snapshot: {
+        ...chat(rows),
+        sessions: [chat(rows).sessions[0]!, started],
+        asks: [{ sessionId: started.sessionId, at: ago(2), permission: startedAsk }],
       },
     },
     "ask-about-this": {
@@ -175,6 +218,11 @@ export default agentPaneEntry({
       note: "Nothing waits: the badge has no count and the list says so.",
       snapshot: chat(rows),
       play: openList,
+    },
+    "not-installed": {
+      note: "The App Store's Needs You item not installed (agentPane.needsYou.enabled off, the default): the header has no inbox and the other tools keep their pitch; `empty` is the same chat with it installed.",
+      snapshot: chat(rows),
+      documentAttributes: { "needs-you": "off" },
     },
     before: {
       note: "Both Debug toggles off: the pane as it drew before, with no badge and the plain Jump to latest.",

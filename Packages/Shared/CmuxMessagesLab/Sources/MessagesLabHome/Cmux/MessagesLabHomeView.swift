@@ -12,6 +12,7 @@ public final class MessagesLabHomeView: NSView {
     let controller: ChatController
     let projection: HomeProjection
     private var warmed = false
+    private var appliedComposerSpellChecking: Bool?
     /// The palette generation this view's rows were last refreshed for (applyTheme).
     private var appliedPalette = -1
 
@@ -78,9 +79,46 @@ public final class MessagesLabHomeView: NSView {
         controller.host.refreshWindowPlaceIfMoved()
     }
 
+    /// cmux: the Chief chat's zoom (Agent Chat Zoom, `agentPane.zoom`; Cmd-= / Cmd-- / Cmd-0 on Home). The
+    /// transcript keeps MessagesLab's metrics: it is laid out at this view's size over the zoom and this view's
+    /// bounds draw it magnified, as NSScrollView magnification does, so its text, bubbles and field grow together
+    /// and the rows wrap to the narrower width. Its bitmaps render at the window's scale times the zoom, so the
+    /// magnified text stays sharp. Clamped to 0.5-2.
+    public var zoom: CGFloat {
+        get { controller.host.contentZoom }
+        set {
+            let next = newValue.isFinite ? min(max(newValue, 0.5), 2) : 1
+            guard next != controller.host.contentZoom else { return }
+            controller.host.contentZoom = next
+            applyZoomBounds()
+            controller.followWindowScale()
+            // The field moved with the zoom (the host is now frame / zoom tall) without a frame change here: lay out
+            // now so `fieldTop` is current, and tell the host, which lays out what it keeps above the field.
+            needsLayout = true
+            layoutSubtreeIfNeeded()
+            controller.onFieldTopChange?()
+        }
+    }
+
+    public override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        applyZoomBounds()
+    }
+
+    /// The bounds that draw the host at `zoom`: the frame's size over the zoom, from the origin.
+    private func applyZoomBounds() {
+        let size = NSSize(width: frame.width / zoom, height: frame.height / zoom)
+        if bounds.size != size { setBoundsSize(size) }
+        if bounds.origin != .zero { setBoundsOrigin(.zero) }
+    }
+
     public override func layout() {
         super.layout()
         if controller.host.frame != bounds { controller.host.frame = bounds }
+        if let compose = controller.demo?.compose, appliedComposerSpellChecking != composerSpellCheckingEnabled {
+            compose.textView.view.setSpellCheckingEnabled(composerSpellCheckingEnabled)
+            appliedComposerSpellChecking = composerSpellCheckingEnabled
+        }
         if !warmed, window != nil, controller.demo != nil {
             warmed = true
             // MessagesLab warms the first send's one-time costs at idle after
@@ -115,6 +153,15 @@ public final class MessagesLabHomeView: NSView {
     public var isSendEnabled: Bool {
         get { projection.isSendEnabled }
         set { projection.isSendEnabled = newValue }
+    }
+
+    /// Whether the native composer opts into the system spell checker. The host owns this
+    /// preference; the default is off so opening Home never changes the user's typing behavior.
+    public var composerSpellCheckingEnabled = false {
+        didSet {
+            guard composerSpellCheckingEnabled != oldValue else { return }
+            controller.demo?.compose.textView.view.setSpellCheckingEnabled(composerSpellCheckingEnabled)
+        }
     }
 
     /// How the Chief's running indicator reads (``HomeTurnProgressStyle``), asked at each of its ticks:
@@ -155,31 +202,36 @@ public final class MessagesLabHomeView: NSView {
     }
 
     /// The theme's palette (the key window's: every Home window draws its
-    /// bubbles with it in both key states, MessagesLab 806ef0c / macOS 27).
-    /// One theme per app: the palette is process-wide (`Fixture.theme`).
+    /// bubbles with it in both key states, MessagesLab 806ef0c / macOS 27), with
+    /// this chat's Chat Colors. Each view draws with its own palette
+    /// (`PaletteScope`): two chats on screen with different bubble colours keep
+    /// their own rows. The process palette (`Fixture.theme` outside a view's
+    /// work: its composer and send) is the first view's, then the chat the
+    /// person types or clicks in.
     /// `measuredAccent`: the theme names no accent, so sent bubbles keep
     /// MessagesLab's measured blue and gradient.
     public func applyTheme(active: HomePalette, measuredAccent: Bool = false) {
         let theme = FixtureTheme(active: active, measuredAccent: measuredAccent)
-        defer {
-            // Per view: a second Home tab finds the process-wide theme set.
-            controller.host.headerBackdrop.setTint(Fixture.background)
-            // cmux: the window background is per view too; a view made after the
-            // process-wide theme was set would keep the one it was made with.
-            controller.demo?.backgroundColor = Fixture.background
-            controller.host.fieldChrome.applyTheme(light: theme.active.isLight, symbol: theme.active.incomingText)
-            controller.host.paneHeader.light = theme.active.isLight
-        }
+        let box = PaletteScope.box(for: theme)
         // Link cards follow a light theme (MessagesLab 02519e9: Messages' light card, #E9E9EB).
         if let demo = controller.demo { demo.setLightAppearance(theme.active.isLight) } else { Fixture.lightAppearance = theme.active.isLight }
-        if Fixture.theme != theme { Fixture.theme = theme; RowBitmaps.shared.removeAll() }
-        // This view draws again whenever its rows were made with another palette: also a second Home window,
-        // which finds the process-wide theme already set (its own applied generation, not the theme compare).
-        guard let demo = controller.demo, appliedPalette != Fixture.paletteGeneration else { return }
-        appliedPalette = Fixture.paletteGeneration
-        demo.chrome.setNeedsDisplay(); demo.refreshVisibleCells()
-        demo.backgroundColor = Fixture.background
-        demo.compose.rescale()  // the placeholder, waveform and chips are drawn once with the palette
+        let focused = (controller.host.window?.firstResponder as? NSView)?.isDescendant(of: controller.host) ?? false
+        if PaletteScope.process == nil || focused { PaletteScope.claimProcess(box) }
+        controller.demo?.setPalette(box)
+        PaletteScope.with(box) {
+            controller.host.headerBackdrop.setTint(Fixture.background)
+            controller.demo?.backgroundColor = Fixture.background
+            controller.host.fieldChrome.applyTheme(light: theme.active.isLight, symbol: theme.active.composeText, edge: theme.active.fieldEdge)
+            controller.host.paneHeader.light = theme.active.isLight
+        }
+        // This view draws again whenever its rows were made with another palette (its own applied generation).
+        let generation = Fixture.generation(of: box)
+        guard let demo = controller.demo, appliedPalette != generation else { return }
+        appliedPalette = generation
+        demo.scope {
+            demo.chrome.setNeedsDisplay(); demo.refreshVisibleCells()
+            demo.compose.rescale()  // the placeholder, waveform and chips are drawn once with the palette
+        }
     }
 
     /// cmux: a click on a cmux app link in agent text (`URL.isCmuxAppLink`); the host
@@ -194,6 +246,13 @@ public final class MessagesLabHomeView: NSView {
     public var onPointerMoved: ((CGPoint?) -> Void)? {
         get { controller.onPointerMoved }
         set { controller.onPointerMoved = newValue }
+    }
+
+    /// cmux: the field's height changed, so ``fieldTop`` moved without a size change (a long
+    /// draft, an attachment, a send). The host lays out what it keeps above the field.
+    public var onFieldTopChange: (() -> Void)? {
+        get { controller.onFieldTopChange }
+        set { controller.onFieldTopChange = newValue }
     }
 
     /// cmux: the link chip under `screenPoint` with its pill's frame on screen, or nil (no chip
@@ -253,11 +312,35 @@ public final class MessagesLabHomeView: NSView {
         }
     }
 
+    /// cmux: who else has the conversation open, as faces beside the header's name pill (chat
+    /// multiplayer); empty shows none. `label` is what VoiceOver reads for them.
+    public func setHeaderFaces(_ faces: [PaneHeaderFace], label: String) {
+        controller.host.paneHeader.faces = faces
+        controller.host.paneHeader.facesLabel = label
+    }
+
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// The header's faces as drawn now, and their VoiceOver label (tests and `debug.home.drive`).
+    public var debugHeaderFaces: (faces: [PaneHeaderFace], shown: Bool, label: String) {
+        let header = controller.host.paneHeader
+        return (header.faces, !header.facesView.isHidden && header.facesView.frame.width > 0, header.facesLabel)
+    }
+    #endif
+
     /// The header avatar's text (one or two characters, an emoji); nil
     /// shows the conversation's initials.
     public var avatarText: String? {
         get { projection.initialsOverride }
         set { projection.initialsOverride = newValue }
+    }
+
+    /// The letters the header's monogram shows: ``avatarText``, else the monogram of the header's name.
+    public var shownInitials: String { controller.host.paneHeader.initials }
+
+    /// The header's name; nil shows the conversation's title.
+    public var headerTitle: String? {
+        get { projection.titleOverride }
+        set { projection.titleOverride = newValue }
     }
 
     /// The header avatar's picture, drawn over `avatarText` and the
@@ -426,6 +509,12 @@ public final class MessagesLabHomeView: NSView {
         get { projection.onAttachmentPasteboard }
         set { projection.onAttachmentPasteboard = newValue }
     }
+    /// The words a paste the intake took carries beside its attachments (nil: none): the
+    /// field inserts them at the caret.
+    public var attachmentPasteText: (NSPasteboard) -> String? {
+        get { projection.onAttachmentPasteText }
+        set { projection.onAttachmentPasteText = newValue }
+    }
     /// Whether a paste would be taken (types only).
     public var acceptsAttachmentDrag: (NSPasteboard) -> Bool {
         get { projection.acceptsAttachmentDrag }
@@ -481,6 +570,7 @@ public final class MessagesLabHomeView: NSView {
 
     /// The field's attachments, in the order they arrived.
     public var draftAttachments: [LocalAttachment] { projection.draftAttachments }
+    public var isRestoringDraftAttachments: Bool { projection.isRestoringDraftAttachments }
 
     public func removeDraftAttachment(_ hash: String) { projection.removeDraft(hash) }
 
@@ -694,10 +784,10 @@ public final class MessagesLabHomeView: NSView {
     public func mediaSettled() async { await projection.media.settled() }
 
     /// The top of the area under the header (the first-run panel's top); with no header
-    /// (``setBareTop()``), the rows' top.
-    public var headerHeight: CGFloat { controller.host.bareTop ? controller.host.bareRowsTop : Fixture.headerHeight }
-    /// The field's top in this view (the first-run panel's bottom).
-    public var fieldTop: CGFloat { controller.demo?.fieldTop ?? bounds.height }
+    /// (``setBareTop()``), the rows' top. In this view's frame (zoomed) points.
+    public var headerHeight: CGFloat { (controller.host.bareTop ? controller.host.bareRowsTop : Fixture.headerHeight) * zoom }
+    /// The field's top in this view's frame (zoomed) points (the first-run panel's bottom).
+    public var fieldTop: CGFloat { controller.demo.map { $0.fieldTop * zoom } ?? frame.height }
 
     /// Nothing animates and no wake-up is pending (tests, the harness).
     public var isIdle: Bool { controller.isIdle }

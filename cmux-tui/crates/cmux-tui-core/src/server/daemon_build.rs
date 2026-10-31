@@ -68,10 +68,16 @@ pub(super) fn identify_build_fields() -> (Option<String>, Option<String>) {
 /// `CMUX_TUI_GHOSTTY_COMMIT`) and installs them at start. This crate never
 /// reads them itself: a compile-time read here made every new stamp
 /// recompile the whole crate. An empty stamp counts as no stamp.
+///
+/// `build_time` (`with_build_time`): unix seconds of the source commit
+/// (`cmux_build_identity::BUILD_TIME`), in `identify {revisions: true}`, so
+/// a client that updates machines can tell an older build from a newer one
+/// (`cmux link machine update --if-older`). Zero counts as unknown.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct BuildStamp {
     build_commit: Option<&'static str>,
     ghostty_commit: Option<&'static str>,
+    build_time: Option<u64>,
 }
 
 impl BuildStamp {
@@ -79,7 +85,19 @@ impl BuildStamp {
         Self {
             build_commit: build_commit.filter(|commit| !commit.is_empty()),
             ghostty_commit: ghostty_commit.filter(|commit| !commit.is_empty()),
+            build_time: None,
         }
+    }
+
+    /// The stamp with its source commit's time (unix seconds; 0: unknown).
+    #[must_use]
+    pub fn with_build_time(mut self, time: u64) -> Self {
+        self.build_time = (time != 0).then_some(time);
+        self
+    }
+
+    pub fn build_time(&self) -> Option<u64> {
+        self.build_time
     }
 
     pub fn build_commit(&self) -> Option<&'static str> {
@@ -106,6 +124,10 @@ pub fn install_build_stamp(stamp: BuildStamp) {
 
 pub(super) fn stamped_build_commit() -> Option<&'static str> {
     BUILD_STAMP.get().and_then(BuildStamp::build_commit)
+}
+
+pub(super) fn stamped_build_time() -> Option<u64> {
+    BUILD_STAMP.get().and_then(BuildStamp::build_time)
 }
 
 pub(super) fn stamped_ghostty_commit() -> Option<&'static str> {

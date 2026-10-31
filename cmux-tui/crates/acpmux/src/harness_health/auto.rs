@@ -96,7 +96,9 @@ async fn run_updater(argv: &[String], channel: super::channel::Channel) -> (bool
     .unwrap_or_else(|e| Err(e.to_string()));
     match outcome {
         Ok((ok, text)) => {
-            (ok, text.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("").trim().to_owned())
+            let last =
+                crate::stderr::clean_stderr_lines(&text).into_iter().rev().find(|l| !l.is_empty());
+            (ok, last.unwrap_or_default())
         }
         Err(e) => (false, e),
     }
@@ -127,10 +129,9 @@ impl HealthService {
             ids.remove(id);
         }
         let body = serde_json::to_vec_pretty(&ids).map_err(|e| e.to_string())?;
-        let tmp = path.with_extension("json.tmp");
-        std::fs::write(&tmp, body)
-            .and_then(|()| std::fs::rename(&tmp, &path))
-            .map_err(|e| format!("auto-update not saved: {e}"))?;
+        // Owner-only whatever the umask, through a new temporary file each time.
+        crate::config::write_atomic(&path, &body)
+            .map_err(|e| format!("auto-update not saved: {e:#}"))?;
         if on {
             self.ran.lock().unwrap_or_else(PoisonError::into_inner).remove(id);
         }
@@ -159,7 +160,8 @@ impl HealthService {
     /// and returns the ids it ran for. Callers wait for a run already going.
     pub async fn run_auto_updates(&self) -> Vec<String> {
         // A build session with agent launches off changes no installed CLI (cx-9ettq).
-        if crate::launch_policy::agent_launch_disabled() {
+        // Nor a capture fixture's harnesses, which name no real install.
+        if crate::launch_policy::agent_launch_disabled() || self.fixed() {
             return Vec::new();
         }
         let _one = self.updating.lock().await;
@@ -215,6 +217,19 @@ impl HealthService {
         ids: Option<&BTreeSet<String>>,
     ) -> (Vec<HarnessHealth>, Vec<(String, Requested)>) {
         let _one = self.updating.lock().await;
+        if self.fixed() {
+            // A capture fixture's commands describe no install on this machine.
+            let rows = self.rows();
+            let asked: Vec<String> = match ids {
+                Some(ids) => ids.iter().cloned().collect(),
+                None => rows.iter().filter(|r| r.outdated).map(|r| r.id.clone()).collect(),
+            };
+            let refused = asked
+                .into_iter()
+                .map(|id| (id, Requested::Refused(crate::harness_fixture::REFUSAL.into())))
+                .collect();
+            return (rows, refused);
+        }
         let rows = check.await;
         let rows = &rows[..];
         let asked: Vec<String> = match ids {
@@ -265,5 +280,34 @@ impl HealthService {
             out.push((id, Requested::Ran { ok, detail }));
         }
         (rows.to_vec(), out)
+    }
+}
+
+#[cfg(all(test, unix))]
+mod owner_only_tests {
+    use super::*;
+
+    /// `harness-auto-update.json` is owner-only whatever the umask, like the rest of the acpmux
+    /// home (ergo-walk2, 2026-10-25), and a temporary file a crashed run left changes nothing.
+    #[test]
+    fn the_auto_update_list_is_saved_owner_only() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("acpmux-auto-mode-{}", uuid::Uuid::now_v7()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("harness-auto-update.json");
+        let stale = path.with_extension("json.tmp");
+        std::fs::write(&stale, "[]").unwrap();
+        std::fs::set_permissions(&stale, std::fs::Permissions::from_mode(0o666)).unwrap();
+        let service = HealthService::new();
+        service.attach(super::super::Settings {
+            auto_update: Some(path.clone()),
+            home: dir.clone(),
+            ..Default::default()
+        });
+        service.set_auto_update("codex", true).unwrap();
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600);
+        assert!(std::fs::read_to_string(&path).unwrap().contains("codex"));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

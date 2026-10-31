@@ -21,7 +21,7 @@ pub(in crate::app) struct DeferredPointerInput {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(in crate::app) enum OuterCursorSpec {
     Reset,
-    Terminal { color: Rgb, shape: CursorShape, blinking: bool },
+    Terminal { color: Option<Rgb>, shape: CursorShape, blinking: bool },
 }
 
 #[derive(Clone)]

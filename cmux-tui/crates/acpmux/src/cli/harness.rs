@@ -27,6 +27,8 @@ use crate::cli::command::{HarnessCmd, SecretCmd};
 use crate::config::folder_profiles;
 use crate::config::profiles::{self, ProfileSources, Severity};
 use crate::config::{Config, HarnessKind, HarnessProfile, ProfileSource};
+use crate::stderr::clean_stderr_lines;
+use cmux_json::JsonSet as _;
 
 mod claude_turn;
 mod program;
@@ -42,7 +44,9 @@ pub const EXAMPLES: &[(&str, &str)] = &[
     ("gemini", include_str!("../../harnesses/gemini.toml")),
     ("aider", include_str!("../../harnesses/aider.toml")),
     ("muse", include_str!("../../harnesses/muse.toml")),
+    ("muse-terminal", include_str!("../../harnesses/muse-terminal.toml")),
     ("unii", include_str!("../../harnesses/unii.toml")),
+    ("hermes", include_str!("../../harnesses/hermes.toml")),
 ];
 
 /// The guide an agent follows to integrate a harness (`cmux harness guide`).
@@ -57,6 +61,7 @@ pub fn example(name: &str) -> Option<&'static str> {
         "claude-code" => "claude",
         "gemini-cli" => "gemini",
         "muse-code" => "muse",
+        "hermes-agent" => "hermes",
         "aider-terminal" | "terminal" => "aider",
         other => other,
     };
@@ -86,9 +91,17 @@ pub async fn run(cmd: HarnessCmd, json_out: bool) -> Result<()> {
         HarnessCmd::Registry { refresh } => {
             super::harness_registry::list_cmd(refresh, json_out).await
         }
-        HarnessCmd::Add { id: Some(id), registry: true, force, .. } => {
-            super::harness_registry::add_cmd(&id, force, json_out).await
+        HarnessCmd::Add { id: Some(id), registry: true, force, icon, .. } => {
+            check_icon_arg(icon.as_deref())?;
+            super::harness_registry::add_cmd(&id, force, json_out).await?;
+            if let Some(icon) = icon {
+                let id = crate::registry::harness_id(&id).unwrap_or(id);
+                set_icon_quiet(&id, &icon)?;
+                reload_daemon().await;
+            }
+            Ok(())
         }
+        HarnessCmd::Icon { id, value, clear } => icon_cmd(&id, value, clear, json_out).await,
         HarnessCmd::Add { registry: true, .. } => {
             bail!(
                 "give the registry agent id: `cmux harness add <id> --registry` (see `cmux harness registry`)"
@@ -105,6 +118,7 @@ pub async fn run(cmd: HarnessCmd, json_out: bool) -> Result<()> {
             model,
             keychain_item,
             name,
+            icon,
         } if example.as_deref().is_some_and(|e| byo_endpoint::Kind::from_example(e).is_some())
             || base_url.is_some()
             || model.is_some()
@@ -123,12 +137,19 @@ pub async fn run(cmd: HarnessCmd, json_out: bool) -> Result<()> {
                 replace: force,
                 ..Default::default()
             };
-            add_endpoint_cmd(&p, json_out).await
+            check_icon_arg(icon.as_deref())?;
+            add_endpoint_cmd(&p, icon.as_deref(), json_out).await
         }
-        HarnessCmd::Add { id, command, protocol, example, force, registry: false, .. } => {
+        HarnessCmd::Add {
+            id, command, protocol, example, force, registry: false, icon, ..
+        } => {
+            check_icon_arg(icon.as_deref())?;
             let sources = ProfileSources::current();
             let req = AddRequest { id, command, protocol, example, force };
             let added = add(&req, &sources)?;
+            if let Some(icon) = &icon {
+                set_icon_quiet(&added.id, icon)?;
+            }
             let reloaded = reload_daemon().await;
             if json_out {
                 println!(
@@ -208,7 +229,10 @@ pub async fn run(cmd: HarnessCmd, json_out: bool) -> Result<()> {
             Ok(())
         }
         HarnessCmd::Reload => {
-            if reload_daemon().await {
+            let daemon_reloaded = reload_daemon().await;
+            if json_out {
+                println!("{}", json!({"daemonReloaded": daemon_reloaded}));
+            } else if daemon_reloaded {
                 println!("the daemon read the harness profiles again");
             } else {
                 println!("no daemon is running; it reads the profiles when it starts");
@@ -220,7 +244,11 @@ pub async fn run(cmd: HarnessCmd, json_out: bool) -> Result<()> {
 
 /// `cmux harness add ID --example anthropic-endpoint|openai-endpoint …`:
 /// the daemon's own add (`harness_admin`), then the next steps.
-async fn add_endpoint_cmd(p: &crate::harness_admin::AddParams, json_out: bool) -> Result<()> {
+async fn add_endpoint_cmd(
+    p: &crate::harness_admin::AddParams,
+    icon: Option<&str>,
+    json_out: bool,
+) -> Result<()> {
     if p.example.as_deref().and_then(byo_endpoint::Kind::from_example).is_none() {
         bail!(
             "--base-url, --model, --keychain-item and --name go with --example anthropic-endpoint or openai-endpoint"
@@ -228,6 +256,9 @@ async fn add_endpoint_cmd(p: &crate::harness_admin::AddParams, json_out: bool) -
     }
     let added = crate::harness_admin::add(p, &ProfileSources::current(), None, &|_| None)
         .map_err(|e| anyhow!("{e}"))?;
+    if let Some(icon) = icon {
+        set_icon_quiet(&added.id, icon)?;
+    }
     let reloaded = reload_daemon().await;
     if json_out {
         println!(
@@ -295,6 +326,93 @@ const ADD_HELP_JA: &str = "\
   または CMUX_BYO_API_KEY) で保存するか、--keychain-item でキーのあるキーチェーン項目を指定します。
   そのあと `cmux harness doctor ID` が実際のプロンプトを 1 回送り、直す点 (キー、ベース URL、
   モデル) を示します。";
+
+/// `--icon`'s value is one an icon takes, checked before anything is written.
+fn check_icon_arg(icon: Option<&str>) -> Result<()> {
+    if let Some(icon) = icon {
+        crate::config::harness_icon::IconValue::parse(icon).map_err(|e| anyhow!("--icon: {e}"))?;
+    }
+    Ok(())
+}
+
+/// Sets `id`'s icon in its user profile (`harness_icon_set`).
+fn set_icon_quiet(id: &str, icon: &str) -> Result<crate::harness_icon_set::IconSet> {
+    crate::harness_icon_set::set_icon(
+        id,
+        crate::harness_icon_set::IconChange::Value(icon.to_owned()),
+        &ProfileSources::current(),
+    )
+    .map_err(|e| anyhow!("{e}"))
+}
+
+/// `cmux harness icon ID [VALUE | --clear]`.
+async fn icon_cmd(id: &str, value: Option<String>, clear: bool, json_out: bool) -> Result<()> {
+    use crate::harness_icon_set::{IconChange, set_icon};
+    let change = match (value, clear) {
+        (_, true) => Some(IconChange::Clear),
+        (Some(v), false) => Some(IconChange::Value(v)),
+        (None, false) => None,
+    };
+    if let Some(change) = change {
+        let set = set_icon(id, change, &ProfileSources::current()).map_err(|e| anyhow!("{e}"))?;
+        let reloaded = reload_daemon().await;
+        if json_out {
+            println!(
+                "{}",
+                json!({"id": set.id, "path": set.path, "icon": set.icon, "daemonReloaded": reloaded})
+            );
+        } else {
+            match &set.icon {
+                Some(icon) => println!("{id}: icon = {icon} ({})", set.path.display()),
+                None => println!("{id}: icon removed; cmux picks it ({})", set.path.display()),
+            }
+        }
+        return Ok(());
+    }
+    let cfg = Config::load()?;
+    let profile = cfg.profile(id).ok_or_else(|| anyhow!("unknown harness {id:?}"))?;
+    let meta = cfg.profile_meta.get(id);
+    let spec = crate::config::harness_icon::resolve(
+        id,
+        meta.and_then(|m| m.display_name.as_deref()),
+        profile,
+        &crate::config::derive_family(id, profile),
+        meta.map(|m| &m.loaded_icon),
+    );
+    let mut v = serde_json::to_value(&spec)?;
+    if let Some(o) = v.as_object_mut() {
+        // An image's bytes are no use in a terminal: its file instead.
+        if o.remove("data").is_some()
+            && let Some(file) = meta.and_then(|m| m.icon.clone())
+        {
+            o.insert("file".into(), json!(file));
+        }
+    }
+    if json_out {
+        println!("{v}");
+    } else {
+        let what = |k: &str| v.get(k).and_then(Value::as_str).unwrap_or("").to_owned();
+        let why = match what("source").as_str() {
+            "profile" => "set in the profile".to_owned(),
+            "id" => "from the harness id".into(),
+            "command" => "from the program it runs".into(),
+            "family" => "from its family".into(),
+            _ => "nothing names an agent".into(),
+        };
+        let shown = match what("kind").as_str() {
+            "brand" => format!("the {} mark", what("brand")),
+            "emoji" => what("text"),
+            "symbol" | "glyph" => format!("the {} symbol", what("name")),
+            "image" => format!("the image {}", what("file")),
+            _ => format!("the monogram {} (hue {})", what("text"), v["hue"]),
+        };
+        println!("{id}: {shown}, {why}");
+        println!(
+            "set it with `cmux harness icon {id} VALUE` (an emoji, an SF Symbol name, an agent mark or an .svg/.png file)"
+        );
+    }
+    Ok(())
+}
 
 /// Ask a running daemon to reload its catalog; false when none runs.
 pub(crate) async fn reload_daemon() -> bool {
@@ -504,7 +622,7 @@ pub fn scaffold(id: &str, command: &str, protocol: &str) -> String {
 schema = 1
 id = "{id}"
 name = "{name}"
-# icon = "{id}.svg"       # a file next to this one, or: claude, openai, opencode, pi, gemini, terminal
+# icon = "{id}.svg"       # a file next to this one, an emoji, an SF Symbol (hammer.fill) or an agent mark (claude, goose, ...); unset: cmux picks one
 protocol = "{protocol}"   # "acp" (Agent Client Protocol over stdio) or "terminal" (a CLI/TUI without ACP)
 command = "{command}"     # a program on your PATH, or an absolute path
 args = []                 # for example ["acp"]; "${{model}}" becomes the chosen model
@@ -559,6 +677,10 @@ pub struct Step {
     pub detail: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fix: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub data: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -612,7 +734,7 @@ impl Report {
     fn push(&mut self, step: &'static str, status: StepStatus, detail: &str, fix: Option<String>) {
         let detail = self.mask(detail);
         let fix = fix.map(|f| self.mask(&f));
-        self.steps.push(Step { step, status, detail, fix });
+        self.steps.push(Step { step, status, detail, fix, reason: None, data: None });
     }
     fn done(self) -> DoctorReport {
         let ok = self.steps.iter().all(|s| s.status != StepStatus::Fail);
@@ -813,7 +935,8 @@ async fn run_short(
         Ok(String::from_utf8_lossy(&out.stdout).trim().to_owned())
     } else {
         let err = String::from_utf8_lossy(&out.stderr);
-        Err(format!("{}: {}", out.status, err.lines().last().unwrap_or("").trim()))
+        let detail = clean_stderr_lines(&err).into_iter().rev().find(|line| !line.is_empty());
+        Err(format!("{}: {}", out.status, detail.unwrap_or_default()))
     }
 }
 
@@ -878,7 +1001,7 @@ async fn acp_steps(
         r.push("launch", StepStatus::Fail, "no stdio pipes", None);
         return;
     };
-    let stderr_tail = std::sync::Arc::new(std::sync::Mutex::new(Vec::<u8>::new()));
+    let stderr_tail = std::sync::Arc::new(std::sync::Mutex::new(StderrTail::default()));
     let tail = stderr_tail.clone();
     let mut drain = tokio::spawn(async move {
         let mut stderr = stderr;
@@ -888,11 +1011,7 @@ async fn acp_steps(
                 break;
             }
             if let Ok(mut t) = tail.lock() {
-                t.extend_from_slice(&buf[..n]);
-                let len = t.len();
-                if len > 64 * 1024 {
-                    t.drain(..len - 64 * 1024);
-                }
+                t.push(buf.get(..n).unwrap_or_default());
             }
         }
     });
@@ -915,7 +1034,16 @@ async fn acp_steps(
         Some(_) => opts.timeout.max(Duration::from_secs(60)),
         None => opts.timeout,
     };
-    let outcome = handshake(r, &mut wire, folder, opts, prompt_limit).await;
+    let outcome = handshake(
+        r,
+        &mut wire,
+        folder,
+        opts,
+        prompt_limit,
+        crate::config::derive_family(id, profile) == "codex",
+        id,
+    )
+    .await;
     // Stop the harness and everything it started (its own process group),
     // then read the rest of its stderr: the pipe closes when it exits.
     #[cfg(unix)]
@@ -928,9 +1056,9 @@ async fn acp_steps(
     if tokio::time::timeout(Duration::from_secs(2), &mut drain).await.is_err() {
         drain.abort();
     }
-    let text =
-        stderr_tail.lock().map(|t| String::from_utf8_lossy(&t).into_owned()).unwrap_or_default();
-    let lines: Vec<&str> = text.lines().collect();
+    let text = stderr_tail.lock().map(|t| t.text()).unwrap_or_default();
+    let lines: Vec<String> =
+        clean_stderr_lines(&text).into_iter().filter(|line| !line.is_empty()).collect();
     let last = lines[lines.len().saturating_sub(15)..].join("\n");
     let silent = opts.prompt && wire.reply.trim().is_empty();
     if let Some(kind) = endpoint
@@ -984,6 +1112,8 @@ async fn handshake(
     folder: &Path,
     opts: &DoctorOptions,
     prompt_limit: Duration,
+    codex: bool,
+    harness_id: &str,
 ) -> bool {
     let init = json!({
         "protocolVersion": 1,
@@ -1022,18 +1152,35 @@ async fn handshake(
     let session = match wire.call("session/new", new, opts.timeout).await {
         Ok(v) => v,
         Err(e) => {
-            let auth = e.contains("auth") || e.contains("-32000") || e.contains("login");
+            let lower = e.to_ascii_lowercase();
+            let protocol_mismatch = (lower.contains("unknown variant")
+                && lower.contains("session/new"))
+                || lower.contains("method not found");
+            let auth = !protocol_mismatch
+                && (e.contains("auth") || e.contains("-32000") || e.contains("login"));
             r.push(
                 "session",
                 StepStatus::Fail,
                 &e,
-                Some(if auth {
+                Some(if protocol_mismatch && codex {
+                    "this command is a Codex app-server, not the acpmux bridge; verify readiness with `acpmux daemon harnesses`, then start a real session with `acpmux new --host HOST -m codex -d`".into()
+                } else if protocol_mismatch {
+                    format!("the configured command did not speak ACP session/new; check its ACP mode, then run `acpmux harness doctor {harness_id}` again")
+                } else if auth {
                     "the harness needs a login: run its login command once, then doctor again"
                         .into()
                 } else {
                     "session/new failed; see the harness output below".into()
                 }),
             );
+            if protocol_mismatch && let Some(step) = r.steps.last_mut() {
+                step.reason = Some("harness_protocol_mismatch");
+                let mut data = json!({"try": "acpmux daemon harnesses"});
+                if codex {
+                    data.set("next", json!("acpmux new --host HOST -m codex -d"));
+                }
+                step.data = Some(data);
+            }
             return false;
         }
     };
@@ -1082,3 +1229,149 @@ async fn handshake(
 #[cfg(all(test, unix))]
 #[path = "harness_tests.rs"]
 mod tests;
+
+/// The last 64 KiB of a harness's cleaned stderr, for the doctor's "last harness output". Bytes
+/// are cleaned a whole line at a time through one [`StderrStream`](crate::stderr::StderrStream),
+/// so a string control's payload stays hidden wherever the 64 KiB cut falls.
+#[derive(Default)]
+struct StderrTail {
+    stream: crate::stderr::StderrStream,
+    /// The current line, not yet ended by a newline.
+    pending: Vec<u8>,
+    lines: std::collections::VecDeque<String>,
+    bytes: usize,
+}
+
+impl StderrTail {
+    const CAP: usize = 64 * 1024;
+
+    fn push(&mut self, chunk: &[u8]) {
+        self.pending.extend_from_slice(chunk);
+        while let Some(end) = self.pending.iter().position(|&b| b == b'\n') {
+            let mut line: Vec<u8> = self.pending.drain(..=end).collect();
+            line.pop();
+            self.take(&line);
+        }
+        // A line longer than the cap goes on in pieces. A piece never ends inside a UTF-8
+        // character or right after an ESC, so no sequence's start is split from its rest.
+        if self.pending.len() > Self::CAP {
+            let mut cut = match std::str::from_utf8(&self.pending) {
+                Ok(_) => self.pending.len(),
+                Err(error) if error.error_len().is_none() => error.valid_up_to(),
+                Err(_) => self.pending.len(),
+            };
+            // Never back up to the very start: the piece must take something, or the pending
+            // bytes would grow without bound (an ESC at byte 0 is then cut after its sequence).
+            let head = self.pending.get(..cut).unwrap_or_default();
+            if let Some(esc) = head.iter().rposition(|&b| b == 0x1b)
+                && esc > 0
+                && cut.saturating_sub(esc) <= 64
+            {
+                cut = esc;
+            }
+            if cut == 0 {
+                cut = self.pending.len();
+            }
+            let piece: Vec<u8> = self.pending.drain(..cut).collect();
+            self.take(&piece);
+        }
+    }
+
+    fn take(&mut self, line: &[u8]) {
+        let clean = self.stream.clean_line(&String::from_utf8_lossy(line));
+        if clean.is_empty() {
+            return;
+        }
+        self.bytes = self.bytes.saturating_add(clean.len().saturating_add(1));
+        self.lines.push_back(clean);
+        while self.bytes > Self::CAP
+            && let Some(old) = self.lines.pop_front()
+        {
+            self.bytes = self.bytes.saturating_sub(old.len().saturating_add(1));
+        }
+    }
+
+    /// The kept lines, the unfinished one last, within the cap: the oldest go first.
+    fn text(&self) -> String {
+        let mut stream = self.stream.clone();
+        let rest = stream.clean_line(&String::from_utf8_lossy(&self.pending));
+        let mut text: std::collections::VecDeque<&str> =
+            self.lines.iter().map(String::as_str).collect();
+        let mut bytes = self.bytes;
+        if !rest.is_empty() {
+            text.push_back(&rest);
+            bytes = bytes.saturating_add(rest.len().saturating_add(1));
+        }
+        while bytes > Self::CAP
+            && let Some(old) = text.pop_front()
+        {
+            bytes = bytes.saturating_sub(old.len().saturating_add(1));
+        }
+        text.into_iter().collect::<Vec<_>>().join("\n")
+    }
+}
+
+#[cfg(test)]
+mod stderr_tail_tests {
+    use super::StderrTail;
+
+    #[test]
+    fn a_payload_whose_opener_was_cut_off_stays_hidden() {
+        let mut tail = StderrTail::default();
+        tail.push(b"\x1bP");
+        for _ in 0..20 {
+            tail.push(&[b'A'; 4096]);
+        }
+        tail.push(b"secret\x1b\\error: request timed out\n");
+        assert_eq!(tail.text(), "error: request timed out");
+    }
+
+    #[test]
+    fn a_cut_between_esc_and_its_next_byte_reads_the_sequence_whole() {
+        let mut tail = StderrTail::default();
+        let mut long = vec![b'x'; StderrTail::CAP];
+        long.push(0x1b);
+        tail.push(&long);
+        tail.push(b"]8;;https://x\x07after\nerror: boom\n");
+        let text = tail.text();
+        assert!(text.ends_with("after\nerror: boom"), "{text:?}");
+        assert!(!text.contains("https"), "{text:?}");
+    }
+
+    #[test]
+    fn an_unfinished_line_keeps_the_text_under_the_cap() {
+        let mut tail = StderrTail::default();
+        for _ in 0..40 {
+            tail.push(&[b'x'; 4095]);
+            tail.push(b"\n");
+        }
+        tail.push(&[b'y'; StderrTail::CAP - 100]);
+        let text = tail.text();
+        assert!(text.len() <= StderrTail::CAP, "{}", text.len());
+        assert!(text.ends_with('y'));
+    }
+
+    #[test]
+    fn an_endless_line_that_starts_a_control_stays_bounded() {
+        let mut tail = StderrTail::default();
+        tail.push(b"\x1bP");
+        for _ in 0..40 {
+            tail.push(&[b'A'; 4096]);
+            assert!(tail.pending.len() <= StderrTail::CAP + 4096, "{}", tail.pending.len());
+        }
+        tail.push(b"\x1b\\error: request timed out\n");
+        assert_eq!(tail.text(), "error: request timed out");
+    }
+
+    #[test]
+    fn the_kept_text_stays_under_the_cap() {
+        let mut tail = StderrTail::default();
+        for _ in 0..40 {
+            tail.push(&[b'x'; 4095]);
+            tail.push(b"\n");
+        }
+        tail.push(b"error: boom\n");
+        assert!(tail.text().len() <= StderrTail::CAP);
+        assert!(tail.text().ends_with("error: boom"));
+    }
+}

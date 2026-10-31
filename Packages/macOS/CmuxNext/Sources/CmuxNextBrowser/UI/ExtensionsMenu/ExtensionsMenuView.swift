@@ -103,10 +103,9 @@ final class ExtensionsMenuView: NSView {
         scrollView.drawsBackground = false
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = false
-        scrollView.autohidesScrollers = true
-        scrollView.scrollerStyle = .overlay
         scrollView.verticalScrollElasticity = .none
         scrollView.documentView = list
+        SystemScrollers.follow(scrollView)
         for view in [titleLabel, siteLabel, closeButton, headerSeparator, fade, empty, footerSeparator, manageButton,
                      webStoreButton] as [NSView] { addSubview(view) }
         setAccessibilityElement(false)

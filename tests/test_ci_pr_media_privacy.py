@@ -20,6 +20,8 @@ from unittest import mock
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "tests"))
+from nightly_workflow_text import nightly_text  # noqa: E402
 spec = importlib.util.spec_from_file_location("pr_media_privacy", ROOT / "scripts/ci/pr_media_privacy.py")
 assert spec and spec.loader
 privacy = importlib.util.module_from_spec(spec)
@@ -204,57 +206,41 @@ class CheckFilesTests(unittest.TestCase):
         path.write_text(text)
         return path
 
-    def check(self, items, authors=None, agents="bot-a", ocr=fake_ocr):
-        lookup = authors if callable(authors) else (lambda _numbers: authors or {})
-        report = privacy.check_files(items, self.patterns, ocr, lookup, privacy.agent_authors(agents))
+    def check(self, items, ocr=fake_ocr):
+        report = privacy.check_files(items, self.patterns, ocr)
         return {item["path"]: item["action"] for item in report["files"]}, report
 
-    def test_an_agents_hit_is_refused_and_a_teammates_is_only_reported(self) -> None:
+    def test_every_hit_is_refused_whoever_owns_the_folder(self) -> None:
+        # Leo, 2026-10-22: "1 ok": a teammate's PR is refused like an agent's or a bot's.
         leak, clean = self.file("leak.png"), self.file("clean.png")
         notes = self.file("notes.md", "ssh g1ow-box")
         actions, report = self.check([("10/leak.png", leak), ("10/clean.png", clean), ("11/leak.png", leak),
-                                      ("12/notes.md", notes), ("ui-lab/leak.png", leak)],
-                                     authors={10: "Bot-A", 11: "teammate", 12: "bot-a"})
-        self.assertEqual(actions, {"10/leak.png": "refuse", "11/leak.png": "report",
-                                   "12/notes.md": "refuse", "ui-lab/leak.png": "report"})
+                                      ("12/notes.md", notes), ("ui-lab/leak.png", leak),
+                                      ("nightly-next/r/leak.png", leak), ("fuzz/d/1/leak.png", leak)])
+        self.assertEqual(actions, dict.fromkeys(["10/leak.png", "11/leak.png", "12/notes.md", "ui-lab/leak.png",
+                                                 "nightly-next/r/leak.png", "fuzz/d/1/leak.png"], "refuse"))
         self.assertTrue(report["refused"])
         self.assertNotIn("cmux7s", json.dumps(report))
         self.assertNotIn("g1ow", json.dumps(report))
 
-    def test_bot_folders_are_always_refused(self) -> None:
-        leak = self.file("leak.png")
-        for agents in ("bot-a", ""):
-            actions, _ = self.check([("nightly-next/r/leak.png", leak), ("fuzz/d/1/leak.png", leak)], agents=agents)
-            self.assertEqual(set(actions.values()), {"refuse"}, agents)
-
-    def test_a_hit_whose_author_cannot_be_looked_up_is_refused(self) -> None:
-        leak, clean = self.file("leak.png"), self.file("clean.png")
-
-        def broken(_numbers):
-            raise RuntimeError("GraphQL unavailable")
-
-        for lookup in (broken, lambda _numbers: None):
-            actions, _ = self.check([("10/leak.png", leak)], authors=lookup)
-            self.assertEqual(actions, {"10/leak.png": "refuse"})
-        lookup = mock.Mock(side_effect=broken)
-        actions, report = self.check([("10/clean.png", clean)], authors=lookup)
-        self.assertEqual((actions, report["refused"]), ({}, False))
-        lookup.assert_not_called()  # no hit, no lookup, nothing to fail closed on
-
-    def test_no_agent_list_refuses_pull_request_hits(self) -> None:
+    def test_a_refusal_names_the_category_and_the_fix_never_the_term(self) -> None:
+        env = {"HOME": str(self.root), "PR_MEDIA_PRIVATE_TERMS": '["glow-box"]', "PR_MEDIA_AGENT_AUTHORS": "bot-a"}
         lookup = mock.Mock(return_value={10: "teammate"})
-        actions, report = self.check([("10/leak.png", self.file("leak.png"))], authors=lookup, agents="")
-        self.assertEqual(actions, {"10/leak.png": "refuse"})
-        self.assertEqual(report["files"][0]["reason"], "PR_MEDIA_AGENT_AUTHORS is empty")
-        lookup.assert_not_called()
+        with contextlib.redirect_stderr(io.StringIO()) as err, self.assertRaises(privacy.Refused) as raised:
+            privacy.check_upload([("10/notes.html", self.file("notes.html", "ssh glow-box")),
+                                  ("10/prompt.md", self.file("prompt.md", "cmux@cmux7s-Mac-mini %"))],
+                                 env=env, ocr=None, lookup=lookup)
+        said = err.getvalue() + str(raised.exception)
+        self.assertIn("10/notes.html shows a personal machine or account name; refused", said)
+        self.assertIn("10/prompt.md (fleet Mac mini name, fleet shell prompt)", said)
+        self.assertIn("Nothing was uploaded. Show fixture names in the scene instead", said)
+        self.assertNotIn("glow", said.replace(str(self.root), ""))
+        self.assertNotIn("cmux7s", said)
+        lookup.assert_not_called()  # no PR author decides any more
 
-    def test_check_upload_off_ci_without_an_agent_list_refuses(self) -> None:
-        env = {"HOME": str(self.root), "PR_MEDIA_PRIVATE_TERMS": '["glow-box"]'}
-        with contextlib.redirect_stderr(io.StringIO()) as err, self.assertRaises(privacy.Refused):
-            privacy.check_upload([("10/notes.html", self.file("notes.html", "ssh glow-box"))], env=env,
-                                 ocr=None, lookup=lambda _numbers: {10: "teammate"})
-        self.assertIn("no PR_MEDIA_AGENT_AUTHORS list", err.getvalue())
-        self.assertNotIn("glow-box", err.getvalue())
+    def test_every_kind_has_a_category(self) -> None:
+        kinds = {kind for kind, _pattern in privacy.GENERIC_PATTERNS} | {"private-term", "email", "unreadable"}
+        self.assertEqual(kinds - set(privacy.KIND_LABELS), set())
 
     def test_an_unreadable_agent_file_is_refused(self) -> None:
         actions, report = self.check([("nightly-next/broken.png", self.file("broken.png"))])
@@ -302,11 +288,12 @@ class CheckCommandTests(unittest.TestCase):
     def test_exit_status_names_refused_reported_and_clean(self) -> None:
         code, out = self.run_check("10", "leak.png", "clean.png")
         self.assertEqual(code, 1)
-        self.assertIn("10/leak.png shows private-term; refused", out)
+        self.assertIn("10/leak.png shows a personal machine or account name; refused", out)
         self.assertNotIn("glow", out.replace(str(self.root), ""))  # never the matched text
-        code, out = self.run_check("11", "leak.png")
-        self.assertEqual(code, 0)
-        self.assertIn("reported, uploading anyway", out)
+        code, out = self.run_check("11", "leak.png")  # a teammate's PR
+        self.assertEqual(code, 1)
+        self.assertIn("11/leak.png shows a personal machine or account name; refused", out)
+        self.assertEqual(self.run_check("11", "clean.png")[0], 0)
         self.assertEqual(self.run_check("fuzz/abc/1", "clean.png")[0], 0)
         self.assertEqual(self.run_check("fuzz/abc/1", "leak.png")[0], 1)
 
@@ -511,8 +498,7 @@ FAKE_OCR = '#!/bin/sh\nif grep -q LEAK "$1"; then echo "cmux@cmux7s-Mac-mini ~ %
 class FeatWriterCase(unittest.TestCase):
     """The real scripts/pr-media.py and privacy module, a fake OCR tool and a fake gh.
 
-    No agent list is set, so a hit in a PR folder refuses without an author
-    lookup, as it does in a bot's folder.
+    A hit refuses in every folder; no PR author is looked up.
     """
 
     def setUp(self) -> None:
@@ -628,13 +614,16 @@ class WriterInventoryTests(unittest.TestCase):
     CHECKS_ITSELF = {"scripts/pr-media.py"}
     # Writes only through scripts/pr-media.py, which checks.
     THROUGH_PR_MEDIA_PY = {"scripts/cmux-next/media/publish.py", "scripts/cmux-next/media/reel.py",
+                           "scripts/cmux-next/media/whats-new-clips.py",
                            ".github/workflows/cmux-next-media.yml", ".github/workflows/nightly.yml",
                            ".github/actions/pr-media-publish/action.yml"}
     # Remove files or rewrite the retention index; they add no capture.
     REMOVES_ONLY = {"scripts/ci/pr_media_privacy.py", "scripts/ci/prune_pr_media.py",
                     ".github/workflows/pr-media-prune.yml"}
     # Name the branch or pr-media.py's file names for links; write nothing.
-    NOT_WRITERS = {"scripts/gallery-matrix/report.ts", "scripts/gallery-matrix/compare.test.ts"}
+    # Name pr-media URLs and push words but write nothing there (release-notes.py reads clip URLs).
+    NOT_WRITERS = {"scripts/gallery-matrix/report.ts", "scripts/gallery-matrix/compare.test.ts",
+                   "scripts/cmux-next/release-notes.py"}
     SKIP_SUFFIXES = (".md", ".json", ".xcstrings", ".txt", ".png", ".gif", ".mp4", ".webp", ".jpg", ".svg")
 
     @classmethod
@@ -653,6 +642,9 @@ class WriterInventoryTests(unittest.TestCase):
                 text = (ROOT / path).read_text(encoding="utf-8")
             except (OSError, UnicodeDecodeError):
                 continue
+            if path == ".github/workflows/nightly.yml":
+                # With its moved step scripts (scripts/ci/nightly-steps/) put back inline.
+                text = nightly_text()
             if cls.MEDIA.search(text) and (cls.DIRECT.search(text) or cls.VIA_TOOL.search(text)):
                 found[path] = text
         return found
@@ -923,6 +915,14 @@ class SeededTermEndToEndTests(FeatWriterCase):
         with self.assertRaises(self.pr_media.PrivacyError):
             self.put("nightly-next/1/canary.png", CANARY)
         self.assertEqual(self.puts, [])
+
+    def test_a_teammates_seeded_term_is_refused_too(self) -> None:
+        with mock.patch.dict(os.environ, {"PR_MEDIA_AGENT_AUTHORS": "bot-a"}), \
+                self.assertRaises(self.pr_media.PrivacyError) as raised:
+            self.put("24001/seeded.png", FIXTURES / "seeded-private-term.png")
+        self.assertEqual(self.puts, [])
+        self.assertIn("personal machine or account name", str(raised.exception))
+        self.assertNotIn("zephyrquill", str(raised.exception))
 
     def test_a_clean_picture_is_written(self) -> None:
         self.put("nightly-next/1/clean.png", FIXTURES / "clean.png")

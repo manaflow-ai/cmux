@@ -29,12 +29,29 @@ struct FileOpenKindTests {
         #expect(FileOpenKind(fileName: "Library.photoslibrary", isDirectory: true, isPackage: true) == .app)
     }
 
-    @Test func onlyWebAndOtherNeedTheUsersClick() {
-        // A page runs script and `.other` leaves cmux: an agent's open never picks them.
-        #expect(FileOpenKind.web.needsUserChoice)
+    @Test func onlyAppsNeedTheUsersClick() {
+        // An app runs code outside cmux: an agent's open never picks it. A web page renders in a
+        // browser tab for an agent too (u18051), as any URL an agent opens does.
+        #expect(!FileOpenKind.web.needsUserChoice)
         #expect(FileOpenKind.app.needsUserChoice)
         #expect(!FileOpenKind.preview.needsUserChoice)
         #expect(!FileOpenKind.editor.needsUserChoice)
+    }
+
+    /// u9489 (Oct 21): "right-click and open it as text instead of as the HTML page … in Monaco".
+    /// A page cmux renders (Markdown, HTML, SVG) also opens as its source; other kinds already
+    /// open as text or have none.
+    @Test(arguments: [
+        ("index.html", true), ("page.HTM", true), ("logo.svg", true), ("README.md", true), ("notes.markdown", true),
+        ("notes.txt", false), ("main.swift", false), ("shot.png", false), ("spec.pdf", false), ("archive.zip", false),
+    ])
+    func renderedPagesAlsoOpenAsText(name: String, expected: Bool) {
+        #expect(FileOpenKind(fileName: name, isDirectory: false, isPackage: false).opensAsText == expected)
+    }
+
+    @Test func foldersAndAppsHaveNoText() {
+        #expect(!FileOpenKind(fileName: "site.html", isDirectory: true, isPackage: false).opensAsText)
+        #expect(!FileOpenKind(fileName: "Xcode.app", isDirectory: true, isPackage: true).opensAsText)
     }
 
     @Test func classifiesAURLOnDisk() throws {

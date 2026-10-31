@@ -114,7 +114,7 @@ const NESTED_MIXED: typeof MIXED = {
 };
 
 /** Codex subagents as codex-acp sends them once acpmux asks for native subagent sessions
- * (cx-07ezn, recorded on cmux-lawrence 2026-10-12): named from their agent path ("Read a"), each
+ * (cx-07ezn, recorded on a fleet Mac 2026-10-12): named from their agent path ("Read a"), each
  * with its own read and reply; Codex's `wait` calls between them draw no row. */
 const CODEX_A = agent("Read a", 1.6, "completed", { ran: 0.4 });
 const CODEX_B = agent("Read b", 1.6, "running", { action: "Read file 'b.txt'" });

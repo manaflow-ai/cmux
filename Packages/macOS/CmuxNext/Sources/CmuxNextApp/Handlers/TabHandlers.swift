@@ -4,6 +4,7 @@ import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextDaemon
+import CmuxNextFiles
 import CmuxNextLayout
 
 /// Tab actions (category `.tab` except `tabGroup.*`): create, close,
@@ -96,7 +97,7 @@ enum TabHandlers {
             }
             if ctx.services.windows.reopenClosedWindow() { return }
             guard DaemonClosedHistory.isServed(in: ctx.services) else {
-                return ctx.refuse(RefusalStrings.needsDaemonCapability(DaemonCapabilities.shared.stateResources))
+                return ctx.refuse(RefusalStrings.needsDaemonCapability(DaemonCapability.stateResources.rawValue))
             }
             ctx.refuseQuietly(RefusalStrings.noRecentlyClosedTab)
         })
@@ -119,7 +120,8 @@ enum TabHandlers {
         registry.bind("selectSurfaceByNumber", invoke: { invocation in
             guard let pane = ctx.paneController(invocation) else { return }
             guard let number = invocation["index"]?.intValue ?? ctx.refuse(RefusalStrings.indexRequired) else { return }
-            let ids = pane.orderedIDs
+            // The tabs the strip shows: a member of a collapsed group has no visible number.
+            let ids = pane.stripModel.visibleOrderedTabs.map(\.id)
             guard !ids.isEmpty else { return ctx.refuseQuietly(RefusalStrings.paneHasNoTabs) }
             // 9 always selects the last tab.
             pane.select(number >= 9 ? ids[ids.count - 1] : ids[min(number - 1, ids.count - 1)])
@@ -237,7 +239,7 @@ enum TabHandlers {
     private static func moveToSiblingPane(_ ctx: AppActionContext, _ invocation: ActionInvocation, offset: Int) {
         guard let (pane, id) = ctx.tab(invocation), let content = pane.workspace else { return }
         guard let screen = content.layoutModel.screen(containing: pane.layoutPaneID) else { return }
-        let order = screen.layout.panes
+        let order = screen.layout.visualPanes
         guard order.count > 1, let index = order.firstIndex(of: pane.layoutPaneID) else {
             return ctx.refuseQuietly(RefusalStrings.screenHasNoOtherPane)
         }
@@ -269,7 +271,7 @@ enum TabHandlers {
             guard let surface = pane.tab(id)?.surface ?? ctx.refuse(RefusalStrings.sessionLocalHasNoName) else { return }
             rename(surface, to: nil, ctx: ctx, pane: pane)
         })
-        registry.bind("palette.toggleTabPin", unavailable: ctx.needs(DaemonCapabilities.shared.tabMetadata), invoke: { invocation in
+        registry.bind("palette.toggleTabPin", unavailable: ctx.needs(DaemonCapability.tabMetadata.rawValue), invoke: { invocation in
             let commands = PinCommands(context: ctx)
             if invocation.target?.kind == .tab || invocation["tab"]?.targetValue != nil {
                 guard let (tab, pane) = ctx.daemonTab(invocation) else { return }
@@ -294,6 +296,12 @@ enum TabHandlers {
             return tab.pinned ? PinStrings.unpinTab : PinStrings.pinTab
         }
         PinnedPage.bind(registry, ctx: ctx)
+        // Edit Source (u18051): a tab rendering a local HTML or SVG file opens its source in the code editor (Open as Text).
+        registry.bindEffect("browser.editSource", effect: { invocation in
+            guard let (tab, pane) = ctx.daemonTab(invocation), let file = FileOpenKind.sourceFile(ofPage: tab.url) else { return .refused(FilePageStrings.notAFile) }
+            ctx.services.linkOpener.openFile(file, from: ctx.services.paneController(for: pane), asText: true); return .done
+        })
+        ActionTargetVisibility.hide("browser.editSource", in: registry) { ($0.target?.id).flatMap { ctx.services.locateTab($0) }.map { FileOpenKind.sourceFile(ofPage: $0.0.url) == nil } ?? false }
     }
 
     /// Optimistic rename; an empty name clears it on the daemon.

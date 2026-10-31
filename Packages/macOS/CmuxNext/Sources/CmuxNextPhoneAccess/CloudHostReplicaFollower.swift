@@ -73,7 +73,7 @@ public final class CloudHostReplicaFollower {
         observation = Task { [weak self] in
             await settings.waitForLoad(atLeast: 1)
             for await next in ObservationStream({ () -> Want in
-                let supported = local.supports(DaemonCapabilities.shared.cloudHostReplica)
+                let supported = local.supports(DaemonCapability.cloudHostReplica.rawValue)
                 return Want(connection: supported ? local.connection : nil, daemon: supported ? local.identity?.pid : nil,
                             userID: account(), on: settings.snapshot.sessions.publishesCloudReplica)
             }) {

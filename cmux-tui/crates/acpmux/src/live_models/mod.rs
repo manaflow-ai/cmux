@@ -54,6 +54,8 @@ pub struct LiveModel {
     /// (Codex); unset when the CLI does not say.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fast: Option<bool>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub service_tiers: Vec<Value>,
     /// The CLI's default model.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub is_default: bool,
@@ -245,6 +247,8 @@ impl Cache {
         key: &CacheKey,
         models: &[LiveModel],
     ) -> std::io::Result<()> {
+        // A probe that ends after the home was lost never makes it again (`config::mark_home_lost`).
+        crate::config::refuse_lost_home(&self.dir).map_err(std::io::Error::other)?;
         std::fs::create_dir_all(&self.dir)?;
         let path = self.path(harness);
         let tmp = path.with_extension("json.tmp");
@@ -276,6 +280,9 @@ pub fn overlay(models: &mut [Value], live: &[LiveModel]) {
         }
         if let Some(fast) = model.fast {
             entry["fast"] = json!(fast);
+        }
+        if !model.service_tiers.is_empty() {
+            entry["serviceTiers"] = json!(model.service_tiers);
         }
     }
     if let Some(default) = live.iter().find(|m| m.is_default)
