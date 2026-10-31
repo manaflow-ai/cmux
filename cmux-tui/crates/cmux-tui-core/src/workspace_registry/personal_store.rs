@@ -430,7 +430,7 @@ pub fn validate_session_capabilities(value: &Value) -> anyhow::Result<String> {
         let bytes = token.as_bytes();
         anyhow::ensure!(
             (1..=MAX_CAPABILITY_TOKEN_BYTES).contains(&bytes.len())
-                && bytes[0].is_ascii_lowercase()
+                && bytes.first().is_some_and(u8::is_ascii_lowercase)
                 && bytes.iter().all(|byte| {
                     byte.is_ascii_lowercase()
                         || byte.is_ascii_digit()

@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 529,
+  "count": 530,
   "sections": [
     {
       "id": "general",
@@ -1374,6 +1374,14 @@
           ]
         },
         {
+          "key": "updates.showFeatureTips",
+          "title": "Show Feature Tips",
+          "help": "Now and then, a small tip points at a feature an update added. Close it or use the feature and it never comes back.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Updates"
+        },
+        {
           "key": "updates.showWhatsNew",
           "title": "Show What's New After Updates",
           "help": "After an update, a card at the bottom of the sidebar links to What's New until you open or dismiss it.",
@@ -1669,7 +1677,7 @@
         {
           "key": "appearance.appTheme",
           "title": "App Theme",
-          "help": "Colors for cmux's own pages. Every bundled theme works here, and each color meets WCAG AA contrast.",
+          "help": "Colors for the window, sidebar, tabs and cmux's pages. Terminals keep the Terminal Theme. Every color meets WCAG AA contrast.",
           "kind": "theme",
           "default": "followTerminal",
           "group": "App Theme"
@@ -2630,7 +2638,7 @@
         {
           "key": "appearance.theme",
           "title": "Theme",
-          "help": "Colors for cmux and its terminals. A space, workspace or terminal theme overrides it.",
+          "help": "Colors for terminals. cmux uses them too while App Theme is Match Terminal Theme. A space, workspace or terminal theme overrides it.",
           "kind": "theme",
           "default": null,
           "group": "App Theme"

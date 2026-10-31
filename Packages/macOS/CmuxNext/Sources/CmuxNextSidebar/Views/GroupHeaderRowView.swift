@@ -60,10 +60,6 @@ final class GroupHeaderRowView: SidebarRowView {
     /// Archived in the sidebar document: the bar and its ink draw dimmed (`SidebarStyle.archivedAlpha`).
     private var archived = false
     private var hasIcon = false
-    /// No members: the + is not offered (the editor's New Workspace in Group
-    /// is), so a click on it can never race the editor closing on a new,
-    /// still empty group that then goes.
-    private var isEmpty = false
     private var tint: GroupTint = .palette(.grey)
     private var collapsed = false
     private var chevronFrame: CGRect = .zero
@@ -116,7 +112,7 @@ final class GroupHeaderRowView: SidebarRowView {
                 return self?.onMore != nil
             },
             NSAccessibilityCustomAction(name: GroupEditorStrings.newWorkspace) { [weak self] in
-                guard let self, let onAdd = self.onAdd, !self.isEmpty else { return false }
+                guard let self, let onAdd = self.onAdd else { return false }
                 onAdd()
                 return true
             },
@@ -158,13 +154,12 @@ final class GroupHeaderRowView: SidebarRowView {
                               fontSize: SidebarStyle.headerFont.pointSize, details: details, status: rollUp)
         guard needsConfigure(content) else { return }
         tint = group.tint
-        isEmpty = group.workspaces.isEmpty && group.items.isEmpty
         name.stringValue = group.name
         pinned = group.isPinned
         archived = group.isArchived
         hasIcon = group.icon != nil
         glyph.configure(icon: group.icon)
-        pin.image = pinned ? NSImage.icon(.statePinned, size: Metrics.smallIconSize) : nil
+        pin.image = pinned ? NSImage.icon(.statePinned, size: SidebarStyle.leadingGlyphSide) : nil
         collapsed = row.isCollapsed
         count.stringValue = details.memberCount && collapsed && row.childCount > 0 ? "\(row.childCount)" : ""
         chevronIcon = Self.disclosureIcon(collapsed: collapsed)
@@ -391,7 +386,9 @@ final class GroupHeaderRowView: SidebarRowView {
         setHoverShown(moreButton, showsActions, fades: fades, token: .hoverReveal)
         moreButton.setAccessibilityElement(showsActions)
         addButton.frame = slotFrame(2)
-        let offersAdd = onAdd != nil && !isEmpty
+        // An empty group offers its + too (user 17912, "empty workspace needs plus button"): New Workspace in Group
+        // keeps a new group the editor would drop when it closes (`SidebarGroupFlow.performEditorItem`).
+        let offersAdd = onAdd != nil
         setHoverShown(addButton, offersAdd && showsActions, fades: fades, token: .hoverReveal)
         addButton.setAccessibilityElement(offersAdd && showsActions)
         // Lawrence 2026-10-20: at rest a loading spinner takes the chevron's place, on the trailing
@@ -422,7 +419,7 @@ final class GroupHeaderRowView: SidebarRowView {
         // A pinned group's pin leads the bar, its ink centered on the rows' icon column, and its icon and name take the
         // one text column after it, as a pinned workspace row's do (Lawrence 2026-10-28, "home and pinned are not
         // aligned"; Leo 2026-10-28, "the alignment").
-        let pinSide = Metrics.smallIconSize
+        let pinSide = SidebarStyle.leadingGlyphSide
         pin.isHidden = !pinned
         let pinInk = pin.image.flatMap { SidebarGlyphInk.shared.box(of: $0, glyph: SidebarItemRowView.pinGlyph) }
         let scale = window?.backingScaleFactor ?? 2

@@ -18,7 +18,6 @@ import { ContextMenu } from "../../../ui/ContextMenu";
 import type { usePromptMarks } from "./promptMarks";
 import {
   CARD_DELAY,
-  cardOffset,
   JUMP_CURVE,
   LANDING_OFFSET,
   replyPreview,
@@ -91,7 +90,6 @@ export function ScrollMap({
   const [hovered, setHovered] = useState<string | undefined>(undefined);
   const [focused, setFocused] = useState<string | undefined>(undefined);
   const [cardMark, setCardMark] = useState<string | undefined>(undefined);
-  const [cardHeight, setCardHeight] = useState(0);
   const [cardFocus, setCardFocus] = useState(false);
   const [scrubbing, setScrubbing] = useState(false);
   const [reduce, setReduce] = useState(false);
@@ -145,9 +143,6 @@ export function ScrollMap({
   const showCard = preview.shown !== null && cardAt !== undefined;
   if (!showCard && cardFocus) setCardFocus(false);
   useEscapeCloses(showCard && cardFocus, dismiss);
-  useLayoutEffect(() => {
-    if (showCard && card.current) setCardHeight(card.current.offsetHeight);
-  }, [showCard, cardAt]);
   const cardRow = cardAt ? rows[cardAt.row] : undefined;
   const agentReply = useMemo(
     () => (cardAt?.kind === "agent" && cardRow?.text ? replyPreview(cardRow.text) : []),
@@ -342,13 +337,13 @@ export function ScrollMap({
           side={side}
           x={placement.reserve + placement.left + ROW_WIDTH}
           railLeft={placement.left}
-          y={cardOffset(MAP_MARGIN + cardAt.y, cardHeight, viewportHeight)}
+          center={MAP_MARGIN + cardAt.y}
+          viewportHeight={viewportHeight}
           // Out of the scroller: its edge mask would keep the card's blur from the rows (PreviewCard.tsx).
           scroller={scroller.current}
           prompt={cardTurn?.prompt}
           reply={cardTurn ? cardTurn.reply : agentReply}
           metadata={cardTurn?.metadata}
-          onSizeChange={() => setCardHeight(card.current?.offsetHeight ?? 0)}
           bookmark={
             cardTurn && bookmarks.can(cardTurn)
               ? { marked: cardMarked, toggle: () => bookmarks.toggle(cardTurn) }
