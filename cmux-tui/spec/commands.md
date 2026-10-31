@@ -2019,6 +2019,16 @@ absent) for an agent session source, and `{page}` for a page source. A connectio
 `session.events` and `session.journal.subscribe` stream items alike. Every
 browser command and browser operation refuses the tab.
 
+Closed agent chat tabs use the same canonical `conversation` kind in
+`closed.list` and closed snapshot/event records, with only safe
+`agent_session:{session,harness}` metadata. This requires the separate
+`closed-conversation-tabs-v1` declaration: older connections, including
+clients that understand live conversation tabs, retain `browser` and the
+safe metadata. Merged history similarly uses `closed_kind:"conversation_tab"`
+only for declared connections, otherwise `browser_tab`. Private host/install
+identity stays in the daemon's restore record; reopening still restores the
+original conversation source.
+
 Params: `conversation` and `owner`, `agent_session`, or `page` (one source required);
 `pane` or `workspace`, `split` (with `pane`), `origin`, `mutation_id`, `cols`, `rows`, `transaction` (optional).
 

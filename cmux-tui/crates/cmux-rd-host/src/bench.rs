@@ -68,6 +68,20 @@ struct Viewer {
     stream_answer: Option<Result<(), String>>,
     /// The host closed the upstream stream.
     upstream_closed_by_host: bool,
+    /// `--snapshot PATH`: the newest decoded frame as a binary PPM, written when the run ends.
+    snapshot: Option<(usize, usize, Vec<u8>)>,
+    /// The newest hardware-decoded picture for `--snapshot`, converted to RGB once, at the end.
+    #[cfg(target_os = "macos")]
+    newest_picture: Option<crate::vtdecode::Picture>,
+    want_snapshot: bool,
+    /// `--record PATH`: every received access unit (Annex-B), the stream the viewer decoded.
+    record: Option<std::fs::File>,
+    /// `--marker-origin X,Y`: the marker's top-left in stream pixels (default 0,0).
+    marker_origin: (usize, usize),
+    /// macOS: the hardware decoder the viewer pane uses (`--decoder videotoolbox`, the
+    /// default there); OpenH264 decodes constrained baseline only.
+    #[cfg(target_os = "macos")]
+    vt: Option<crate::vtdecode::VtDecoder>,
 }
 
 fn pct(xs: &mut [f64]) -> serde_json::Value {
@@ -100,13 +114,56 @@ impl Viewer {
                 for frame in self.reassembler.push(&h, payload, now / 1000) {
                     self.released_since_feedback = true;
                     self.frames += 1;
+                    if let Some(file) = self.record.as_mut() {
+                        let _ = io::Write::write_all(file, &frame.body.access_unit);
+                    }
                     let t0 = now_ns();
+                    #[cfg(target_os = "macos")]
+                    if let Some(vt) = self.vt.as_mut() {
+                        let decoded = vt.decode(&frame.body.access_unit);
+                        let t1 = now_ns();
+                        self.decode_ms.push((t1 - t0) as f64 / 1e6);
+                        match decoded {
+                            Ok(Some(picture)) => {
+                                let origin = self.marker_origin;
+                                let read = picture.with_luma(|y, stride| {
+                                    marker::decode_luma_at(y, stride, true, origin)
+                                });
+                                if let Some(v) = read {
+                                    if self.marker != Some(v) {
+                                        self.marker = Some(v);
+                                        self.marker_at_ns = t1;
+                                        self.marker_capture_us = frame.body.t_capture_us;
+                                    }
+                                }
+                                if self.want_snapshot {
+                                    self.newest_picture = Some(picture);
+                                }
+                            }
+                            Ok(None) => {}
+                            Err(_) => self.decode_errors += 1,
+                        }
+                        continue;
+                    }
                     let decoded = self.decoder.decode(&frame.body.access_unit);
                     let t1 = now_ns();
                     self.decode_ms.push((t1 - t0) as f64 / 1e6);
                     match decoded {
                         Ok(Some(yuv)) => {
-                            if let Some(v) = marker::decode_luma(yuv.y(), yuv.strides().0, true) {
+                            // OpenH264 lends its picture only for this call, so a snapshot
+                            // converts every frame: use --snapshot for pictures, not timing.
+                            if self.want_snapshot {
+                                let (w, h) = yuv.dimensions();
+                                let mut rgb = vec![0u8; w * h * 3];
+                                yuv.write_rgb8(&mut rgb);
+                                self.snapshot = Some((w, h, rgb));
+                            }
+                            if let Some(v) = marker::decode_luma_at(
+                                yuv.y(),
+                                yuv.strides().0,
+                                true,
+                                self.marker_origin,
+                            ) {
                                 if self.marker != Some(v) {
                                     self.marker = Some(v);
                                     self.marker_at_ns = t1;
@@ -425,6 +482,32 @@ pub fn run(opts: &Opts) -> Res<()> {
         upstream: None,
         stream_answer: None,
         upstream_closed_by_host: false,
+        snapshot: None,
+        #[cfg(target_os = "macos")]
+        newest_picture: None,
+        want_snapshot: opts.get("snapshot").is_some(),
+        record: opts.get("record").map(std::fs::File::create).transpose()?,
+        #[cfg(target_os = "macos")]
+        vt: match opts.str_or("decoder", "videotoolbox").as_str() {
+            "videotoolbox" => Some(crate::vtdecode::VtDecoder::new()),
+            "openh264" => None,
+            other => return Err(format!("--decoder {other}: use videotoolbox or openh264").into()),
+        },
+        marker_origin: match opts.get("marker-origin") {
+            Some(at) => {
+                let (x, y) = at.split_once(',').ok_or("--marker-origin takes X,Y")?;
+                (x.trim().parse()?, y.trim().parse()?)
+            }
+            None => (0, 0),
+        },
+    };
+    // `--at X,Y`: where click and scroll input lands, in stream pixels.
+    let (at_x, at_y) = match opts.get("at") {
+        Some(at) => {
+            let (x, y) = at.split_once(',').ok_or("--at takes X,Y")?;
+            (x.trim().parse::<i32>()?, y.trim().parse::<i32>()?)
+        }
+        None => (960, 600),
     };
     let upstream = opts.get("upstream").map(str::to_owned);
     let udp_port = udp.as_ref().map(|(s, _)| s.local_addr().map(|a| a.port())).transpose()?;
@@ -467,6 +550,7 @@ pub fn run(opts: &Opts) -> Res<()> {
             return Err(format!("ended before the first frame: {e}").into());
         }
         if now_ns() - start > 15_000_000_000 {
+            write_snapshot(opts, &v)?;
             return Err(format!(
                 "no marker within 15 s (bytes {}, frames released {}, decode errors {}, losses {:?})",
                 v.bytes,
@@ -504,12 +588,12 @@ pub fn run(opts: &Opts) -> Res<()> {
         match input.as_str() {
             // The cloud browser's marker page counts mousedown and wheel as well as keydown.
             "click" => {
-                v.sender.push(InputEvent::Pointer { x: 960, y: 600 });
+                v.sender.push(InputEvent::Pointer { x: at_x, y: at_y });
                 v.sender.push(InputEvent::Button { button: 0, down: true });
                 v.sender.push(InputEvent::Button { button: 0, down: false });
             }
             "scroll" => {
-                v.sender.push(InputEvent::Pointer { x: 960, y: 600 });
+                v.sender.push(InputEvent::Pointer { x: at_x, y: at_y });
                 let dy = if g2g.len() % 2 == 0 { -300 } else { 300 };
                 v.sender.push(InputEvent::Scroll { dx: 0, dy, precise: false });
             }
@@ -559,6 +643,23 @@ pub fn run(opts: &Opts) -> Res<()> {
         "ended": v.ended,
     });
     println!("{report}");
+    write_snapshot(opts, &v)?;
     let _ = write_control(&mut v.tcp, &Control::Stop);
+    Ok(())
+}
+
+/// `--snapshot PATH`: the newest decoded frame, so a run shows what the viewer received.
+fn write_snapshot(opts: &Opts, v: &Viewer) -> Res<()> {
+    #[cfg(target_os = "macos")]
+    let converted = v.newest_picture.as_ref().map(crate::vtdecode::Picture::rgb);
+    #[cfg(not(target_os = "macos"))]
+    let converted: Option<(usize, usize, Vec<u8>)> = None;
+    if let (Some(path), Some((w, h, rgb))) =
+        (opts.get("snapshot"), converted.as_ref().or(v.snapshot.as_ref()))
+    {
+        let mut ppm = format!("P6\n{w} {h}\n255\n").into_bytes();
+        ppm.extend_from_slice(rgb);
+        std::fs::write(path, ppm)?;
+    }
     Ok(())
 }
