@@ -1,0 +1,173 @@
+{
+  "version": 1,
+  "build": "4124615690001",
+  "notes": "notes/4124615690001.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 29666,
+      "title": "ci(web): webview tests run in 8 shards (about -10 min on every webview PR's gate)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29618,
+      "title": "Agent chat: the tab row behind the header tools takes the pane's own fill",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29648,
+      "title": "Session Info: the section drag handle sits at the right end of the head",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29676,
+      "title": "fix(next): keep subagent clicks beside their chat",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29680,
+      "title": "Agent chat: keep helper activity out of partial parent history",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29640,
+      "title": "fix(agent pane): a reference wrapped at its # no longer draws its number over the next line",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29675,
+      "title": "Record PR tours as native window video and encode 15 fps GIFs",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29684,
+      "title": "fix(next): reuse right-side browser and terminal panes",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29602,
+      "title": "style(palette): closeIfPending gets its own lines and handleCloseItem keeps its doc",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29630,
+      "title": "fix(cmux-tui): base red: the frozen-owner ensure test reads the error where the CLI writes it (stderr)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29661,
+      "title": "fix(cmux-tui-core tests): prompt_redraw checks one prompt as fish draws it, with pinned shells on macOS (base red)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29638,
+      "title": "Agent chat: tool rows share one column; a hook's block reads \"blocked by hook\"",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28211,
+      "title": "acpmux: add opt-in managed Codex runtime",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29531,
+      "title": "fix(fuzz-browser): the 4 small items of the #29044 review",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29561,
+      "title": "fix(measure): perf-bench.sh builds with the pinned bun, and a guard for every measure script",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29541,
+      "title": "fix(bench-startup): find the tag's state under the account home, as the app does, not under $HOME",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29490,
+      "title": "carry of #26809: cmux-next swift test: main-thread-heavy suites in their own processes, the broad pass sharded, SIGPIPE caught as in the app",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29112,
+      "title": "webviews test: composer-draft-overflow reads through the shared painted-frame reader",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29111,
+      "title": "webviews: the Context Compact row pads on the spacing scale, not a halved token",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29649,
+      "title": "Session Info: animate with the composer; popover in a short pane",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29643,
+      "title": "fix(new-tab): draw the permission mode's label whole in Codex's row",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29644,
+      "title": "cmux NEXT: menus draw no bare letter keycaps; title menu keeps one divider",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29655,
+      "title": "base red: Takes back #28060: the provider capture fixture moves to CmuxNextCodeRouter (app_lines)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29589,
+      "title": "base red: Takes back #28786: the signed-out Cloud action sign-in recovery moves to CmuxNextDaemonService (app_lines +65)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29362,
+      "title": "base red: the moved-acpmux peer test accepts Apple's expired clang leaf being refused before the OU rule",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27603,
+      "title": "cmux vm: run --sync, scoped VM tokens, in process in the NEXT bundle",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26411,
+      "title": "Fixes #26397: every Home chat opens at its newest message",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    }
+  ]
+}
