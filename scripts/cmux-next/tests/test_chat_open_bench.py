@@ -61,7 +61,7 @@ class SubagentClickTests(unittest.TestCase):
             self.clicked.append(params["text"])
             if params["text"] not in self.shown:
                 return {"pane": "p", "error": "no visible element matches"}
-            return {"pane": "p", "x": 1.0, "y": 2.0}
+            return {"pane": "p", "clicked": True, "x": 1.0, "y": 2.0}
 
     def test_clicks_the_newest_subagent_the_chat_shows(self):
         bench = load_bench("--runs=3")
@@ -69,13 +69,14 @@ class SubagentClickTests(unittest.TestCase):
         run = self.Run({"Auditor 0", "Auditor 2"})
         reply = bench.click_subagent(run)
         self.assertEqual(run.clicked, ["Auditor 3", "Auditor 2"])
-        self.assertEqual(reply["clicked"], "Auditor 2")
+        self.assertEqual(reply["subagent"], "Auditor 2")
+        self.assertIs(reply["clicked"], True, "the app's own clicked flag is kept")
         self.assertNotIn("error", reply)
 
     def test_an_older_rendered_line_still_opens(self):
         bench = load_bench("--runs=3")
         run = self.Run({"Auditor 0"})
-        self.assertEqual(bench.click_subagent(run)["clicked"], "Auditor 0")
+        self.assertEqual(bench.click_subagent(run)["subagent"], "Auditor 0")
 
     def test_no_shown_line_keeps_the_error(self):
         bench = load_bench("--runs=3")

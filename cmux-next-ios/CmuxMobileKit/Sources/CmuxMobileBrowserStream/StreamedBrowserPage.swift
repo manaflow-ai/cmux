@@ -18,7 +18,7 @@ public struct StreamedBrowserPage: View {
     @Environment(\.openURL) private var openURL
 
     /// What the page says when the Mac cannot stream browser tabs.
-    public static let unavailableText = String(localized: "Browser tabs aren't available from this Mac yet.")
+    public static let unavailableText = String(localized: "Browser tabs aren't available from this Mac.")
 
     public init(model: StreamedBrowserModel, insets: EdgeInsets, reportScroll: @escaping @MainActor (CGFloat) -> Void) {
         self.model = model
