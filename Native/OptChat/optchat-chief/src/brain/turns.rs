@@ -81,6 +81,9 @@ impl Brain {
         // The turn that starts now takes the cut turn's resume note: its
         // hold (a backoff, or a network cut's wait) is over.
         self.resume_at = None;
+        // What the shared screen showed since the last turn joins the log
+        // first, so this turn's delta carries it (screen_share.rs).
+        self.ingest_screen_share();
         self.phase = Phase::Settling;
         // The bound counts from the first wait for this turn: a wait that
         // starts over (the log changed under it) does not reset it.

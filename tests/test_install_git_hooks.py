@@ -829,6 +829,20 @@ cat > node_modules/.bin/vp <<'VP'
         self.assertLess(hook.index("refresh_checks.py"), hook.index("cmux_next_prepush_gate.py"),
                         "pre-push refreshes the checks before it runs them")
 
+    def test_installed_and_refreshed_checks_carry_the_swift_source_masker(self):
+        # Review of #28365: check-package-dependency-lists.py imports scripts/swift_source_mask.py, and the hook runs
+        # its copy from the checks folder, so both the install and a refresh put the masker beside it.
+        masker = self.repo / "scripts/swift_source_mask.py"
+        if not masker.is_file():
+            masker.parent.mkdir(parents=True, exist_ok=True)
+            masker.write_bytes((SOURCE / "scripts/swift_source_mask.py").read_bytes())
+        self.stale_install()
+        self.assertTrue((self.installed_checks() / "swift_source_mask.py").is_file(), "the install has no masker")
+        result = self.refresh()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((self.installed_checks() / "swift_source_mask.py").read_bytes(),
+                         (SOURCE / "scripts/swift_source_mask.py").read_bytes(), "the refreshed copy has no masker")
+
     def test_refresh_leaves_other_pushes_and_lookalike_remotes_alone(self):
         self.stale_install()
         for result in (self.refresh(remote_ref="refs/heads/topic"),

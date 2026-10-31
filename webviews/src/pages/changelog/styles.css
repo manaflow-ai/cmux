@@ -198,8 +198,7 @@ html[data-cmux-page="changelog"] body {
 /* The number is the agent pane's reference chip (chips.css .cv-chip.is-ref); both open the shared
    pull request hover card (ChangePullRequest.tsx). */
 .cl-pr { flex: none; margin-left: auto; font-variant-numeric: tabular-nums; }
-.cl-change-link:hover { text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
-.cl-pr:hover { cursor: pointer; }
+.cl-change-link:hover { text-decoration: underline; text-underline-offset: 3px; cursor: default; }
 /* The chip and its card draw in the agent pane's tokens (chips.css, linkCard.css), mapped here to
    the page theme. */
 html[data-cmux-page="changelog"] {
@@ -268,7 +267,7 @@ html[data-cmux-page="changelog"] {
   padding: 0;
   background: transparent;
   color: #fff;
-  cursor: pointer;
+  cursor: default;
 }
 .cl-reel-play svg {
   box-sizing: content-box;

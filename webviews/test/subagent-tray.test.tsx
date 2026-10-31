@@ -365,7 +365,9 @@ describe("the tray", () => {
     try {
       const head = shown.root.querySelector<HTMLButtonElement>(".acpmux-running-tray__head")!;
       expect(head.getAttribute("aria-expanded")).toBe("true");
-      expect(head.querySelector('svg[data-icon="agent.session"]')).not.toBeNull();
+      // A fixed running-work mark, never the spinner (#27103) and never the chat bubble.
+      expect(head.querySelector('svg[data-icon="app.sample.runningagents"]')).not.toBeNull();
+      expect(head.querySelector('svg[data-icon="agent.session"]')).toBeNull();
       expect(head.querySelector('[role="progressbar"]')).toBeNull();
       expect(head.querySelector(".acpmux-running-tray__title")?.textContent).toBe("2 subagents running · 1 command");
       expect(shown.root.querySelectorAll(".acpmux-agent-line").length).toBe(3);
@@ -523,23 +525,23 @@ describe("the tray", () => {
   });
 
   test("a hidden pane's tray clock rests and catches up when the pane shows", async () => {
-    // The clock's interval is recorded instead of run, and the time moves by hand: no real waits.
-    const intervals = new Set<number>();
-    const realSet = globalThis.setInterval;
-    const realClear = globalThis.clearInterval;
+    // The clock's timeout is recorded instead of run, and the time moves by hand: no real waits.
+    const timeouts = new Set<number>();
+    const realSet = globalThis.setTimeout;
+    const realClear = globalThis.clearTimeout;
     let ids = 0;
-    // Only the tray clock's one-second interval is recorded; the page's frame loop (jsdom's
+    // Only the tray clock's one-second timeout is recorded; the page's frame loop (jsdom's
     // requestAnimationFrame, which the shared page-reveal gate uses) keeps its real timers.
-    globalThis.setInterval = ((handler: () => void, ms?: number) => {
+    globalThis.setTimeout = ((handler: () => void, ms?: number) => {
       if (ms !== 1000) return realSet(handler, ms);
       ids += 1;
-      intervals.add(ids);
+      timeouts.add(ids);
       return ids;
-    }) as unknown as typeof setInterval;
-    globalThis.clearInterval = ((id?: unknown) => {
-      if (typeof id === "number" && intervals.has(id)) intervals.delete(id);
-      else realClear(id as Parameters<typeof clearInterval>[0]);
-    }) as typeof clearInterval;
+    }) as unknown as typeof setTimeout;
+    globalThis.clearTimeout = ((id?: unknown) => {
+      if (typeof id === "number" && timeouts.has(id)) timeouts.delete(id);
+      else realClear(id as Parameters<typeof clearTimeout>[0]);
+    }) as typeof clearTimeout;
     let visibility = "visible";
     Object.defineProperty(dom.window.document, "visibilityState", { configurable: true, get: () => visibility });
     const shown = (state: string) =>
@@ -555,20 +557,24 @@ describe("the tray", () => {
     const time = () => root.querySelector(".acpmux-agent-line__time")?.textContent;
     try {
       expect(time()).toBe("10s");
-      expect(intervals.size).toBe(1);
+      expect(timeouts.size).toBe(1);
       await shown("hidden");
-      expect(intervals.size).toBe(0);
+      expect(timeouts.size).toBe(0);
       setSystemTime(new Date(at(130)));
       expect(time()).toBe("10s");
       await shown("visible");
       expect(time()).toBe("40s");
-      expect(intervals.size).toBe(1);
+      expect(timeouts.size).toBe(1);
     } finally {
       await done();
-      setSystemTime();
-      visibility = "visible";
-      globalThis.setInterval = realSet;
-      globalThis.clearInterval = realClear;
+      try {
+        expect(timeouts.size).toBe(0);
+      } finally {
+        globalThis.setTimeout = realSet;
+        globalThis.clearTimeout = realClear;
+        setSystemTime();
+        visibility = "visible";
+      }
     }
   });
 
@@ -641,9 +647,9 @@ describe("a tray line says what it is and what a click does", () => {
     }
   });
 
-  // Leo, 2026-10-29: "why are you saying sub-agent so many fucking times? Like, you can just add
-  // the icon when it's in here."
-  test("a subagent leads with its icon, not the word, keeps its spinner and ends in a chevron", async () => {
+  // Leo, 2026-10-29: "why are you saying sub-agent so many fucking times?"; 2026-10-31, on the fork
+  // glyph before a subagent's title: "the leading icons — just the stupid fork one".
+  test("a subagent line has no kind word or fork glyph, keeps its spinner and ends in a chevron", async () => {
     const items = trayItems([agent("Reviewer", { startedAt: Date.now(), action: "Read src/app.ts" })], [], NONE, true);
     const { root, done } = await render(
       createElement(SubagentTray, { items, working: true, waiting: new Set<string>(), onOpen: () => {} }),
@@ -651,10 +657,7 @@ describe("a tray line says what it is and what a click does", () => {
     try {
       const line = root.querySelector<HTMLElement>(".acpmux-agent-line")!;
       expect(line.querySelector(".acpmux-agent-line__kind")).toBeNull();
-      const kind = line.querySelector<HTMLElement>(".acpmux-agent-line__kind-icon");
-      // The kind is an accessible SVG title, with no repeated visible label beside the icon.
-      expect(kind?.querySelector('svg[role="img"]')?.getAttribute("aria-label")).toBe("Subagent");
-      expect(kind?.querySelector("title")?.textContent).toBe("Subagent");
+      expect(line.querySelector(".acpmux-agent-line__kind-icon")).toBeNull();
       // The working-state mark stays a spinner, before the subagent's icon.
       expect(
         line.querySelector(".acpmux-lineage__icon [data-spinner], .acpmux-lineage__icon .cv-spinner"),
@@ -1196,7 +1199,7 @@ describe("a failed sub-session's line", () => {
 describe("workflow progress in the default tray and Inspector", () => {
   const waiting = new Set<string>();
   for (const surface of ["tray", "inspector"] as const) {
-    test(`${surface} updates counts, warnings and tokens without replacing another row`, async () => {
+    test(`${surface} updates counts and warnings without replacing another row`, async () => {
       const { SubagentsSection } = await import("../src/agent-session/acpmux/inspector/SubagentsSection");
       const workflow = agent("Review modules", { kind: "workflow", action: "Review" });
       const other = agent("Unrelated agent");
@@ -1218,13 +1221,17 @@ describe("workflow progress in the default tray and Inspector", () => {
         await view.show(
           draw({ ...workflow, agents: { done: 37, started: 101, failed: 2, queued: 4 }, tokens: 1_200_000 }),
         );
+        // The tray's row says no tokens (Leo, 2026-10-31: "we can remove the symbols and the tokens");
+        // the Inspector's list still does.
         expect(view.root.querySelector(".acpmux-agent-line__progress")?.textContent).toBe(
-          "37/101 agents · 2 failed · 4 queued · 1.2M tokens",
+          surface === "tray"
+            ? "37/101 agents · 2 failed · 4 queued"
+            : "37/101 agents · 2 failed · 4 queued · 1.2M tokens",
         );
         expect(buttons().find((button) => button.textContent?.includes("Unrelated agent"))).toBe(unrelated);
         await view.show(draw({ ...workflow, agents: { done: 40, started: 101 }, tokens: 1_300_000 }));
         expect(view.root.querySelector(".acpmux-agent-line__progress")?.textContent).toBe(
-          "40/101 agents · 1.3M tokens",
+          surface === "tray" ? "40/101 agents" : "40/101 agents · 1.3M tokens",
         );
         expect(buttons().find((button) => button.textContent?.includes("Unrelated agent"))).toBe(unrelated);
       } finally {

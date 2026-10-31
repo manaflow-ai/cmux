@@ -56,7 +56,9 @@ class FakeGitHub:
             run = int(route.split("/actions/runs/", 1)[1].split("/", 1)[0])
             return [{"jobs": [copy.deepcopy(job) for job in self.jobs.values() if job["run_id"] == run]}]
         if "/actions/workflows/7/runs?" in route:
-            assert "branch=feat-cmux-next" in route and "status=completed" in route, route
+            # The dispatch fallback lists every status (deferred_first_runs); the window only completed runs.
+            assert "branch=feat-cmux-next" in route and ("status=completed" in route
+                                                         or "event=workflow_dispatch" in route), route
             return {"workflow_runs": copy.deepcopy(self.base_runs)}
         if "/actions/runs/" in route:
             return {"id": int(route.rsplit("/", 1)[1]), "workflow_id": 7}
@@ -456,10 +458,168 @@ class Excusing(unittest.TestCase):
 
     def test_a_job_with_no_tip_suite_gets_no_extra_lookup(self):
         self.gh.base_runs = []
-        self.gh.jobs[1]["name"] = SCHEME
+        self.gh.jobs[1]["name"] = "cmux-next Release compile (Xcode 26)"
         with self.assertRaisesRegex(excuse.Refused, "no completed"):
             self.judge()
         self.assertFalse([route for route in self.gh.routes if "event=workflow_dispatch" in route])
+
+    def base_tier_setup(self, name, *, verdict="failure", in_window=False):
+        # cmuxterm-hq#5424: a feat-cmux-next push no longer runs the base Mac tier (daemon tests, generated
+        # files, the Debug scheme compile); a `cmux-next base tier · <sha>` dispatch runs it at most once
+        # every 15 minutes on the tip, so most base runs, pushes and DEV daily runs, have no verdict for it.
+        self.gh.jobs = {1: failed_job(1, 10, HEAD, name=name, step="Run the suites")}
+        self.gh.logs[1] = log(name, "Run the suites", ISSUE)
+        noise = []
+        for offset in range(excuse.BASE_JOB_READS + 5):
+            run_id = 3000 + offset
+            self.gh.jobs[run_id] = dict(failed_job(run_id, run_id, BASE_SHA, name=name), conclusion="skipped",
+                                        steps=[])
+            noise.append({"id": run_id, "event": "workflow_dispatch", "head_branch": "feat-cmux-next",
+                          "status": "completed", "conclusion": "success",
+                          "display_title": "cmux NEXT DEV daily · " + BASE_SHA})
+        tested = "e" * 40
+        tier = {"id": 40, "event": "workflow_dispatch", "head_branch": "feat-cmux-next", "head_sha": "f" * 40,
+                "status": "completed", "conclusion": verdict, "display_title": "cmux-next base tier · " + tested,
+                "created_at": "2026-10-30T12:00:00Z", "html_url": "https://github.com/manaflow-ai/cmux/actions/runs/40"}
+        self.gh.jobs[4] = dict(failed_job(4, 40, tested, name=name, step="Run the suites"), conclusion=verdict)
+        self.gh.logs[4] = log(name, "Run the suites", ISSUE, OTHER)
+        self.gh.base_runs = noise + ([copy.deepcopy(tier)] if in_window else [])
+        plain = self.gh.json
+
+        def json(route, *, paginate=False):
+            if "/actions/workflows/7/runs?" in route and "event=workflow_dispatch" in route:
+                self.gh.routes.append(route)
+                return {"workflow_runs": [copy.deepcopy(noise[0]), copy.deepcopy(tier)]}
+            return plain(route, paginate=paginate)
+
+        self.gh.json = json
+
+    def test_the_base_tier_run_is_the_base_verdict_for_its_jobs(self):
+        for name in ("cmux-next daemon tests", "cmux-next generated files", SCHEME):
+            with self.subTest(job=name):
+                self.setUp()
+                self.base_tier_setup(name)
+                text = "\n".join(self.judge())
+                self.assertIn(f"excused '{name}'", text)
+                # It says which commit and when the verdict is from: one base tier run covers the landings
+                # of up to 15 minutes, so it is often not the base tip's.
+                self.assertIn("run 40 at eeeeeeeeee (the newest feat-cmux-next verdict for it, 2026-10-30T12:00:00Z)",
+                              text)
+                self.assertNotIn(f"repos/{REPO}/actions/runs/3000/jobs?filter=latest&per_page=100", self.gh.routes)
+
+    def test_suites_that_never_run_the_job_are_skipped_unread_in_the_window(self):
+        # 45 DEV daily runs ahead of the base tier run in the window: none is read, so the job-list budget
+        # still reaches the base tier run and the dispatch fallback is not needed.
+        self.base_tier_setup(SCHEME, in_window=True)
+        text = "\n".join(self.judge())
+        self.assertIn(f"excused '{SCHEME}'", text)
+        self.assertFalse([route for route in self.gh.routes if "/runs/30" in route and "/jobs?" in route])
+        self.assertFalse([route for route in self.gh.routes if "event=workflow_dispatch" in route])
+
+    def test_a_suite_runs_verdict_for_a_shared_job_still_counts(self):
+        # Review of this change: tip suite runs also run checks and web bundles. A newer green verdict in a
+        # tip daemon suite run must stand over an older red push run, or a regression would be excused.
+        name = "cmux-next checks (god files, concurrency, crash safety, l10n)"
+        self.gh.jobs = {1: failed_job(1, 10, HEAD, name=name, step="Run the suites")}
+        self.gh.logs[1] = log(name, "Run the suites", ISSUE)
+        suite = {"id": 21, "event": "workflow_dispatch", "head_branch": "feat-cmux-next", "status": "completed",
+                 "conclusion": "success", "display_title": "cmux-next tip daemon suite · " + BASE_SHA}
+        push = {"id": 20, "event": "push", "head_branch": "feat-cmux-next", "status": "completed",
+                "conclusion": "failure", "display_title": "cmux-next · " + BASE_SHA}
+        self.gh.jobs[5] = dict(failed_job(5, 21, BASE_SHA, name=name), conclusion="success")
+        self.gh.jobs[6] = failed_job(6, 20, BASE_SHA, name=name, step="Run the suites")
+        self.gh.logs[6] = log(name, "Run the suites", ISSUE)
+        self.gh.base_runs = [suite, push]
+        with self.assertRaisesRegex(excuse.Refused, "not red on feat-cmux-next run 21"):
+            self.judge()
+
+    def deferred_first_runs_setup(self, name):
+        # 2026-10-31: a base tier dispatch whose cmux-tui tree had not published skipped its tree jobs and
+        # left them to the same-tree run its publish dispatched, under the same name, which then queued for
+        # the Mac pool. The six newest completed dispatches were all such first runs, so the job-list reads
+        # ran out before the tip daemon suite run that had the verdict.
+        self.base_tier_setup(name)
+        listed = []
+        for offset in range(excuse.TIP_SUITE_JOB_READS + 2):
+            tested = f"{offset:x}" * 40
+            title = "cmux-next base tier · " + tested[:40]
+            listed.append({"id": 6000 + offset, "event": "workflow_dispatch", "head_branch": "feat-cmux-next",
+                           "status": "queued", "conclusion": None, "display_title": title})
+            first = 5000 + offset
+            listed.append({"id": first, "event": "workflow_dispatch", "head_branch": "feat-cmux-next",
+                           "status": "completed", "conclusion": "success", "display_title": title})
+            self.gh.jobs[first] = dict(failed_job(first, first, tested[:40], name=name, step="Run the suites"),
+                                       conclusion="skipped")
+        # The newest same-tree run that finished: base_tier_setup's run 40, the only run of its name.
+        suite = {"id": 40, "event": "workflow_dispatch", "head_branch": "feat-cmux-next", "status": "completed",
+                 "conclusion": "failure", "display_title": "cmux-next base tier · " + "e" * 40,
+                 "created_at": "2026-10-31T09:48:29Z"}
+        self.gh.base_runs = []
+        plain = self.gh.json
+
+        def json(route, *, paginate=False):
+            if "/actions/workflows/7/runs?" in route and "event=workflow_dispatch" in route:
+                self.gh.routes.append(route)
+                self.assertNotIn("status=", route)
+                return {"workflow_runs": copy.deepcopy(listed) + [copy.deepcopy(suite)]}
+            return plain(route, paginate=paginate)
+
+        self.gh.json = json
+
+    def test_first_runs_that_left_their_tree_jobs_to_a_same_tree_run_are_skipped_unread(self):
+        for name in ("cmux-next daemon tests", SCHEME):
+            with self.subTest(job=name):
+                self.setUp()
+                self.deferred_first_runs_setup(name)
+                text = "\n".join(self.judge())
+                self.assertIn(f"excused '{name}'", text)
+                self.assertIn("run 40", text)
+                self.assertFalse([route for route in self.gh.routes if "/runs/50" in route and "/jobs?" in route])
+
+    def test_cancelled_base_tier_runs_are_skipped_unread(self):
+        # The base tier kick cancels superseded base tier runs before a Mac job starts
+        # (cmux_next_base_tier.py cancel_superseded). Ahead of the run with the verdict, more of them than the
+        # lookup reads must not hide it.
+        self.base_tier_setup(SCHEME)
+        cancelled = [{"id": 7000 + offset, "event": "workflow_dispatch", "head_branch": "feat-cmux-next",
+                      "status": "completed", "conclusion": "cancelled",
+                      "display_title": "cmux-next base tier · " + f"{offset:x}" * 40}
+                     for offset in range(excuse.TIP_SUITE_JOB_READS + 2)]
+        suite = {"id": 40, "event": "workflow_dispatch", "head_branch": "feat-cmux-next", "status": "completed",
+                 "conclusion": "failure", "display_title": "cmux-next base tier · " + "e" * 40,
+                 "created_at": "2026-10-31T09:48:29Z"}
+        self.gh.base_runs = copy.deepcopy(cancelled)
+        plain = self.gh.json
+
+        def json(route, *, paginate=False):
+            if "/actions/workflows/7/runs?" in route and "event=workflow_dispatch" in route:
+                self.gh.routes.append(route)
+                return {"workflow_runs": copy.deepcopy(cancelled) + [copy.deepcopy(suite)]}
+            return plain(route, paginate=paginate)
+
+        self.gh.json = json
+        text = "\n".join(self.judge())
+        self.assertIn(f"excused '{SCHEME}'", text)
+        self.assertFalse([route for route in self.gh.routes if "/runs/70" in route and "/jobs?" in route])
+
+    def test_tree_jobs_are_jobs_of_the_suites_that_defer_them(self):
+        # Only a tip daemon suite or base tier run defers its tree jobs; a name outside them skips nothing.
+        self.assertLessEqual(excuse.TREE_JOBS, excuse.SUITES["cmux-next base tier · "])
+        self.assertLessEqual(excuse.SUITES["cmux-next tip daemon suite · "], excuse.TREE_JOBS)
+
+    def test_a_first_run_still_counts_for_the_jobs_it_runs_itself(self):
+        # Generated files run in the first run itself (path routing's generated_host), never in its
+        # same-tree run, so the newest first run's verdict decides: here green, so the red is the head's.
+        name = "cmux-next generated files"
+        self.deferred_first_runs_setup(name)
+        self.gh.jobs[5000]["conclusion"] = "success"
+        with self.assertRaisesRegex(excuse.Refused, "not red on feat-cmux-next run 5000"):
+            self.judge()
+
+    def test_a_green_base_tier_run_still_blocks(self):
+        self.base_tier_setup("cmux-next daemon tests", verdict="success")
+        with self.assertRaisesRegex(excuse.Refused, "not red on feat-cmux-next run 40"):
+            self.judge()
 
     def test_a_setup_refusal_is_never_excused(self):
         self.gh.jobs[1]["steps"] = [{"name": "Set up job", "status": "completed", "conclusion": "success"},
@@ -897,6 +1057,42 @@ class CrashIsNeverABaseRed(unittest.TestCase):
             self.judge()
 
 
+class EchoedStepScriptIsNoEvidence(unittest.TestCase):
+    """The runner echoes each step's script before it runs, so the script's own text (an `echo "::error::..."`
+    branch, a grep for test names) is in every run's log. 2026-10-30: cmux#28145's kit job at c39d28ef failed two
+    iOS simulator tests that base run 41138142557 passed, and was excused because both logs echo the same
+    `::error::` lines of the xcodebuild step's script."""
+
+    KIT = "CmuxMobileKit tests (macOS swift test, iOS simulator)"
+    STEP = "xcodebuild test (iOS simulator)"
+    FIXTURES = ROOT / "tests/fixtures/test_reds"
+
+    def setUp(self):
+        self.gh = FakeGitHub()
+        self.gh.jobs = {1: failed_job(1, 10, HEAD, self.KIT, self.STEP),
+                        2: failed_job(2, 20, BASE_SHA, self.KIT, self.STEP)}
+        self.gh.logs = {1: (self.FIXTURES / "ios-kit-head-run-41079430021.log").read_text(),
+                        2: (self.FIXTURES / "ios-kit-base-run-41138142557.log").read_text()}
+
+    def test_the_28145_kit_red_is_not_excused_by_the_echoed_script(self):
+        with self.assertRaisesRegex(excuse.Refused, "HomeRetryTests.failedHomeLoadRetriesTheFeedOnTheExistingLink"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10], self.gh)
+
+    def test_echoed_script_lines_are_not_error_lines(self):
+        _, tests, errors = excuse.signature(self.gh.jobs[2], self.gh.logs[2])
+        self.assertEqual(tests, {"TerminalSurfaceFramePacingTests.busyOutputDrawsAtMostOneFramePerDisplayRefresh()"})
+        self.assertEqual(errors, set(), "every `::error::` in this log is the step script's echo")
+
+    def test_an_error_only_the_echo_names_cannot_excuse_a_head_error(self):
+        echo = ["##[group]Run make", 'echo "::error::Python is required"', "shell: /bin/bash -e {0}", "##[endgroup]"]
+        name = "cmux-next fast tier"
+        self.gh.jobs = {1: failed_job(1, 10, HEAD, name, "Install"), 2: failed_job(2, 20, BASE_SHA, name, "Install")}
+        self.gh.logs[1] = log(name, "Install", *echo, "##[error]Python is required")
+        self.gh.logs[2] = log(name, "Install", *echo, "##[error]Could not find a version for foo")
+        with self.assertRaisesRegex(excuse.Refused, "errors not on feat-cmux-next run 20: Python is required"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10], self.gh)
+
+
 class NoVerdictCompileIsNeverABaseRed(unittest.TestCase):
     """A compile check with no verdict (the build-fleet controller unreachable or timed out) compiled
     nothing, so it is never a base red, even when the base shows the same "no result" with only its own
@@ -1095,6 +1291,109 @@ class NoVerdictCompileIsNeverABaseRed(unittest.TestCase):
         self.gh.logs[1] = log(self.FLEET, self.STEP, line.format(HEAD))
         self.gh.logs[2] = log(self.FLEET, self.STEP, line.format(BASE_SHA))
         self.assertIn(f"excused '{self.FLEET}'", "\n".join(self.judge()))
+
+
+CLIPPY = "clippy (changed cmux-tui packages)"
+RATCHET_STEP = "Rust panic ratchet on changed cmux-tui packages"
+
+
+def ratchet_log(scope, *rows, other=()):
+    """A panic ratchet step's log, shaped like run 41176610742's (cmux#26849): each ROWS entry is
+    (crate, lint, count, where) with two hit locations under it; OTHER lines are the ratchet's other failures."""
+    lines = [f"cmux-tui-clippy-changed: panic ratchet on {scope}",
+             "##[warning]acpmux: clippy::arithmetic_side_effects 1496 > baseline 1430",
+             "rust-panic-ratchet: 50 crates checked, 17 at deny", "rust-panic-ratchet: RED"]
+    for crate, lint, count, where in rows:
+        lines += [f"  {crate}: clippy::{lint} {count} > {where}",
+                  f"      crates/{crate}/src/lib.rs:{count}:9", f"      crates/{crate}/src/main.rs:{count + 1}:13"]
+    lines += [f"  {line}" for line in other]
+    lines += ["Fix the hit (a typed error handled at a boundary), or put a reviewed",
+              '#[allow(clippy::<lint>, reason = "...")] on the smallest item. Never raise the baseline.',
+              f"##[error]the panic ratchet is red for {scope}; its log above names each new hit "
+              "(plans/cmux-next/rust-panic-free.md)",
+              "##[error]Process completed with exit code 1."]
+    return log(CLIPPY, RATCHET_STEP, *lines)
+
+
+HEAD_ROWS = (("acpmux", "indexing_slicing", 692, "baseline 686"), ("cmux-tui", "indexing_slicing", 836, "baseline 831"))
+RD_LINK = ("cmux-rd-link", "indexing_slicing", 7, "new crate (must be 0)")
+CHANGED = "cmux-remote, cmux-terminal-client, cmux-tui, cmux-tui-core"
+WHOLE = "the whole cmux-tui workspace"
+
+
+class PanicRatchet(unittest.TestCase):
+    """The ratchet's error line names the packages a run checked, and a base run can check the whole workspace
+    while a PR's checks only its changed packages: its red is compared by its per-lint rows instead (cmux#26849's
+    run 41176610742 was refused against base run 41176544319, which failed on the same two rows and one more)."""
+
+    def setUp(self):
+        self.gh = FakeGitHub()
+        self.gh.jobs = {1: failed_job(1, 10, HEAD, CLIPPY, RATCHET_STEP),
+                        2: failed_job(2, 20, BASE_SHA, CLIPPY, RATCHET_STEP)}
+        self.gh.logs[1] = ratchet_log(CHANGED, *HEAD_ROWS)
+        self.gh.logs[2] = ratchet_log(WHOLE, HEAD_ROWS[0], RD_LINK, HEAD_ROWS[1])
+
+    def judge(self):
+        return "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], self.gh))
+
+    def test_rows_all_on_a_whole_workspace_base_run_are_excused(self):
+        text = self.judge()
+        self.assertIn(f"excused '{CLIPPY}'", text)
+        self.assertIn("acpmux: clippy::indexing_slicing 692 > baseline 686", text)
+
+    def test_a_base_count_above_the_heads_still_covers_it(self):
+        self.gh.logs[1] = ratchet_log(CHANGED, ("acpmux", "indexing_slicing", 690, "baseline 686"), HEAD_ROWS[1])
+        self.assertIn(f"excused '{CLIPPY}'", self.judge())
+
+    def test_a_head_count_above_the_bases_blocks(self):
+        self.gh.logs[1] = ratchet_log(CHANGED, ("acpmux", "indexing_slicing", 693, "baseline 686"), HEAD_ROWS[1])
+        with self.assertRaisesRegex(excuse.Refused, "acpmux: clippy::indexing_slicing 693 > baseline 686"):
+            self.judge()
+
+    def test_a_head_count_above_the_bases_blocks_with_the_same_scope_too(self):
+        self.gh.logs[1] = ratchet_log(WHOLE, ("acpmux", "indexing_slicing", 693, "baseline 686"), RD_LINK, HEAD_ROWS[1])
+        with self.assertRaisesRegex(excuse.Refused, "693 > baseline 686"):
+            self.judge()
+
+    def test_a_row_not_on_the_base_blocks(self):
+        self.gh.logs[1] = ratchet_log(CHANGED, *HEAD_ROWS, ("cmux-wg", "indexing_slicing", 3, "baseline 1"))
+        with self.assertRaisesRegex(excuse.Refused, "cmux-wg: clippy::indexing_slicing 3 > baseline 1"):
+            self.judge()
+
+    def test_a_row_of_another_lint_blocks(self):
+        self.gh.logs[1] = ratchet_log(CHANGED, HEAD_ROWS[0], ("cmux-tui", "unwrap_used", 836, "baseline 831"))
+        with self.assertRaisesRegex(excuse.Refused, "unwrap_used"):
+            self.judge()
+
+    def test_a_different_baseline_blocks(self):
+        # The PR raised (or set) the row's baseline: base's row is not the same red.
+        self.gh.logs[1] = ratchet_log(CHANGED, ("acpmux", "indexing_slicing", 692, "baseline 680"), HEAD_ROWS[1])
+        with self.assertRaisesRegex(excuse.Refused, "692 > baseline 680"):
+            self.judge()
+
+    def test_another_ratchet_failure_not_on_the_base_blocks(self):
+        reason = 'crates/acpmux/src/lib.rs:12: allow(indexing_slicing) needs reason = "..."'
+        self.gh.logs[1] = ratchet_log(CHANGED, *HEAD_ROWS, other=[reason])
+        with self.assertRaisesRegex(excuse.Refused, "needs reason"):
+            self.judge()
+        self.gh.logs[2] = ratchet_log(WHOLE, HEAD_ROWS[0], RD_LINK, HEAD_ROWS[1], other=[reason])
+        self.assertIn(f"excused '{CLIPPY}'", self.judge())
+
+    def test_a_ratchet_red_with_no_rows_blocks(self):
+        # The ratchet refuses a clippy run that did not finish: nothing in it can be compared.
+        self.gh.logs[1] = log(CLIPPY, RATCHET_STEP,
+                              "rust-panic-ratchet: the clippy run did not finish successfully (no build-finished "
+                              "success line); counts from a partial build prove nothing",
+                              f"##[error]the panic ratchet is red for {WHOLE}; its log above names each new hit "
+                              "(plans/cmux-next/rust-panic-free.md)")
+        self.gh.logs[2] = self.gh.logs[1]
+        with self.assertRaisesRegex(excuse.Refused, "no per-lint row"):
+            self.judge()
+
+    def test_another_error_beside_the_ratchet_is_still_compared(self):
+        self.gh.logs[1] += "\n" + log(CLIPPY, RATCHET_STEP, "error: could not compile `acpmux`")
+        with self.assertRaisesRegex(excuse.Refused, "could not compile"):
+            self.judge()
 
 
 class Script(unittest.TestCase):

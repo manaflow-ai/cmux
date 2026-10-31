@@ -168,23 +168,57 @@ extension DaemonLauncher {
         return await requestHandoff(identity: identity, using: connection)
     }
 
+    /// The handshake refused the running owner: it speaks another protocol or lacks a capability
+    /// this app requires, as an owner an older build started does after an update that changed the
+    /// protocol. Hand it off to the bundled build the same way as an owner of another build
+    /// (`handOffIfStale`), on the refused connection: `shutdown-daemon` without `end_terminals`
+    /// leaves every terminal host alive, the next connect waits for the owner to exit and runs
+    /// `server ensure` from the bundled binary, and the new owner adopts the hosts. Only for the
+    /// bundled binary (an external one would start as itself again), only an owner of this
+    /// launcher's session (never one that serves another build's or home's session), and once per
+    /// launcher (the bundled build is compatible, so a second incompatible owner is not ours to
+    /// restart again). True while that owner is still exiting for this handoff; false when the
+    /// daemon refused, so the refusal shows.
+    func handOffIncompatible(identity: DaemonIdentity, on transport: LineTransport) async -> Bool {
+        guard configuration.binaryIsBundled, identity.pid > 1, identity.session == configuration.session else { return false }
+        if handoff.exiting == identity.pid { return true }
+        guard handoff.begin(bundled: "incompatible", pid: identity.pid) else { return false }
+        return await shutDown(identity) { try await DaemonConnection.perform($0, on: transport) }
+    }
+
+    /// `configuration` with this launcher's incompatible-owner handoff (`handOffIncompatible`), for
+    /// the app's own connections to its local daemon.
+    public func handingOffIncompatibleOwners(_ configuration: DaemonConnection.Configuration) -> DaemonConnection.Configuration {
+        var configuration = configuration
+        let launcher = self
+        configuration.incompatibleOwner = { identity, transport in
+            await launcher.handOffIncompatible(identity: identity, on: transport)
+        }
+        return configuration
+    }
+
     /// Sent with no request of `connection` in flight; requests made meanwhile go to the next
     /// daemon (`DaemonConnection.quietHandoff`), so a handoff never cuts a Home send.
     private func requestHandoff(identity: DaemonIdentity, using connection: DaemonConnection) async -> Bool {
-        let handoff = handoff
-        return await connection.quietHandoff {
-            do {
-                let reply = try await connection.request(
-                    ShutdownDaemonRequest(pid: identity.pid, generation: identity.generation))
-                guard reply.accepted != false else {
-                    handoff.cancel(pid: identity.pid)
-                    return false
-                }
-            } catch {
+        await connection.quietHandoff { [self] in
+            await shutDown(identity) { try await connection.request($0) }
+        }
+    }
+
+    /// `shutdown-daemon` (no `end_terminals`: the terminals live on) for `identity` through `send`.
+    /// A refusal or a failed request ends the handoff (`DaemonHandoffState.cancel`).
+    private func shutDown(_ identity: DaemonIdentity,
+                          send: (ShutdownDaemonRequest) async throws -> ShutdownDaemonRequest.Response) async -> Bool {
+        do {
+            let reply = try await send(ShutdownDaemonRequest(pid: identity.pid, generation: identity.generation))
+            guard reply.accepted != false else {
                 handoff.cancel(pid: identity.pid)
                 return false
             }
-            return true
+        } catch {
+            handoff.cancel(pid: identity.pid)
+            return false
         }
+        return true
     }
 }
