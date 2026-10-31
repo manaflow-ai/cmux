@@ -669,12 +669,16 @@ class Fuzz:
         return want, exact
 
     def delta(self, before, after):
+        """What the burst made: the ids in AFTER that BEFORE did not have (workspaces, tabs, terminals, panes of the
+        shown workspace), never a net count. A close that lands late (after this burst's baseline, as on cmux20 at
+        11:3xZ: a close_pane, then New Column drew a new terminal while the net counts said 0) cannot hide a create."""
         ws = shown_ws(after)
-        return {"workspaces": len(after["workspaces"]) - len(before["workspaces"]),
-                "tabs": len(after["tabs"]) - len(before["tabs"]),
-                "terminals": len(after["terminals"]) - len(before["terminals"]),
-                "browsers": after["browsers"] - before["browsers"],
-                "panes": len(after["panes"].get(ws, [])) - len(before["panes"].get(ws, []))}
+        old_panes = {p for ps in before["panes"].values() for p in ps}
+        return {"workspaces": len(set(after["workspaces"]) - set(before["workspaces"])),
+                "tabs": len(set(after["tabs"]) - set(before["tabs"])),
+                "terminals": len(set(after["terminals"]) - set(before["terminals"])),
+                "browsers": max(0, after["browsers"] - before["browsers"]),
+                "panes": len(set(after["panes"].get(ws, [])) - old_panes)}
 
     def trace_sizes(self, st=None):
         """One sample of every terminal's sizes into self.trace (only changes are kept)."""

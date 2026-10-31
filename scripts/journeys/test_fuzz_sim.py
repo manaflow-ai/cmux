@@ -116,6 +116,10 @@ class FakeApp:
                    "width": 600.0 if column else pane["width"],
                    "tabs": [{"id": f"tab_{next(ids)}", "kind": "terminal", "term": self.new_term()}]}
             new["selected"] = new["tabs"][0]["id"]
+            if "late_close" in self.bugs and column and len(ws["panes"]) > 1:
+                victim = next(p for p in ws["panes"] if p is not pane)
+                for tab in list(victim["tabs"]):
+                    self.close_tab_obj(ws, victim, tab)
             if "column_resize" in self.bugs and column:
                 for p in ws["panes"]:
                     p["width"] -= 7
@@ -362,6 +366,12 @@ class Sim(unittest.TestCase):
         self.assertEqual(report["split_type"]["hold"], 2)
         self.assertEqual(report["split_type"]["pass_hold"], 2)
         self.assertTrue(report["log"][-1]["recs"][0]["hold_path"])
+
+    def test_a_late_close_does_not_hide_a_create(self):
+        app_holder = {}
+        seq = [{"a": "new_terminal", "t": "slow"}, {"a": "new_column", "t": "slow"}, {"a": "new_column", "t": "slow"}]
+        report, error = run(bugs={"late_close"}, seq=seq, shrink=False, actions="layout")
+        self.assertIsNone(error, json.dumps(report["log"][-1:])[:800])
 
     def test_split_type_red_is_counted_on_either_path(self):
         seq = [{"a": "new_terminal", "t": "slow"}, {"a": "split_type", "t": "slow"}]
