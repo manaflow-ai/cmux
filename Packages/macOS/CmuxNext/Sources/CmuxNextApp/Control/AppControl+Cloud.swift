@@ -32,6 +32,12 @@ extension AppControl {
                                        "creations": .array(services.cloud.creations.controlRows),
                                        "last_error": services.cloud.lastError.map(JSONValue.string) ?? .null]))
             },
+            // `cmux automation --target cloud`: one Cloud automation op as the signed-in user (CloudAutomationRelay).
+            .async("cloud.automation") { [relay = CloudAutomationRelay.signedIn(services.cloud.auth), disabled = services.registry.disabledFeatures] call in
+                if let refusal = Self.policyRefusal("cloud.automation", disabled: disabled) { throw refusal }
+                let reply = await relay.forward(try JSONSerialization.data(withJSONObject: JSONValue.object(call.params).foundationObject))
+                return JSONValue(foundation: try JSONSerialization.jsonObject(with: reply)) ?? .null
+            }.withDeadline(.fixed(.seconds(30))),
         ])
         registerRunMethods(services)
         registerVMAgentKeyMethods(services)
