@@ -121,7 +121,12 @@ struct CloseTabKeepsPaneTests {
     /// empties the right pane, then Cmd-D makes a new pane and focuses it, and a quick Cmd-W closes
     /// what the person made and is looking at. Before, every Cmd-W within the quick-press window of
     /// the one before closed nothing, so a Cmd-D, Cmd-W, Cmd-W run lost its closes.
-    @Test func aCmdWAfterACmdDClosesTheNewSplitEvenRightAfterAnEmptyingClose() async throws {
+    ///
+    /// `dispatchDelay` is how long after the split's frame AppKit hands the Cmd-W to the app: at
+    /// once, or late on a loaded main thread (0.78 s in the serial run of the whole target, job
+    /// 54e4c583d660), where the person's quick presses wait in the queue.
+    @Test(arguments: [Duration.milliseconds(50), .milliseconds(700)])
+    func aCmdWAfterACmdDClosesTheNewSplitEvenRightAfterAnEmptyingClose(dispatchDelay: Duration) async throws {
         try await PinnedPageTests.withApp { services, connection in
             let setup = try await Self.emptiablePanes(services, connection)
             let emptiedAt = try await Self.emptyTheRightPane(services, setup)
@@ -131,7 +136,7 @@ struct CloseTabKeepsPaneTests {
             #expect(services.registry.perform("splitRight", invocation: ActionInvocation(origin: .user)))
             let made = try #require(content.panes.keys.first { !before.contains($0) }, "the split showed no pane")
             try await Self.nextCommit()
-            try await Task.sleep(for: .milliseconds(50))
+            try await Task.sleep(for: dispatchDelay)
             // Well inside the old quick-press window of the emptying press.
             let pressedAt = ProcessInfo.processInfo.systemUptime
             #expect(pressedAt - emptiedAt < 0.5)
