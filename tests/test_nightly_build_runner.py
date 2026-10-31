@@ -238,8 +238,16 @@ class Main(unittest.TestCase):
         def broken(token: str, repo: str):
             raise OSError("HTTP 403")
         out = self.run_main({}, read_runners=broken, read_snapshot=broken)
-        self.assertEqual(out, {"dedicated": "", "owned": "", "blacksmith": LARGE, "runner": LARGE, "helper": "",
+        # Fleet first: unread runners queue the build on the first watched owned pool, not Blacksmith (run
+        # 41203691245, 2026-10-31: a 403 rate limit on /actions/runners sent the tip build to a stalled label).
+        self.assertEqual(out, {"dedicated": "", "owned": SIDE, "blacksmith": LARGE, "runner": SIDE, "helper": SIDE,
                                "attempt": "1"})
+
+    def test_unread_runners_with_no_watched_owned_label_still_take_blacksmith(self) -> None:
+        def broken(token: str, repo: str):
+            raise OSError("HTTP 403")
+        out = self.run_main({"OWNED_LABELS": f"{DEV} {SMALL}"}, read_runners=broken, read_snapshot=broken)
+        self.assertEqual((out["owned"], out["runner"]), ("", LARGE))
 
     def test_the_dedicated_builder_comes_first(self) -> None:
         fleet = [runner(*BUILDER), runner(SIDE)]
@@ -364,15 +372,15 @@ class Main(unittest.TestCase):
                                     read_snapshot=lambda t, r, snap=snap: snap)
                 self.assertEqual(out["owned"], "")
                 self.assertTrue(out["runner"].startswith("blacksmith-"))
-        # Unread runners (no routing token): Blacksmith.
+        # Unread runners (no routing token): the owned pool still comes before Blacksmith.
         out = self.run_main({"ROUTE_TOKEN": ""}, read_snapshot=lambda t, r: stalled)
-        self.assertEqual(out["owned"], "")
+        self.assertEqual(out["owned"], SIDE)
 
     def test_no_route_token_reads_no_runners(self) -> None:
         def unexpected(token: str, repo: str):
             raise AssertionError("runners read without a route token")
         out = self.run_main({"ROUTE_TOKEN": ""}, read_runners=unexpected, read_snapshot=lambda t, r: None)
-        self.assertEqual(out["owned"], "")
+        self.assertEqual(out["owned"], SIDE)  # unread: the watched owned pool, never a read
 
 
 class Workflow(unittest.TestCase):
