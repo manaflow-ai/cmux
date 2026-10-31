@@ -1,12 +1,13 @@
 import AppKit
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// The Chief dragged beside the sidebar (#23933, Leo 2026-10-21: move it back and forth): from a machine list or a
 /// group it comes off only when it is released out there, whatever an autoscroll frame replayed meanwhile. The top
 /// rows' tiles: `ChiefTileDragOutTests`.
-@MainActor @Suite(.serialized)
+@MainActor @Suite(.closesItsWindows, .serialized)
 struct ChiefListedDragOutTests {
     static let chief = SidebarListItem(id: "itm_chief", ref: .builtIn(.chief), title: SidebarBuiltIn.chief.title)
     static let chiefKey = SidebarRowKey.item(chief.id)
@@ -73,7 +74,7 @@ struct ChiefListedDragOutTests {
     /// which is out there, so the release removes the Chief and moves nothing.
     @Test func aReleaseBesideTheSidebarRemovesTheChiefAfterAnAutoscrollFrame() throws {
         let h = Harness()
-        defer { h.window.orderOut(nil) }
+        defer { h.window.closeAfterTest() }
         try h.liftChief()
         let clip = try #require(h.list.enclosingScrollView?.contentView)
         let edge = clip.convert(NSPoint(x: 80, y: clip.bounds.maxY - 2), to: nil)
@@ -97,7 +98,7 @@ struct ChiefListedDragOutTests {
     /// so the Chief stays.
     @Test func aReleaseBackOverTheListKeepsTheChief() throws {
         let h = Harness()
-        defer { h.window.orderOut(nil) }
+        defer { h.window.closeAfterTest() }
         try h.liftChief()
         let row = try #require(h.list.displayed.row(for: Self.chiefKey))
         let inside = h.list.convert(NSPoint(x: 80, y: row.y + row.height / 2 + 4), to: nil)

@@ -166,6 +166,34 @@
     },
     {
       "cli" : "offered",
+      "cli_name" : "app merge-all-windows",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "window.mergeAll",
+      "main_menu" : "window",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Merge All Windows",
+      "title_key" : "action.window.mergeAll",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "offered",
       "cli_name" : "app close-all-windows",
       "context_menu" : "noObject",
       "context_menus" : [
@@ -5002,6 +5030,34 @@
       "palette_suggested" : null,
       "title" : "Open Space in New Window",
       "title_key" : "action.space.openInNewWindow",
+      "title_table" : "ProfileActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "space bring-here",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "space"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "space.bringHere",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.workspace",
+        "order" : 101,
+        "title" : "Workspace",
+        "title_key" : "category.workspace",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Move Space to This Window",
+      "title_key" : "action.space.bringHere",
       "title_table" : "ProfileActions"
     },
     {
@@ -44854,15 +44910,29 @@
           }
         },
         {
+          "enabled_when" : "can_perform",
+          "id" : "space.bringHere",
+          "kind" : "action",
+          "label" : "Move to This Window",
+          "order" : 2,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+
+            ]
+          }
+        },
+        {
           "kind" : "separator",
-          "order" : 2
+          "order" : 3
         },
         {
           "enabled_when" : "can_perform",
           "id" : "space.setIcon",
           "kind" : "action",
           "label" : "Set Icon…",
-          "order" : 3,
+          "order" : 4,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -44876,7 +44946,7 @@
           "id" : "space.clearIcon",
           "kind" : "action",
           "label" : "Remove Icon",
-          "order" : 4,
+          "order" : 5,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -44889,7 +44959,7 @@
           "enabled_when" : "can_perform",
           "id" : "space.rename",
           "kind" : "action",
-          "order" : 5,
+          "order" : 6,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -45180,7 +45250,7 @@
           "id" : "space.setColor",
           "kind" : "submenu",
           "label" : "Color",
-          "order" : 6,
+          "order" : 7,
           "title_from" : "action",
           "visible_when" : {
             "debug_only" : false,
@@ -45199,7 +45269,7 @@
           "id" : "browserProfile.setSpaceDefault",
           "kind" : "choices",
           "label" : "Set Browser Profile…",
-          "order" : 7,
+          "order" : 8,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -45210,14 +45280,14 @@
         },
         {
           "kind" : "separator",
-          "order" : 8
+          "order" : 9
         },
         {
           "enabled_when" : "can_perform",
           "id" : "space.newGroup",
           "kind" : "action",
           "label" : "New Group",
-          "order" : 9,
+          "order" : 10,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -45228,13 +45298,13 @@
         },
         {
           "kind" : "separator",
-          "order" : 10
+          "order" : 11
         },
         {
           "enabled_when" : "can_perform",
           "id" : "sidebar.spaces.hide",
           "kind" : "action",
-          "order" : 11,
+          "order" : 12,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -45245,13 +45315,13 @@
         },
         {
           "kind" : "separator",
-          "order" : 12
+          "order" : 13
         },
         {
           "enabled_when" : "can_perform",
           "id" : "space.delete",
           "kind" : "action",
-          "order" : 13,
+          "order" : 14,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
