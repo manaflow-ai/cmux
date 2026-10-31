@@ -154,7 +154,8 @@ for (const producer of [false, true])
       observer.disconnect();
       expect(rows()[0]).toBe(first);
       expect(rows()[1]).toBe(second);
-      expect(first!.querySelector(".acpmux-agent-line__progress")?.textContent).toContain("42K tokens");
+      // The tray's rows say no tokens (cmux#29608); the counts are what the usage update brings.
+      expect(first!.querySelector(".acpmux-agent-line__progress")?.textContent).not.toContain("tokens");
       expect(first!.textContent).toContain("1/3 agents");
       expect(first!.textContent).toContain("1 failed");
       expect(second!.innerHTML).toBe(before);
@@ -163,9 +164,10 @@ for (const producer of [false, true])
         const button = row.querySelector(".acpmux-agent-line__button")!;
         expect(button.querySelectorAll(".acpmux-agent-line__time")).toHaveLength(1);
         const trailing = [...button.children].slice(-3).map((node) => node.className);
+        // The trailing tracks as #29264 set them: the time, the state, Stop's track, the chevron.
         expect(trailing).toEqual([
           "acpmux-agent-line__status",
-          "acpmux-summary-meta acpmux-agent-line__time",
+          "acpmux-agent-line__stop-track",
           "acpmux-agent-line__chevron",
         ]);
       }
@@ -192,13 +194,13 @@ test("bridge repopulates progress when switching sessions", async () => {
   };
   const root = createRoot(dom.window.document.getElementById("root")!);
   try {
-    const first = { ...agents[0]!, tokens: 42_000 };
-    const second = { ...agents[0]!, id: "workflow-session-b", tokens: 84_000 };
+    const first = { ...agents[0]!, tokens: 42_000, agents: { started: 3, done: 1 } };
+    const second = { ...agents[0]!, id: "workflow-session-b", tokens: 84_000, agents: { started: 3, done: 2 } };
     await act(async () => root.render(<AcpmuxApp />));
     await act(async () => receive(snapshot([first], [], "gallery-session-a")));
-    expect(dom.window.document.querySelector(".acpmux-agent-line__progress")?.textContent).toContain("42K tokens");
+    expect(dom.window.document.querySelector(".acpmux-agent-line__progress")?.textContent).toBe("1/3 agents");
     await act(async () => receive(snapshot([second], [], "gallery-session-b")));
-    expect(dom.window.document.querySelector(".acpmux-agent-line__progress")?.textContent).toContain("84K tokens");
+    expect(dom.window.document.querySelector(".acpmux-agent-line__progress")?.textContent).toBe("2/3 agents");
   } finally {
     await act(async () => root.unmount());
   }
@@ -221,7 +223,7 @@ test("versioned bridge snapshots retain progress when an unrelated snapshot omit
     },
   };
   const root = createRoot(dom.window.document.getElementById("root")!);
-  const first = { ...agents[0]!, tokens: 42_000 };
+  const first = { ...agents[0]!, tokens: 42_000, agents: { started: 3, done: 1 } };
   const updated = { ...first, tokens: 84_000, agents: { started: 3, done: 2 } };
   const versioned = (items: Subagent[], changed: Subagent[] = []) => ({
     ...snapshot(items, changed),
@@ -231,12 +233,11 @@ test("versioned bridge snapshots retain progress when an unrelated snapshot omit
   try {
     await act(async () => root.render(<AcpmuxApp />));
     await act(async () => receive(versioned([first])));
-    expect(progress()).toContain("42K tokens");
+    expect(progress()).toBe("1/3 agents");
     await act(async () => receive(versioned([updated], [updated])));
-    expect(progress()).toContain("84K tokens");
+    expect(progress()).toBe("2/3 agents");
     await act(async () => receive(versioned([updated])));
-    expect(progress()).toContain("84K tokens");
-    expect(progress()).toContain("2/3 agents");
+    expect(progress()).toBe("2/3 agents");
   } finally {
     await act(async () => root.unmount());
   }
@@ -260,14 +261,13 @@ test("compatibility snapshots without a progress delta refresh the row from its 
   };
   const root = createRoot(dom.window.document.getElementById("root")!);
   try {
-    const first = { ...agents[0]!, tokens: 42_000 };
+    const first = { ...agents[0]!, tokens: 42_000, agents: { started: 3, done: 1 } };
     const updated = { ...first, tokens: 84_000, agents: { started: 3, done: 2 } };
     await act(async () => root.render(<AcpmuxApp />));
     await act(async () => receive(snapshot([first], [], "compatibility-session")));
-    expect(dom.window.document.querySelector(".acpmux-agent-line__progress")?.textContent).toContain("42K tokens");
+    expect(dom.window.document.querySelector(".acpmux-agent-line__progress")?.textContent).toBe("1/3 agents");
     await act(async () => receive(snapshot([updated], [], "compatibility-session")));
-    expect(dom.window.document.querySelector(".acpmux-agent-line__progress")?.textContent).toContain("84K tokens");
-    expect(dom.window.document.querySelector(".acpmux-agent-line__progress")?.textContent).toContain("2/3 agents");
+    expect(dom.window.document.querySelector(".acpmux-agent-line__progress")?.textContent).toBe("2/3 agents");
   } finally {
     await act(async () => root.unmount());
   }

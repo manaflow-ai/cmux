@@ -237,6 +237,7 @@ export function SubagentsSection({
         name={item.name}
         detail={item.detail}
         progress={item.progress}
+        progressAgent={item.agent}
         status={item.status}
         state={item.state}
         working={item.working}

@@ -178,6 +178,17 @@ public final class UpdaterService {
     /// The cancel returns whether an installer was held and is now cancelled.
     @ObservationIgnored var cancelStaged: () -> Bool = { false }
     @ObservationIgnored var acceptAvailable: () -> Void = {}
+    /// Stops Sparkle's running download (its cancellation deletes the partial file); returns
+    /// whether a download was running. Replaced by tests.
+    @ObservationIgnored var cancelDownloadNow: () -> Bool = { false }
+    /// The download the person cancelled: the card shows its found update again until another
+    /// check or download starts (``cancelDownloadClicked()``).
+    var cancelledDownload: CancelledDownload?
+    /// The Update click on a cancelled download's card started a check: the update it finds
+    /// downloads (``followCancelledDownload(_:)``).
+    @ObservationIgnored var downloadAfterCheck = false
+    /// The phase ``followCancelledDownload(_:)`` saw last.
+    @ObservationIgnored var lastCancelFollowed: UpdateIndicatorPhase = .hidden
     @ObservationIgnored var phaseObservation: Task<Void, Never>?
     @ObservationIgnored var pathMonitor: NWPathMonitor?
     @ObservationIgnored var network: (constrained: Bool, expensive: Bool) = (false, false)
@@ -313,6 +324,11 @@ public final class UpdaterService {
             installStaged = { [weak controller] in controller?.installStagedUpdate() }
             cancelStaged = { [weak controller] in controller?.cancelStagedUpdate() ?? false }
             acceptAvailable = { [weak controller] in controller?.acceptAvailableUpdate() }
+            cancelDownloadNow = { [weak controller] in
+                guard case .downloading(let download)? = controller?.model.state else { return false }
+                download.cancel()
+                return true
+            }
             stagedBuild = { [weak controller] in controller?.stagedUpdate?.versionString }
             availableBuild = { [weak controller] in
                 guard case .updateAvailable(let available)? = controller?.model.state else { return nil }

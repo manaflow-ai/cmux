@@ -6,7 +6,7 @@ import { BlockTail, InlineTail } from "./InlineTail";
 // code blocks rendered by @pierre/diffs (see CodeBlock.tsx), vega-lite charts (DiagramBlock.tsx), live
 // ```cmux-render pages (RenderCard.tsx), and `$…$`, `$$…$$`, `\(…\)`
 // and `\[…\]` math typeset by KaTeX (see Math.tsx).
-import { Fragment, memo, useId, useMemo, useRef, type ReactNode } from "react";
+import { Fragment, memo, useId, useMemo, useRef, type CSSProperties, type ReactNode } from "react";
 import { useT } from "../i18n";
 import { appHref, safeHref } from "../model";
 import { needsYouListOff, needsYouTarget, openNeedsYou } from "../needsYou/links";
@@ -63,6 +63,32 @@ export type MdBlock =
 export type MdListItem = { text: string; task?: boolean; checked?: boolean; children: MdBlock[] };
 
 const LIST_RE = /^(\s*)([-*+]|\d+[.)])\s+(.*)$/;
+
+/// A paragraph's lines, each break kept, except one inside a reference: a line that ends with
+/// `repo#` and one that starts with its number are one `repo#N`, so it links and wraps whole.
+function joinParagraph(lines: string[]): string {
+  return lines.reduce((text, line) =>
+    /(?:^|[^\s#])#$/.test(text) && /^\d/.test(line) ? text + line : `${text}\n${line}`,
+  );
+}
+
+/// A long list number (`1000.`) widens its items' indent so it never draws over their text; a
+/// number of one or two digits keeps the list's usual indent.
+function listNumberStyle(block: { ordered: boolean; start: number; items: unknown[] }): CSSProperties | undefined {
+  if (!block.ordered) return undefined;
+  const digits = String(block.start + block.items.length - 1).length;
+  return digits > 2 ? ({ "--cv-ol-digits": digits } as CSSProperties) : undefined;
+}
+
+/// Whether a line starts a list inside a paragraph. A numbered line does so only from 1, as
+/// CommonMark and GitHub read it: a reply wrapped as "the cards (cmux#\n29613) and the fix" kept
+/// its text, where reading "29613)" as a list's number drew it bold over "and" (Leo 2026-10-31:
+/// "WTF HAPPENED WITH THIS" / "F***ING TEXT????").
+function interruptsParagraph(line: string): boolean {
+  const m = LIST_RE.exec(line);
+  return Boolean(m && (!/\d/.test(m[2]!) || parseInt(m[2]!, 10) === 1));
+}
+
 /// The deepest nesting of quotes and lists the parser builds. A reply is untrusted, and each level
 /// costs stack while it draws (800 list levels overflowed it), so content below this depth draws
 /// as the plain text of one paragraph.
@@ -205,10 +231,10 @@ function parseLines(lines: string[], depth = 0): MdBlock[] {
       !/^\s*```/.test(lines[i]) &&
       !/^\s*\$\$/.test(lines[i]) &&
       !/^\s*>/.test(lines[i]) &&
-      !LIST_RE.test(lines[i])
+      !interruptsParagraph(lines[i])
     )
       para.push(lines[i++].trim());
-    out.push({ type: "paragraph", text: para.join("\n") });
+    out.push({ type: "paragraph", text: joinParagraph(para) });
   }
   return out;
 }
@@ -906,6 +932,7 @@ function Block({
           className={`cv-list ${block.ordered ? "cv-ol" : "cv-ul"}${tasks ? " cv-tasks" : ""}${motion}`}
           data-depth={depth}
           start={block.ordered && block.start !== 1 ? block.start : undefined}
+          style={listNumberStyle(block)}
         >
           {block.items.map((it, i) => (
             <li key={i} className={it.task ? "cv-task" : undefined}>

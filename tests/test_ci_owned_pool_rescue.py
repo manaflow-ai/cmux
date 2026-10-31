@@ -1817,6 +1817,16 @@ class Nightly(unittest.TestCase):
         self.assertFalse(rescue.nightly_watched({"name": "visual-gate-nightly", "labels": [SESSION]}))
         self.assertFalse(rescue.nightly_watched({"name": "visual-gate-nightly",
                                                  "labels": ["glaeda-gui-std-xcode-26.6"]}))
+        # decide on the nightly slot is judged, so a busy slot moves it to Blacksmith Linux on the re-run.
+        self.assertTrue(rescue.nightly_watched({"name": "decide", "labels": ["glaeda-nightly-std-xcode-26.6"]}))
+        self.assertTrue(rescue.nightly_watched({"name": "decide", "labels": ["gcp-linux-control"]}))
+        self.assertFalse(rescue.nightly_watched({"name": "decide", "labels": ["blacksmith-32vcpu-ubuntu-2404"]}))
+        self.assertFalse(rescue.nightly_watched({"name": "other", "labels": ["glaeda-nightly-std-xcode-26.6"]}))
+
+    def test_nightly_control_runner_is_rescued_but_hosted_labels_are_not(self):
+        control = {"name": "decide", "labels": ["gcp-linux-control"], "status": "queued"}
+        self.assertEqual(rescue.queued_pool(control), "gcp-linux-control")
+        self.assertIsNone(rescue.queued_pool({**control, "labels": ["ubuntu-24.04"]}))
 
 
 SESSION = "glaeda-session-std-xcode-26.6"
