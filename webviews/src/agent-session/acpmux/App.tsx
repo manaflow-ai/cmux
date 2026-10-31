@@ -222,7 +222,7 @@ import type { DiffFindHandle } from "./changes/diffFind";
 import { Inspector, type ExportOutcome } from "./Inspector";
 import { SummaryButton } from "./summary/SummaryButton";
 import { SummaryCard } from "./summary/SummaryCard";
-import { transcriptBackgroundTasks } from "./summary/sessionSummary";
+import { type SummaryBackgroundTask, transcriptBackground } from "./summary/sessionSummary";
 import { openSourceFile } from "./inspector/SourcesSection";
 import { useChatInspector } from "./inspector/ChatInspector";
 import { setRemoteControl, toggleRemoteControl, useRemoteControl } from "./remoteControl";
@@ -230,6 +230,8 @@ import {
   type BackgroundCommand,
   backgroundCommands,
   backgroundSection,
+  type InspectorProcess,
+  inspectorLists,
   type ProcessSource,
   useProcessRegistry,
 } from "./inspector/processes";
@@ -239,7 +241,13 @@ import {
   useInspectorOpen,
 } from "./inspector/inspectorState";
 import { openCommand, opensProcessTerminal } from "./processTerminal";
-import { descendants, subagentChangesFolder, type SubagentScope } from "./inspector/subagentScope";
+import {
+  descendants,
+  subagentChangesFolder,
+  subagentProcesses,
+  withChatEnds,
+  type SubagentScope,
+} from "./inspector/subagentScope";
 import { pendingToolCalls, waitingSubagents } from "./summary/SubagentStatusList";
 import { AgentsPill } from "./subagents/AgentsPill";
 import { SubagentTray } from "./subagents/SubagentTray";
@@ -590,6 +598,7 @@ import { isFastModeOption } from "./heldOptions";
 import { ReceivedResult, SuggestedTasks, type OfferActions } from "./offer/SuggestedTasks";
 import { OFFER_RESULT, setSuggestedTasks } from "./offer/offersShown";
 import { offerWorktree } from "./offer/offerWorktree";
+import { queueingOn, setQueueing } from "./queueing";
 import {
   NO_MENTIONS,
   StartedMentionsContext,
@@ -6464,7 +6473,9 @@ function AcpmuxPane() {
   // arrives). The one registry for the pane: the Inspector, the card, the tray and the counts all
   // read it. The tray shows a registry command between turns while the hook knows it runs; a quiet
   // chat sends no `_acpmux/process/list`.
-  const transcriptTasks = useMemo(() => transcriptBackgroundTasks(snapshot.rows), [snapshot.rows]);
+  // The same pass finds what Session Info's Background tasks lists (the palette's Show Background Tasks).
+  const transcriptWork = useMemo(() => transcriptBackground(snapshot.rows), [snapshot.rows]);
+  const transcriptTasks = transcriptWork.tasks;
   const transcriptRunning = useMemo(
     () => transcriptTasks.filter((task) => task.state === "running"),
     [transcriptTasks],
@@ -7393,6 +7404,27 @@ function AcpmuxPane() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- a new scope only when what it shows changes
   }, [scopedKey, scopedRows, chatName, chatAgents]);
+  // How many rows Session Info's Background tasks lists for the view on screen, read as it reads
+  // them (inspectorLists drops a transcript shell the registry no longer lists): a subagent's view
+  // from its own rows (none yet: empty) and processes, with how its shells ended in the chat's rows
+  // (inspector/subagentScope.ts); the chat's view from its own, with its workflows.
+  const registryProcesses = processRegistry.processes;
+  const registryListed = processRegistry.listed;
+  const scopedOwn = useMemo(
+    () => (scopedKey ? transcriptBackground(scopedRows ?? []) : undefined),
+    [scopedKey, scopedRows],
+  );
+  const chatRows = snapshot.rows;
+  const scopedTasks = useMemo(() => scopedOwn && withChatEnds(scopedOwn.tasks, chatRows), [scopedOwn, chatRows]);
+  const backgroundRows = useMemo(() => {
+    const count = (processes: readonly InspectorProcess[], tasks: readonly SummaryBackgroundTask[]) => {
+      const { servers, tasks: commands } = inspectorLists(processes, tasks, registryListed);
+      return servers.length + commands.length;
+    };
+    if (scopedOwn && scopedTasks)
+      return count(subagentProcesses(registryProcesses, scopedRows ?? []), scopedTasks) + scopedOwn.scheduled;
+    return count(registryProcesses, transcriptWork.tasks) + transcriptWork.scheduled + workflows.length;
+  }, [scopedOwn, scopedTasks, scopedRows, registryProcesses, registryListed, transcriptWork, workflows.length]);
   // The Inspector (Debug Settings `agent.inspector`): its toggle the first of the header's
   // top-right icons, the panel beside or over the chat. On, it takes the summary card's place.
   const inspectorSummary = snapshot.summary;
@@ -10149,6 +10181,18 @@ function AcpmuxPane() {
   if (!quick && localCwd) commands.toggleFiles = () => runSplitAction(HEADER_ACTIONS.files, localCwd, "toggle");
   if (!quick && (previewUrl || litSplits.includes(HEADER_ACTIONS.preview)))
     commands.togglePreview = () => togglePreview(previewUrl);
+  // Ctrl-B's move, while it has something to move; queueing's toggle, as a queued row's ⋯ menu has it.
+  // The bridge runs these only while the client and this render still show the palette's chat
+  // (`header:` above), so chat A's row never moves B's work or opens B's Session Info.
+  if (!quick && (foreground.length > 0 || foregroundAgent)) commands.runInBackground = runInBackground;
+  commands.toggleQueueing = () => setQueueing(!queueingOn());
+  // Session Info opened at a section, while it lists rows there for the view on screen: a subagent's
+  // view lists its own subagents, processes and transcript work (inspector/subagentScope.ts), the
+  // chat's view its own and the chat's workflows and started chats.
+  const revealSection = inspector.reveal;
+  const listedAgents = inspectorSubagent ? inspectorSubagent.agents.length : trayAgents.length + childSessions.length;
+  if (revealSection && listedAgents > 0) commands.showSubagents = () => revealSection("subagents");
+  if (revealSection && backgroundRows > 0) commands.showBackgroundTasks = () => revealSection("tasks");
   paletteCommands.current = { sessionId: snapshot.sessionId ?? "", commands };
   const commandNames = Object.keys(commands).sort().join(" ");
   // Again for every client: the host's handshake (a reconnect's too) forgets the list, and a new
