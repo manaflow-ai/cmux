@@ -227,6 +227,7 @@ import starved_labels  # noqa: E402
 from delivery_workflows import REPLACEMENT_JOB_READS, attempt_jobs, build_started, is_delivery_run  # noqa: E402
 from delivery_workflows import delivers, is_delivery_event, is_delivery_workflow  # noqa: E402
 from delivery_workflows import newer_head_runs, superseded_unstarted  # noqa: E402
+from delivery_workflows import dev_publish_published, dev_publish_source, dev_publish_superseded  # noqa: E402
 
 
 API = "https://api.github.com"
@@ -2891,6 +2892,124 @@ def skip_superseded_delivery(
     return decisions, failures
 
 
+# --- DEV publish runs a newer publish already covered ---------------------------------------------------------
+# delivery_workflows.dev_publish_superseded() is the rule. Reads a sweep: one listing of the publisher's
+# successful runs, the jobs of up to DEV_PUBLISH_WINNER_READS of them, then per candidate (oldest first, at most
+# DEV_PUBLISH_JOB_READS) its jobs, its source run and one compare; a cancel re-reads the run and its jobs first.
+DEV_PUBLISH_MAX_CANCELS = 20
+DEV_PUBLISH_JOB_READS = 25
+DEV_PUBLISH_WINNER_READS = 3
+
+
+def skip_superseded_dev_publish(
+    github: "GitHub",
+    runs: Sequence[Mapping[str, Any]],
+    jobs_by_run: Mapping[int, Sequence[Mapping[str, Any]]],
+    *,
+    dry_run: bool,
+    max_cancels: int = DEV_PUBLISH_MAX_CANCELS,
+    max_reads: int = DEV_PUBLISH_JOB_READS,
+    now: dt.datetime | None = None,
+) -> tuple[list[SupersededDecision], int]:
+    """Cancel each in-flight DEV publish run a newer published one already covers (dev_publish_superseded())."""
+    candidates = sorted((run for run in runs if run.get("status") in IN_FLIGHT_RUN_STATUSES
+                         and dev_publish_source(run) is not None),
+                        key=lambda run: (dev_publish_source(run) or 0, run["id"]))
+    if not candidates:
+        return [], 0
+    decisions: list[SupersededDecision] = []
+    winner: Mapping[str, Any] | None = None
+    winner_jobs: Sequence[Mapping[str, Any]] | None = None
+    try:
+        published = sorted((run for run in github.dev_publish_runs() if dev_publish_source(run) is not None),
+                           key=lambda run: dev_publish_source(run) or 0, reverse=True)
+        for run in published[:DEV_PUBLISH_WINNER_READS]:
+            jobs = complete_jobs(github.jobs(run["id"]))
+            if dev_publish_published(run, jobs):
+                winner, winner_jobs = run, jobs
+                break
+        winner_source = github.run(dev_publish_source(winner)).get("head_sha") if winner else None
+    except RateLimited:
+        raise
+    except RuntimeError as error:
+        print(f"queue-janitor: DEV publish runs: {error}", file=sys.stderr)
+        return [SupersededDecision(run, "keep", f"the published DEV runs could not be read: {error}")
+                for run in candidates], 1
+    failures = cancels = reads = 0
+    compares: dict[str, bool | None] = {}
+
+    def contains(old: str, new: str) -> bool | None:
+        if old not in compares:
+            try:
+                compares[old] = github.compare_status(old, new) in ("ahead", "identical")
+            except RateLimited:
+                raise
+            except RuntimeError as error:
+                print(f"queue-janitor: compare {old[:12]}...{new[:12]}: {error}", file=sys.stderr)
+                compares[old] = None
+        return compares[old]
+
+    for run in candidates:
+        if winner is None:
+            decisions.append(SupersededDecision(run, "keep", "no newer DEV publish run has published"))
+            continue
+        if (dev_publish_source(run) or 0) >= (dev_publish_source(winner) or 0):
+            decisions.append(SupersededDecision(run, "keep", f"it publishes a source run no older than run "
+                                                f"{winner.get('id')}'s"))
+            continue
+        if cancels >= max_cancels:
+            decisions.append(SupersededDecision(run, "keep", f"cap of {max_cancels} reached"))
+            continue
+        if reads >= max_reads:
+            decisions.append(SupersededDecision(run, "keep", f"read budget of {max_reads} runs spent"))
+            continue
+        reads += 1
+        try:
+            jobs = complete_jobs(jobs_by_run[run["id"]]) if run["id"] in jobs_by_run else complete_jobs(
+                github.jobs(run["id"]))
+            source_sha = github.run(dev_publish_source(run)).get("head_sha")
+        except RateLimited:
+            raise
+        except RuntimeError as error:
+            failures += 1
+            decisions.append(SupersededDecision(run, "keep", f"failed to read: {error}"))
+            continue
+        ok, why = dev_publish_superseded(run, jobs, source_sha=source_sha, newer=winner, newer_jobs=winner_jobs,
+                                         newer_source_sha=winner_source, contains=contains, now=now)
+        if not ok:
+            decisions.append(SupersededDecision(run, "keep", why))
+            continue
+        if dry_run:
+            decisions.append(SupersededDecision(run, "cancel", f"would cancel: {why}"))
+            cancels += 1
+            continue
+        # Right before the cancel the run and its jobs are read again: one whose Mac job started since is kept.
+        try:
+            current, fresh = github.run(run["id"]), complete_jobs(github.jobs(run["id"]))
+        except RateLimited:
+            raise
+        except RuntimeError as error:
+            failures += 1
+            decisions.append(SupersededDecision(run, "keep", f"failed to re-read: {error}"))
+            continue
+        ok, why = dev_publish_superseded(current, fresh, source_sha=source_sha, newer=winner,
+                                         newer_jobs=winner_jobs, newer_source_sha=winner_source,
+                                         contains=contains, now=now)
+        if not ok:
+            decisions.append(SupersededDecision(run, "keep", f"on re-read: {why}"))
+            continue
+        try:
+            github.cancel(run["id"])
+        except RuntimeError as error:
+            if not _cancel_refused(error):
+                failures += 1
+            decisions.append(SupersededDecision(run, "keep", f"cancel failed: {error}"))
+            continue
+        decisions.append(SupersededDecision(run, "cancel", f"cancelled: {why}"))
+        cancels += 1
+    return decisions, failures
+
+
 def render_superseded_summary(decisions: Sequence[SupersededDecision]) -> str:
     lines = ["", "### Superseded nightly, DEV and promote runs", "",
              "A stale delivery run (every job but the light control and decide ones still queued for 20 min or more, "
@@ -3520,6 +3639,17 @@ class GitHub:
             raise
         return str(((payload or {}).get("commit") or {}).get("sha") or "")
 
+    def compare_status(self, base: str, head: str) -> str:
+        """GitHub's compare status of base...head (ahead, behind, identical or diverged)."""
+        payload = self.request("GET", f"/repos/{self.repo}/compare/{base}...{head}?per_page=1")
+        return str((payload or {}).get("status") or "")
+
+    def dev_publish_runs(self) -> list[dict[str, Any]]:
+        """One page of the newest successful runs of the DEV publisher (skip_superseded_dev_publish())."""
+        query = urllib.parse.urlencode({"status": "success", "event": "workflow_dispatch", "per_page": 20})
+        payload = self.request("GET", f"/repos/{self.repo}/actions/workflows/cmux-next-dev-daily.yml/runs?{query}")
+        return [run for run in payload.get("workflow_runs") or [] if isinstance(run, Mapping)]
+
     def cancel(self, run_id: int) -> None:
         self.request("POST", f"/repos/{self.repo}/actions/runs/{run_id}/cancel")
 
@@ -4063,6 +4193,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"queue-janitor: superseded delivery runs: {error}", file=sys.stderr)
         superseded_decisions, superseded_failures = [], 1
     failures += superseded_failures
+    try:
+        dev_decisions, dev_failures = skip_superseded_dev_publish(github, runs, delivery_jobs, dry_run=args.dry_run)
+    except RuntimeError as error:  # a rate limit: the next sweep reads them again
+        print(f"queue-janitor: superseded DEV publish runs: {error}", file=sys.stderr)
+        dev_decisions, dev_failures = [], 1
+    superseded_decisions = [*superseded_decisions, *dev_decisions]
+    failures += dev_failures
 
     summary = render_summary(plan, dry_run=args.dry_run, now=now, results=results)
     summary += render_open_head_reruns(open_head_decisions, open_head_results, freed=open_head_freed)

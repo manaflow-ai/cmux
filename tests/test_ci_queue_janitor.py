@@ -4487,5 +4487,121 @@ class OpenHeadFailoverSweepTests(unittest.TestCase):
         self.assertTrue(step["env"]["GH_TOKEN"].startswith("${{ steps.cmux-bot-token.outputs.token ||"))
 
 
+class DevPublishStub:
+    """The janitor client calls skip_superseded_dev_publish() makes, in memory."""
+
+    def __init__(self, runs, jobs, heads, compare="ahead"):
+        self.runs, self.job_map, self.heads, self.compare = runs, jobs, heads, compare
+        self.cancelled, self.calls = [], []
+
+    def dev_publish_runs(self):
+        self.calls.append("list")
+        return [r for r in self.runs.values() if r["status"] == "completed" and r["conclusion"] == "success"]
+
+    def jobs(self, run_id):
+        self.calls.append(("jobs", run_id))
+        return self.job_map[run_id]
+
+    def run(self, run_id):
+        self.calls.append(("run", run_id))
+        return self.runs.get(run_id) or {"id": run_id, "head_sha": self.heads[run_id]}
+
+    def compare_status(self, base, head):
+        self.calls.append(("compare", base, head))
+        return self.compare
+
+    def cancel(self, run_id):
+        self.cancelled.append(run_id)
+
+
+def dev_publish(source, ident, *, status="queued", conclusion=None):
+    title = f"cmux NEXT DEV daily · publish {source}"
+    return {"id": ident, "path": ".github/workflows/cmux-next-dev-daily.yml", "name": title, "display_title": title,
+            "status": status, "conclusion": conclusion, "head_sha": "m" * 40, "head_branch": "main",
+            "event": "workflow_dispatch", "run_attempt": 1, "created_at": iso(600)}
+
+
+def dev_jobs(*, published=False, mac_status="queued"):
+    def j(name, status="completed", conclusion="success", label="blacksmith-4vcpu-ubuntu-2404", runner="r"):
+        return {"name": name, "status": status, "conclusion": conclusion if status == "completed" else None,
+                "labels": [label], "runner_name": runner if status != "queued" else None,
+                "started_at": iso(590), "completed_at": iso(589) if status == "completed" else None}
+    jobs = [j("Build the signer"), j("Sign cmux NEXT DEV"), j("runner")]
+    if published:
+        return [*jobs, j("Verify signed cmux NEXT DEV", label="glaeda-std-xcode-26.6"), j("Publish cmux NEXT DEV")]
+    return [*jobs, j("Verify signed cmux NEXT DEV", mac_status, label="blacksmith-12vcpu-macos-26"),
+            j("Build the unsigned cmux NEXT DEV tip DMG", "queued", label="blacksmith-12vcpu-macos-26")]
+
+
+class SupersededDevPublishTests(unittest.TestCase):
+    def setUp(self):
+        self.runs = {1: dev_publish(100, 1), 2: dev_publish(110, 2),
+                     3: dev_publish(200, 3, status="completed", conclusion="success"), 4: dev_publish(300, 4)}
+        self.jobs = {1: dev_jobs(), 2: dev_jobs(mac_status="in_progress"), 3: dev_jobs(published=True), 4: dev_jobs()}
+        self.heads = {100: "a" * 40, 110: "b" * 40, 200: "c" * 40, 300: "d" * 40}
+
+    def sweep(self, stub, dry_run=False, **kw):
+        inflight = [r for r in stub.runs.values() if r["status"] != "completed"]
+        return janitor.skip_superseded_dev_publish(stub, inflight, {}, dry_run=dry_run, now=NOW, **kw)
+
+    def test_cancels_only_the_older_waiting_run_and_keeps_started_and_newer_ones(self):
+        stub = DevPublishStub(self.runs, self.jobs, self.heads)
+        decisions, failures = self.sweep(stub)
+        self.assertEqual(failures, 0)
+        self.assertEqual(stub.cancelled, [1])
+        notes = {d.run["id"]: d.note for d in decisions}
+        self.assertIn("running", notes[2])
+        self.assertIn("no older than", notes[4])
+
+    def test_dry_run_cancels_nothing(self):
+        stub = DevPublishStub(self.runs, self.jobs, self.heads)
+        decisions, _ = self.sweep(stub, dry_run=True)
+        self.assertEqual(stub.cancelled, [])
+        self.assertEqual([d.run["id"] for d in decisions if d.action == "cancel"], [1])
+
+    def test_a_source_the_winner_does_not_contain_is_kept(self):
+        stub = DevPublishStub(self.runs, self.jobs, self.heads, compare="diverged")
+        self.sweep(stub)
+        self.assertEqual(stub.cancelled, [])
+
+    def test_no_published_run_keeps_everything(self):
+        self.runs[3]["conclusion"] = "failure"
+        stub = DevPublishStub(self.runs, self.jobs, self.heads)
+        decisions, _ = self.sweep(stub)
+        self.assertEqual(stub.cancelled, [])
+        self.assertTrue(all(d.action == "keep" for d in decisions))
+
+    def test_a_mac_job_that_started_between_the_reads_is_kept(self):
+        stub = DevPublishStub(self.runs, self.jobs, self.heads)
+        reads = {"n": 0}
+        original = stub.jobs
+
+        def jobs(run_id):
+            if run_id == 1:
+                reads["n"] += 1
+                if reads["n"] == 2:
+                    return dev_jobs(mac_status="in_progress")
+            return original(run_id)
+        stub.jobs = jobs
+        decisions, _ = self.sweep(stub)
+        self.assertEqual(stub.cancelled, [])
+        self.assertIn("on re-read", {d.run["id"]: d.note for d in decisions}[1])
+
+    def test_the_cap_and_read_budget_bound_a_sweep(self):
+        for ident in range(10, 16):
+            self.runs[ident] = dev_publish(50 + ident, ident)
+            self.jobs[ident] = dev_jobs()
+            self.heads[50 + ident] = f"{ident:x}".ljust(40, "e")
+        stub = DevPublishStub(self.runs, self.jobs, self.heads)
+        self.sweep(stub, max_cancels=2)
+        self.assertEqual(len(stub.cancelled), 2)
+        stub = DevPublishStub(self.runs, self.jobs, self.heads)
+        self.sweep(stub, max_reads=3)
+        self.assertEqual(len(stub.cancelled), 3)
+
+    def test_the_sweep_runs_the_pass(self):
+        self.assertIn("skip_superseded_dev_publish(github, runs, delivery_jobs", SCRIPT.read_text())
+
+
 if __name__ == "__main__":
     unittest.main()
