@@ -74,7 +74,6 @@ SINGLE_SIZE: dict[str, int] = {
     "cloud-vm-smoke.yml": 1,
     "cmux-art-publish.yml": 1,
     "cmux-browser-host-release.yml": 2,
-    "cmux-next-base-tier-kick.yml": 1,
     "cmux-next-chromium-staleness.yml": 1,
     "cmux-next-batch.yml": 3,
     "cmux-next-crash-class.yml": 1,
