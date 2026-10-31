@@ -1,0 +1,269 @@
+{
+ "id": "found-desync-channels-type",
+ "priority": "P1",
+ "first_in_app": true,
+ "title": "Home dock Channels, first open in a fresh launch: after its Chromium page attaches, real keys (Cmd-K, then text) reach the Channels page",
+ "why": "Review of #29272 (FIX at 976b215bed7, https://github.com/manaflow-ai/cmux/pull/29272#issuecomment-6542312241): the pane lookup there also matched the docked Home's Channels page, a page nested in HomeDockView. Its attach then skipped its own focus grant, and the focus applier cannot focus a nested page, so typing into Channels went nowhere. The fix (5ceaf206d2b) matches only the pane's own Chromium page. This journey opens Channels for the first time in a fresh launch (Chromium makes its page after the view shows), then sends real key events through the app's event queue (debug.key sequence, no key_window: they go to whatever window is key), as a person types: Cmd-K opens the page's palette (useHomeKeys) and the text must land in its field. Needs a key window: run with run.py --whole-host (the app launched active). Expected: pass on feat and on #29272's head; fail on build 568ad9fbd033e4ba0ac995fb (976b215).",
+ "source": "#29272 review finding 1; webviews/src/pages/home-channels/useHomeKeys.ts (Cmd-K) and Palette.tsx",
+ "budget_seconds": 200,
+ "steps": [
+  {
+   "do": "fresh_app"
+  },
+  {
+   "do": "smoke_ready",
+   "timeout": 60
+  },
+  {
+   "do": "smoke_remember_workspaces"
+  },
+  {
+   "do": "rpc",
+   "method": "settings.set",
+   "params": {
+    "path": "home.channelsEnabled",
+    "value": true
+   }
+  },
+  {
+   "do": "rpc",
+   "method": "action.run",
+   "params": {
+    "action": "home.show",
+    "args": {},
+    "focus": true
+   }
+  },
+  {
+   "do": "expect",
+   "title": "the docked Home shows, with Channels enabled",
+   "timeout": 20,
+   "all": [
+    {
+     "app_rpc": {
+      "method": "debug.home",
+      "path": "dock.visible",
+      "equals": true
+     }
+    },
+    {
+     "app_rpc": {
+      "method": "debug.home",
+      "path": "dock.channels_enabled",
+      "equals": true
+     }
+    }
+   ]
+  },
+  {
+   "do": "rpc",
+   "method": "action.run",
+   "params": {
+    "action": "home.switchView",
+    "args": {
+     "view": "channels"
+    },
+    "focus": true
+   }
+  },
+  {
+   "do": "expect",
+   "title": "Channels shows, in Chromium, painted",
+   "timeout": 30,
+   "all": [
+    {
+     "app_rpc": {
+      "method": "debug.home",
+      "path": "dock.mode",
+      "equals": "channels"
+     }
+    },
+    {
+     "app_rpc": {
+      "method": "debug.home",
+      "path": "dock.channels_visible",
+      "equals": true
+     }
+    },
+    {
+     "app_rpc": {
+      "method": "debug.page",
+      "params": {
+       "page": "cmux.home-channels",
+       "action": "state"
+      },
+      "path": "engine",
+      "equals": "chromium"
+     }
+    },
+    {
+     "app_rpc": {
+      "method": "debug.page",
+      "params": {
+       "page": "cmux.home-channels",
+       "action": "state"
+      },
+      "path": "painted",
+      "equals": true
+     }
+    }
+   ]
+  },
+  {
+   "do": "wait",
+   "seconds": 2
+  },
+  {
+   "do": "rpc",
+   "method": "debug.focus"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.window_list"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.key",
+   "params": {
+    "sequence": [
+     {
+      "key_code": 55,
+      "down": true
+     },
+     {
+      "key_code": 40,
+      "down": true,
+      "after_ms": 30
+     },
+     {
+      "key_code": 40,
+      "down": false,
+      "after_ms": 40
+     },
+     {
+      "key_code": 55,
+      "down": false,
+      "after_ms": 20
+     }
+    ]
+   }
+  },
+  {
+   "do": "wait",
+   "seconds": 1.5
+  },
+  {
+   "do": "rpc",
+   "method": "debug.key",
+   "params": {
+    "sequence": [
+     {
+      "key_code": 6,
+      "down": true,
+      "after_ms": 60
+     },
+     {
+      "key_code": 6,
+      "down": false,
+      "after_ms": 40
+     },
+     {
+      "key_code": 12,
+      "down": true,
+      "after_ms": 60
+     },
+     {
+      "key_code": 12,
+      "down": false,
+      "after_ms": 40
+     },
+     {
+      "key_code": 26,
+      "down": true,
+      "after_ms": 60
+     },
+     {
+      "key_code": 26,
+      "down": false,
+      "after_ms": 40
+     }
+    ]
+   }
+  },
+  {
+   "do": "wait",
+   "seconds": 1.5
+  },
+  {
+   "do": "rpc",
+   "method": "debug.page",
+   "params": {
+    "page": "cmux.home-channels",
+    "action": "state"
+   }
+  },
+  {
+   "do": "expect",
+   "title": "the keys reached the Channels page: Cmd-K opened its palette and the typed text is in the field that has focus",
+   "timeout": 10,
+   "all": [
+    {
+     "app_rpc": {
+      "method": "debug.page",
+      "params": {
+       "page": "cmux.home-channels",
+       "action": "query",
+       "selector": ".lg-palette"
+      },
+      "path": "elements",
+      "len_gte": 1
+     }
+    },
+    {
+     "app_rpc": {
+      "method": "debug.page",
+      "params": {
+       "page": "cmux.home-channels",
+       "action": "state"
+      },
+      "path": "active.value",
+      "contains": "zq7"
+     }
+    },
+    {
+     "smoke_frame": {
+      "min_lines": 1
+     }
+    }
+   ]
+  },
+  {
+   "do": "fuzz_run",
+   "sequence": [
+    {
+     "a": "new_workspace",
+     "t": "slow"
+    }
+   ],
+   "set": "full",
+   "fresh": false,
+   "shrink": false,
+   "budget_s": 60
+  },
+  {
+   "do": "expect",
+   "title": "afterwards the daemon still agrees with the app",
+   "timeout": 20,
+   "all": [
+    {
+     "fuzz_daemon_agrees": {}
+    }
+   ]
+  }
+ ],
+ "finally": [
+  {
+   "do": "smoke_close_all"
+  }
+ ]
+}
