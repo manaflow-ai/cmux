@@ -251,6 +251,9 @@ class RoutingTableTests(unittest.TestCase):
             "${{ inputs.runner_class == 'blacksmith-12vcpu-macos-26' && 'blacksmith-12vcpu-macos-26' || "
             "'blacksmith-6vcpu-macos-26' }}",
             "${{ contains(needs.p.outputs.list, 'x') && vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}",
+            "${{ needs.p.outputs.ok != '' || 'blacksmith-6vcpu-macos-26' }}",
+            "${{ !needs.p.outputs.skip || 'blacksmith-6vcpu-macos-26' }}",
+            "${{ 'needs.p.outputs.label' }}",
         ):
             problems = self.run_fixture({"w.yml": self.pinned_job(runs_on)}, {"w.yml#test": "apple-app-build"})
             self.assertEqual(len(problems), 1, runs_on)
@@ -299,6 +302,9 @@ class RoutingTableTests(unittest.TestCase):
 
     def test_a_picked_label_or_a_callers_input_passes(self) -> None:
         for runs_on in (
+            # Review round 5: a picker's JSON read through an index is still the picker's label.
+            "${{ fromJSON(needs.pick.outputs.runners)['label'] }}",
+            "${{ fromJSON(needs.pick.outputs.runners)[0] || 'blacksmith-6vcpu-macos-26' }}",
             "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || "
             "fromJSON(github.run_attempt > 1 && needs.runner.outputs.retry_runs_on || needs.runner.outputs.runs_on) }}",
             "${{ inputs.runner || 'blacksmith-6vcpu-macos-26' }}",

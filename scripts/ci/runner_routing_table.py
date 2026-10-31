@@ -84,7 +84,19 @@ def bypasses_placement(runs_on: str) -> bool:
 # What a picker gives a runs-on: a picker or placement job's output, or a label the caller of a reusable
 # workflow (or a dispatcher) chose. The capability map (`fromJSON(needs.runners.outputs.map).<key>`) is
 # not one: it names one fixed label per key, whatever that label's queue holds.
-PICKER_OUTPUT = re.compile(r"^(?:needs\.[\w-]+\.outputs\.(?!map\b)[\w-]+|inputs\.[\w-]+)$")
+PICKER_OUTPUT = re.compile(r"(?<![\w.])(?:needs\.[\w-]+\.outputs\.(?!map\b)[\w-]+|inputs\.[\w-]+)(?![\w-])")
+# A value term that is a boolean, not a label: a negation, a comparison or a predicate call.
+BOOLEAN_TERM = re.compile(r"^(?:!|(?:contains|startsWith|endsWith|always|success|failure|cancelled)\s*\()",
+                          re.IGNORECASE)
+COMPARISON = ("==", "!=", "<=", ">=", "<", ">")
+
+
+def _picker_value_term(term: str) -> bool:
+    """Whether a value term yields a picker's label: it reads a picker output, as itself or through an
+    index or a call (`fromJSON(needs.p.outputs.runners)['label']`), and is not a boolean."""
+    if BOOLEAN_TERM.match(term) or any(len(_split_top(term, op)) > 1 for op in COMPARISON):
+        return False
+    return PICKER_OUTPUT.search(re.sub(r"'(?:[^']|'')*'", "''", term)) is not None
 MATRIX_VALUE = re.compile(r"^matrix\.([\w-]+)$")
 EXPRESSION = re.compile(r"\$\{\{(.*?)\}\}", re.DOTALL)
 CALL = re.compile(r"^([A-Za-z]\w*)\((.*)\)$", re.DOTALL)
@@ -165,7 +177,7 @@ def _picked_value(value: object, strategy: dict[str, Any], seen: frozenset[str] 
         return False
     for expression in expressions:
         for term in value_terms(expression):
-            if PICKER_OUTPUT.match(term):
+            if _picker_value_term(term):
                 return True
             matrix = MATRIX_VALUE.match(term)
             if matrix and matrix.group(1) not in seen and \
