@@ -188,6 +188,54 @@ def app_pids(tag):
     return pgrep(f"{bundle_root(tag)}.*/Contents/MacOS/")
 
 
+# A process of the tag that is still alive LINGER_LIMIT_S after the app's own quit is a finding, not harness noise
+# (coordinator 2026-10-31: the same class as the orphan-daemon P0). The bench reports every such process, then waits
+# for it, and never ends it itself: a run that has to wait says so in the report (`linger`), so it cannot be hidden.
+LINGER_LIMIT_S = 10.0
+LINGER_WAIT_S = 60.0
+
+
+def process_rows(pids):
+    """[{pid, ppid, cpu, etime, command}] of the live pids (ps); a pid that exited is left out."""
+    if not pids:
+        return []
+    out = subprocess.run(["ps", "-o", "pid=,ppid=,%cpu=,etime=,command=", "-p", ",".join(map(str, pids))],
+                         capture_output=True, text=True).stdout
+    rows = []
+    for line in out.splitlines():
+        parts = line.split(None, 4)
+        if len(parts) == 5 and parts[0].isdigit():
+            rows.append({"pid": int(parts[0]), "ppid": int(parts[1]), "cpu": float(parts[2]), "etime": parts[3],
+                         "command": parts[4][:240]})
+    return rows
+
+
+def watch_linger(tag, quit_at):
+    """After the app's quit: every process of the bundle with /Contents/MacOS/ (the app, its CEF helpers, a bundled
+    daemon), each one's exit time after the quit, and the ones alive past LINGER_LIMIT_S. Waits up to LINGER_WAIT_S;
+    ends nothing. Returns the report (also printed as one BENCH-LINGER line)."""
+    first = process_rows(app_pids(tag))
+    exits, start = {}, {r["pid"]: r for r in first}
+    deadline = quit_at + LINGER_WAIT_S
+    while True:
+        live = set(app_pids(tag))
+        now = time.monotonic()
+        for pid in start:
+            if pid not in live and pid not in exits:
+                exits[pid] = round(now - quit_at, 2)
+        if not (live & set(start)) or now >= deadline:
+            break
+        time.sleep(0.25)  # bench: a process list read, bounded by the deadline
+    still = process_rows(sorted(set(app_pids(tag)) & set(start)))
+    report = {"at_quit": first, "exit_s": exits, "past_limit": [p for p, s in exits.items() if s > LINGER_LIMIT_S],
+              "still_running_after_s": LINGER_WAIT_S if still else None, "still": still}
+    print("BENCH-LINGER " + json.dumps(report), flush=True)
+    for row in still:
+        print(f"  LINGER: {row['pid']} ppid {row['ppid']} cpu {row['cpu']} % up {row['etime']}: {row['command']}",
+              flush=True)
+    return report
+
+
 def wait_exit(pids, timeout):
     """Blocks until every pid exited (kqueue NOTE_EXIT) or the timeout passes."""
     queue = select.kqueue()
@@ -492,12 +540,15 @@ def one_run(tag, mode, timeout, profile=None):
             launch.stalls = launch_stalls(tag)
     finally:
         launch.quit()
+        launch.linger = watch_linger(tag, time.monotonic())
     if not reached:
         missing = [mark for mark in final if mark not in launch.marks]
         print(f"  {tag} {mode}: {', '.join(missing)} not reached within {timeout} s", file=sys.stderr)
+    marks = dict(launch.marks)
     if getattr(launch, "stalls", None) is not None:
-        return {**launch.marks, "stalls": launch.stalls}
-    return launch.marks
+        marks["stalls"] = launch.stalls
+    marks["linger"] = launch.linger
+    return marks
 
 
 def launch_stalls(tag):
