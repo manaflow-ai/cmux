@@ -3349,9 +3349,24 @@ esac
                              ("another tier", self.context(fleet=" swift-canary ")),
                              ("no idle gateway", self.context(gateway=("1", ""))),
                              ("an earlier attempt's reading", self.context(attempt=2)),
-                             ("a fork", self.context(head="someone/cmux"))):
+                             ("a fork", self.context(head="someone/cmux")),
+                             # The client honours the tier's own route: a push whose diff since the last
+                             # finished fast tier reaches no Mac tier (fast_tier_anchor.py) skips it too.
+                             ("a pull request the route skips",
+                              {**self.context(), "needs.path_route.outputs.fast_tier": "false"}),
+                             ("a push the route skips",
+                              {**self.context(event="push"), "needs.path_route.outputs.fast_tier": "false"})):
             with self.subTest(why=why):
                 self.assertFalse(evaluate(job["if"], context))
+        # Wherever the route skips the tier, it skips the client: the two gates agree on both events.
+        tier = self.jobs()["fast-tier"]
+        for event in ("pull_request", "push"):
+            for route in ("true", "false"):
+                context = {**self.context(event=event), "needs.path_route.outputs.fast_tier": route,
+                           "inputs.same_tree_sha": "", "inputs.dev_daily": False}
+                with self.subTest(event=event, route=route):
+                    if not evaluate(tier["if"], {**context, "needs.fast-tier-fleet.result": "skipped"}):
+                        self.assertFalse(evaluate(job["if"], context))
 
     def test_the_tier_keeps_its_name_and_only_reports_off_the_gateway(self):
         jobs = self.jobs()
