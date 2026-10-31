@@ -157828,6 +157828,268 @@
         }
       }
     },
+    "settings.sidebar.showNewWorkspaceChooser": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show New Workspace Menu Button"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新規ワークスペースメニューボタンを表示"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إظهار زر قائمة مساحة العمل الجديدة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prikaži dugme menija nove radne površine"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vis menuknap for nyt arbejdsområde"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Menütaste für neuen Arbeitsbereich anzeigen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostrar botón de menú de nuevo espacio de trabajo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Afficher le bouton de menu Nouvel espace de travail"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostra pulsante menu Nuovo spazio di lavoro"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បង្ហាញប៊ូតុងម៉ឺនុយកន្លែងធ្វើការថ្មី"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "새 작업 공간 메뉴 버튼 표시"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vis menyknapp for nytt arbeidsområde"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pokaż przycisk menu nowego obszaru roboczego"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostrar botão do menu Novo espaço de trabalho"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показывать кнопку меню нового рабочего пространства"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แสดงปุ่มเมนูพื้นที่ทำงานใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yeni Çalışma Alanı menü düğmesini göster"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показувати кнопку меню нового робочого простору"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hiện nút menu không gian làm việc mới"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "显示新建工作区菜单按钮"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "顯示新增工作區選單按鈕"
+          }
+        }
+      }
+    },
+    "settings.sidebar.showNewWorkspaceChooser.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A chevron beside the + in the sidebar's titlebar opens the New Workspace menu. Off, right-click the + for the same menu."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーのタイトルバーの＋の横にあるシェブロンで、新規ワークスペースメニューを開きます。オフにしても、＋を右クリックすると同じメニューを開けます。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يفتح سهم بجانب + في شريط عنوان الشريط الجانبي قائمة مساحة العمل الجديدة. عند إيقافه، انقر بزر الماوس الأيمن على + لفتح القائمة نفسها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Strelica pored + u naslovnoj traci bočne trake otvara meni nove radne površine. Kada je isključeno, desnim klikom na + otvarate isti meni."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En pil ved siden af + i sidepanelets titellinje åbner menuen Nyt arbejdsområde. Når det er slået fra, kan du højreklikke på + for den samme menu."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ein Pfeil neben dem + in der Titelleiste der Seitenleiste öffnet das Menü „Neuer Arbeitsbereich“. Ist dies aus, öffnet ein Rechtsklick auf das + dasselbe Menü."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Una flecha junto al + en la barra de título de la barra lateral abre el menú Nuevo espacio de trabajo. Desactivado, haz clic derecho en el + para abrir el mismo menú."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un chevron à côté du + dans la barre de titre de la barre latérale ouvre le menu Nouvel espace de travail. Désactivé, faites un clic droit sur le + pour le même menu."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Una freccia accanto al + nella barra del titolo della barra laterale apre il menu Nuovo spazio di lavoro. Se disattivato, fai clic destro sul + per lo stesso menu."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "សញ្ញាព្រួញនៅក្បែរ + ក្នុងរបារចំណងជើងនៃរបារចំហៀង បើកម៉ឺនុយកន្លែងធ្វើការថ្មី។ នៅពេលបិទ ចុចកណ្ដុរស្ដាំលើ + ដើម្បីបើកម៉ឺនុយដដែល។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "사이드바 제목 표시줄의 + 옆 화살표로 새 작업 공간 메뉴를 엽니다. 끄면 +를 오른쪽 클릭해 같은 메뉴를 열 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En pil ved siden av + i sidepanelets tittellinje åpner menyen Nytt arbeidsområde. Når det er av, høyreklikker du på + for den samme menyen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Strzałka obok + na pasku tytułu paska bocznego otwiera menu nowego obszaru roboczego. Po wyłączeniu kliknij + prawym przyciskiem, aby otworzyć to samo menu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uma seta ao lado do + na barra de título da barra lateral abre o menu Novo espaço de trabalho. Desativado, clique com o botão direito no + para o mesmo menu."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Стрелка рядом с + в заголовке боковой панели открывает меню нового рабочего пространства. Если выключено, щёлкните + правой кнопкой, чтобы открыть то же меню."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ลูกศรข้าง + ในแถบชื่อของแถบด้านข้างจะเปิดเมนูพื้นที่ทำงานใหม่ เมื่อปิด ให้คลิกขวาที่ + เพื่อเปิดเมนูเดียวกัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kenar çubuğunun başlık çubuğundaki + yanındaki ok, Yeni Çalışma Alanı menüsünü açar. Kapalıyken aynı menü için + üzerine sağ tıklayın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Стрілка поруч із + у заголовку бічної панелі відкриває меню нового робочого простору. Якщо вимкнено, клацніть + правою кнопкою, щоб відкрити те саме меню."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mũi tên cạnh dấu + trên thanh tiêu đề của thanh bên mở menu Không gian làm việc mới. Khi tắt, nhấp chuột phải vào dấu + để mở cùng menu đó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "侧边栏标题栏中 + 旁的箭头可打开新建工作区菜单。关闭后，右键点按 + 可打开同一菜单。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "側邊欄標題列中 + 旁的箭頭可開啟新增工作區選單。關閉後，按右鍵點按 + 可開啟同一選單。"
+          }
+        }
+      }
+    },
     "settings.browser.agentMouseMotion": {
       "extractionState": "manual",
       "localizations": {

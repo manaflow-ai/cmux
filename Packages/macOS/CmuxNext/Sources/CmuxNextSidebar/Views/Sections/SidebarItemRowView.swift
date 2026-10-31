@@ -40,6 +40,9 @@ class SidebarItemRowView: NSView {
     /// True: the item acts on mouse-down, as workspace rows do (every item but a new-tab
     /// launcher: `LayoutItemRef.activatesOnPress`); false: on release.
     var activatesOnPress = false
+    /// Whether a press on the item may drag it (`LayoutItem.isMovable`, set from the item's data): false for Home,
+    /// whose press-and-drag is a plain press (no lift, no drag, no drop).
+    var isMovable = true
     /// The current press already ran the action on mouse-down; its release does not run it again.
     private var activatedOnPress = false
     /// The sidebar's edit mode (`SidebarItemRowView+Editing`): the item wiggles and shows its ✕
@@ -85,7 +88,7 @@ class SidebarItemRowView: NSView {
         }
     }
     private var pointerHover: PointerHover?
-    private var isPressed = false { didSet { if isPressed != oldValue { pointerChanged() } } }
+    private(set) var isPressed = false { didSet { if isPressed != oldValue { pointerChanged() } } }
     /// A menu opened from this row is open. The profile control's (the whole pill is that control): the pill holds
     /// the selected step (between hover and pressed) until the menu closes. A workspace tile's hover more button's: the
     /// hover controls stay shown and only that button lights, never the pill (Leo 2026-10-27: "why are you giving it
@@ -504,9 +507,9 @@ class SidebarItemRowView: NSView {
         if NSEvent.pressedMouseButtons & 1 == 0 { isPressed = false }
     }
 
-    /// Past the drag threshold the region reorders in place (R77).
+    /// Past the drag threshold the region reorders in place (R77). An item that cannot move drags nothing.
     override func mouseDragged(with event: NSEvent) {
-        guard let pressLocation, onDragged?(pressLocation, event) == true else { return super.mouseDragged(with: event) }
+        guard isMovable, let pressLocation, onDragged?(pressLocation, event) == true else { return super.mouseDragged(with: event) }
         didDrag = true
         isPressed = false
     }
@@ -525,6 +528,25 @@ class SidebarItemRowView: NSView {
         isPressed = false
         guard !dragged, !activated, !isEditing, pill.frame.contains(convert(event.locationInWindow, from: nil)) else { return }
         activate(with: pressModifiers)
+    }
+
+    /// Whether a press on the item is still held (its release has not come).
+    var holdsPress: Bool { pressLocation != nil }
+
+    /// Ends the item's press without acting: the gesture that owned it ended elsewhere (the list's one gesture end,
+    /// `SidebarListView.endPointerGesture`), so its release never comes here. The pressed fill clears, and a later
+    /// drag or release of that press does nothing.
+    func endPress() {
+        pressLocation = nil
+        didDrag = false
+        activatedOnPress = false
+        isPressed = false
+    }
+
+    override func viewWillMove(toWindow newWindow: NSWindow?) {
+        super.viewWillMove(toWindow: newWindow)
+        // Off its window no release reaches the item: its press ends with its look.
+        if newWindow == nil { endPress() }
     }
 
     private func activate(with modifiers: NSEvent.ModifierFlags) {
