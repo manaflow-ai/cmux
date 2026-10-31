@@ -10,7 +10,8 @@ scripts/smoke-signed-app-cli.sh uses), drives it only through the bundled
 
     manifest.json   steps with their command, status, output and screenshot
     shots/NN-*.png  one screenshot per step (a failed step is captured too)
-    frames/*.jpg    the window about twice a second, for the video
+    capture.mov    continuous window-only video at up to 60 fps
+    frames/*.jpg    fastest available stills when no native video route works
 
 A tour is a JSON file with a `title` and `steps`, and optionally `settings`:
 the cmux-next.json the app launches with (`CMUX_NEXT_CONFIG_FILE`), a private
@@ -63,6 +64,7 @@ import os
 from pathlib import Path
 import plistlib
 import re
+import selectors
 import shutil
 import signal
 import socket
@@ -72,6 +74,8 @@ import tempfile
 import threading
 import time
 from typing import Any
+
+MAX_SECONDS = 300
 
 STEP_KEYS = {"title", "cmux", "rpc", "daemon", "wait", "shot", "display", "optional", "expect", "windows"}
 # Other windows a step shoots beside the main one (floating panels, popovers,
@@ -94,17 +98,16 @@ POSTCONDITION_TIMEOUT = 2.0
 SOCKET_TIMEOUT = 60.0
 # --stop: seconds a bundle's processes get after SIGTERM before SIGKILL.
 STOP_GRACE = 10.0
-FRAME_INTERVAL = 0.5
+FRAME_INTERVAL = 1 / 60
 # Five minutes of frames; a tour that runs longer keeps its screenshots but its
 # video stops here, so a stuck step cannot fill the runner's disk.
-MAX_FRAMES = 600
+MAX_FRAMES = 60 * MAX_SECONDS
 WINDOW_TIMEOUT = 20.0
 # A window snapshot paints each shown page too, so it can take a few seconds.
 SNAPSHOT_TIMEOUT = 20.0
 APP_WINDOW_MODE = "app window (debug.window_snapshot)"
-# Each app-window frame is a main-thread snapshot of the app being recorded:
-# fewer of them keep its motion from stalling on the capture.
-APP_WINDOW_FRAME_INTERVAL = 1.0
+# Still-only routes run sequentially, limited by their capture latency (at most 60 Hz).
+APP_WINDOW_FRAME_INTERVAL = FRAME_INTERVAL
 # scripts/release-media/host_agent.py on main looks in the same places.
 HELPER_CANDIDATES = (Path.home() / "Applications/CuaSshScreenCapture.app",
                      Path("/Applications/CuaSshScreenCapture.app"))
@@ -459,6 +462,63 @@ def frame_interval(mode: str) -> float:
     return APP_WINDOW_FRAME_INTERVAL if mode == APP_WINDOW_MODE else FRAME_INTERVAL
 
 
+class WindowVideo:
+    def __init__(self, session, pid: int | None, directory: Path, scratch: Path):
+        self.session, self.pid = session, pid
+        self.path = directory / "capture.mov"
+        self.scratch = scratch
+        self.process = None
+        self.log = None
+        self.reason = ""
+        self.log_path = self.scratch / "record-window.log"
+
+    def start(self) -> bool:
+        if sys.platform != "darwin" or self.pid is None:
+            self.reason = "ScreenCaptureKit requires macOS and an app PID"
+            return False
+        binary = self.scratch / "record-window"
+        source = Path(__file__).with_name("record-window.swift")
+        try:
+            built = subprocess.run(["xcrun", "swiftc", "-parse-as-library", str(source), "-o", str(binary)],
+                                   capture_output=True, text=True, timeout=120)
+            if built.returncode:
+                self.reason = "ScreenCaptureKit helper unavailable: " + built.stderr[-500:]
+                return False
+            # Both existing console routes can have different Screen Recording grants.
+            for mode, prefix in self.session.capture_routes:
+                self.path.unlink(missing_ok=True)
+                self.log = self.log_path.open("w+")
+                self.process = subprocess.Popen(prefix + [str(binary), str(self.pid), str(self.path)],
+                                                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=self.log,
+                                                text=True)
+                with selectors.DefaultSelector() as ready:
+                    ready.register(self.process.stdout, selectors.EVENT_READ)
+                    if ready.select(timeout=30) and self.process.stdout.readline().strip() == "READY":
+                        return True
+                self.stop()
+                self.reason = f"ScreenCaptureKit unavailable through {mode}: " + self.log_path.read_text()[-500:].strip()
+        except (OSError, subprocess.SubprocessError) as error:
+            self.reason = str(error)
+            self.stop()
+        self.path.unlink(missing_ok=True)
+        return False
+
+    def stop(self) -> bool:
+        if self.process is None:
+            return False
+        process, self.process = self.process, None
+        try:
+            process.communicate(input="\n", timeout=20)
+        except (OSError, subprocess.TimeoutExpired):
+            process.kill()
+            process.communicate()
+        finally:
+            if self.log:
+                self.log.close()
+                self.log = None
+        return process.returncode == 0 and self.path.is_file() and self.path.stat().st_size > 0
+
+
 class Recorder(threading.Thread):
     """Frames of the app's window about every `interval` seconds, tagged with the step."""
 
@@ -472,9 +532,12 @@ class Recorder(threading.Thread):
         self.stopping = threading.Event()
         self.lock = threading.Lock()
         self.interval = frame_interval(screen.mode)
+        self.started = 0.0
+        self.elapsed = 0.0
 
     def run(self) -> None:
-        while not self.stopping.is_set():
+        self.started = time.monotonic()
+        while not self.stopping.is_set() and time.monotonic() - self.started < MAX_SECONDS:
             started = time.monotonic()
             with self.lock:
                 if self.stopping.is_set():
@@ -491,13 +554,15 @@ class Recorder(threading.Thread):
                 if problem:
                     self.error = problem
                 else:
-                    self.frames.append({"file": f"frames/{path.name}", "step": self.step})
+                    self.frames.append({"file": f"frames/{path.name}", "step": self.step,
+                                        "time": started - self.started})
             self.stopping.wait(max(0.0, self.interval - (time.monotonic() - started)))
 
     def stop(self) -> list[dict[str, Any]]:
         """Stop recording; the frames kept, which nothing appends to afterwards."""
         with self.lock:
             self.stopping.set()
+            self.elapsed = min(MAX_SECONDS, time.monotonic() - self.started) if self.started else 0.0
             frames = list(self.frames)
         if self.is_alive():
             # A capture in flight is bounded (60 s for the helper); its frame is dropped.
@@ -920,6 +985,8 @@ def run_tour(app_path: Path, tour: dict[str, Any], out: Path, session: Session, 
     app = App(app_path, session, workdir, fresh_state=fresh_state, settings=tour.get("settings"))
     screen = Screen(session, session.shareable(workdir / "raw"), app)
     recorder = Recorder(screen, frames)
+    video = WindowVideo(session, None, session.shareable(directory), screen.scratch)
+    video_started = False
     manifest: dict[str, Any] = {"name": tour["name"], "title": tour["title"], "steps": [], "frames": [],
                                 "frame_interval": recorder.interval, "console_user": session.user,
                                 "capture_mode": screen.mode}
@@ -951,7 +1018,14 @@ def run_tour(app_path: Path, tour: dict[str, Any], out: Path, session: Session, 
         if screen.rect is None:
             manifest["frames_error"] = f"no app window on screen within {WINDOW_TIMEOUT:.0f}s"
         else:
-            recorder.start()
+            video.pid = app.pid()
+            video_started = video.start()
+            if video_started:
+                manifest["video_mode"] = "ScreenCaptureKit window, requested 60 fps"
+            else:
+                manifest["video_fallback"] = video.reason
+                print(f"[{tour['name']}] still-only video fallback: {video.reason}", flush=True)
+                recorder.start()
         for index, step in enumerate(tour["steps"], 1):
             recorder.step = index
             result = run_step(app, screen, step, index, shots)
@@ -969,9 +1043,19 @@ def run_tour(app_path: Path, tour: dict[str, Any], out: Path, session: Session, 
         # whatever was behind it on the shared console.
         with recorder.lock:
             recorder.stopping.set()
+        # Finalize video while its window still exists. Never capture what is behind a closed app.
+        video_ok = video.stop()
+        if video_started:
+            if video_ok:
+                manifest["video"] = "capture.mov"
+            else:
+                manifest["frames_error"] = "window video could not be finalized"
+        manifest["frames"] = recorder.stop() if recorder.ident else []
+        if manifest["frames"] and recorder.elapsed:
+            manifest["frame_interval"] = recorder.elapsed / len(manifest["frames"])
+            manifest["capture_fps"] = len(manifest["frames"]) / recorder.elapsed
         # Then the app: a leftover app or daemon would serve the next run on this Mac.
         app.stop()
-        manifest["frames"] = recorder.stop() if recorder.ident else []
         if recorder.error and not manifest["frames"]:
             manifest.setdefault("frames_error", recorder.error)
         manifest["capture_rect"] = screen.rect
