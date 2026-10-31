@@ -816,10 +816,9 @@ impl WorkspaceRegistry {
         self.pending_agent_hooks_for_terminal(terminal_id, None)
     }
 
-    /// Child records committed before a lifecycle projection, including records whose
-    /// caller timed out after commit admission. Reading the retry queue avoids scanning
-    /// terminal history and includes children whose first projection has not run yet.
-    pub(crate) fn pending_agent_child_projections_before(
+    /// Hooks committed before a live projection, including records whose caller timed
+    /// out after commit admission. Reading the retry queue avoids scanning terminal history.
+    pub(crate) fn pending_agent_hook_projections_before(
         &self,
         terminal_id: &TerminalPublicId,
         sequence: u64,
@@ -830,19 +829,16 @@ impl WorkspaceRegistry {
     fn pending_agent_hooks_for_terminal(
         &self,
         terminal_id: &TerminalPublicId,
-        children_before: Option<u64>,
+        before: Option<u64>,
     ) -> anyhow::Result<Vec<PendingAgentHookProjection>> {
-        let children_before = children_before
-            .map(i64::try_from)
-            .transpose()
-            .context("pending child hook sequence is too large")?;
+        let before =
+            before.map(i64::try_from).transpose().context("pending hook sequence is too large")?;
         let db = self.connection.get();
         let mut statement = db.prepare(
             "SELECT producer_id, origin, idempotency_key, event_sequence, ingress_json
              FROM resource_agent_hook_pending
              WHERE terminal_id = ?1 AND (?4 IS NOT NULL OR attempt < ?2)
-               AND (?4 IS NULL OR (event_sequence < ?4 AND json_extract(ingress_json, '$.kind')
-                    IN ('agent.child.spawned', 'agent.child.completed', 'agent.child.failed')))
+               AND (?4 IS NULL OR event_sequence < ?4)
              ORDER BY event_sequence ASC, idempotency_key ASC
              LIMIT ?3",
         )?;
@@ -852,7 +848,7 @@ impl WorkspaceRegistry {
                     terminal_id.as_str(),
                     AGENT_HOOK_MAX_ATTEMPTS,
                     AGENT_HOOK_RETRY_PAGE_SIZE,
-                    children_before
+                    before
                 ],
                 |row| {
                     Ok((

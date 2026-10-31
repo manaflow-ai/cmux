@@ -10,7 +10,7 @@ impl Mux {
     /// projection fails. The ingress path catches the projection error, stages
     /// a durable pending row, and still returns the journal receipt so callers
     /// can retain exactly-once semantics while the terminal becomes available.
-    pub(super) fn apply_agent_hook_record(
+    pub(super) fn project_agent_hook_record(
         &self,
         ingress: &crate::JournalIngress,
         sequence: u64,
@@ -54,9 +54,6 @@ impl Mux {
         };
         let terminal_id = TerminalPublicId::parse(&terminal_subject.id)
             .with_context(|| format!("invalid terminal subject {:?}", terminal_subject.id))?;
-        // Another request may have committed a child before this hook but not projected
-        // it yet. Its durable pending row must be consumed before this lifecycle advances.
-        self.reconcile_preceding_agent_children(&terminal_id, sequence)?;
         // A completed tool call resumes only a blocked agent, so the roster's state decides it.
         let current = self
             .agent_records

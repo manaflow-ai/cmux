@@ -49,34 +49,6 @@ pub(super) enum FinishGate {
 }
 
 impl Mux {
-    /// An ingress commit preseeds its retry row before the caller projects it. Reconcile
-    /// earlier children before any lifecycle fence can overtake their first projection.
-    /// This also covers a caller that timed out while its admitted append later committed.
-    pub(super) fn reconcile_preceding_agent_children(
-        &self,
-        terminal_id: &TerminalPublicId,
-        sequence: u64,
-    ) -> anyhow::Result<()> {
-        for _ in 0..crate::workspace_registry::AGENT_HOOK_MAX_RETRY_PAGES_PER_WAKE {
-            let pending = self
-                .workspace_registry
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .pending_agent_child_projections_before(terminal_id, sequence)?;
-            if pending.is_empty() {
-                return Ok(());
-            }
-            for (producer, origin, key, child_sequence, ingress) in pending {
-                self.apply_agent_child_hook(&ingress, child_sequence)?;
-                self.workspace_registry
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .clear_agent_hook_pending(&producer, &origin, &key)?;
-            }
-        }
-        anyhow::bail!("earlier child hook projections exceeded the per-wake limit")
-    }
-
     /// An `agent.child.*` hook: counts the child in or out, and posts the held finish once the
     /// last child ends. A child the hook does not place in the agent's tree (no `agent_node_id`,
     /// or an `unknown` relation, such as Kiro's session start) is not counted.
