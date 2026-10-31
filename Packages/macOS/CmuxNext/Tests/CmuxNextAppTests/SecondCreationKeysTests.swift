@@ -222,8 +222,9 @@ struct SecondCreationKeysTests {
 
     /// cmux-ad 11:15Z: Cmd-D, "ls", Up, Ctrl-C, Cmd-D, a line, all held for the first creation, whose terminal never got
     /// the keyboard. Each key goes to its own terminal at its place: "ls", Up and Ctrl-C to the first terminal (its own
-    /// encoding: 6c 73, cursor-up, 03), the second Cmd-D runs as the app's split at its place, and the line after it goes
-    /// to the pane that split made. Nothing of the first terminal's keys reaches the focused one.
+    /// encoding: 6c 73, cursor-up, 03); the second Cmd-D runs as the app's split OF THE FIRST TERMINAL'S PANE (the pane it
+    /// was typed for, never the focused one), at its place; the line after it goes to the pane that split made. Nothing
+    /// of the first terminal's keys reaches the focused one.
     @Test func eachHeldKeyRunsAtItsPlaceInItsOwnTerminal() async throws {
         try await Self.withTwoTerminals { p in
             let router = p.services.keyRouter
@@ -260,13 +261,95 @@ struct SecondCreationKeysTests {
                 }.first
             }
             try await PinnedPageTests.until({ split() != nil }, report: { "the held Cmd-D made no pane: \(p.content.panes.count) panes" })
-            let inSplit = try await Self.ran("n3x\(nonce)x42", on: try #require(split()), in: p)
+            let made = try #require(split())
+            let inSplit = try await Self.ran("n3x\(nonce)x42", on: made, in: p)
+            // The split is of the first terminal's pane: the new pane lies between the first and the second.
+            @MainActor func left(_ pane: PaneController?) -> CGFloat? { pane.map { $0.view.convert($0.view.bounds, to: nil).minX } }
+            let madePane = p.content.panes.values.first { $0.pane.tabs.contains { $0.surface == made } }
+            try await PinnedPageTests.until({
+                guard let a = left(p.first.pane), let m = left(madePane), let b = left(p.second.pane) else { return false }
+                return a < m && m < b
+            }, report: { "the held Cmd-D split another pane than the first terminal's: x \(String(describing: left(p.first.pane))), new \(String(describing: left(madePane))), second \(String(describing: left(p.second.pane)))" })
             let first = await Self.screen(p.first.surface, in: p)
             let second = await Self.screen(p.second.surface, in: p)
             #expect(inFirst, "ls, Up and Ctrl-C held for the first terminal did not reach it in order: \(first.suffix(300))")
             #expect(inSplit, "the line typed after the held Cmd-D did not run in the pane it made")
             #expect(!second.contains("K42x\(nonce)") && !second.contains("n3x\(nonce)x42"),
                     "a key held for another terminal reached the focused one: \(second.suffix(300))")
+        }
+    }
+
+    /// cmux-ad 11:2xZ: keys held for the first creation reach its terminal also when the person switched to another
+    /// workspace before the hold ended: that terminal is hidden, not closed, and nothing it was typed for is dropped
+    /// or typed into the terminal the new workspace shows.
+    @Test func heldKeysReachTheirTerminalAfterItsWorkspaceWasSwitchedAway() async throws {
+        try await Self.withTwoTerminals { p in
+            let coordinator = p.services.keyRouter.creationInputCoordinator
+            coordinator.holdLimit = .milliseconds(300)
+            let nonce = String(UInt32.random(in: 100_000...999_999))
+            try await Self.focus(p.first.pane, tab: p.first.tab, in: p)
+            let generation = p.content.beginFocusIntent()
+            p.content.focus.expect(.tab(p.first.tab), awayFrom: p.first.pane.paneKey, generation: generation)
+            let creation = try #require(coordinator.begin(in: p.window, generation: generation, earlyTab: p.first.tab, tab: p.first.tab))
+            p.window.makeFirstResponder(nil)
+            let held = try Self.type("echo h1x\(nonce)x$((6*7))\r", in: p)
+            try #require(held.allSatisfy { $0 }, "the test needs the keys held for the first creation: \(held)")
+
+            // Another workspace (Cmd-N), shown in this window, before the hold ends.
+            #expect(p.services.registry.perform("newTab", invocation: ActionInvocation(origin: .user)))
+            try await PinnedPageTests.until({ p.services.windows.active?.workspaceContent !== p.content },
+                                            report: { "the window still shows the first workspace" })
+            coordinator.resolve(creation, landed: true, in: p.window)
+            let inFirst = try await Self.ran("h1x\(nonce)x42", on: p.first.surface, in: p)
+            let first = await Self.screen(p.first.surface, in: p)
+            #expect(inFirst, "the line held for the first terminal was lost when its workspace was switched away: \(first.suffix(300))")
+        }
+    }
+
+    /// cmux-ad 11:2xZ: Cmd-D, a line typed for its terminal, Cmd-W, Cmd-D. A close key is never held (it acts at once
+    /// on what it closes: `CreationInputBuffer.holds`), so Cmd-W closes the first new terminal, whose creation its
+    /// focus is on its way to, and the keys typed for it go with it; the second Cmd-D then splits the pane that has the
+    /// focus. Nothing typed for the closed terminal reaches another one.
+    @Test func cmdWTypedForAPendingSplitClosesThatSplitOnly() async throws {
+        try await PinnedPageTests.withApp { services, connection in
+            let content = try #require(services.windows.active?.workspaceContent)
+            let window = try #require(content.layoutView.window)
+            let original = try #require(content.focusedPane)
+            var terminal = ActionInvocation(origin: .user)
+            terminal.opensTerminal = true
+            let before = Set(content.panes.keys)
+            let nonce = String(UInt32.random(in: 100_000...999_999))
+            // One main-actor turn up to the second Cmd-D: the first split's reply cannot have come.
+            #expect(services.registry.perform("splitRight", invocation: terminal))
+            let first = try #require(content.panes.first { !before.contains($0.key) }?.value, "the split shows no pane in its turn")
+            let firstTab = try #require(first.currentTabKey)
+            for character in "echo w9x\(nonce)" {
+                let text = String(character)
+                let event = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
+                                                          timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                                                          context: nil, characters: text, charactersIgnoringModifiers: text,
+                                                          isARepeat: false, keyCode: 0))
+                if !services.keyRouter.interceptKeyDown(event, in: window) { window.sendEvent(event) }
+            }
+            let close = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [.command],
+                                                      timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                                                      context: nil, characters: "w", charactersIgnoringModifiers: "w",
+                                                      isARepeat: false, keyCode: 13))
+            if !services.keyRouter.interceptKeyDown(close, in: window) { window.sendEvent(close) }
+            #expect(services.registry.perform("splitRight", invocation: terminal))
+
+            @MainActor func confirmed() -> [PaneController] {
+                content.panes.filter { !before.contains($0.key) }.map(\.value)
+                    .filter { $0.pane.tabs.contains { $0.kind == .pty && !ProvisionalTab.isProvisional(surface: $0.surface) } }
+            }
+            try await PinnedPageTests.until({ confirmed().count == 1 && !content.panes.values.contains { $0.currentTabKey == firstTab } },
+                                            report: { "new panes \(confirmed().count) (want 1), the closed split still shown: \(content.panes.values.contains { $0.currentTabKey == firstTab })" })
+            #expect(content.panes.values.contains { $0 === original }, "Cmd-W closed the pane it was not typed for")
+            for pane in [original] + confirmed() {
+                guard let surface = pane.pane.tabs.first(where: { $0.kind == .pty })?.surface else { continue }
+                let text = (try? await connection.request(ReadScreenRequest(surface: surface), timeout: .seconds(5)))?.text ?? ""
+                #expect(!text.contains("w9x\(nonce)"), "keys typed for the closed split reached another terminal: \(text.suffix(200))")
+            }
         }
     }
 }
