@@ -300,6 +300,9 @@ public struct RootView: View {
         // A live Chief call (even minimized) ends with the account; a call asked for while signed out is dropped.
         ChiefLiveCall.shared.signedOut()
         ChiefCallLauncher.shared.cancelPending()
+        // A pending approval/reply or notification route belongs to the old
+        // account, including if sign-out came from an expired server session.
+        PushReplies.shared.signedOut()
         let ending = live
         live = nil
         setupPlan = nil
@@ -357,6 +360,8 @@ public struct RootView: View {
         // Before the session ends: stop pushes to this phone. The Macs keep
         // their approval of it (verify/persistence.md).
         auth.willSignOut = AccountSignOut().willSignOut {
+            // Disarm queued replies before the sign-out network work suspends.
+            PushReplies.shared.signedOut()
             await PushRegistration.shared.unregister()
             // Screen Sharing: end the session on screen and sign this phone out of the device hub
             // while the account can still reach it (docs/device-hub/PROTOCOL.md, sign-out).
