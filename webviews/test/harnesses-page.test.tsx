@@ -151,7 +151,7 @@ async function until(ready: () => boolean, what: string) {
 }
 
 const status = (container: HTMLElement, name: string) =>
-  row(container, name)?.querySelector(".acpmux-harness-status")?.textContent;
+  row(container, name)?.querySelector(".acpmux-harness-detail")?.textContent;
 
 const row = (container: HTMLElement, name: string) =>
   [...container.querySelectorAll<HTMLElement>("[data-harness-row]")].find(
@@ -403,7 +403,7 @@ test("Install runs the install command in place, shows its progress, then checks
   await until(() => status(container, "OpenCode") === "added 1 package in 3s", "the second output line");
   const installing = row(container, "OpenCode")!;
   expect(installing.dataset.harnessStatus).toBe("installing");
-  expect(installing.querySelector(".acpmux-harness-status")?.textContent).toBe("added 1 package in 3s");
+  expect(installing.querySelector(".acpmux-harness-detail")?.textContent).toBe("added 1 package in 3s");
   expect(installing.querySelectorAll("button").length).toBe(0);
   end();
   await until(() => refreshed.length > 0, "the catalog read after the install");
@@ -422,7 +422,7 @@ test("an install acpmux still cannot find afterwards says so, never offers Insta
   await until(() => row(container, "OpenCode")!.dataset.harnessStatus === "failed", "the install to end");
   const after = row(container, "OpenCode")!;
   expect(after.dataset.harnessStatus).toBe("failed");
-  expect(after.querySelector(".acpmux-harness-status")?.textContent).toBe("Finished, but cmux can't run it yet");
+  expect(after.querySelector(".acpmux-harness-detail")?.textContent).toBe("Finished, but cmux can't run it yet");
   expect([...after.querySelectorAll("button")].map((button) => button.textContent)).toEqual(["Setup guide"]);
 });
 
@@ -453,7 +453,7 @@ test("an install that fails says why and offers one fix: the setup page", async 
   await until(() => row(container, "OpenCode")!.dataset.harnessStatus === "failed", "the install to fail");
   const failed = row(container, "OpenCode")!;
   expect(failed.dataset.harnessStatus).toBe("failed");
-  expect(failed.querySelector(".acpmux-harness-status")?.textContent).toContain("npm error permission denied");
+  expect(failed.querySelector(".acpmux-harness-detail")?.textContent).toContain("npm error permission denied");
   const buttons = failed.querySelectorAll<HTMLButtonElement>("button");
   expect(buttons.length).toBe(1);
   await act(async () => buttons[0]!.click());
@@ -518,7 +518,7 @@ test("a harness acpmux cannot run says why, with one fix action", async () => {
   });
   const unavailable = row(container, "OpenCode")!;
   expect(unavailable.dataset.harnessStatus).toBe("unavailable");
-  expect(unavailable.querySelector(".acpmux-harness-status")?.textContent).toBe(
+  expect(unavailable.querySelector(".acpmux-harness-detail")?.textContent).toBe(
     "opencode 0.3.1 is too old: acpmux needs 0.4 or later",
   );
   const buttons = unavailable.querySelectorAll<HTMLButtonElement>("button");
