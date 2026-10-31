@@ -3,7 +3,7 @@
 
   scripts/cmux-next/automations-page-shots.py --app "<path>/cmux DEV <tag>.app" --tag <tag> --out <dir>
 
-Seeds an isolated automation store (CMUX_AUTOMATIONS_DIR in a scratch folder: a failed nightly
+Seeds an isolated automation store (a scratch HOME for the CLI and the app: a failed nightly
 command, a 30-minute prompt, a paused one) through the app's own `cmux automation`, launches the
 app with the no-activate automation environment, opens the page with the `automations.show`
 action (what Cmd+Shift+P "Automations" and the sidebar item run), checks the page is the window's
@@ -17,15 +17,21 @@ p.add_argument("--app", required=True)
 p.add_argument("--tag", required=True)
 p.add_argument("--out", required=True)
 o = p.parse_args()
-BINARY = os.path.join(o.app, "Contents/MacOS", os.path.basename(o.app)[:-4])
+import plistlib
+BINARY = os.path.join(o.app, "Contents/MacOS", plistlib.load(open(os.path.join(o.app, "Contents/Info.plist"), "rb"))["CFBundleExecutable"])
 CLI = os.path.join(o.app, "Contents/Resources/bin/cmux")
-SOCKET = f"/tmp/cmux-debug-{o.tag}.sock"
 SCRATCH = tempfile.mkdtemp(prefix=f"automations-shots-{o.tag}-")
-STORE = os.path.join(SCRATCH, "automations")
+# The app drops inherited CMUX_* variables at launch, so it and its bundled CLI read the store under
+# $HOME: a scratch HOME gives both the seeded store and leaves this Mac's own store alone.
+HOME = os.path.join(SCRATCH, "home")
+os.makedirs(HOME)
+# A tagged debug build serves <home>/.local/state/cmux/cmux-debug-<tag>.sock (ControlSocketPath.swift).
+SOCKETS = [os.path.join(h, f".local/state/cmux/cmux-debug-{o.tag}.sock") for h in (HOME, os.environ["HOME"])]
+SOCKET = SOCKETS[0]
 CONFIG = os.path.join(SCRATCH, "cmux.json")
 open(CONFIG, "w").write("{}\n")
-BASE = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
-        "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_AUTOMATIONS_DIR": STORE}
+BASE = {"HOME": HOME, "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
+        "PATH": "/usr/bin:/bin:/usr/sbin:/sbin"}
 os.makedirs(o.out, exist_ok=True)
 failures = []
 
@@ -41,8 +47,8 @@ def cli(*args):
 
 
 def rpc(method, params=None):
-    r = subprocess.run([CLI, "--socket", SOCKET, "rpc", method, json.dumps(params or {})], capture_output=True, text=True,
-                       timeout=30, env={**BASE, "CMUX_SOCKET_PATH": SOCKET, "CMUX_QUIET": "1"})
+    r = subprocess.run([CLI, "--json", "--app-socket", SOCKET, "app", "call", method, json.dumps(params or {})], capture_output=True, text=True,
+                       timeout=60, env={**BASE, "CMUX_QUIET": "1"})
     try:
         return json.loads(r.stdout)
     except ValueError:
@@ -67,27 +73,36 @@ check("seed: an every-30-minutes prompt", cli("automation", "create", "Unblock a
                                               "--every", "30m").returncode == 0)
 check("seed: a paused hourly cleanup", cli("automation", "create", "Clean DerivedData", "--command", "true", "--hourly", "--paused").returncode == 0)
 
-if os.path.exists(SOCKET):
-    os.unlink(SOCKET)
+for path in SOCKETS:
+    if os.path.exists(path):
+        os.unlink(path)
 env = {**BASE, "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation", "CMUX_NEXT_TEST_WINDOW_SCREEN": "last",
        "CMUX_NEXT_CONFIG_FILE": CONFIG, "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1280,800"}
 log = open(os.path.join(SCRATCH, "app.log"), "a")
 app = subprocess.Popen([BINARY], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
 print(f"launched pid {app.pid} (log {SCRATCH}/app.log)", flush=True)
 try:
-    if not wait(lambda: os.path.exists(SOCKET) and rpc("debug.surfaces").get("windows"), 120):
+    def up():
+        global SOCKET
+        for path in SOCKETS:
+            SOCKET = path
+            if os.path.exists(path) and rpc("debug.surfaces").get("windows"):
+                return True
+        return False
+    if not wait(up, 120):
         sys.exit("tagged app did not come up")
+    print(f"socket {SOCKET}", flush=True)
     time.sleep(2)  # first frame and restore settle before the action (harness, not app code)
-    ran = rpc("action.run", {"id": "automations.show"})
+    ran = rpc("action.run", {"id": "automations.show", "focus": True})
     check("automations.show runs", "error" not in ran or not ran.get("error"), json.dumps(ran)[:200])
-    shown = wait(lambda: "automations" in json.dumps(rpc("debug.focus")), 15)
+    shown = wait(lambda: "page:automations" in json.dumps(rpc("debug.focus")) or "automations" in json.dumps(rpc("snapshot.get")), 15)
     check("the Automations page is the window's top page", bool(shown))
     for name, theme in [("light", "GitHub Light Default"), ("dark", "GitHub Dark Default")]:
         set_theme = rpc("settings.set", {"path": "appearance.appTheme", "value": theme})
         check(f"{name}: app theme {theme}", "error" not in set_theme or not set_theme.get("error"), json.dumps(set_theme)[:200])
-        rpc("action.run", {"id": "automations.show"})
+        rpc("action.run", {"id": "automations.show", "focus": True})
         time.sleep(2)  # the page reloads its sources and redraws in the new theme (harness, not app code)
-        shot = rpc("debug.window_snapshot", {"kind": "main", "path": os.path.join(o.out, f"automations-{name}.png")})
+        shot = wait(lambda: (lambda r: r if "path" in r else None)(rpc("debug.window_snapshot", {"kind": "main", "path": os.path.join(o.out, f"automations-{name}.png")})), 60, 3) or {}
         check(f"{name}: snapshot", "path" in shot, json.dumps(shot)[:200])
 finally:
     app.terminate()

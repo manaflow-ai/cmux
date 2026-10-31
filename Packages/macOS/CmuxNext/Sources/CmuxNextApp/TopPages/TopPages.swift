@@ -71,7 +71,7 @@ enum TopPages {
         }, cloud: { [relay = CloudAutomationRelay.signedIn(services.cloud.auth)] in
             try AutomationsPageHost.cloudValue(await relay.forward(Data(#"{"op":"automation.list","params":{"limit":100}}"#.utf8))) })
         services.pages.register(WebPageTab(.automations, symbol: "clock.badge.checkmark", icon: .automation, title: SidebarBuiltIn.automations.title,
-                                           view: { [weak services] _ in automations.makeView(tokens: services?.windows.active?.themeScope.tokens ?? ThemeScope.app.tokens) }))
+                                           view: { [weak services] _ in let scope = services?.windows.active?.themeScope ?? .app; return automations.makeView(tokens: { [weak scope] in scope?.tokens ?? ThemeScope.app.tokens }) }))
         _ = services.registry.bindEffect("automations.show", effect: { [weak services] _ in _ = services.map { TopPages.show(.page(.automations), services: $0) }; return .done })
     }
 

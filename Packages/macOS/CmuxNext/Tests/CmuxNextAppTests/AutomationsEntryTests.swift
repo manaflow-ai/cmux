@@ -44,7 +44,7 @@ struct AutomationsEntryTests {
         await host.model.reload(now: .now)
         #expect(host.model.rows.map(\.name).sorted() == ["Brief", "Deps"])
         #expect(host.model.badgeCount == 1)
-        #expect(host.makeView(tokens: ThemeScope.app.tokens).fittingSize.width >= 0)
+        #expect(host.makeView(tokens: { ThemeScope.app.tokens }).fittingSize.width >= 0)
     }
 
     /// The Cloud source reads the relay's `value`: a refusal (signed out, Cloud off) is an error the

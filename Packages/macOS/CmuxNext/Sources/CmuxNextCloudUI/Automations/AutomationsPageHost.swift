@@ -11,7 +11,7 @@ import SwiftUI
 /// let host = AutomationsPageHost(
 ///     local: { try await ProcessRunner.run(executable: cli, arguments: ["--json", "automation", "list"], …).stdout },
 ///     cloud: { try AutomationsPageHost.cloudValue(await relay.forward(listRequest)) })
-/// let view = host.makeView(tokens: window.themeScope.tokens)
+/// let view = host.makeView(tokens: { window.themeScope.tokens })
 /// ```
 @MainActor
 public final class AutomationsPageHost {
@@ -41,11 +41,12 @@ public final class AutomationsPageHost {
         model = AutomationsPage(local: local, cloud: cloud)
     }
 
-    /// A new view of the page in the colors of `tokens`; it loads both sources when it appears.
-    public func makeView(tokens: ThemeTokens) -> NSView {
-        let model = model
-        return NSHostingView(rootView: AutomationsPageView(page: model, palette: AutomationsPalette(tokens: tokens))
-            .task { await model.reload(now: .now) })
+    /// A new view of the page; it loads both sources when it appears and draws in `tokens()`, read
+    /// again on each theme change (``AutomationsHostingView``).
+    ///
+    /// - Parameter tokens: The hosting window's current theme tokens (its `ThemeScope`).
+    public func makeView(tokens: @escaping @MainActor () -> ThemeTokens) -> NSView {
+        AutomationsHostingView(model: model, tokens: tokens)
     }
 
     /// The `value` of a `cloud.automation` answer as JSON bytes.
