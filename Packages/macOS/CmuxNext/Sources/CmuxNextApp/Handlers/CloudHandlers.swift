@@ -26,7 +26,9 @@ enum CloudHandlers {
         CloudStartSession.bind(into: registry, context: context, reason: signedInReason)
         bindCreation(into: registry, context: context, reason: { cloud.unavailableReason })
         bindAccount(into: registry, context: context, reason: reason)
-        bindMove(into: registry, context: context); CloudMachineStage.gatePowerActions(into: registry, context: context)
+        bindMove(into: registry, context: context)
+        bindSignInRecovery(into: registry, cloud: cloud)
+        CloudMachineStage.gatePowerActions(into: registry, context: context)
         // Any catalog row added later without a handler stays covered.
         registry.bindUnavailable(registry.unboundActionIDs(in: [.cloud]), ActionFailure(message: MiscHandlerStrings.cloud))
     }
