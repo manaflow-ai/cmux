@@ -12,8 +12,8 @@
  *       --candidate (40 hex; the exact-SHA promote): G1 must prove exactly that commit (its own
  *       green staging deploy, soaked, no red one in its soak window) instead of the newest one.
  *   bun prod-promote.ts recheck --candidate SHA
- *       Right before the deploy: hold released, spacing, and production's commit a strict ancestor
- *       of SHA (a re-run never downgrades). Exit 0 = deploy; 3 = hold.
+ *       Right before the deploy: hold released, spacing, and production's changes are in SHA
+ *       (strict ancestry or patch-equivalent cherry-picks; a re-run never downgrades). Exit 0 = deploy; 3 = hold.
  *   bun prod-promote.ts serving
  *       Prints the full source commit of the code production serves (from its version tag).
  *   bun prod-promote.ts rollback [--execute] [--force] [--wrangler BIN]
@@ -155,7 +155,10 @@ const gh = async (path: string, init: RequestInit = {}): Promise<any> => {
   return r.status === 204 ? null : r.json()
 }
 
-const git = (...args: Array<string>) => execFileSync("git", args, { encoding: "utf8" }).trim()
+export type GitRunner = (args: ReadonlyArray<string>, input?: string) => string
+
+const runGit: GitRunner = (args, input) => execFileSync("git", args, { encoding: "utf8", ...(input === undefined ? {} : { input }) }).trim()
+const git = (...args: Array<string>) => runGit(args)
 const fileAt = (sha: string, path: string) => git("show", `${sha}:${path}`)
 
 /** The Chief off switch's version message (deploy-worker.sh CMUX_DEPLOY_CHIEF_OFF: "source <sha> chief-off run <id>"). */
@@ -251,13 +254,44 @@ export const pickCandidate = (runs: ReadonlyArray<StagingRun>, now: number): Sta
 /** Exact SHA (--candidate or a one-shot hold): only that commit's green runs compete; every red run still counts against its soak window. */
 export const candidateRuns = (runs: ReadonlyArray<StagingRun>, want: string | undefined): ReadonlyArray<StagingRun> => (want ? runs.filter((r) => !r.green || r.sha === want) : runs)
 
-const isAncestor = (a: string, b: string) => {
+const isAncestor = (a: string, b: string, run: GitRunner = runGit) => {
   try {
-    execFileSync("git", ["merge-base", "--is-ancestor", a, b])
+    run(["merge-base", "--is-ancestor", a, b])
     return true
   } catch {
     return false
   }
+}
+
+const backendCommitsIn = (sha: string, run: GitRunner, exclude?: string): Array<string> => {
+  const args = ["rev-list", "--no-merges", sha]
+  if (exclude) args.push("--not", exclude)
+  args.push("--", "backend/")
+  return run(args).split("\n").filter(Boolean)
+}
+
+const patchId = (sha: string, run: GitRunner): string | undefined => {
+  const patch = run(["show", "--format=", "--no-ext-diff", sha])
+  if (!patch) return undefined
+  const id = run(["patch-id", "--stable"], patch).split(/\s+/, 1)[0]
+  return id || undefined
+}
+
+/**
+ * Production must be an ancestor of the staging candidate, or every production-only backend
+ * commit must be represented by the same patch in the candidate's history. The latter allows a
+ * deployment assembled from cherry-picks while still holding any candidate with an unmatched
+ * production change.
+ */
+export const isPromotableLineage = (productionSha: string, candidateSha: string, run: GitRunner = runGit): boolean => {
+  if (productionSha === candidateSha || isAncestor(productionSha, candidateSha, run)) return true
+  const productionOnly = backendCommitsIn(productionSha, run, candidateSha)
+  if (!productionOnly.length) return false
+  const candidatePatches = new Set(backendCommitsIn(candidateSha, run).map((sha) => patchId(sha, run)).filter((id): id is string => id !== undefined))
+  return productionOnly.every((sha) => {
+    const id = patchId(sha, run)
+    return id !== undefined && candidatePatches.has(id)
+  })
 }
 
 const backendCommits = (from: string, to: string) => Number(git("rev-list", "--count", `${from}..${to}`, "--", "backend/"))
@@ -308,7 +342,7 @@ export const main = async (argv: ReadonlyArray<string>): Promise<number> => {
     const cand = pickCandidate(candidateRuns(runs, want), now)
     if (!cand) return hold("G1", want ? `${want.slice(0, 12)} has no green staging deploy (tests, push guard, deploy and smoke) older than ${SOAK_MINUTES} min without a red one after it, among the last ${runs.length} staging runs` : `no green staging deploy older than ${SOAK_MINUTES} min without a red one after it`)
     if (cand.sha === prodSha || isAncestor(cand.sha, prodSha)) return hold("none", `production ${prodSha.slice(0, 12)} already has the staging-proven ${cand.sha.slice(0, 12)}`)
-    if (!isAncestor(prodSha, cand.sha)) return hold("lineage", `${cand.sha.slice(0, 12)} does not descend from production ${prodSha.slice(0, 12)}`)
+    if (!isPromotableLineage(prodSha, cand.sha)) return hold("lineage", `${cand.sha.slice(0, 12)} does not descend from production ${prodSha.slice(0, 12)}`)
     // G2: an open regression issue (P0/P1) blocks; the chief applies the label or the hold.
     const blocking: Array<{ number: number }> = []
     for (const p of ["P0", "P1"]) {
@@ -342,7 +376,7 @@ export const main = async (argv: ReadonlyArray<string>): Promise<number> => {
     if (prod.codeDeployedAt && Date.now() - prod.codeDeployedAt < SPACING_HOURS * 3600_000) return hold(`production code changed less than ${SPACING_HOURS} h ago`)
     const prodSha = fullSha(prod.sourceTag)
     // Strict ancestor: equal or older candidates (a re-run, a stale job) never deploy.
-    if (prodSha === cand || !isAncestor(prodSha, cand)) return hold(`production ${prodSha.slice(0, 12)} is not a strict ancestor of ${cand.slice(0, 12)}`)
+    if (prodSha === cand || !isPromotableLineage(prodSha, cand)) return hold(`production ${prodSha.slice(0, 12)} is not a strict ancestor of ${cand.slice(0, 12)}`)
     console.log(`prod-promote recheck: ok, ${prodSha.slice(0, 12)} -> ${cand.slice(0, 12)}`)
     return 0
   }
