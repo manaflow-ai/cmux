@@ -477,3 +477,80 @@ fn meta_save_kill_point_a_no_op_answers_after_the_change_it_repeats_is_on_disk()
         report.join("\n")
     );
 }
+
+/// No request answers its change while an older commit of the chat is still held: an answer
+/// then means the change is not on disk yet. Each case holds an older save, sends the field's
+/// change and waits 2 s for its answer. An answer that comes while the save is held is checked at
+/// once: the daemon is killed there and the field must survive. Review of #29311 (`set_model`,
+/// `set_tools`).
+#[test]
+fn meta_save_kill_point_an_answer_while_an_older_commit_is_held_survives() {
+    let mut daemon = Daemon::new("held");
+    let mut report = Vec::new();
+    let mut lost = Vec::new();
+    for case in cases() {
+        let mut client = Client::connect(&daemon.socket);
+        let (harness, turn_first) = harness_of(case.field);
+        let made = client.call(
+            "session/new",
+            json!({"cwd": daemon.home.join("p"), "mcpServers": [],
+                   "_meta": {"acpmux": {"harness": harness}}}),
+        );
+        let id = made["sessionId"].as_str().unwrap().to_owned();
+        let seq = if turn_first {
+            let prompt =
+                json!({"sessionId": id, "prompt": [{"type": "text", "text": "g2 prompt"}]});
+            client.call("session/prompt", prompt);
+            let prompts = client.call(
+                "_acpmux/events",
+                json!({"sessionId": id, "afterSeq": 0, "kinds": ["user_message"]}),
+            );
+            prompts["events"][0]["seq"].as_u64().expect("the prompt's seq")
+        } else {
+            0
+        };
+        std::fs::write(daemon.holds.join(format!("hold-{id}")), "").unwrap();
+        let holder = {
+            let (socket, id, field) = (daemon.socket.clone(), id.clone(), case.field);
+            std::thread::spawn(move || {
+                let mut other = Client::connect(&socket);
+                if field == "composerDraft" {
+                    other.call("_acpmux/rename", json!({"sessionId": id, "newName": "g2-holder"}))
+                } else {
+                    other.call("_acpmux/draft_set", json!({"sessionId": id, "text": "g2 holder"}))
+                }
+            })
+        };
+        wait_held(&daemon, &id);
+        let (method, params) = (case.change)(&id, seq);
+        let request = client.send(method, params);
+        let early = client.answer(request, method, Duration::from_secs(2));
+        if early.is_none() {
+            // Not answered while held: nothing to check at this point.
+            std::fs::write(daemon.holds.join(format!("release-{id}")), "").unwrap();
+            assert!(client.answer(request, method, Duration::from_secs(30)).is_some());
+        }
+        daemon.kill9();
+        let _ = holder.join();
+        daemon.start();
+        let mut reader = Client::connect(&daemon.socket);
+        let after = (case.read)(&mut reader, &id);
+        let expect = (case.expect)(seq);
+        let ok = early.is_none() || after == expect;
+        let line = format!(
+            "META-HELD field={} answered_while_held={} acked={expect} after_kill={after} ok={ok}",
+            case.field,
+            early.is_some()
+        );
+        println!("{line}");
+        report.push(line);
+        if !ok {
+            lost.push(case.field);
+        }
+    }
+    assert!(
+        lost.is_empty(),
+        "answered while an older commit was held, and lost at a kill: {lost:?}\n{}",
+        report.join("\n")
+    );
+}
