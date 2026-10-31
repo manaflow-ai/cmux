@@ -3,6 +3,7 @@
 import CmuxNextDaemon
 import CmuxNextRemote
 import CmuxNextServer
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -24,14 +25,14 @@ import Testing
 
     @Test func aPeerIsTheMachinesOnlyOnAnExactRoute() throws {
         let leo = try SSHDestination(parsing: "leo@studio.example.ts.net")
-        #expect(SSHService.reaches(leo, peer: "leo@studio.example.ts.net"))
-        #expect(SSHService.reaches(leo, peer: "leo@Studio.Example.ts.net"), "host names compare without case")
-        #expect(!SSHService.reaches(leo, peer: "studio.example.ts.net"), "another user is another route")
-        #expect(!SSHService.reaches(leo, peer: "root@studio.example.ts.net"))
-        #expect(!SSHService.reaches(leo, peer: "leo@studio"), "a short name is not the same host")
-        #expect(!SSHService.reaches(try SSHDestination(parsing: "leo@studio.example.ts.net:2222"), peer: "leo@studio.example.ts.net"),
+        #expect(SSHPeerForgets.reaches(leo, peer: "leo@studio.example.ts.net"))
+        #expect(SSHPeerForgets.reaches(leo, peer: "leo@Studio.Example.ts.net"), "host names compare without case")
+        #expect(!SSHPeerForgets.reaches(leo, peer: "studio.example.ts.net"), "another user is another route")
+        #expect(!SSHPeerForgets.reaches(leo, peer: "root@studio.example.ts.net"))
+        #expect(!SSHPeerForgets.reaches(leo, peer: "leo@studio"), "a short name is not the same host")
+        #expect(!SSHPeerForgets.reaches(try SSHDestination(parsing: "leo@studio.example.ts.net:2222"), peer: "leo@studio.example.ts.net"),
                 "a machine on another ssh port is never the peer")
-        #expect(SSHService.reaches(try SSHDestination(parsing: "leo@[fd7a::2]"), peer: "leo@[fd7a::2]"))
+        #expect(SSHPeerForgets.reaches(try SSHDestination(parsing: "leo@[fd7a::2]"), peer: "leo@[fd7a::2]"))
     }
 
     @Test func forgetRemovesThePeerOnlyWhenItIsWritten() async throws {
@@ -39,7 +40,7 @@ import Testing
         let session = try Self.session("leo@studio.example.ts.net")
         ssh.machines.add(session)
         var picked: [[String]] = []
-        ssh.removePeers = { matches in
+        ssh.peerForgets.remove = { matches in
             picked.append(["leo@studio.example.ts.net", "studio.example.ts.net", "leo@gpu-west"].filter(matches))
         }
         let pending = ssh.hide(session)
@@ -52,6 +53,30 @@ import Testing
         let again = ssh.hide(session)
         await ssh.commitForget(again)
         #expect(picked == [["leo@studio.example.ts.net"]], "the written Forget takes out the peer at its route, and only that one")
+        #expect(ssh.machines.sshSession(session.machineID) == nil, "and the SSH machine is out of the list too")
+    }
+
+    /// The peer removal on its own (SSHPeerForgets, CmuxNextServer): a Forget whose Undo shows keeps
+    /// its route's peer until it ends; a connect of the machine clears its marks; only the route's
+    /// peer is picked, and only while the caller says the Forget holds.
+    @Test func thePeerRemovalKeepsAShownUndosPeerAndPicksOnlyItsRoute() async throws {
+        let forgets = SSHPeerForgets(cli: nil, environment: { [:] })
+        #expect(forgets.remove == nil, "no cmux-tui: no peer is removed")
+        var picked: [String] = []
+        forgets.remove = { matches in picked += ["leo@studio.example.ts.net", "leo@gpu-west"].filter(matches) }
+        let route = try SSHDestination(parsing: "leo@studio.example.ts.net")
+        let shown = forgets.hide(machineID: "m1", label: "studio", destination: route, fields: [:], sessionID: nil)
+        await forgets.removePeers(at: route) { true }
+        #expect(picked.isEmpty, "a Forget of that route still shows its Undo")
+        forgets.ended(shown)
+        await forgets.removePeers(at: route) { false }
+        #expect(picked.isEmpty, "the caller says the Forget no longer holds")
+        await forgets.removePeers(at: route) { true }
+        #expect(picked == ["leo@studio.example.ts.net"])
+        _ = forgets.hide(machineID: "m1", label: "studio", destination: route, fields: [:], sessionID: nil)
+        forgets.connected("m1")
+        await forgets.removePeers(at: route) { true }
+        #expect(picked.count == 2, "a connect of the machine clears its Forget's mark")
     }
 
     @Test func forgetKeepsThePeerWhileAnotherSessionReachesTheSameRoute() async throws {
@@ -61,7 +86,7 @@ import Testing
         ssh.machines.add(main)
         ssh.machines.add(work)
         var calls = 0
-        ssh.removePeers = { matches in calls += ["leo@studio.example.ts.net"].filter(matches).count }
+        ssh.peerForgets.remove = { matches in calls += ["leo@studio.example.ts.net"].filter(matches).count }
         await ssh.forget(work)
         #expect(calls == 0, "the default session still uses that peer")
         await ssh.forget(main)
@@ -77,7 +102,7 @@ import Testing
         ssh.machines.add(main)
         ssh.machines.add(work)
         var calls = 0
-        ssh.removePeers = { matches in calls += ["leo@studio.example.ts.net"].filter(matches).count }
+        ssh.peerForgets.remove = { matches in calls += ["leo@studio.example.ts.net"].filter(matches).count }
         let first = ssh.hide(work)
         let second = ssh.hide(main)
         await ssh.commitForget(first)
@@ -93,7 +118,7 @@ import Testing
         let session = try Self.session("leo@studio.example.ts.net")
         ssh.machines.add(session)
         var removed: [String] = []
-        ssh.removePeers = { matches in
+        ssh.peerForgets.remove = { matches in
             ssh.machines.add(session) // the person connects it again while `host ls` runs
             removed += ["leo@studio.example.ts.net"].filter(matches)
         }

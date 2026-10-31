@@ -2,6 +2,9 @@
 //! status dot and lane read `working` from the summary's `subagentsWorkingSince` while the child
 //! runs a turn, and stop when the child's turn ends (`hub/work_below.rs`).
 //!
+//! manaflow-ai/cmux#25563: its unread dot waits for that work too. A turn that ends unseen
+//! while the child runs leaves the parent read; it turns unread when the child's turn ends.
+//!
 //! Stand-in agents (fake_agent.py): `gate: FIFO` holds a turn until the test writes the FIFO.
 //! One test function: the settings file is read from this process's environment.
 
@@ -145,5 +148,36 @@ async fn a_session_works_while_its_sub_session_runs() {
         .map(|e| e.msg["since"].is_u64())
         .collect();
     assert_eq!(kinds, [true, false], "watchers heard it start and end");
+
+    // manaflow-ai/cmux#25563: no client shows the parent, and its own turn ends while a new
+    // child still runs. The task is not done, so the parent is not unread yet.
+    c.ok("_acpmux/view", json!({"sessionId": parent, "visible": false})).await;
+    let gate = root.join("gate-2");
+    let path = std::ffi::CString::new(gate.as_os_str().as_encoded_bytes()).unwrap();
+    // SAFETY: valid NUL-terminated path.
+    assert_eq!(unsafe { libc::mkfifo(path.as_ptr(), 0o600) }, 0);
+    let child = p
+        .ok(
+            "_acpmux/subsession/start",
+            json!({"prompt": format!("gate: {}", gate.display()), "name": "child-2"}),
+        )
+        .await;
+    let child = id(&child);
+    c.until(&child, "ran", |s| s["status"] == "running").await;
+    c.until(&parent, "worked", |s| s["subagentsWorkingSince"].is_u64()).await;
+    let turn = json!({"sessionId": parent, "prompt": [{"type": "text", "text": "hello"}]});
+    c.ok("session/prompt", turn).await;
+    c.until(&parent, "ended its turn", |s| s["lastTurn"]["status"] == "completed").await;
+    let s = c.until(&parent, "settled", |s| s["status"] != "running").await;
+    assert_eq!(s["unread"], false, "its child still runs: {s}");
+
+    // The child's turn ends: the whole task is done and nobody saw it end.
+    let g = gate.clone();
+    tokio::task::spawn_blocking(move || std::fs::write(g, b"go")).await.unwrap().unwrap();
+    // A summary read while the change lands may see the work ended before the dot: wait for both.
+    c.until(&parent, "turned unread", |s| {
+        s["subagentsWorkingSince"].is_null() && s["unread"] == true
+    })
+    .await;
     let _ = std::fs::remove_dir_all(root);
 }
