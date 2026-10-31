@@ -332,7 +332,8 @@ fn compose(agent: &Found, terminal: &Found, shell: Option<&str>, original: &str)
     } else {
         out.push_str(" Your terminal has no Claude sign-in either.");
     }
-    let fix = if agent.endpoint.is_none() && agent.env_keys.iter().any(|k| k == "ANTHROPIC_API_KEY") {
+    let fix = if agent.endpoint.is_none() && agent.env_keys.iter().any(|k| k == "ANTHROPIC_API_KEY")
+    {
         // Claude Code prefers ANTHROPIC_API_KEY over a `claude /login` sign-in, so logging in
         // again does not help while a rejected key is set. Not with an endpoint: a route or a
         // proxy set that key (routes.rs), and removing it would break the route.
@@ -411,13 +412,52 @@ mod tests {
             env_keys: vec!["ANTHROPIC_API_KEY".to_owned()],
             ..Found::default()
         };
-        let text = compose(&agent, &agent, Some("/bin/zsh"), "Failed to authenticate. API Error: 401");
+        let text =
+            compose(&agent, &agent, Some("/bin/zsh"), "Failed to authenticate. API Error: 401");
         assert!(text.contains("remove ANTHROPIC_API_KEY from ~/.zshrc"), "{text}");
         assert!(!text.contains("Run `claude /login`"), "{text}");
 
         // Review of #25950: a route's key (with its endpoint) is not the person's to remove.
         let routed = Found { endpoint: Some("router.example:443".to_owned()), ..agent };
-        let text = compose(&routed, &routed, Some("/bin/zsh"), "Failed to authenticate. API Error: 401");
+        let text =
+            compose(&routed, &routed, Some("/bin/zsh"), "Failed to authenticate. API Error: 401");
         assert!(!text.contains("remove ANTHROPIC_API_KEY"), "{text}");
+    }
+
+    #[test]
+    fn a_routed_api_key_without_an_endpoint_says_to_change_the_route() {
+        let home = tempfile::tempdir().unwrap();
+        let mut profile: crate::config::HarnessProfile =
+            serde_json::from_value(serde_json::json!({
+                "kind": "claude-stdio",
+                "argv": ["claude"],
+                "env": {
+                    "HOME": home.path(),
+                    "CLAUDE_CONFIG_DIR": home.path(),
+                    (crate::agent::REMOTE_ENV_POLICY_KEY): "1"
+                }
+            }))
+            .unwrap();
+        crate::routes::apply(
+            &mut profile.env,
+            &crate::routes::RouteEnv {
+                set: BTreeMap::from([("ANTHROPIC_API_KEY".into(), "rejected-test-key".into())]),
+                unset: crate::routes::SCRUBBED.iter().map(|key| (*key).to_owned()).collect(),
+            },
+        );
+        let id = "claude-auth-routed-key-without-endpoint";
+        let _command = crate::agent::harness_command(
+            "claude",
+            &profile,
+            home.path(),
+            None,
+            Some((id, "route auth test")),
+        )
+        .unwrap();
+        let text = explain(id, "Failed to authenticate. API Error: 401").unwrap();
+        forget(id);
+        assert!(text.contains("route"), "{text}");
+        assert!(!text.contains("remove ANTHROPIC_API_KEY"), "{text}");
+        assert!(!text.contains("rejected-test-key"), "{text}");
     }
 }

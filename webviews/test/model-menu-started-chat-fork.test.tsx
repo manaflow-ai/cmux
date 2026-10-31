@@ -527,6 +527,19 @@ test("another profile of the chat's own family is no Fork to target (the daemon 
   expect(continueTargets(catalog, "codex").map((target) => target.id)).toEqual(["claude", "cmux"]);
 });
 
+test("Continue In uses the live session's family after its profile is reloaded", async () => {
+  const { canContinueIn } = await import("../src/agent-session/acpmux/handoff/continueIn");
+  const catalog = [
+    { id: "work", name: "Work", family: "codex" },
+    { id: "codex", name: "Codex", family: "codex" },
+  ] as Snapshot["catalog"];
+  const snapshot = chat(catalog, 1, { canHandoff: true, handoff: { ready: true } });
+  snapshot.summary = { ...snapshot.summary!, harness: "work", family: "claude" };
+  expect(canContinueIn(snapshot)).toBe(true);
+  snapshot.catalog = [catalog[0]!, { id: "claude", name: "Claude", family: "claude" }] as Snapshot["catalog"];
+  expect(canContinueIn(snapshot)).toBe(false);
+});
+
 test("canContinueIn is Continue In…'s whole check", async () => {
   const { canContinueIn } = await import("../src/agent-session/acpmux/handoff/continueIn");
   const catalog = await acpmuxCatalog();
