@@ -36,7 +36,7 @@ export interface MachineExec {
 
 export type StepOutcome =
   | { readonly ok: true; readonly output: string }
-  | { readonly ok: false; readonly code: "machine.exit" | "machine.timeout" | "machine.not_found" | "machine.not_running" | "machine.forbidden" | "machine.unavailable"; readonly message: string }
+  | { readonly ok: false; readonly code: "machine.exit" | "machine.timeout" | "machine.not_found" | "machine.not_running" | "machine.forbidden" | "machine.unavailable" | "machine.output_limit"; readonly message: string }
 
 export const isMachineLikeStep = (s: Step): s is MachineLikeStep => s.type === "machine" || s.type === "agent"
 
