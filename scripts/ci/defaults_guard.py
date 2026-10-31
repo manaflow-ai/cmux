@@ -124,8 +124,10 @@ TRUSTED = ("OWNER", "MEMBER", "COLLABORATOR")
 # Repository roles that trust a receipt's author whose association reads as untrusted: a member who
 # keeps the org membership private is CONTRIBUTOR to the workflow's token (#26153).
 WRITER_ROLES = ("admin", "maintain", "write")
-# GraphQL identifies the cmux GitHub App with this exact Bot login and node id.
-CMUX_BOT_LOGIN = "cmux-bot[bot]"
+# GitHub returns the App slug as `cmux-bot` in some GraphQL connections and the
+# REST-normalized `cmux-bot[bot]` form in others. Both are the same actor only
+# when paired with this immutable node id; a name alone is never sufficient.
+CMUX_BOT_LOGINS = frozenset(("cmux-bot", "cmux-bot[bot]"))
 CMUX_BOT_NODE_ID = "BOT_kgDOFMYsLQ"
 # Default values that read as "off": a new setting with one of them changes nothing for anyone.
 OFF_WORDS = ("off", "never", "none", "disabled", "")
@@ -652,7 +654,7 @@ def receipt_verdict(pull: Mapping[str, object], head: str,
                     writers: Iterable[str] = ()) -> tuple[str, str] | None:
     """("ship" or "block", reviewer) of the newest receipt naming the full head sha on the first line
     of a trusted comment or review body; a self-review never counts and a BLOCK wins a tie. The
-    cmux-bot App is trusted only when GraphQL reports its exact Bot login and immutable node id.
+    cmux-bot App is trusted only when GitHub reports its exact Bot login and immutable node id.
     A user whose association reads as untrusted is trusted when listed in `writers` (repository
     write access, looked up by `repo_writers`)."""
     writers = {w.lower() for w in writers}
@@ -660,7 +662,7 @@ def receipt_verdict(pull: Mapping[str, object], head: str,
     for item, at in receipt_items(pull):
         author = item.get("author") or {}
         if author.get("__typename") == "Bot":
-            trusted = (str(author.get("login") or "") == CMUX_BOT_LOGIN
+            trusted = (str(author.get("login") or "") in CMUX_BOT_LOGINS
                        and str(author.get("id") or "") == CMUX_BOT_NODE_ID)
         elif author.get("__typename") == "User":
             trusted = (item.get("authorAssociation") in TRUSTED
