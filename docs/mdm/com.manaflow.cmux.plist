@@ -357,34 +357,6 @@
 			<string>array</string>
 		</dict>
 		<dict>
-			<key>pfm_description</key>
-			<string>Text size of tab titles. Unset, tabs follow the interface size.</string>
-			<key>pfm_name</key>
-			<string>appearance.metrics.tabFontSize</string>
-			<key>pfm_range_max</key>
-			<real>18</real>
-			<key>pfm_range_min</key>
-			<real>10</real>
-			<key>pfm_title</key>
-			<string>Tab Text Size</string>
-			<key>pfm_type</key>
-			<string>real</string>
-		</dict>
-		<dict>
-			<key>pfm_description</key>
-			<string>Height of a pane's tab bar. Its tabs grow and shrink with it.</string>
-			<key>pfm_name</key>
-			<string>appearance.metrics.tabStripHeight</string>
-			<key>pfm_range_max</key>
-			<real>44</real>
-			<key>pfm_range_min</key>
-			<real>22</real>
-			<key>pfm_title</key>
-			<string>Tab Bar Height</string>
-			<key>pfm_type</key>
-			<string>real</string>
-		</dict>
-		<dict>
 			<key>pfm_default</key>
 			<string>shrink</string>
 			<key>pfm_description</key>
@@ -4655,7 +4627,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<true/>
+			<false/>
 			<key>pfm_description</key>
 			<string>Lists tabs beneath each workspace in the sidebar.</string>
 			<key>pfm_name</key>
@@ -8324,6 +8296,18 @@
 			<string>Device Hub Address</string>
 			<key>pfm_type</key>
 			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>Adds Customize Menu… to the end of every right-click menu.</string>
+			<key>pfm_name</key>
+			<string>contextMenus.showCustomizeItem</string>
+			<key>pfm_title</key>
+			<string>Show Customize Menu…</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
 		</dict>
 		<dict>
 			<key>pfm_description</key>

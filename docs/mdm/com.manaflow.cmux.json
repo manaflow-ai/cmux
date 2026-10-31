@@ -1012,13 +1012,6 @@
       "title" : "Sidebar Width",
       "type" : "number"
     },
-    "appearance.metrics.tabFontSize" : {
-      "description" : "Text size of tab titles. Unset, tabs follow the interface size.",
-      "maximum" : 18,
-      "minimum" : 10,
-      "title" : "Tab Text Size",
-      "type" : "number"
-    },
     "appearance.metrics.tabMaxWidth" : {
       "description" : "Widest a tab gets when the strip has room.",
       "maximum" : 320,
@@ -1045,13 +1038,6 @@
       "maximum" : 120,
       "minimum" : 24,
       "title" : "Pinned Tab Width",
-      "type" : "number"
-    },
-    "appearance.metrics.tabStripHeight" : {
-      "description" : "Height of a pane's tab bar. Its tabs grow and shrink with it.",
-      "maximum" : 44,
-      "minimum" : 22,
-      "title" : "Tab Bar Height",
       "type" : "number"
     },
     "appearance.metrics.titlebarHeight" : {
@@ -1798,6 +1784,12 @@
       "default" : true,
       "description" : "While an agent uses an app, its chat shows a small live view of that app. Click the view to open Agent Activity.",
       "title" : "Live Preview in Chat",
+      "type" : "boolean"
+    },
+    "contextMenus.showCustomizeItem" : {
+      "default" : true,
+      "description" : "Adds Customize Menu… to the end of every right-click menu.",
+      "title" : "Show Customize Menu…",
       "type" : "boolean"
     },
     "deviceHub.url" : {
@@ -3898,7 +3890,7 @@
       "type" : "boolean"
     },
     "sidebar.showWorkspaceTabs" : {
-      "default" : true,
+      "default" : false,
       "description" : "Lists tabs beneath each workspace in the sidebar.",
       "title" : "Show Workspace Tabs",
       "type" : "boolean"
