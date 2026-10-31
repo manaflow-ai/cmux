@@ -1448,9 +1448,18 @@ export default agentPaneEntry({
       },
     },
     "template-composer": {
-      note: "Composer template (tabs.newTabTemplate): one large prompt, no chats.",
+      note: "Legacy Composer template id: saved input is migrated to Minimal, whose shared composer remains the one visible style.",
       ready: newTab({ template: "composer" }),
       snapshot: noChat(manySessions(4)),
+      play: async (ctx: PlayContext) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-field") !== null);
+        if (ctx.document.querySelector('.nt-screen[data-template="composer"]'))
+          throw new Error("legacy Composer id still renders the retired template");
+        if (!ctx.document.querySelector('.nt-screen[data-template="minimal"]'))
+          throw new Error("legacy Composer id did not migrate to Minimal");
+        if (ctx.document.querySelector('[data-style="composer"]'))
+          throw new Error("legacy Composer id is still selectable");
+      },
     },
     "composer-holds-its-place": {
       note: "After typing, a pasted image and Now Playing: the composer and the typed text are where the empty page drew them; the image sits under the text (Leo 2026-10-19: the composer kept moving).",
@@ -1459,7 +1468,7 @@ export default agentPaneEntry({
       play: holdsItsPlace,
     },
     "composer-template-holds-its-place": {
-      note: "Composer template after typing, a pasted image and Now Playing: the card stays where the empty page drew it, about the middle, instead of re-centering on what grew under it.",
+      note: "Legacy Composer input after typing, a pasted image and Now Playing: migration keeps the shared Minimal composer in place.",
       ready: newTab({ template: "composer", projects: [CWD] }),
       snapshot: noChat(manySessions(4)),
       play: holdsItsPlace,

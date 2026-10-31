@@ -73,6 +73,11 @@ enum SidebarStyle {
     static var wellGlyphSize: CGFloat { Swift.max(.iconFloor, iconBox - Metrics.space2) }
     static var controlSize: CGFloat { Metrics.iconSize + Metrics.space2 }
     static var toolbarButtonSize: CGFloat { Metrics.sidebarHeaderHeight }
+    /// The width of the +'s menu segment (the workspace chooser chevron): a narrow indicator
+    /// joined to the + as one split button, not a third square button beside Back and Forward.
+    static var toolbarMenuSegmentWidth: CGFloat { (toolbarButtonSize * 0.55).rounded() }
+    /// The chooser chevron's glyph size: smaller than the +, as a menu indicator, at the +'s weight.
+    static var toolbarMenuChevronPointSize: CGFloat { (Metrics.smallIconSize * 0.75).rounded() }
     static var indicatorSize: CGFloat { Metrics.statusMarkSize }
     /// A workspace row's status mark (the shared indicator, or the agent mark in its place): as
     /// tall as the unread badge beside it (Leo 2026-10-13); both read `Metrics.statusMarkSize`.
