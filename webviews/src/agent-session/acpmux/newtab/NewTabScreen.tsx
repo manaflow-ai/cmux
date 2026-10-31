@@ -763,7 +763,7 @@ export function NewTabScreen(props: Props) {
   /// reads back as the same text. What the page acts on (a search, an address, a shell command, a
   /// prompt) is the text as typed, the way the chat composer sends it (`agentText`).
   /// One parse per change of the value, not per render.
-  const typed = useMemo(() => field.current?.agentText(text) ?? text, [text, fieldReady]);
+  const typed = useMemo(() => (fieldReady ? (field.current?.agentText(text) ?? text) : text), [text, fieldReady]);
   // The create actions the buttons under the field offer, at the end of the rows too.
   const creates = useMemo(
     (): CreateKind[] => [
