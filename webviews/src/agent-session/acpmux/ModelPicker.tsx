@@ -56,6 +56,7 @@ type HarnessChoice = {
     unavailable?: string;
     efforts?: string[];
     effortsDeclared?: boolean;
+    defaultEffort?: string;
     fast?: boolean;
     inlineFast?: boolean;
     release?: string;
@@ -78,6 +79,8 @@ type ModelChoice = {
   unavailable?: string;
   efforts?: string[];
   effortsDeclared?: boolean;
+  /** The level the catalog recommends (a pick with no effort of its own lands it). */
+  defaultEffort?: string;
   fast?: boolean;
   /** The catalog release an alias row stands for, which the curated list names. */
   release?: string;
@@ -157,6 +160,7 @@ function sectionsFor(
           ? { efforts: model.efforts }
           : {}),
         ...(model.effortsDeclared !== undefined ? { effortsDeclared: model.effortsDeclared } : {}),
+        ...(model.defaultEffort ? { defaultEffort: model.defaultEffort } : {}),
         ...(model.fast !== undefined ? { fast: model.fast } : {}),
         ...(model.release ? { release: model.release } : {}),
       },
@@ -282,6 +286,8 @@ function quickRow(family: string, model: ModelChoice): QuickModel {
       ? { efforts: model.efforts }
       : {}),
     ...(model.unavailable || model.defaultChoice ? { disabled: true } : {}),
+    ...(model.defaultEffort ? { defaultEffort: model.defaultEffort } : {}),
+    ...(model.fast ? { canFast: true } : {}),
     ...(model.tag ? { tag: model.tag } : {}),
     ...(model.provider ? { provider: model.provider } : {}),
     ...(model.offers
@@ -1308,6 +1314,8 @@ export function ModelPicker(props: ModelPickerProps) {
                       ...(harnessFixed && fork
                         ? { onLaunch: pickProfile, onFork: pickProfile, forkReady: fork.ready }
                         : {}),
+                      // Each row's star, the full picker's favourites (the Starred tab lists them).
+                      stars: { has: (model) => favorites.has(model.id), toggle: (model) => toggleFavorite(model.id) },
                     },
                   }
                 : {}),

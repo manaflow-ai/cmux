@@ -1,8 +1,6 @@
 // l10n-allow-file: test fixture prompts, answers and tool titles, not shipped UI.
-// Opening or closing a tool call, or a turn's "Worked for", never moves the reader's view (Leo
-// 2026-10-20), in a real layout: while the view follows a streaming reply, the clicked line stays
-// on the pixel it was clicked at through every frame of its fold, and the reply streaming on below
-// does not pull it away. The fold plays (a height animation on `.cv-fold`) except under Reduce Motion.
+// Tool disclosures at the end keep the bottom pinned with one compositor transform (Leo,
+// 2026-10-31). Away from the end, the clicked row holds its pixel through its height fold.
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -128,8 +126,8 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
       const box = line.getBoundingClientRect();
       return { top: box.top, x: box.left + 24, y: box.top + box.height / 2 };
     }, selector);
-  /// Clicks the marked line, then follows it every painted frame for `ms`: how far it ever moved, and
-  /// whether a fold was playing at some frame.
+  /// Clicks the marked line, then follows it every painted frame for `ms`: how far it ever moved,
+  /// whether a fold was playing, and whether the end stayed pinned to the composer.
   const clickAndWatch = async (page: Page, ms = 450, at?: { x: number; y: number }) => {
     const point = await page.evaluate(() => {
       const box = document.querySelector<HTMLElement>("[data-probe]")!.getBoundingClientRect();
@@ -137,14 +135,40 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
     });
     const watching = page.evaluate(
       ({ duration, from }) =>
-        new Promise<{ moved: number; folded: boolean; stacked: number }>((resolve) => {
+        new Promise<{
+          moved: number;
+          folded: boolean;
+          stacked: number;
+          bottomDrift: number;
+          threadAnimations: number;
+          threadDuration: number | null;
+          animatedHeights: number;
+        }>((resolve) => {
           const start = performance.now();
           let moved = 0;
           let folded = false;
           let stacked = 0;
+          let bottomDrift = 0;
+          const threadAnimations = new Set<Animation>();
+          const animatedHeights = new Set<number>();
+          let threadDuration: number | null = null;
           window.cmuxAfterPaint(() => {
             const line = document.querySelector<HTMLElement>("[data-probe]");
             if (line) moved = Math.max(moved, Math.abs(line.getBoundingClientRect().top - from));
+            const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
+            if (scroller)
+              bottomDrift = Math.max(
+                bottomDrift,
+                Math.abs(scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop),
+              );
+            const thread = document.querySelector<HTMLElement>(".acpmux-thread");
+            for (const animation of thread?.getAnimations() ?? []) {
+              if (animation.playState !== "running" || animation.effect?.getTiming().iterations === Infinity) continue;
+              threadAnimations.add(animation);
+              if (scroller) animatedHeights.add(scroller.scrollHeight);
+              const duration = animation.effect?.getTiming().duration;
+              threadDuration = typeof duration === "number" ? duration : null;
+            }
             for (const fold of document.querySelectorAll(".cv-fold"))
               if (fold.getAnimations().length > 0) folded = true;
             const each = new Map<unknown, number>();
@@ -155,7 +179,15 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
               }
             stacked = Math.max(stacked, ...each.values(), 0);
             if (performance.now() - start < duration) return;
-            resolve({ moved, folded, stacked });
+            resolve({
+              moved,
+              folded,
+              stacked,
+              bottomDrift,
+              threadAnimations: threadAnimations.size,
+              threadDuration,
+              animatedHeights: animatedHeights.size,
+            });
             return false;
           });
         }),
@@ -176,7 +208,7 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
     return page;
   };
 
-  test("a tool call opened while the reply is followed stays on its pixel, and the reply streaming on leaves it there", async () => {
+  test("a tool call opened at the end pins the bottom and moves the transcript as one stack", async () => {
     const page = await open("no-preference");
     await show(page, [...done, ...live(1)]);
     await settle(page);
@@ -185,26 +217,65 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
 
     const opened = await clickAndWatch(page);
     expect(await page.locator("[data-probe]").getAttribute("aria-expanded")).toBe("true");
-    expect(opened.folded).toBe(true);
-    expect(opened.moved).toBeLessThanOrEqual(1);
-    // The output opened below the line, out past the view's end: the view stopped following.
-    expect(await atLatest(page)).toBe(false);
+    expect(opened.folded).toBe(false);
+    expect(opened.animatedHeights).toBe(1);
+    expect(opened.bottomDrift).toBeLessThanOrEqual(2);
+    expect(opened.threadAnimations).toBe(1);
+    expect(opened.threadDuration).toBeGreaterThanOrEqual(150);
+    expect(opened.threadDuration).toBeLessThanOrEqual(200);
+    expect(await atLatest(page)).toBe(true);
 
-    // The reply streams on; the reader's place holds.
+    // The reply streams on; the bottom edge remains pinned.
     for (let version = 2; version < 6; version += 1) {
       await show(page, [...done, ...live(version)]);
       await settle(page);
+      expect(await atLatest(page)).toBe(true);
     }
-    expect(Math.abs((await probedTop(page)) - opened.top)).toBeLessThanOrEqual(1);
 
-    // Closed again, away from the end, it stays where it is too.
+    // Closing at the end gets the same one-shot stack motion.
     const closed = await clickAndWatch(page);
     expect(await page.locator("[data-probe]").getAttribute("aria-expanded")).toBe("false");
-    expect(closed.moved).toBeLessThanOrEqual(1);
+    expect(closed.bottomDrift).toBeLessThanOrEqual(2);
+    expect(closed.threadAnimations).toBe(1);
+    expect(closed.folded).toBe(false);
+    expect(closed.animatedHeights).toBe(1);
+    expect(closed.threadDuration).toBeGreaterThanOrEqual(150);
+    expect(closed.threadDuration).toBeLessThanOrEqual(200);
+    expect(await atLatest(page)).toBe(true);
     await page.close();
   });
 
-  test("a finished turn's Worked for opened at the latest row stays on its pixel", async () => {
+  test("a tool toggle just above the end reacquires bottom follow, and user scroll cancels its motion", async () => {
+    const page = await open("no-preference");
+    await show(page, [...done, ...live(1)]);
+    await settle(page);
+    await page.evaluate(() => {
+      const node = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+      node.dispatchEvent(new WheelEvent("wheel", { deltaY: -3, bubbles: true }));
+      node.scrollTop -= 3;
+    });
+    await settle(page);
+    await probe(page, '[data-row-id="live-run"] button.cv-tool.is-toggle[aria-expanded="false"]');
+    const opened = await clickAndWatch(page);
+    expect(opened.bottomDrift).toBeLessThanOrEqual(3);
+    expect(opened.threadAnimations).toBe(1);
+    expect(await atLatest(page)).toBe(true);
+    // Dispatch the reversal and scroll in one task so the cancellation cannot miss a short animation.
+    await page.evaluate(async () => {
+      document.querySelector<HTMLElement>("[data-probe]")!.click();
+      await window.cmuxPaintFrame();
+      const node = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+      node.dispatchEvent(new WheelEvent("wheel", { deltaY: -100, bubbles: true }));
+      node.scrollTop -= 100;
+    });
+    await settle(page);
+    expect(await atLatest(page)).toBe(false);
+    expect(await page.locator("[data-bottom-fold]").count()).toBe(0);
+    expect(await page.locator(".acpmux-thread").evaluate((node) => node.getAnimations().length)).toBe(0);
+    await page.close();
+  });
+
+  test("a finished turn's Worked for opened at the latest row pins the bottom", async () => {
     const page = await open("no-preference");
     await show(page, done);
     await settle(page);
@@ -212,8 +283,121 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
     await probe(page, `[data-row-id="worked-t7-user"] button.cv-worked`);
     const opened = await clickAndWatch(page);
     expect(await page.locator("[data-probe]").getAttribute("aria-expanded")).toBe("true");
-    expect(opened.moved).toBeLessThanOrEqual(1);
+    expect(opened.bottomDrift).toBeLessThanOrEqual(2);
+    expect(await atLatest(page)).toBe(true);
     expect(await page.locator('[data-row-id="t7-run"]').count()).toBe(1);
+    await page.close();
+  });
+
+  test("completion folds received reports without remounting the answer, and keeps one-click open state", async () => {
+    const page = await open("reduce");
+    const reports = Array.from({ length: 24 }, (_, index) =>
+      row(`received-${index}`, "user", `Report ${index + 1}: the focused checks passed.`, {
+        steer: "landed",
+        promptId: `report-${index}`,
+        incoming: {
+          kind: "message",
+          message: {
+            name: `worker-${index + 1}`,
+            text: `Report ${index + 1}: the focused checks passed.`,
+            raw: `Report ${index + 1}: the focused checks passed.`,
+          },
+        },
+      }),
+    );
+    const pending = [
+      ...Array.from({ length: 30 }, (_, index) => turn(index + 100)).flat(),
+      row("completed-user", "user", "Collect the reports and summarize the result."),
+      row("completed-progress", "assistant", "I will collect each worker's result before the final answer."),
+      ...reports,
+      row("completed-answer", "assistant", "All 24 reports are in. The focused checks passed."),
+    ];
+    await show(page, pending);
+    await settle(page);
+    await page.evaluate(() => {
+      const answer = document.querySelector('[data-row-id="completed-answer"]')!;
+      if (!answer) throw new Error("the live answer was not mounted");
+      (window as unknown as { savedAnswer: Element }).savedAnswer = answer;
+    });
+    const completed = [
+      ...pending,
+      row("completed-summary", "turnSummary", undefined, { status: "completed", durationMs: 282_000 }),
+    ];
+    await show(page, completed);
+    await settle(page);
+    expect(
+      await page.evaluate(
+        () =>
+          document.querySelector('[data-row-id="completed-answer"]') ===
+          (window as unknown as { savedAnswer: Element }).savedAnswer,
+      ),
+    ).toBe(true);
+    expect(await page.locator('[data-row-id^="received-"]').count()).toBe(0);
+    const line = page.locator('[data-row-id="worked-completed-user"] .cv-worked');
+    expect(await line.getAttribute("aria-expanded")).toBe("false");
+    await probe(page, '[data-row-id="worked-completed-user"] .cv-worked');
+    const opened = await clickAndWatch(page);
+    expect(opened.bottomDrift).toBeLessThanOrEqual(2);
+    expect(await atLatest(page)).toBe(true);
+    expect(await line.getAttribute("aria-expanded")).toBe("true");
+    const position = await page.evaluate(() => {
+      const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+      const position = scroller.scrollTop;
+      scroller.scrollTop = 0;
+      return position;
+    });
+    await settle(page);
+    expect(await line.count()).toBe(0);
+    await page.evaluate((position) => {
+      document.querySelector<HTMLElement>(".acpmux-scroll")!.scrollTop = position;
+    }, position);
+    await settle(page);
+    expect(await line.getAttribute("aria-expanded")).toBe("true");
+    await show(
+      page,
+      completed.map((entry) => ({ ...entry })),
+    );
+    await settle(page);
+    expect(await line.getAttribute("aria-expanded")).toBe("true");
+    await line.click();
+    await settle(page);
+    expect(await line.getAttribute("aria-expanded")).toBe("false");
+    expect(await page.locator('[data-row-id^="received-"]').count()).toBe(0);
+    await page.close();
+  });
+
+  test("loading the older prompt keeps the provisional fold open and the first click closes it", async () => {
+    const page = await open("no-preference");
+    const rows = [
+      row("older-prompt", "user", "Check the retry path."),
+      row("loaded-steer", "user", "And the tests.", { steer: "landed" }),
+      row("loaded-tool", "activity", undefined, { items: [read("retry")] }),
+      row("loaded-answer", "assistant", "The retry tests passed."),
+      row("loaded-end", "turnSummary", undefined, { status: "completed" }),
+    ];
+    await show(page, rows.slice(1));
+    await settle(page);
+    await page.locator('[data-row-id="worked-loaded-steer"] .cv-worked').click();
+    await show(page, rows);
+    await settle(page);
+    const line = page.locator('[data-row-id="worked-older-prompt"] .cv-worked');
+    expect(await line.getAttribute("aria-expanded")).toBe("true");
+    expect(await line.getAttribute("aria-controls")).toContain("loaded-tool");
+    const phase = page.evaluate(
+      () =>
+        new Promise<string | null>((resolve) => {
+          document.addEventListener(
+            "click",
+            () => resolve(document.querySelector(".acpmux-thread")?.getAttribute("data-turn-fold") ?? null),
+            { once: true },
+          );
+        }),
+    );
+    await line.click();
+    expect(await phase).toBe("close");
+    await settle(page);
+    expect(await line.getAttribute("aria-expanded")).toBe("false");
+    expect(await page.locator('[data-row-id="loaded-tool"]').count()).toBe(0);
     await page.close();
   });
 
@@ -388,7 +572,7 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
     await page.close();
   });
 
-  test("under Reduce Motion a tool call opens at once, and still stays on its pixel", async () => {
+  test("under Reduce Motion a tool call opens at once and still pins the bottom", async () => {
     const page = await open("reduce");
     await show(page, [...done, ...live(1)]);
     await settle(page);
@@ -396,7 +580,8 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
     const opened = await clickAndWatch(page, 250);
     expect(await page.locator("[data-probe]").getAttribute("aria-expanded")).toBe("true");
     expect(opened.folded).toBe(false);
-    expect(opened.moved).toBeLessThanOrEqual(1);
+    expect(opened.bottomDrift).toBeLessThanOrEqual(2);
+    expect(await atLatest(page)).toBe(true);
     await page.close();
   });
 });

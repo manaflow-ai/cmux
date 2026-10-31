@@ -567,7 +567,13 @@ private struct PairMacStep: View {
     private var art: some View {
         let settled = foundAtStart || (reduceMotion && onlineMac != nil)
         let waiting = !settled && foundAt == nil && !reduceMotion
-        return TimelineView(.animation(minimumInterval: 1.0 / 60, paused: !(riding || waiting))) { context in
+        // Frames only while something moves: every display frame during the
+        // ride, the 1.5 s pulse of each 2.4 s wait cycle (none in the 0.9 s
+        // gap), one frame when settled (S6, `ConnectMacArtSchedule`).
+        let schedule = ConnectMacArtSchedule(mode: riding ? .riding
+            : waiting ? .pulses(since: waitingSince, period: 2.4, active: WelcomeArt.IdleStyle.waiting.duration)
+            : .still)
+        return TimelineView(schedule) { context in
             let t: Double = {
                 if settled { return .infinity }
                 if let foundAt { return WelcomeArt.rideStart + context.date.timeIntervalSince(foundAt) }

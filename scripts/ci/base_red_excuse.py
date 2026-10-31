@@ -29,6 +29,13 @@ lines are compared with commit shas masked, so a real red that names each run's 
 """
 from __future__ import annotations
 
+# This check is a deterministic version comparison. Blacksmith's Actions log
+# exposes only the generic exit annotation, so there is no useful output line
+# for the normal signature matcher to compare. Its failed step is the stable
+# failure identity; compare that step on the base just like a test name.
+CHROMIUM_CURRENCY_JOB = "Shipped Chromium is at most one stable milestone behind"
+CHROMIUM_CURRENCY_STEP = "Pinned Chromium against Chrome stable"
+
 import argparse
 import importlib.util
 import json
@@ -137,6 +144,28 @@ SUITES = {
     "cmux NEXT DEV daily": frozenset(),
 }
 TIP_SUITE_JOB_READS = 6
+# The jobs of the cmux-tui tree tiers (cmux_next_tree_notify.TIERS: daemon, scheme). A tip daemon suite or base tier
+# dispatch whose tree has not published yet skips them and leaves them to the same-tree run its publish dispatches,
+# which carries the same `<title><tested sha>` name. So a suite run with a newer run of the same name (queued,
+# running or done) is that first run: it is skipped unread for these jobs and never spends a job-list read. On
+# 2026-10-31 the base tier's six newest completed dispatches were all such first runs, and the tip daemon suite
+# run with the verdict, behind them, was never read: no pull request's daemon-test red could be compared.
+TREE_JOBS = frozenset({"cmux-next daemon tests", "cmux app scheme compile (Debug)", "cmux-next crash ends the app"})
+
+
+def deferred_first_runs(runs: list[dict]) -> set[int]:
+    """The ids of suite runs in RUNS (newest first) that have a newer run of the same name: first runs whose
+    tree jobs went to that later same-tree run."""
+    seen: set[str] = set()
+    deferred: set[int] = set()
+    for run in runs:
+        title = run.get("display_title") or ""
+        if not suite_jobs(run):
+            continue
+        if title in seen:
+            deferred.add(run["id"])
+        seen.add(title)
+    return deferred
 
 
 def suite_jobs(run: dict) -> frozenset[str] | None:
@@ -150,8 +179,16 @@ def suite_jobs(run: dict) -> frozenset[str] | None:
 SUITE_JOBS = frozenset().union(*SUITES.values())
 
 
+# A cancelled base tier run is one the base tier kick found superseded before any of its Mac jobs started
+# (cmux_next_base_tier.py cancel_superseded): it has no verdict, and read here it would only spend the
+# lookup limits that reach the run that has one.
+BASE_TIER_TITLE = "cmux-next base tier · "
+
+
 def never_carries(run: dict, name: str) -> bool:
     """Whether RUN's suite never runs job NAME, so it has no verdict for it to read."""
+    if run.get("conclusion") == "cancelled" and (run.get("display_title") or "").startswith(BASE_TIER_TITLE):
+        return True
     jobs = suite_jobs(run)
     return name in SUITE_JOBS and jobs is not None and name not in jobs
 
@@ -596,10 +633,14 @@ def head_jobs(repo: str, sha: str, runs: list[int], checks: list[str], github) -
 def tip_suite_verdict(repo: str, base: str, workflow, name: str, github,
                       base_jobs: dict[int, list[dict]]) -> tuple[dict | None, dict | None]:
     """The newest completed suite run of BASE with a verdict for job NAME, and that job."""
+    # Every status, so a first run's same-tree run is seen while it still queues or runs (TREE_JOBS).
     listed = github.json(f"repos/{repo}/actions/workflows/{workflow}/runs?branch={base}&event=workflow_dispatch"
-                         f"&status=completed&per_page={BASE_RUNS_PAGE}")
-    candidates = [run for run in listed.get("workflow_runs") or []
-                  if run.get("conclusion") != "skipped" and not never_carries(run, name)]
+                         f"&per_page={BASE_RUNS_PAGE}")
+    runs = listed.get("workflow_runs") or []
+    deferred = deferred_first_runs(runs) if name in TREE_JOBS else set()
+    candidates = [run for run in runs
+                  if run.get("status") == "completed" and run.get("conclusion") != "skipped"
+                  and not never_carries(run, name) and run["id"] not in deferred]
     for run in candidates[:TIP_SUITE_JOB_READS]:
         if run["id"] not in base_jobs:
             base_jobs[run["id"]] = [found for page in github.json(
@@ -641,6 +682,10 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
         if test_reds.is_test_red(own, name) and (own.crashes or own.truncated):
             raise Refused(f"'{name}': " + "; ".join(own.crashes + own.truncated[:1])[:800]
                           + " (a crash or a cut-short run is never a base red)")
+        head_steps, head_tests, head_errors = signature(job, head_log)
+        chromium_without_diagnostics = (name == CHROMIUM_CURRENCY_JOB
+                                        and CHROMIUM_CURRENCY_STEP in head_steps
+                                        and not (head_tests or head_errors or crash_signals(head_log)))
         workflow = github.json(f"repos/{repo}/actions/runs/{job['run_id']}").get("workflow_id")
         if workflow not in base_runs:
             listed = github.json(f"repos/{repo}/actions/workflows/{workflow}/runs?branch={base}&status=completed"
@@ -675,10 +720,12 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                           "fix it on this head")
         head_steps, head_tests, head_errors = signature(job, head_log)
         head_crash = crash_signals(head_log)
-        if not head_tests and not head_errors and not head_crash:
+        if not head_tests and not head_errors and not head_crash and not chromium_without_diagnostics:
             raise Refused(f"'{name}': no failing test or error line to match; nothing to compare with the base")
         base_log = github.log(repo, base_job)
         base_steps, base_tests, base_errors = signature(base_job, base_log)
+        if chromium_without_diagnostics and (base_tests or base_errors or crash_signals(base_log)):
+            raise Refused(f"'{name}': no failing test or error line to match; nothing to compare with the base")
         verdict = test_reds.classify(head_log, base_log, name, f"{base} run {base_run['id']}")
         if verdict is not None and verdict.own:
             raise Refused(f"'{name}': " + "; ".join(verdict.reasons)[:800])

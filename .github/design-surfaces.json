@@ -50,7 +50,10 @@
         "webviews/src/ui/FeatureTip.tsx",
         "webviews/src/ui/featureTip.css",
         "webviews/src/ui/featureTips/",
-        "webviews/src/agent-session/acpmux/featureTips.tsx"
+        "webviews/src/agent-session/acpmux/featureTips.tsx",
+        "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneFeatureTips.swift",
+        "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/FeatureTipBudget.swift",
+        "Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/Tips/"
       ]
     },
     "new-tab": {
@@ -66,6 +69,20 @@
       "aliases": ["sidebar"],
       "paths": [
         "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/"
+      ]
+    },
+    "chat-transcript": {
+      "spec": "leo-workspace design/chat-transcript.md",
+      "aliases": ["transcript", "tool row", "tool rows", "mcp row", "cmux exec", "cmux_exec"],
+      "paths": [
+        "webviews/src/agent-session/acpmux/conversation/McpCallRows.tsx",
+        "webviews/src/agent-session/acpmux/conversation/mcpCalls.ts",
+        "webviews/src/agent-session/acpmux/conversation/cmuxExec.ts",
+        "webviews/src/agent-session/acpmux/conversation/jsHighlight.ts",
+        "webviews/src/agent-session/acpmux/conversation/valueTree.ts",
+        "webviews/src/agent-session/acpmux/conversation/ToolRow.tsx",
+        "webviews/src/agent-session/acpmux/conversation/ToolVerb.tsx",
+        "webviews/src/agent-session/acpmux/conversation/MessageGroupRow.tsx"
       ]
     },
     "settings": {

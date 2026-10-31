@@ -183,3 +183,32 @@ describe("fixture coverage", () => {
     expect(totals.linuxCandidates).toBeGreaterThan(0);
   });
 });
+
+
+describe("iOS kit picker fallback", () => {
+  const workflow = () => load(".github/workflows/cmux-next-ios-kit.yml");
+  const cases: Array<[string, Record<string, string>, string]> = [
+    ["unset variables", {}, "blacksmith-4vcpu-ubuntu-2404"],
+    ["empty pool", { RUNNER_POOLS: "", LINUX_RUNNER: "fleet-linux" }, "fleet-linux"],
+    ["fleet before paid pool", { LINUX_RUNNER: "fleet-linux", RUNNER_POOLS: '{"linux":"blacksmith-8vcpu-ubuntu-2404"}' }, "fleet-linux"],
+    ["live pool before paid fallback", { LINUX_RUNNER: "blacksmith-4vcpu-ubuntu-2404", RUNNER_POOLS: '{"linux":"fleet-linux"}' }, "fleet-linux"],
+    ["missing pool member", { RUNNER_POOLS: "{}", LINUX_RUNNER: "blacksmith-8vcpu-ubuntu-2404" }, "blacksmith-8vcpu-ubuntu-2404"],
+  ];
+
+  it.each(cases)("runs picker and tests with %s", (_name, vars, expected) => {
+    for (const { event, inputs } of eventsFor(workflow())) {
+      const simulation = simulateRun(workflow(), {
+        event, ...(inputs === undefined ? {} : { inputs }), vars, files: workingTree,
+        outcome: (job) => job.key === "runner" ? { outputs: {
+          runs_on: JSON.stringify("blacksmith-6vcpu-macos-26"),
+          retry_runs_on: JSON.stringify("blacksmith-6vcpu-macos-26"),
+        } } : {},
+      });
+      expect(simulation.errors).toEqual([]);
+      const picker = simulation.jobs.find((job) => job.key === "runner");
+      expect(picker?.status).toBe("run");
+      expect(picker?.runsOn).toBe(expected);
+      expect(simulation.jobs.find((job) => job.key === "kit-tests")?.status).toBe("run");
+    }
+  });
+});

@@ -1,0 +1,2626 @@
+{
+  "sourceLanguage": "en",
+  "strings": {
+    "agentShare.notThisMac": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Only a chat on this Mac can be shared."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nur ein Chat auf diesem Mac kann geteilt werden."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seule une conversation sur ce Mac peut être partagée."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يمكن مشاركة سوى دردشة على هذا الـ Mac."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solo se puede compartir un chat de este Mac."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "只能分享這台 Mac 上的聊天。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "只能共享这台 Mac 上的聊天。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac의 채팅만 공유할 수 있습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "共有できるのはこの Mac 上のチャットだけです。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Može se podijeliti samo chat na ovom Macu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kun en chat på denne Mac kan deles."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Si può condividere solo una chat su questo Mac."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អាចចែករំលែកបានតែការជជែកនៅលើ Mac នេះ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bare en chat på denne Macen kan deles."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Udostępnić można tylko czat na tym Macu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Só é possível compartilhar um chat deste Mac."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поделиться можно только чатом на этом Mac."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แชร์ได้เฉพาะแชตบน Mac เครื่องนี้เท่านั้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yalnızca bu Mac'teki bir sohbet paylaşılabilir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поділитися можна лише чатом на цьому Mac."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chỉ có thể chia sẻ cuộc trò chuyện trên máy Mac này."
+          }
+        }
+      }
+    },
+    "agentShare.badSurface": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--surface takes a surface number."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--surface erwartet eine Surface-Nummer."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--surface attend un numéro de surface."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتطلب ‎--surface رقم سطح."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--surface espera un número de superficie."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--surface 需要一個表面編號。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--surface 需要一个表面编号。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--surface에는 서피스 번호가 필요합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--surface にはサーフェス番号を指定します。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--surface prima broj površine."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--surface skal have et overfladenummer."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--surface richiede un numero di superficie."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--surface ត្រូវការលេខផ្ទៃ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--surface tar et overflatenummer."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--surface przyjmuje numer powierzchni."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--surface recebe um número de superfície."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--surface принимает номер поверхности."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--surface ต้องใช้หมายเลขพื้นผิว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--surface bir yüzey numarası alır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--surface приймає номер поверхні."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--surface cần một số bề mặt."
+          }
+        }
+      }
+    },
+    "agentShare.surfaceAndTarget": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Name the chat with --surface or with a tab target, not both."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gib den Chat mit --surface oder mit einem Tab-Ziel an, nicht mit beidem."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Désignez la conversation avec --surface ou avec une cible d’onglet, pas les deux."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حدّد الدردشة باستخدام ‎--surface أو بهدف علامة تبويب، وليس كليهما."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indica el chat con --surface o con un destino de pestaña, no con ambos."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請用 --surface 或分頁目標指定聊天，不要同時使用。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请用 --surface 或标签页目标指定聊天，不要同时使用。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--surface 또는 탭 대상 중 하나로만 채팅을 지정하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チャットは --surface かタブのターゲットのどちらか一方で指定してください。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Navedi chat pomoću --surface ili cilja kartice, ne oboje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Angiv chatten med --surface eller med et fanemål, ikke begge."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indica la chat con --surface o con una scheda di destinazione, non con entrambi."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កំណត់ការជជែកដោយ --surface ឬដោយគោលដៅផ្ទាំង មិនមែនទាំងពីរទេ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Angi chatten med --surface eller med et fanemål, ikke begge."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wskaż czat przez --surface albo przez kartę docelową, nie oba naraz."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indique o chat com --surface ou com uma aba de destino, não com os dois."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Укажите чат через --surface или через вкладку, но не оба сразу."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ระบุแชตด้วย --surface หรือด้วยแท็บเป้าหมาย อย่างใดอย่างหนึ่ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sohbeti --surface ile ya da bir sekme hedefiyle belirtin, ikisiyle birden değil."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вкажіть чат через --surface або через вкладку, але не обидва."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chỉ định cuộc trò chuyện bằng --surface hoặc bằng thẻ đích, không dùng cả hai."
+          }
+        }
+      }
+    },
+    "agentShare.badUses": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--uses takes a number from 1 to 8."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--uses erwartet eine Zahl von 1 bis 8."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--uses attend un nombre de 1 à 8."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتطلب ‎--uses رقمًا من 1 إلى 8."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--uses espera un número del 1 al 8."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--uses 需要 1 到 8 的數字。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--uses 需要 1 到 8 的数字。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--uses에는 1에서 8 사이의 숫자가 필요합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--uses には 1 から 8 の数を指定します。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--uses prima broj od 1 do 8."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--uses skal have et tal fra 1 til 8."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--uses richiede un numero da 1 a 8."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--uses ត្រូវការលេខពី 1 ដល់ 8។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--uses tar et tall fra 1 til 8."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--uses przyjmuje liczbę od 1 do 8."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--uses recebe um número de 1 a 8."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--uses принимает число от 1 до 8."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--uses ต้องใช้ตัวเลข 1 ถึง 8"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--uses 1 ile 8 arasında bir sayı alır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--uses приймає число від 1 до 8."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--uses cần một số từ 1 đến 8."
+          }
+        }
+      }
+    },
+    "agentShare.chatMoved": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That surface shows another chat now. Name the chat again."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Surface zeigt jetzt einen anderen Chat. Gib den Chat erneut an."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette surface affiche maintenant une autre conversation. Désignez-la à nouveau."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يعرض هذا السطح دردشة أخرى الآن. حدّد الدردشة مرة أخرى."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esa superficie muestra ahora otro chat. Vuelve a indicar el chat."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "該表面現在顯示另一個聊天。請重新指定聊天。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "该表面现在显示另一个聊天。请重新指定聊天。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "해당 서피스에 이제 다른 채팅이 표시됩니다. 채팅을 다시 지정하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "そのサーフェスには別のチャットが表示されています。チャットをもう一度指定してください。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ta površina sada prikazuje drugi chat. Ponovo navedi chat."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den overflade viser nu en anden chat. Angiv chatten igen."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quella superficie ora mostra un’altra chat. Indica di nuovo la chat."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ទៃនោះកំពុងបង្ហាញការជជែកផ្សេងឥឡូវនេះ។ កំណត់ការជជែកម្តងទៀត។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den overflaten viser en annen chat nå. Angi chatten på nytt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ta powierzchnia pokazuje teraz inny czat. Wskaż czat ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Essa superfície agora mostra outro chat. Indique o chat de novo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Эта поверхность теперь показывает другой чат. Укажите чат снова."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "พื้นผิวนั้นแสดงแชตอื่นอยู่ตอนนี้ ระบุแชตอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu yüzey artık başka bir sohbet gösteriyor. Sohbeti yeniden belirtin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ця поверхня тепер показує інший чат. Вкажіть чат знову."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bề mặt đó hiện đang hiển thị một cuộc trò chuyện khác. Hãy chỉ định lại cuộc trò chuyện."
+          }
+        }
+      }
+    },
+    "agentShare.timedOut": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The share service didn’t answer in time, so no link was made. Try again."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Freigabedienst hat nicht rechtzeitig geantwortet, daher wurde kein Link erstellt. Versuche es erneut."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le service de partage n’a pas répondu à temps, aucun lien n’a donc été créé. Réessayez."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم تستجب خدمة المشاركة في الوقت المناسب، لذا لم يُنشأ أي رابط. حاول مرة أخرى."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El servicio de uso compartido no respondió a tiempo, así que no se creó ningún enlace. Vuelve a intentarlo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分享服務未及時回應，因此未建立連結。請再試一次。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "共享服务未及时响应，因此未创建链接。请重试。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "공유 서비스가 제때 응답하지 않아 링크가 만들어지지 않았습니다. 다시 시도하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "共有サービスが時間内に応答しなかったため、リンクは作成されませんでした。もう一度お試しください。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usluga dijeljenja nije odgovorila na vrijeme, pa link nije napravljen. Pokušaj ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delingstjenesten svarede ikke i tide, så der blev ikke oprettet et link. Prøv igen."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il servizio di condivisione non ha risposto in tempo, quindi non è stato creato alcun link. Riprova."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សេវាចែករំលែកមិនបានឆ្លើយតបទាន់ពេល ដូច្នេះមិនបានបង្កើតតំណទេ។ សូមព្យាយាមម្តងទៀត។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delingstjenesten svarte ikke i tide, så ingen lenke ble laget. Prøv igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usługa udostępniania nie odpowiedziała na czas, więc link nie został utworzony. Spróbuj ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O serviço de compartilhamento não respondeu a tempo, então nenhum link foi criado. Tente de novo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сервис общего доступа не ответил вовремя, поэтому ссылка не создана. Попробуйте ещё раз."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "บริการแชร์ไม่ตอบกลับทันเวลา จึงไม่ได้สร้างลิงก์ ลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paylaşım hizmeti zamanında yanıt vermedi, bu yüzden bağlantı oluşturulmadı. Yeniden deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сервіс спільного доступу не відповів вчасно, тож посилання не створено. Спробуйте ще раз."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dịch vụ chia sẻ không phản hồi kịp, nên chưa có liên kết nào được tạo. Hãy thử lại."
+          }
+        }
+      }
+    },
+    "agentShare.notAChat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Only a started agent chat can be shared."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nur ein gestarteter Agent-Chat kann geteilt werden."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seule une conversation d’agent démarrée peut être partagée."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يمكن مشاركة سوى دردشة وكيل بدأت."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solo se puede compartir un chat de agente iniciado."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "只能分享已開始的代理聊天。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "只能共享已开始的智能体聊天。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시작된 에이전트 채팅만 공유할 수 있습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "共有できるのは開始済みのエージェントチャットだけです。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Može se podijeliti samo pokrenuti chat s agentom."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kun en startet agentchat kan deles."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Si può condividere solo una chat con l’agente già avviata."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អាចចែករំលែកបានតែការជជែកភ្នាក់ងារដែលបានចាប់ផ្តើម។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bare en startet agentchat kan deles."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Udostępnić można tylko rozpoczęty czat z agentem."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Só é possível compartilhar um chat de agente iniciado."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поделиться можно только начатым чатом с агентом."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แชร์ได้เฉพาะแชตเอเจนต์ที่เริ่มแล้วเท่านั้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yalnızca başlatılmış bir ajan sohbeti paylaşılabilir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поділитися можна лише розпочатим чатом з агентом."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chỉ có thể chia sẻ cuộc trò chuyện với tác tử đã bắt đầu."
+          }
+        }
+      }
+    },
+    "agentShare.noSurface": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No agent chat is on surface %lld."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auf Oberfläche %lld ist kein Agent-Chat."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucune conversation d’agent sur la surface %lld."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا توجد دردشة وكيل على السطح %lld."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No hay ningún chat de agente en la superficie %lld."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "表面 %lld 上沒有代理聊天。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "界面 %lld 上没有智能体聊天。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "서피스 %lld에 에이전트 채팅이 없습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サーフェス %lld にエージェントチャットはありません。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Na površini %lld nema chata s agentom."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der er ingen agentchat på overflade %lld."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nessuna chat con l’agente sulla superficie %lld."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "គ្មានការជជែកភ្នាក់ងារនៅលើផ្ទៃ %lld ទេ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingen agentchat på overflate %lld."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Na powierzchni %lld nie ma czatu z agentem."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não há chat de agente na superfície %lld."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "На поверхности %lld нет чата с агентом."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่มีแชตเอเจนต์บนพื้นผิว %lld"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld yüzeyinde ajan sohbeti yok."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "На поверхні %lld немає чату з агентом."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không có cuộc trò chuyện với tác tử trên bề mặt %lld."
+          }
+        }
+      }
+    },
+    "agentShare.badTTL": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A link lasts from 1 minute to 7 days: give seconds, or a number with m, h or d (24h)."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Link gilt 1 Minute bis 7 Tage: Sekunden angeben oder eine Zahl mit m, h oder d (24h)."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un lien dure de 1 minute à 7 jours : indiquez des secondes, ou un nombre suivi de m, h ou d (24h)."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يدوم الرابط من دقيقة واحدة إلى 7 أيام: أدخل ثوانيَ، أو رقمًا متبوعًا بـ m أو h أو d (24h)."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un enlace dura de 1 minuto a 7 días: indica segundos, o un número con m, h o d (24h)."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "連結有效期為 1 分鐘至 7 天：請輸入秒數，或數字加上 m、h 或 d（24h）。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "链接有效期为 1 分钟至 7 天：请输入秒数，或数字加 m、h 或 d（24h）。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "링크는 1분에서 7일까지 유지됩니다. 초 단위로 입력하거나 숫자 뒤에 m, h 또는 d를 붙이세요(24h)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リンクの有効期間は 1 分から 7 日です。秒数、または m・h・d を付けた数値で指定してください（24h）。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Link traje od 1 minute do 7 dana: unesite sekunde ili broj s m, h ili d (24h)."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Et link varer fra 1 minut til 7 dage: angiv sekunder eller et tal med m, h eller d (24h)."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un link dura da 1 minuto a 7 giorni: indica i secondi, o un numero con m, h o d (24h)."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "តំណមានសុពលភាពពី 1 នាទីដល់ 7 ថ្ងៃ៖ បញ្ចូលវិនាទី ឬលេខជាមួយ m, h ឬ d (24h)។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En lenke varer fra 1 minutt til 7 dager: oppgi sekunder, eller et tall med m, h eller d (24h)."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Link działa od 1 minuty do 7 dni: podaj sekundy albo liczbę z m, h lub d (24h)."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Um link dura de 1 minuto a 7 dias: informe segundos, ou um número com m, h ou d (24h)."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ссылка действует от 1 минуты до 7 дней: укажите секунды или число с m, h или d (24h)."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ลิงก์มีอายุ 1 นาทีถึง 7 วัน: ใส่เป็นวินาที หรือตัวเลขตามด้วย m, h หรือ d (24h)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bir bağlantı 1 dakika ile 7 gün arası geçerlidir: saniye ya da m, h veya d ile bir sayı girin (24h)."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Посилання діє від 1 хвилини до 7 днів: вкажіть секунди або число з m, h чи d (24h)."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Liên kết có hiệu lực từ 1 phút đến 7 ngày: nhập số giây, hoặc một số kèm m, h hoặc d (24h)."
+          }
+        }
+      }
+    },
+    "agentShare.needsShareID": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Name the link's share ID (cmux share list shows it)."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gib die Freigabe-ID des Links an (cmux share list zeigt sie)."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indiquez l’ID du partage du lien (cmux share list l’affiche)."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حدّد معرّف مشاركة الرابط (يعرضه cmux share list)."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indica el ID del enlace (cmux share list lo muestra)."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請指定連結的分享 ID（cmux share list 會顯示）。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请指定链接的共享 ID（cmux share list 会显示）。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "링크의 공유 ID를 지정하세요(cmux share list에서 확인)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リンクの共有 ID を指定してください（cmux share list で表示されます）。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Navedite ID dijeljenja linka (prikazuje ga cmux share list)."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Angiv linkets delings-id (cmux share list viser det)."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indica l’ID di condivisione del link (lo mostra cmux share list)."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បញ្ជាក់លេខសម្គាល់ការចែករំលែករបស់តំណ (cmux share list បង្ហាញវា)។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oppgi lenkens delings-ID (cmux share list viser den)."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Podaj ID udostępnienia linku (pokazuje je cmux share list)."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Informe o ID do compartilhamento do link (cmux share list mostra)."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Укажите ID ссылки (его показывает cmux share list)."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ระบุรหัสการแชร์ของลิงก์ (cmux share list จะแสดงให้)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bağlantının paylaşım kimliğini belirtin (cmux share list gösterir)."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вкажіть ID посилання (його показує cmux share list)."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hãy nêu ID chia sẻ của liên kết (cmux share list hiển thị ID này)."
+          }
+        }
+      }
+    },
+    "agentShare.needsGuestID": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Name the guest's ID (cmux share list shows it)."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gib die ID des Gasts an (cmux share list zeigt sie)."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indiquez l’ID de l’invité (cmux share list l’affiche)."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حدّد معرّف الضيف (يعرضه cmux share list)."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indica el ID del invitado (cmux share list lo muestra)."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請指定訪客 ID（cmux share list 會顯示）。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请指定访客 ID（cmux share list 会显示）。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "게스트 ID를 지정하세요(cmux share list에서 확인)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ゲスト ID を指定してください（cmux share list で表示されます）。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Navedite ID gosta (prikazuje ga cmux share list)."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Angiv gæstens id (cmux share list viser det)."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indica l’ID dell’ospite (lo mostra cmux share list)."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បញ្ជាក់លេខសម្គាល់ភ្ញៀវ (cmux share list បង្ហាញវា)។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oppgi gjestens ID (cmux share list viser den)."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Podaj ID gościa (pokazuje je cmux share list)."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Informe o ID do convidado (cmux share list mostra)."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Укажите ID гостя (его показывает cmux share list)."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ระบุรหัสของแขก (cmux share list จะแสดงให้)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Misafirin kimliğini belirtin (cmux share list gösterir)."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вкажіть ID гостя (його показує cmux share list)."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hãy nêu ID của khách (cmux share list hiển thị ID này)."
+          }
+        }
+      }
+    },
+    "agentShare.copied": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Guest link copied. It works once and expires in 24 hours."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gastlink kopiert. Er funktioniert einmal und läuft in 24 Stunden ab."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lien d’invité copié. Il fonctionne une fois et expire dans 24 heures."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم نسخ رابط الضيف. يعمل مرة واحدة وتنتهي صلاحيته خلال 24 ساعة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enlace de invitado copiado. Funciona una vez y caduca en 24 horas."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已拷貝訪客連結。此連結只能使用一次，並於 24 小時後失效。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已复制访客链接。此链接只能使用一次，24 小时后失效。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "게스트 링크를 복사했습니다. 한 번만 사용할 수 있으며 24시간 후 만료됩니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ゲストリンクをコピーしました。1 回だけ使え、24 時間で期限切れになります。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Link za gosta je kopiran. Radi jednom i ističe za 24 sata."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gæstelink kopieret. Det virker én gang og udløber om 24 timer."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Link ospite copiato. Funziona una volta e scade tra 24 ore."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បានចម្លងតំណភ្ញៀវ។ វាប្រើបានតែម្តង ហើយផុតកំណត់ក្នុងរយៈពេល 24 ម៉ោង។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gjestelenke kopiert. Den virker én gang og utløper om 24 timer."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skopiowano link dla gościa. Działa raz i wygasa po 24 godzinach."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Link de convidado copiado. Funciona uma vez e expira em 24 horas."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Гостевая ссылка скопирована. Она сработает один раз и истечёт через 24 часа."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คัดลอกลิงก์สำหรับแขกแล้ว ใช้ได้ครั้งเดียวและหมดอายุใน 24 ชั่วโมง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Misafir bağlantısı kopyalandı. Bir kez çalışır ve 24 saat içinde sona erer."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Гостьове посилання скопійовано. Воно спрацює один раз і спливе через 24 години."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đã sao chép liên kết khách. Liên kết dùng được một lần và hết hạn sau 24 giờ."
+          }
+        }
+      }
+    },
+    "agentShare.noRoom": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The link was made, but this cmux has no share service to open it."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Link wurde erstellt, aber dieses cmux hat keinen Freigabedienst, der ihn öffnet."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le lien a été créé, mais ce cmux n’a aucun service de partage pour l’ouvrir."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم إنشاء الرابط، لكن cmux هذا لا يملك خدمة مشاركة لفتحه."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se creó el enlace, pero este cmux no tiene un servicio para abrirlo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已建立連結，但此 cmux 沒有可開啟它的分享服務。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已创建链接，但此 cmux 没有可打开它的共享服务。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "링크를 만들었지만 이 cmux에는 링크를 열 공유 서비스가 없습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リンクは作成されましたが、この cmux にはそれを開く共有サービスがありません。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Link je napravljen, ali ovaj cmux nema uslugu dijeljenja koja ga otvara."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Linket blev oprettet, men denne cmux har ingen delingstjeneste, der kan åbne det."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il link è stato creato, ma questo cmux non ha un servizio di condivisione per aprirlo."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បានបង្កើតតំណហើយ ប៉ុន្តែ cmux នេះគ្មានសេវាចែករំលែកដើម្បីបើកវាទេ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lenken ble laget, men denne cmux har ingen delingstjeneste som kan åpne den."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Link utworzono, ale ten cmux nie ma usługi udostępniania, która go otworzy."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O link foi criado, mas este cmux não tem um serviço de compartilhamento para abri-lo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ссылка создана, но у этого cmux нет службы, которая её откроет."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สร้างลิงก์แล้ว แต่ cmux นี้ไม่มีบริการแชร์ที่จะเปิดลิงก์ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bağlantı oluşturuldu ancak bu cmux'ta onu açacak bir paylaşım hizmeti yok."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Посилання створено, але цей cmux не має служби, що його відкриє."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đã tạo liên kết, nhưng cmux này không có dịch vụ chia sẻ để mở liên kết."
+          }
+        }
+      }
+    },
+    "agentShare.needsSignIn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to cmux to share a chat."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Melde dich bei cmux an, um einen Chat zu teilen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connectez-vous à cmux pour partager une conversation."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "سجّل الدخول إلى cmux لمشاركة دردشة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inicia sesión en cmux para compartir un chat."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登入 cmux 即可分享聊天。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登录 cmux 即可共享聊天。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "채팅을 공유하려면 cmux에 로그인하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チャットを共有するには cmux にサインインしてください。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prijavite se u cmux da biste podijelili chat."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Log ind på cmux for at dele en chat."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accedi a cmux per condividere una chat."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចូលគណនី cmux ដើម្បីចែករំលែកការជជែក។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Logg på cmux for å dele en chat."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zaloguj się do cmux, aby udostępnić czat."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entre no cmux para compartilhar um chat."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Войдите в cmux, чтобы поделиться чатом."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ลงชื่อเข้าใช้ cmux เพื่อแชร์แชต"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sohbet paylaşmak için cmux'ta oturum açın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Увійдіть у cmux, щоб поділитися чатом."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đăng nhập cmux để chia sẻ cuộc trò chuyện."
+          }
+        }
+      }
+    },
+    "agentShare.roomUnreachable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The share service didn’t answer. Try again in a moment."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Freigabedienst hat nicht geantwortet. Versuche es gleich noch einmal."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le service de partage n’a pas répondu. Réessayez dans un instant."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم تستجب خدمة المشاركة. حاول مرة أخرى بعد قليل."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El servicio para compartir no respondió. Vuelve a intentarlo en un momento."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分享服務沒有回應。請稍後再試。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "共享服务没有响应。请稍后再试。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "공유 서비스가 응답하지 않았습니다. 잠시 후 다시 시도하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "共有サービスが応答しませんでした。しばらくしてからもう一度お試しください。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usluga dijeljenja nije odgovorila. Pokušajte ponovo za trenutak."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delingstjenesten svarede ikke. Prøv igen om et øjeblik."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il servizio di condivisione non ha risposto. Riprova tra un momento."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សេវាចែករំលែកមិនបានឆ្លើយតប។ សូមព្យាយាមម្តងទៀតបន្តិចទៀត។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delingstjenesten svarte ikke. Prøv igjen om et øyeblikk."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usługa udostępniania nie odpowiedziała. Spróbuj ponownie za chwilę."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O serviço de compartilhamento não respondeu. Tente de novo em instantes."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Служба общего доступа не ответила. Повторите попытку чуть позже."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "บริการแชร์ไม่ตอบสนอง โปรดลองอีกครั้งในอีกสักครู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paylaşım hizmeti yanıt vermedi. Birazdan yeniden deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Служба спільного доступу не відповіла. Спробуйте ще раз за мить."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dịch vụ chia sẻ không phản hồi. Hãy thử lại sau giây lát."
+          }
+        }
+      }
+    },
+    "agentShare.roomRefused": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sharing is off for this account."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Teilen ist für dieses Konto deaktiviert."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le partage est désactivé pour ce compte."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "المشاركة متوقفة لهذا الحساب."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compartir está desactivado para esta cuenta."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此帳號已關閉分享。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此账户已关闭共享。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 계정은 공유가 꺼져 있습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このアカウントでは共有がオフになっています。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dijeljenje je isključeno za ovaj račun."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deling er slået fra for denne konto."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La condivisione è disattivata per questo account."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការចែករំលែកត្រូវបានបិទសម្រាប់គណនីនេះ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deling er slått av for denne kontoen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Udostępnianie jest wyłączone dla tego konta."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O compartilhamento está desativado para esta conta."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Общий доступ отключён для этой учётной записи."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "บัญชีนี้ปิดการแชร์อยู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu hesap için paylaşım kapalı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Спільний доступ вимкнено для цього облікового запису."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tính năng chia sẻ đang tắt với tài khoản này."
+          }
+        }
+      }
+    },
+    "agentShare.limit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Mac has too many links. Revoke one first."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Mac hat zu viele Links. Widerrufe zuerst einen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce Mac a trop de liens. Révoquez-en un d’abord."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يحتوي جهاز Mac هذا على روابط كثيرة جدًا. ألغِ أحدها أولًا."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este Mac tiene demasiados enlaces. Revoca uno primero."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 Mac 的連結太多。請先撤銷一個。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 Mac 的链接太多。请先撤销一个。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac에 링크가 너무 많습니다. 먼저 하나를 취소하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac のリンクが多すぎます。まず 1 つ取り消してください。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ovaj Mac ima previše linkova. Prvo opozovite jedan."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne Mac har for mange links. Tilbagekald et først."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questo Mac ha troppi link. Revocane prima uno."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac នេះមានតំណច្រើនពេក។ សូមដកហូតមួយជាមុនសិន។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne Mac-en har for mange lenker. Tilbakekall én først."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ten Mac ma zbyt wiele linków. Najpierw unieważnij jeden."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este Mac tem links demais. Revogue um primeiro."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "На этом Mac слишком много ссылок. Сначала отзовите одну."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac เครื่องนี้มีลิงก์มากเกินไป โปรดเพิกถอนก่อนหนึ่งลิงก์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu Mac'te çok fazla bağlantı var. Önce birini iptal edin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "На цьому Mac забагато посилань. Спершу відкличте одне."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Máy Mac này có quá nhiều liên kết. Hãy thu hồi một liên kết trước."
+          }
+        }
+      }
+    },
+    "agentShare.unknown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No such link or guest."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diesen Link oder Gast gibt es nicht."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce lien ou cet invité n’existe pas."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يوجد رابط أو ضيف بهذا المعرّف."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No existe ese enlace o invitado."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有這個連結或訪客。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有此链接或访客。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "해당 링크나 게스트가 없습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "そのリンクまたはゲストはありません。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Taj link ili gost ne postoji."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Linket eller gæsten findes ikke."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Link o ospite inesistente."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "គ្មានតំណ ឬភ្ញៀវបែបនេះទេ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lenken eller gjesten finnes ikke."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie ma takiego linku ani gościa."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Link ou convidado inexistente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Такой ссылки или гостя нет."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่มีลิงก์หรือแขกนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Böyle bir bağlantı veya misafir yok."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Такого посилання чи гостя немає."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không có liên kết hoặc khách này."
+          }
+        }
+      }
+    },
+    "agentShare.notTrusted": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Only chats on this Mac can be shared."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nur Chats auf diesem Mac können geteilt werden."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seules les conversations sur ce Mac peuvent être partagées."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يمكن مشاركة سوى الدردشات على جهاز Mac هذا."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solo se pueden compartir chats de este Mac."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "只能分享此 Mac 上的聊天。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "只能共享此 Mac 上的聊天。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac의 채팅만 공유할 수 있습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "共有できるのはこの Mac 上のチャットだけです。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mogu se dijeliti samo chatovi na ovom Macu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kun chats på denne Mac kan deles."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Si possono condividere solo le chat su questo Mac."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អាចចែករំលែកបានតែការជជែកនៅលើ Mac នេះប៉ុណ្ណោះ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bare chatter på denne Mac-en kan deles."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Udostępniać można tylko czaty na tym Macu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Só é possível compartilhar chats deste Mac."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поделиться можно только чатами на этом Mac."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แชร์ได้เฉพาะแชตบน Mac เครื่องนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yalnızca bu Mac'teki sohbetler paylaşılabilir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поділитися можна лише чатами на цьому Mac."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chỉ có thể chia sẻ các cuộc trò chuyện trên máy Mac này."
+          }
+        }
+      }
+    },
+    "agentShare.badRequest": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A link works 1 to 8 times and lasts from 1 minute to 7 days."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Link funktioniert 1- bis 8-mal und gilt 1 Minute bis 7 Tage."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un lien fonctionne de 1 à 8 fois et dure de 1 minute à 7 jours."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يعمل الرابط من مرة إلى 8 مرات ويدوم من دقيقة واحدة إلى 7 أيام."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un enlace funciona de 1 a 8 veces y dura de 1 minuto a 7 días."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "連結可使用 1 至 8 次，有效期為 1 分鐘至 7 天。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "链接可使用 1 至 8 次，有效期为 1 分钟至 7 天。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "링크는 1~8회 사용할 수 있으며 1분에서 7일까지 유지됩니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リンクは 1〜8 回使え、有効期間は 1 分から 7 日です。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Link radi od 1 do 8 puta i traje od 1 minute do 7 dana."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Et link virker 1 til 8 gange og varer fra 1 minut til 7 dage."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un link funziona da 1 a 8 volte e dura da 1 minuto a 7 giorni."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "តំណប្រើបានពី 1 ដល់ 8 ដង ហើយមានសុពលភាពពី 1 នាទីដល់ 7 ថ្ងៃ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En lenke virker 1 til 8 ganger og varer fra 1 minutt til 7 dager."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Link działa od 1 do 8 razy i od 1 minuty do 7 dni."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Um link funciona de 1 a 8 vezes e dura de 1 minuto a 7 dias."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ссылка срабатывает от 1 до 8 раз и действует от 1 минуты до 7 дней."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ลิงก์ใช้ได้ 1 ถึง 8 ครั้งและมีอายุ 1 นาทีถึง 7 วัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bir bağlantı 1 ile 8 kez çalışır ve 1 dakika ile 7 gün arası geçerlidir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Посилання спрацьовує від 1 до 8 разів і діє від 1 хвилини до 7 днів."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Liên kết dùng được từ 1 đến 8 lần và có hiệu lực từ 1 phút đến 7 ngày."
+          }
+        }
+      }
+    }
+  },
+  "version": "1.0"
+}

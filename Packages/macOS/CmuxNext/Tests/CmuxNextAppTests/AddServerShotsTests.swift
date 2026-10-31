@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 @testable import CmuxNextServer
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -9,7 +10,7 @@ import Testing
 /// sheet's look as an artifact: `Packages/macOS/CmuxNext/.build/add-server-shots.png`
 /// (`cmux-ci run ... --artifact Packages/macOS/CmuxNext/.build/add-server-shots.png`).
 /// It also checks that every state draws something at a sane size.
-@MainActor @Suite(.serialized) struct AddServerShotsTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct AddServerShotsTests {
     static let packageRoot = URL(fileURLWithPath: #filePath)
         .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
 
