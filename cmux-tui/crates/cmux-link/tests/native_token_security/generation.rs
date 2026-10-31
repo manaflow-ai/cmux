@@ -79,3 +79,41 @@ fn native_receiver_generation_refuses_an_invalid_private_pin() {
         assert!(NativeTokenVerifier::new_for_receiver(keys(), generation, || None, 2).is_err());
     }
 }
+
+#[test]
+fn native_receiver_generation_accepts_worker_machine_roles_and_preserves_the_signed_answer() {
+    use cmux_link::token::VmKind;
+    let generation = "a".repeat(64);
+    for (value, expected_kind) in [("owner", VmKind::Owner), ("team", VmKind::Team)] {
+        let receiver = pinned(&generation);
+        let mut current_worker_claims = claims(&generation);
+        current_worker_claims["vmk"] = json!(value);
+        let token = sign_v2(&current_worker_claims);
+        let verified = receiver.verify(&token, &expected(Service::Daemon)).unwrap();
+        assert_eq!(verified.vm_kind, Some(expected_kind));
+        assert_eq!(
+            receiver.verify(&token, &expected(Service::Daemon)),
+            Err(TokenRefused::Replayed)
+        );
+    }
+    let old = pinned(&generation)
+        .verify(&sign_v2(&claims(&generation)), &expected(Service::Daemon))
+        .unwrap();
+    assert_eq!(old.vm_kind, None, "an absent old claim must not grant owner authority");
+}
+
+#[test]
+fn native_receiver_generation_rejects_malformed_worker_machine_roles_without_spending_token() {
+    let generation = "a".repeat(64);
+    for value in [json!("admin"), json!("Owner"), json!(null), json!(false), json!(1), json!({})] {
+        let receiver = pinned(&generation);
+        let mut invalid = claims(&generation);
+        invalid["vmk"] = value;
+        assert_eq!(
+            receiver.verify(&sign_v2(&invalid), &expected(Service::Daemon)),
+            Err(TokenRefused::Invalid)
+        );
+        invalid["vmk"] = json!("owner");
+        assert!(receiver.verify(&sign_v2(&invalid), &expected(Service::Daemon)).is_ok());
+    }
+}

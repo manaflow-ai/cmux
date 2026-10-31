@@ -144,6 +144,16 @@ struct Claims {
     team: String,
     network: NativeBinding,
     receiver: Option<ReceiverGeneration>,
+    #[serde(default, deserialize_with = "present_vm_kind")]
+    vmk: Option<crate::token::VmKind>,
+}
+
+// Missing vmk retains old-token compatibility. A present claim must be one
+// of the two signed roles; explicit null is malformed, like the Worker verifier.
+fn present_vm_kind<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<crate::token::VmKind>, D::Error> {
+    crate::token::VmKind::deserialize(deserializer).map(Some)
 }
 
 #[derive(Deserialize)]
@@ -440,6 +450,7 @@ impl TokenVerifier for NativeTokenVerifier {
         };
         let verified = VerifiedToken {
             peer: LinkPeer { install: c.sub, user: c.network.user, team: c.team },
+            vm_kind: c.vmk,
             issued_at_ms: c.iat.checked_mul(1000).ok_or(TokenRefused::Invalid)?,
             lease: Some(lease),
         };

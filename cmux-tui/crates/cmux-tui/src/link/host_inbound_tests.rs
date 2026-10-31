@@ -28,6 +28,7 @@ impl TokenVerifier for GoodToken {
             return Err(TokenRefused::Invalid);
         }
         Ok(VerifiedToken {
+            vm_kind: None,
             peer: LinkPeer { install: "inst_mac".into(), user: "42".into(), team: "team_a".into() },
             issued_at_ms: 1_700_000_000_000,
             lease: Some(StreamLease::fixed_until(
