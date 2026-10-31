@@ -217,20 +217,14 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
     expect(opened.threadDuration).toBeLessThanOrEqual(200);
     expect(await atLatest(page)).toBe(true);
 
-    // The reply streams on; the bottom edge remains pinned.
-    for (let version = 2; version < 6; version += 1) {
-      await show(page, [...done, ...live(version)]);
-      await settle(page);
-      expect(await atLatest(page)).toBe(true);
-    }
-
-    // Closing at the end gets the same one-shot stack motion.
+    const expandedEnd = await scrollHeight(page);
+    // Closing keeps the expanded end and the clicked line, with no downward stack motion.
     const closed = await clickAndWatch(page);
     expect(await page.locator("[data-probe]").getAttribute("aria-expanded")).toBe("false");
     expect(closed.bottomDrift).toBeLessThanOrEqual(2);
-    expect(closed.threadAnimations).toBe(1);
-    expect(closed.threadDuration).toBeGreaterThanOrEqual(150);
-    expect(closed.threadDuration).toBeLessThanOrEqual(200);
+    expect(closed.moved).toBeLessThanOrEqual(1);
+    expect(closed.threadAnimations).toBe(0);
+    expect(await scrollHeight(page)).toBe(expandedEnd);
     expect(await atLatest(page)).toBe(true);
 
     // The room created by the expanded body remains after collapse. Scrolling up and back to the
@@ -238,11 +232,43 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
     const retainedEnd = await scrollHeight(page);
     await page.mouse.wheel(0, -260);
     await settle(page);
+    expect(await atLatest(page)).toBe(false);
     expect(await scrollHeight(page)).toBe(retainedEnd);
     await page.mouse.wheel(0, 10_000);
     await settle(page);
     expect(await scrollHeight(page)).toBe(retainedEnd);
     expect(await atLatest(page)).toBe(true);
+    await page.close();
+  });
+
+  test("a completed turn keeps the reply before a personal steer visible across fold toggles", async () => {
+    const page = await open("reduce");
+    await show(page, [
+      ...done,
+      row("steer-user", "user", "Read the log."),
+      row("steer-work-a", "activity", undefined, { items: [read("before-steer")] }),
+      row("steer-answer-a", "assistant", "Reply A, before the steer."),
+      row("steer-input", "user", "Also check the tests.", { steer: "landed" }),
+      row("steer-work-b", "activity", undefined, { items: [read("after-steer")] }),
+      row("steer-answer-b", "assistant", "Reply B, the final answer."),
+      row("steer-summary", "turnSummary", undefined, { status: "completed", durationMs: 9_000 }),
+    ]);
+    await settle(page);
+    const line = page.locator('[data-row-id="worked-steer-user"] .cv-worked');
+    const visibleDialogue = async () => {
+      for (const id of ["steer-answer-a", "steer-input", "steer-answer-b"])
+        expect(await page.locator(`[data-row-id="${id}"]`).isVisible()).toBe(true);
+    };
+    expect(await line.getAttribute("aria-expanded")).toBe("false");
+    await visibleDialogue();
+    await line.click();
+    await settle(page);
+    expect(await line.getAttribute("aria-expanded")).toBe("true");
+    await visibleDialogue();
+    await line.click();
+    await settle(page);
+    expect(await line.getAttribute("aria-expanded")).toBe("false");
+    await visibleDialogue();
     await page.close();
   });
 

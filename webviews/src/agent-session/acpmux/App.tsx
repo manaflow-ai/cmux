@@ -3166,7 +3166,7 @@ export function VirtualTranscript({
     // its body closes, including through an upward scroll and a return to the latest row. The room
     // is still released once the rows themselves grow back to it.
     if (stickyFoldRoom.current) {
-      if (rowsEndRef.current >= kept - 0.5) {
+      if (!foldHolding(foldAnchor.current) && rowsEndRef.current >= kept - 0.5) {
         stickyFoldRoom.current = false;
         foldRoomRef.current = 0;
         setFoldRoom(0);
@@ -4567,8 +4567,11 @@ export function VirtualTranscript({
       stopBottomStackFold();
       // On close, preserve the expanded end as blank room. On open, an already sticky room is
       // part of the reader's chosen end; only transient, non-bottom room is discarded.
-      if (closing) keepBottomFoldRoom();
-      else if (!stickyFoldRoom.current) dropFoldRoom();
+      if (closing) {
+        keepBottomFoldRoom();
+        return false;
+      }
+      if (!stickyFoldRoom.current) dropFoldRoom();
       const stack: BottomStackFold = {
         toggle,
         beforeEnd: Math.max(0, node.scrollHeight - node.clientHeight),
@@ -4676,6 +4679,7 @@ export function VirtualTranscript({
       wheelGlide.current?.remove();
       wheelGlide.current = undefined;
       stopJump();
+      stopBottomStackFold();
       unsubscribeIntent();
       unsubscribeQuiet();
       detachIntent();
