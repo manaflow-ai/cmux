@@ -18,6 +18,12 @@ on:
       linux_guard_source:
         required: true
         type: string
+      # A label the caller placed workflow-guard-tests on (cmux-next-guards.yml's portable-placement:
+      # fleet Linux or a free mini); empty keeps the runner below.
+      guard_tests_runner:
+        required: false
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -66,7 +72,7 @@ jobs:
         group: ${{ fromJSON(inputs.linux_guard_test_groups) }}
         exclude:
           - group: ci
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || inputs.guard_tests_runner != '' && inputs.guard_tests_runner || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     # Its three sibling guard jobs are bounded at 15; 65 recent runs peaked at 0.8 min.
     timeout-minutes: 15
     # This job executes scripts from the pull request. It needs only read
@@ -83,6 +89,11 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+
+      # A mini or fleet Linux host (guard_tests_runner) reuses its workspace: drop the submodule checkouts a
+      # previous job left there. Only on a self-hosted runner: never in a checkout run_ci_guards.py runs locally.
+      - name: Drop stale submodule checkouts (self-hosted reused workspace)
+        run: if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ]; then scripts/ci/reset-stale-submodules.sh; fi
 
       # toolchain_notices.py (the license compliance test) reads
       # ghostty-next/build.zig.zon and fails when it is missing; only
@@ -899,6 +910,10 @@ jobs:
       - name: Validate side-lane placement onto idle owned runners
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_side_lane_placement.py
+
+      - name: Validate portable placement (fleet Linux, then a free mini, then Blacksmith)
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_portable_job_placement.py
 
       - name: Validate the rescue's re-runs route alike for both bot identities
         if: ${{ !cancelled() && matrix.group == 'ci' }}
