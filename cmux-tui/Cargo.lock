@@ -1669,6 +1669,7 @@ dependencies = [
  "libc",
  "parking_lot",
  "plist",
+ "pulldown-cmark",
  "ratatui",
  "regex",
  "reqwest",

@@ -123,8 +123,11 @@ pub(super) const TOOLS: &[AgentTool] = &[
             items {id, role, text}: user (with origin and from when another agent sent it), \
             assistant, tool (a summary: kind and status only, never its title, input or \
             output) and turn_end. Pass after = next_after to read on; an answer still being \
-            written or a tool call still running is marked partial and read again whole. \
-            Changes nothing.",
+            written or a tool call still running is marked partial and read again whole. Set \
+            last_code_block to also return the latest complete fenced block from an assistant \
+            answer as {language, code}; it is secret-masked like item text. Oversized blocks \
+            carry truncated: true. A bounded history scan can refuse the lookup instead of \
+            returning stale code. Changes nothing.",
     },
     AgentTool {
         name: "agents_chat_new",
@@ -340,6 +343,11 @@ impl AgentTool {
                     json!({"type": "integer", "minimum": 1, "maximum": chat::MAX_READ_LIMIT,
                            "default": chat::DEFAULT_READ_LIMIT}),
                 );
+                properties.insert(
+                    "last_code_block".into(),
+                    json!({"type": "boolean", "default": false,
+                           "description": "Also return the latest complete fenced code block from an assistant answer."}),
+                );
                 required.push("target");
             }
             Verb::ChatNew => {
@@ -522,6 +530,9 @@ impl AgentTool {
                         })?;
                         words.push(format!("--{name}={number}"));
                     }
+                }
+                if args.flag("last_code_block")? {
+                    words.push("--last-code-block".into());
                 }
             }
             Verb::ChatNew => {

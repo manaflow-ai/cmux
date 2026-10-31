@@ -280,6 +280,10 @@ fn an_agent_prompts_another_chat_and_reads_its_reply_over_mcp() {
     assert_eq!(tool("agents_chat_send")["annotations"]["destructiveHint"], true);
     assert_eq!(tool("agents_chat_send")["inputSchema"]["additionalProperties"], false);
     assert_eq!(tool("agents_chat_read")["annotations"]["readOnlyHint"], true);
+    assert_eq!(
+        tool("agents_chat_read")["inputSchema"]["properties"]["last_code_block"]["type"],
+        "boolean"
+    );
 
     assert_eq!(results[0]["isError"], false, "{}", results[0]);
     let receipt = &results[0]["structuredContent"];
@@ -340,6 +344,10 @@ fn an_agent_prompts_another_chat_and_reads_its_reply_over_mcp() {
     assert_eq!(calls[0]["text"], "", "{next}");
     assert_eq!(calls[0]["tool"]["kind"], "read", "{next}");
     assert_eq!(calls[0]["tool"]["status"], "completed", "{next}");
+    let answers = items_of(later, "assistant");
+    assert_eq!(answers.len(), 2, "a tool boundary keeps the preceding answer: {next}");
+    assert_eq!(answers[0]["text"], "partial", "{next}");
+    assert_eq!(answers[1]["text"], "partial answer", "{next}");
 }
 
 #[test]
@@ -905,4 +913,102 @@ fn a_caller_sends_to_a_restored_chat_no_tab_has_shown() {
         answers.iter().any(|item| item["text"].as_str().unwrap_or_default().starts_with("echo: ")),
         "the resumed agent answered the send: {later:?}"
     );
+}
+
+/// Both entrypoints return the same masked block without changing a saved
+/// transcript cursor. The real daemon also enforces the normal session scope.
+#[test]
+fn latest_code_block_is_available_over_cli_and_mcp() {
+    let daemon = machine("chat-code-block");
+    let workspace = workspace(&daemon);
+    let reader = chat(&daemon, Some(&workspace));
+    let holder = chat(&daemon, Some(&workspace));
+    let key = format!("AKIA{}", "Q7ZJ4XK2MD5P3WRT");
+    let prompted = Acp::connect(&daemon).call(
+        "session/prompt",
+        json!({"sessionId": holder, "prompt": [{"type": "text",
+            "text": format!("echo this:\n```sh\nuse {key}\n```\n")}]}),
+    );
+    assert!(prompted.get("error").is_none(), "{prompted}");
+    let before = read_until(&daemon, &reader, json!({"target": holder}), |items| {
+        items.iter().any(|item| item["role"] == "turn_end")
+    });
+    assert!(before.get("last_code_block").is_none());
+    let (status, with_code) =
+        agents_chat(&daemon, Some(&reader), &["read", &holder, "--last-code-block"]);
+    assert_eq!(status, Some(0), "{with_code}");
+    assert_eq!(with_code["items"], before["items"]);
+    assert_eq!(with_code["next_after"], before["next_after"]);
+    assert_eq!(with_code["has_more"], before["has_more"]);
+    let cursor = before["next_after"].as_u64().unwrap().to_string();
+    let (status, cli) = agents_chat(
+        &daemon,
+        Some(&reader),
+        &["read", &holder, "--after", &cursor, "--last-code-block"],
+    );
+    assert_eq!(status, Some(0), "{cli}");
+    let (_, replies) = mcp(
+        &daemon,
+        &reader,
+        &[(
+            "agents_chat_read",
+            json!({
+                "target": holder, "after": before["next_after"], "last_code_block": true,
+            }),
+        )],
+    );
+    assert_eq!(replies[0]["isError"], false, "{replies:?}");
+    for page in [&cli, &replies[0]["structuredContent"]] {
+        assert_eq!(
+            page["last_code_block"],
+            json!({"language": "sh", "code": "use [AWS access key]"}),
+            "{page}"
+        );
+        assert_eq!(page["items"], json!([]), "{page}");
+        assert!(page["next_after"].as_u64() >= before["next_after"].as_u64());
+        assert!(!page.to_string().contains(&key));
+    }
+    // The harness retries an identified answer. Both reads must remove
+    // the old answer and still find the
+    // previous turn's code when the replacement answer contains no code.
+    let prompted = Acp::connect(&daemon).call(
+        "session/prompt",
+        json!({"sessionId": holder,
+            "prompt": [{"type": "text", "text": "codex-retry"}]}),
+    );
+    assert!(prompted.get("error").is_none(), "{prompted}");
+    read_until(
+        &daemon,
+        &reader,
+        json!({"target": holder, "after": before["next_after"]}),
+        |items| items.iter().any(|item| item["role"] == "turn_end"),
+    );
+    let (status, cli) = agents_chat(
+        &daemon,
+        Some(&reader),
+        &["read", &holder, "--after", &cursor, "--last-code-block"],
+    );
+    assert_eq!(status, Some(0), "{cli}");
+    let (_, replies) = mcp(
+        &daemon,
+        &reader,
+        &[(
+            "agents_chat_read",
+            json!({"target": holder, "after": before["next_after"], "last_code_block": true}),
+        )],
+    );
+    assert_eq!(replies[0]["isError"], false, "{replies:?}");
+    for page in [&cli, &replies[0]["structuredContent"]] {
+        let items = page["items"].as_array().unwrap();
+        let answers = items_of(items, "assistant");
+        assert_eq!(answers.len(), 1, "only the replacement answer remains: {page}");
+        assert_eq!(answers[0]["text"], "partial answer", "{page}");
+        assert_eq!(page["last_code_block"], with_code["last_code_block"], "{page}");
+        assert_eq!(page["has_more"], false, "{page}");
+    }
+    let elsewhere = chat(&daemon, None);
+    let (status, outside) =
+        agents_chat(&daemon, Some(&reader), &["read", &elsewhere, "--last-code-block"]);
+    assert_eq!(status, Some(3));
+    assert_eq!(error_of(&outside)["code"], "chat.out_of_scope");
 }
