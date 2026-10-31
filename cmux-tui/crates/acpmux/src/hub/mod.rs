@@ -199,6 +199,7 @@ mod transfer_in;
 mod transfer_out;
 mod transfer_watch;
 mod trust_wait;
+mod turn_attestation;
 mod turn_git;
 mod turn_usage;
 mod usage_view;
@@ -1167,6 +1168,7 @@ impl Hub {
             attached: std::sync::atomic::AtomicUsize::new(0),
             hidden: std::sync::atomic::AtomicUsize::new(0),
             stderr_tail: StdMutex::new(std::collections::VecDeque::new()),
+            stderr_stream: StdMutex::new(session::SessionStderr::default()),
             prompts: StdMutex::new(std::collections::VecDeque::new()),
             append_errors: AtomicU64::new(0),
             last_progress: AtomicU64::new(0),

@@ -80716,398 +80716,398 @@
       }
     },
     "action.agentPaneZoomIn": {
-    "extractionState": "manual",
-    "localizations": {
-      "en": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Agent Chat: Zoom In"
-        }
-      },
-      "ja": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "エージェントチャット: 拡大"
-        }
-      },
-      "ar": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "دردشة الوكيل: تكبير"
-        }
-      },
-      "bs": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Chat s agentom: uvećaj"
-        }
-      },
-      "da": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Agentchat: Zoom ind"
-        }
-      },
-      "de": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Agent-Chat: Vergrößern"
-        }
-      },
-      "es": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Chat del agente: acercar"
-        }
-      },
-      "fr": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Chat de l’agent : zoom avant"
-        }
-      },
-      "it": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Chat dell’agente: ingrandisci"
-        }
-      },
-      "km": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "ការជជែកជាមួយភ្នាក់ងារ៖ ពង្រីក"
-        }
-      },
-      "ko": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "에이전트 채팅: 확대"
-        }
-      },
-      "nb": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Agentchat: Zoom inn"
-        }
-      },
-      "pl": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Czat z agentem: Powiększ"
-        }
-      },
-      "pt-BR": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Chat do agente: Ampliar"
-        }
-      },
-      "ru": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Чат с агентом: увеличить"
-        }
-      },
-      "th": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "แชตเอเจนต์: ซูมเข้า"
-        }
-      },
-      "tr": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Ajan sohbeti: Yakınlaştır"
-        }
-      },
-      "uk": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Чат з агентом: збільшити"
-        }
-      },
-      "vi": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Trò chuyện với tác tử: Phóng to"
-        }
-      },
-      "zh-Hans": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "智能体聊天：放大"
-        }
-      },
-      "zh-Hant": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "代理聊天：放大"
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent Chat: Zoom In"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントチャット: 拡大"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "دردشة الوكيل: تكبير"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat s agentom: uvećaj"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agentchat: Zoom ind"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent-Chat: Vergrößern"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat del agente: acercar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat de l’agent : zoom avant"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat dell’agente: ingrandisci"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការជជែកជាមួយភ្នាក់ងារ៖ ពង្រីក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트 채팅: 확대"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agentchat: Zoom inn"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Czat z agentem: Powiększ"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat do agente: Ampliar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чат с агентом: увеличить"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แชตเอเจนต์: ซูมเข้า"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajan sohbeti: Yakınlaştır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чат з агентом: збільшити"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trò chuyện với tác tử: Phóng to"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "智能体聊天：放大"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理聊天：放大"
+          }
         }
       }
-    }
-  },
+    },
     "action.agentPaneZoomOut": {
-    "extractionState": "manual",
-    "localizations": {
-      "en": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Agent Chat: Zoom Out"
-        }
-      },
-      "ja": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "エージェントチャット: 縮小"
-        }
-      },
-      "ar": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "دردشة الوكيل: تصغير"
-        }
-      },
-      "bs": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Chat s agentom: umanji"
-        }
-      },
-      "da": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Agentchat: Zoom ud"
-        }
-      },
-      "de": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Agent-Chat: Verkleinern"
-        }
-      },
-      "es": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Chat del agente: alejar"
-        }
-      },
-      "fr": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Chat de l’agent : zoom arrière"
-        }
-      },
-      "it": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Chat dell’agente: riduci"
-        }
-      },
-      "km": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "ការជជែកជាមួយភ្នាក់ងារ៖ បង្រួម"
-        }
-      },
-      "ko": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "에이전트 채팅: 축소"
-        }
-      },
-      "nb": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Agentchat: Zoom ut"
-        }
-      },
-      "pl": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Czat z agentem: Pomniejsz"
-        }
-      },
-      "pt-BR": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Chat do agente: Reduzir"
-        }
-      },
-      "ru": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Чат с агентом: уменьшить"
-        }
-      },
-      "th": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "แชตเอเจนต์: ซูมออก"
-        }
-      },
-      "tr": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Ajan sohbeti: Uzaklaştır"
-        }
-      },
-      "uk": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Чат з агентом: зменшити"
-        }
-      },
-      "vi": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Trò chuyện với tác tử: Thu nhỏ"
-        }
-      },
-      "zh-Hans": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "智能体聊天：缩小"
-        }
-      },
-      "zh-Hant": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "代理聊天：縮小"
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent Chat: Zoom Out"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントチャット: 縮小"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "دردشة الوكيل: تصغير"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat s agentom: umanji"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agentchat: Zoom ud"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent-Chat: Verkleinern"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat del agente: alejar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat de l’agent : zoom arrière"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat dell’agente: riduci"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការជជែកជាមួយភ្នាក់ងារ៖ បង្រួម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트 채팅: 축소"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agentchat: Zoom ut"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Czat z agentem: Pomniejsz"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat do agente: Reduzir"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чат с агентом: уменьшить"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แชตเอเจนต์: ซูมออก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajan sohbeti: Uzaklaştır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чат з агентом: зменшити"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trò chuyện với tác tử: Thu nhỏ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "智能体聊天：缩小"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理聊天：縮小"
+          }
         }
       }
-    }
-  },
+    },
     "action.agentPaneZoomReset": {
-    "extractionState": "manual",
-    "localizations": {
-      "en": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Agent Chat: Actual Size"
-        }
-      },
-      "ja": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "エージェントチャット: 実寸表示"
-        }
-      },
-      "ar": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "دردشة الوكيل: الحجم الفعلي"
-        }
-      },
-      "bs": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Chat s agentom: stvarna veličina"
-        }
-      },
-      "da": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Agentchat: Faktisk størrelse"
-        }
-      },
-      "de": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Agent-Chat: Originalgröße"
-        }
-      },
-      "es": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Chat del agente: tamaño real"
-        }
-      },
-      "fr": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Chat de l’agent : taille réelle"
-        }
-      },
-      "it": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Chat dell’agente: dimensioni reali"
-        }
-      },
-      "km": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "ការជជែកជាមួយភ្នាក់ងារ៖ ទំហំពិត"
-        }
-      },
-      "ko": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "에이전트 채팅: 실제 크기"
-        }
-      },
-      "nb": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Agentchat: Faktisk størrelse"
-        }
-      },
-      "pl": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Czat z agentem: Rzeczywisty rozmiar"
-        }
-      },
-      "pt-BR": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Chat do agente: Tamanho Real"
-        }
-      },
-      "ru": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Чат с агентом: фактический размер"
-        }
-      },
-      "th": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "แชตเอเจนต์: ขนาดจริง"
-        }
-      },
-      "tr": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Ajan sohbeti: Gerçek Boyut"
-        }
-      },
-      "uk": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Чат з агентом: реальний розмір"
-        }
-      },
-      "vi": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Trò chuyện với tác tử: Kích thước thực"
-        }
-      },
-      "zh-Hans": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "智能体聊天：实际大小"
-        }
-      },
-      "zh-Hant": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "代理聊天：實際大小"
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent Chat: Actual Size"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントチャット: 実寸表示"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "دردشة الوكيل: الحجم الفعلي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat s agentom: stvarna veličina"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agentchat: Faktisk størrelse"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent-Chat: Originalgröße"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat del agente: tamaño real"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat de l’agent : taille réelle"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat dell’agente: dimensioni reali"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការជជែកជាមួយភ្នាក់ងារ៖ ទំហំពិត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트 채팅: 실제 크기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agentchat: Faktisk størrelse"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Czat z agentem: Rzeczywisty rozmiar"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat do agente: Tamanho Real"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чат с агентом: фактический размер"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แชตเอเจนต์: ขนาดจริง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajan sohbeti: Gerçek Boyut"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чат з агентом: реальний розмір"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trò chuyện với tác tử: Kích thước thực"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "智能体聊天：实际大小"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理聊天：實際大小"
+          }
         }
       }
-    }
-  },
+    },
     "action.notifications.dismissHighlight": {
       "extractionState": "manual",
       "localizations": {
@@ -84124,7 +84124,12 @@
     "action.agentChat.copyConversation": {
       "extractionState": "manual",
       "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Copy Conversation as Markdown"}},
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Conversation as Markdown"
+          }
+        },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
@@ -84250,7 +84255,12 @@
     "action.agentChat.copyHarnessSessionID": {
       "extractionState": "manual",
       "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Copy Harness Session ID"}},
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Harness Session ID"
+          }
+        },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
@@ -84376,7 +84386,12 @@
     "action.agentChat.copyName": {
       "extractionState": "manual",
       "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Copy Agent Name"}},
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Agent Name"
+          }
+        },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
@@ -84502,7 +84517,12 @@
     "action.agentChat.copyHost": {
       "extractionState": "manual",
       "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Copy Chat Host"}},
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Chat Host"
+          }
+        },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
@@ -84628,7 +84648,12 @@
     "action.agentChat.copySessionDetails": {
       "extractionState": "manual",
       "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Copy Session Details"}},
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Session Details"
+          }
+        },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
@@ -84754,7 +84779,12 @@
     "action.agentChat.copyWorkingDirectory": {
       "extractionState": "manual",
       "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Copy Working Directory"}},
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Working Directory"
+          }
+        },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
@@ -96821,81 +96851,396 @@
       "comment": "Cloud machine action: make the machine reachable by ssh from this Mac and add it as an agent host.",
       "extractionState": "manual",
       "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Enroll Machine as Agent Host"}},
-        "ja": {"stringUnit": {"state": "translated", "value": "マシンをエージェントホストとして登録"}},
-        "de": {"stringUnit": {"state": "needs_review", "value": "Maschine als Agent-Host einrichten"}},
-        "fr": {"stringUnit": {"state": "needs_review", "value": "Inscrire la machine comme hôte d’agents"}},
-        "es": {"stringUnit": {"state": "needs_review", "value": "Registrar la máquina como host de agentes"}},
-        "ar": {"stringUnit": {"state": "needs_review", "value": "تسجيل الجهاز كمضيف للوكلاء"}},
-        "ko": {"stringUnit": {"state": "needs_review", "value": "머신을 에이전트 호스트로 등록"}},
-        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "将机器登记为代理主机"}},
-        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "將機器登記為代理主機"}},
-        "bs": {"stringUnit": {"state": "needs_review", "value": "Upiši mašinu kao host za agente"}},
-        "da": {"stringUnit": {"state": "needs_review", "value": "Tilmeld maskine som agentvært"}},
-        "it": {"stringUnit": {"state": "needs_review", "value": "Registra la macchina come host degli agenti"}},
-        "km": {"stringUnit": {"state": "needs_review", "value": "ចុះឈ្មោះម៉ាស៊ីនជាម៉ាស៊ីនមេសម្រាប់ភ្នាក់ងារ"}},
-        "nb": {"stringUnit": {"state": "needs_review", "value": "Registrer maskinen som agentvert"}},
-        "pl": {"stringUnit": {"state": "needs_review", "value": "Zarejestruj maszynę jako host agentów"}},
-        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Registrar máquina como host de agentes"}},
-        "ru": {"stringUnit": {"state": "needs_review", "value": "Зарегистрировать машину как хост агентов"}},
-        "th": {"stringUnit": {"state": "needs_review", "value": "ลงทะเบียนเครื่องเป็นโฮสต์ของเอเจนต์"}},
-        "tr": {"stringUnit": {"state": "needs_review", "value": "Makineyi ajan ana bilgisayarı olarak kaydet"}},
-        "uk": {"stringUnit": {"state": "needs_review", "value": "Зареєструвати машину як хост агентів"}},
-        "vi": {"stringUnit": {"state": "needs_review", "value": "Đăng ký máy làm máy chủ tác tử"}}
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enroll Machine as Agent Host"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシンをエージェントホストとして登録"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Maschine als Agent-Host einrichten"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Inscrire la machine comme hôte d’agents"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Registrar la máquina como host de agentes"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تسجيل الجهاز كمضيف للوكلاء"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "머신을 에이전트 호스트로 등록"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "将机器登记为代理主机"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "將機器登記為代理主機"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Upiši mašinu kao host za agente"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tilmeld maskine som agentvært"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Registra la macchina come host degli agenti"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ចុះឈ្មោះម៉ាស៊ីនជាម៉ាស៊ីនមេសម្រាប់ភ្នាក់ងារ"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Registrer maskinen som agentvert"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zarejestruj maszynę jako host agentów"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Registrar máquina como host de agentes"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Зарегистрировать машину как хост агентов"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ลงทะเบียนเครื่องเป็นโฮสต์ของเอเจนต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Makineyi ajan ana bilgisayarı olarak kaydet"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Зареєструвати машину як хост агентів"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đăng ký máy làm máy chủ tác tử"
+          }
+        }
       }
     },
     "action.cloudApplyMachineConfig": {
       "comment": "Cloud machine action: apply the machine's .cmux/machine.toml (env, secret names, setup commands).",
       "extractionState": "manual",
       "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Apply Machine Config"}},
-        "ja": {"stringUnit": {"state": "translated", "value": "マシン構成を適用"}},
-        "de": {"stringUnit": {"state": "needs_review", "value": "Maschinenkonfiguration anwenden"}},
-        "fr": {"stringUnit": {"state": "needs_review", "value": "Appliquer la configuration de la machine"}},
-        "es": {"stringUnit": {"state": "needs_review", "value": "Aplicar la configuración de la máquina"}},
-        "ar": {"stringUnit": {"state": "needs_review", "value": "تطبيق إعداد الجهاز"}},
-        "ko": {"stringUnit": {"state": "needs_review", "value": "머신 구성 적용"}},
-        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "应用机器配置"}},
-        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "套用機器設定"}},
-        "bs": {"stringUnit": {"state": "needs_review", "value": "Primijeni konfiguraciju mašine"}},
-        "da": {"stringUnit": {"state": "needs_review", "value": "Anvend maskinkonfiguration"}},
-        "it": {"stringUnit": {"state": "needs_review", "value": "Applica configurazione della macchina"}},
-        "km": {"stringUnit": {"state": "needs_review", "value": "អនុវត្តការកំណត់ម៉ាស៊ីន"}},
-        "nb": {"stringUnit": {"state": "needs_review", "value": "Bruk maskinkonfigurasjon"}},
-        "pl": {"stringUnit": {"state": "needs_review", "value": "Zastosuj konfigurację maszyny"}},
-        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Aplicar configuração da máquina"}},
-        "ru": {"stringUnit": {"state": "needs_review", "value": "Применить конфигурацию машины"}},
-        "th": {"stringUnit": {"state": "needs_review", "value": "ใช้การกำหนดค่าเครื่อง"}},
-        "tr": {"stringUnit": {"state": "needs_review", "value": "Makine yapılandırmasını uygula"}},
-        "uk": {"stringUnit": {"state": "needs_review", "value": "Застосувати конфігурацію машини"}},
-        "vi": {"stringUnit": {"state": "needs_review", "value": "Áp dụng cấu hình máy"}}
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apply Machine Config"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシン構成を適用"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Maschinenkonfiguration anwenden"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Appliquer la configuration de la machine"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aplicar la configuración de la máquina"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تطبيق إعداد الجهاز"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "머신 구성 적용"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "应用机器配置"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "套用機器設定"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Primijeni konfiguraciju mašine"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Anvend maskinkonfiguration"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Applica configurazione della macchina"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "អនុវត្តការកំណត់ម៉ាស៊ីន"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bruk maskinkonfigurasjon"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zastosuj konfigurację maszyny"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aplicar configuração da máquina"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Применить конфигурацию машины"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ใช้การกำหนดค่าเครื่อง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Makine yapılandırmasını uygula"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Застосувати конфігурацію машини"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Áp dụng cấu hình máy"
+          }
+        }
       }
     },
     "action.cloudDeliverSecrets": {
       "comment": "Cloud machine action: send the values of the machine's declared secrets from this Mac's Keychain.",
       "extractionState": "manual",
       "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Deliver Secrets to Machine"}},
-        "ja": {"stringUnit": {"state": "translated", "value": "シークレットをマシンに配信"}},
-        "de": {"stringUnit": {"state": "needs_review", "value": "Geheimnisse an die Maschine übermitteln"}},
-        "fr": {"stringUnit": {"state": "needs_review", "value": "Transmettre les secrets à la machine"}},
-        "es": {"stringUnit": {"state": "needs_review", "value": "Entregar secretos a la máquina"}},
-        "ar": {"stringUnit": {"state": "needs_review", "value": "تسليم الأسرار إلى الجهاز"}},
-        "ko": {"stringUnit": {"state": "needs_review", "value": "머신에 비밀 전달"}},
-        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "将机密送达机器"}},
-        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "將機密送達機器"}},
-        "bs": {"stringUnit": {"state": "needs_review", "value": "Isporuči tajne mašini"}},
-        "da": {"stringUnit": {"state": "needs_review", "value": "Lever hemmeligheder til maskinen"}},
-        "it": {"stringUnit": {"state": "needs_review", "value": "Consegna i segreti alla macchina"}},
-        "km": {"stringUnit": {"state": "needs_review", "value": "បញ្ជូនអាថ៌កំបាំងទៅម៉ាស៊ីន"}},
-        "nb": {"stringUnit": {"state": "needs_review", "value": "Lever hemmeligheter til maskinen"}},
-        "pl": {"stringUnit": {"state": "needs_review", "value": "Dostarcz sekrety do maszyny"}},
-        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Entregar segredos à máquina"}},
-        "ru": {"stringUnit": {"state": "needs_review", "value": "Доставить секреты на машину"}},
-        "th": {"stringUnit": {"state": "needs_review", "value": "ส่งความลับไปยังเครื่อง"}},
-        "tr": {"stringUnit": {"state": "needs_review", "value": "Sırları makineye teslim et"}},
-        "uk": {"stringUnit": {"state": "needs_review", "value": "Доставити секрети на машину"}},
-        "vi": {"stringUnit": {"state": "needs_review", "value": "Gửi bí mật tới máy"}}
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deliver Secrets to Machine"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "シークレットをマシンに配信"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Geheimnisse an die Maschine übermitteln"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Transmettre les secrets à la machine"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Entregar secretos a la máquina"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تسليم الأسرار إلى الجهاز"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "머신에 비밀 전달"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "将机密送达机器"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "將機密送達機器"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Isporuči tajne mašini"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lever hemmeligheder til maskinen"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Consegna i segreti alla macchina"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បញ្ជូនអាថ៌កំបាំងទៅម៉ាស៊ីន"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lever hemmeligheter til maskinen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dostarcz sekrety do maszyny"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Entregar segredos à máquina"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Доставить секреты на машину"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ส่งความลับไปยังเครื่อง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sırları makineye teslim et"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Доставити секрети на машину"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gửi bí mật tới máy"
+          }
+        }
       }
     },
     "action.palette.computerUse.restart": {
@@ -97808,6 +98153,137 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "在左側新增欄"
+          }
+        }
+      }
+    },
+    "action.settings.customizeMenus": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Customize Right-Click Menus…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右クリックメニューをカスタマイズ…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تخصيص قوائم النقر بزر الماوس الأيمن…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prilagodi menije desnog klika…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tilpas højrekliksmenuer…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kontextmenüs anpassen…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Personalizar menús contextuales…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Personnaliser les menus contextuels…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Personalizza menu contestuali…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ប្ដូរម៉ឺនុយចុចខាងស្តាំតាមបំណង…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오른쪽 클릭 메뉴 사용자화…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tilpass høyreklikkmenyer…"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dostosuj menu kontekstowe…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Personalizar Menus de Contexto…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Настроить контекстные меню…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปรับแต่งเมนูคลิกขวา…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sağ Tık Menülerini Özelleştir…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Налаштувати контекстні меню…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tùy chỉnh menu chuột phải…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自定义右键菜单…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自訂右鍵選單…"
           }
         }
       }
