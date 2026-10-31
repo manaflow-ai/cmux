@@ -97,6 +97,8 @@ on:
       - scripts/cmux-next/build-optchat-inspector-web.sh
       - scripts/cmux-next/build-web-bundles.sh
       - scripts/cmux-next/web-bundle-key.py
+      # The feature tips' source (webviews/scripts/pages/gen-feature-tips.mjs).
+      - release-notes/next/highlights/**
       # Files outside webviews/ that webviews sources import (web-bundle-key.py --inputs;
       # tests/test_web_bundle_key_inputs.sh keeps this list complete).
       - web/data/model-catalog/**
@@ -368,6 +370,8 @@ on:
       - scripts/cmux-next/build-optchat-inspector-web.sh
       - scripts/cmux-next/build-web-bundles.sh
       - scripts/cmux-next/web-bundle-key.py
+      # The feature tips' source (webviews/scripts/pages/gen-feature-tips.mjs).
+      - release-notes/next/highlights/**
       # Files outside webviews/ that webviews sources import (web-bundle-key.py --inputs;
       # tests/test_web_bundle_key_inputs.sh keeps this list complete).
       - web/data/model-catalog/**
@@ -1384,7 +1388,8 @@ jobs:
           # The fast tier's reserved label, taken only while one of its runners is idle.
           FAST_LABEL: ${{ vars.CI_FAST_LANE_RUNNER }}
           # Generated files' own session lane, weighed like the gui and session routes (session_lane_runner).
-          SESSION_LANE: ${{ vars.CI_SESSION_LANE_RUNNER }}
+          # Fork branch first: a fork never reads the variable, and a label that is not glaeda-* places no lane.
+          SESSION_LANE: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_SESSION_LANE_RUNNER }}
           # The freshness slot (glaeda#1628: one side instance on opted-in minis carries only this label;
           # glaeda#1636: its hook admits cmux-scheme-compile on a feat-cmux-next push or a dev_daily dispatch
           # and a push's release-compile, and while idle it keeps one feed compile's units from PR jobs),
@@ -2194,8 +2199,13 @@ jobs:
           # the gate's few blobs come on demand. The full fetch of 2000 commits took 2-7 min of the job's
           # 10 on a push (401 s measured from a fresh depth-2 clone; blobless: 27 s). Same history as before.
           git fetch --no-tags --quiet --filter=blob:none --deepen=2000 origin "$GITHUB_SHA" || true
+          # A pull request is judged on its own commits (HEAD^1..HEAD of the merge): a base commit without the
+          # owner's record is a warning naming it here, and stays an error on every push sweep of the branch.
+          own=()
+          # pull_request only: there HEAD is GitHub's merge of the PR into its base; a dispatch runs on a branch tip.
+          [[ "$EVENT_NAME" == pull_request ]] && own=(--own-range HEAD^1..HEAD)
           if git merge-base --is-ancestor "$sidebar_from" HEAD 2>/dev/null; then
-            python3 -I scripts/cmux-next/prepush-gate.py --only sidebar --commits "$sidebar_from..HEAD" \
+            python3 -I scripts/cmux-next/prepush-gate.py --only sidebar --commits "$sidebar_from..HEAD" "${own[@]}" \
               | tee -a "$GITHUB_STEP_SUMMARY" || sweep=$?
           fi
           if [[ "$EVENT_NAME" != push ]]; then
@@ -3182,7 +3192,7 @@ jobs:
     # broad pass (~860 s on a slow mini) ran, so 90.
     timeout-minutes: 90
     outputs:
-      # The folded generated files verdict (generated-verdict reads it): fresh, stale or empty. A
+      # The folded generated files verdict (generated-verdict reads it): fresh, stale, catalog or empty. A
       # reused pass of a folded run was recorded only with the generated files fresh.
       generated_files: ${{ steps.reuse.outputs.hit == 'true' && 'fresh' || steps.generated-files-verdict.outputs.verdict }}
     env:
@@ -3665,9 +3675,19 @@ jobs:
         if: ${{ !cancelled() && env.CMUX_NEXT_FOLD_GENERATED == 'true' && steps.reuse.outputs.hit != 'true' }}
         env:
           ACTIONS: ${{ steps.actions.outcome }}
+          # failure when the action checks fail with fresh exports too (judge-action-exports.sh): not stale.
+          CATALOG: ${{ steps.actions.outputs.catalog }}
           SETTINGS: ${{ steps.settings.outcome }}
         run: |
-          if [[ "$ACTIONS" == failure || "$SETTINGS" == failure ]]; then
+          if [[ "$ACTIONS" == failure && "$CATALOG" == failure ]]; then
+            verdict=catalog
+            {
+              echo "### The action catalog checks fail: a catalog failure, not stale files"
+              echo
+              echo "Fresh exports fail the same checks, so regenerating changes nothing. The step \"Check generated action catalog, surfaces and inventory\" names the failing test."
+              [[ "$SETTINGS" != failure ]] || echo "- settings exports are also stale: scripts/cmux-next/regenerate-settings-exports.sh"
+            } | tee -a "$GITHUB_STEP_SUMMARY"
+          elif [[ "$ACTIONS" == failure || "$SETTINGS" == failure ]]; then
             verdict=stale
             {
               echo "### Generated cmux-next files are stale"
@@ -3756,7 +3776,7 @@ jobs:
       statuses: write
     timeout-minutes: 60
     outputs:
-      # The folded generated files verdict (generated-verdict reads it): fresh, stale or empty.
+      # The folded generated files verdict (generated-verdict reads it): fresh, stale, catalog or empty.
       generated_files: ${{ steps.generated-files-verdict.outputs.verdict }}
     env:
       CMUX_NEXT_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && (github.run_attempt == 1 || !contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && (needs.macos-placement.outputs.session_runner || needs.macos-placement.outputs.gui_runner) || github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || (needs.macos-placement.outputs.runner != '' && 'blacksmith-6vcpu-macos-26') || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && needs.macos-placement.outputs.gui_overflow != '' && needs.macos-placement.outputs.gui_overflow || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","workflow_dispatch"]'), github.event_name) && github.run_attempt == 1 && (vars.CI_SESSION_LABEL == '1' && 'glaeda-session-std-xcode-26.6' || 'glaeda-gui-std-xcode-26.6') || github.run_attempt != 1 && 'blacksmith-6vcpu-macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}
@@ -4075,9 +4095,19 @@ jobs:
         if: ${{ !cancelled() && env.CMUX_NEXT_FOLD_GENERATED == 'true' }}
         env:
           ACTIONS: ${{ steps.actions.outcome }}
+          # failure when the action checks fail with fresh exports too (judge-action-exports.sh): not stale.
+          CATALOG: ${{ steps.actions.outputs.catalog }}
           SETTINGS: ${{ steps.settings.outcome }}
         run: |
-          if [[ "$ACTIONS" == failure || "$SETTINGS" == failure ]]; then
+          if [[ "$ACTIONS" == failure && "$CATALOG" == failure ]]; then
+            verdict=catalog
+            {
+              echo "### The action catalog checks fail: a catalog failure, not stale files"
+              echo
+              echo "Fresh exports fail the same checks, so regenerating changes nothing. The step \"Check generated action catalog, surfaces and inventory\" names the failing test."
+              [[ "$SETTINGS" != failure ]] || echo "- settings exports are also stale: scripts/cmux-next/regenerate-settings-exports.sh"
+            } | tee -a "$GITHUB_STEP_SUMMARY"
+          elif [[ "$ACTIONS" == failure || "$SETTINGS" == failure ]]; then
             verdict=stale
             {
               echo "### Generated cmux-next files are stale"
@@ -4483,12 +4513,26 @@ jobs:
 
       - name: Fail on stale generated files
         if: ${{ (steps.actions.outcome == 'failure' || steps.settings.outcome == 'failure') && steps.reuse.outputs.hit != 'true' }}
+        env:
+          ACTIONS: ${{ steps.actions.outcome }}
+          CATALOG: ${{ steps.actions.outputs.catalog }}
+          SETTINGS: ${{ steps.settings.outcome }}
         run: |
+          if [[ "$ACTIONS" == failure && "$CATALOG" == failure ]]; then
+            {
+              echo "### The action catalog checks fail: a catalog failure, not stale files"
+              echo
+              echo "Fresh exports fail the same checks, so regenerating changes nothing. The step \"Check generated action catalog, surfaces and inventory\" names the failing test."
+              [[ "$SETTINGS" != failure ]] || echo "- settings exports are also stale: scripts/cmux-next/regenerate-settings-exports.sh"
+            } | tee -a "$GITHUB_STEP_SUMMARY"
+            echo "::error::The action catalog checks fail with fresh exports too: a catalog failure, not stale files."
+            exit 1
+          fi
           {
             echo "### Generated cmux-next files are stale"
             echo
-            [[ "${{ steps.actions.outcome }}" != failure ]] || echo "- action catalog, surfaces or inventory: scripts/cmux-next/regenerate-action-contracts.sh"
-            [[ "${{ steps.settings.outcome }}" != failure ]] || echo "- settings exports: scripts/cmux-next/regenerate-settings-exports.sh"
+            [[ "$ACTIONS" != failure ]] || echo "- action catalog, surfaces or inventory: scripts/cmux-next/regenerate-action-contracts.sh"
+            [[ "$SETTINGS" != failure ]] || echo "- settings exports: scripts/cmux-next/regenerate-settings-exports.sh"
             echo
             echo "The cmux-next-generated-patch artifact holds the regenerated files at their repository paths."
           } | tee -a "$GITHUB_STEP_SUMMARY"
@@ -4552,6 +4596,9 @@ jobs:
               echo "Generated cmux-next files are fresh ($HOST checked them on its package build)." | tee -a "$GITHUB_STEP_SUMMARY" ;;
             stale)
               echo "::error::Generated cmux-next files are stale. $HOST's step summary says how to regenerate them; its cmux-next-generated-patch artifact holds the regenerated files."
+              exit 1 ;;
+            catalog)
+              echo "::error::The action catalog checks fail on $HOST with fresh exports too: a catalog failure, not stale files. Regenerating changes nothing; $HOST's step \"Check generated action catalog, surfaces and inventory\" names the failing test."
               exit 1 ;;
             *)
               echo "::error::$HOST ($HOST_RESULT) gave no generated files verdict: its package build failed or it stopped before the checks. Fix or re-run $HOST."
