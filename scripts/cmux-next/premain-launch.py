@@ -289,17 +289,23 @@ def launch_release(app, label):
         out.write("{}\n")
     teardown = teardown_for(app)
     teardown.remember()
-    read_fd, write_fd = os.pipe()
     env = {"HOME": home, "CFFIXED_USER_HOME": home, "USER": os.environ.get("USER", ""),
            "TMPDIR": os.environ.get("TMPDIR", "/tmp"), "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
            "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_TEST_WINDOW_SCREEN": "last",
-           "CMUX_NEXT_CONFIG_FILE": os.path.join(home, "cmux.json"), "CMUX_NEXT_LAUNCH_MARKS_FD": str(write_fd)}
+           "CMUX_NEXT_CONFIG_FILE": os.path.join(home, "cmux.json")}
     before = checker_cpu()
+    read_fd, write_fd = os.pipe()
+    env["CMUX_NEXT_LAUNCH_MARKS_FD"] = str(write_fd)
     t0, spawn_t = time.time(), time.monotonic()
-    with bs.finder_limits():
-        proc = subprocess.Popen([binary], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                                start_new_session=True, pass_fds=(write_fd,))
-    os.close(write_fd)
+    try:
+        with bs.finder_limits():
+            proc = subprocess.Popen([binary], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                    start_new_session=True, pass_fds=(write_fd,))
+    except BaseException:
+        os.close(read_fd)
+        raise
+    finally:
+        os.close(write_fd)
     marks, buffer, main_seen, after = {}, b"", None, None
     deadline = spawn_t + TIMEOUT
     try:
@@ -420,10 +426,16 @@ def notarized_probe_body(root, adhoc_app, result):
     result["notarized_new_copy"] = [launch_release(app, f"notarized (new copy) run {i}") for i in (1, 2, 3)]
     quarantined = probe_copy(app, root, "Q")
     flag = f"01c1;{int(time.time()):x};Safari;"
-    code, _, err = run(["xattr", "-w", "com.apple.quarantine", flag, quarantined])
-    result["quarantine"] = {"flag": flag, "set": code == 0, "error": err.strip()[:200] or None,
-                            "spctl": " ".join(run(["spctl", "-a", "-vv", "-t", "exec", quarantined])[2].split())[:300]}
-    if code == 0:
+    # On every file, as a download copied out of a quarantined DMG has it: exec reads the executable's own attribute.
+    code, _, err = run(["xattr", "-w", "-r", "com.apple.quarantine", flag, quarantined], timeout=300)
+    executable = os.path.join(quarantined, "Contents/MacOS", plist["CFBundleExecutable"])
+    on_exe = run(["xattr", "-p", "com.apple.quarantine", executable])[1].strip()
+    spctl = " ".join(run(["spctl", "-a", "-vv", "-t", "exec", quarantined])[2].split())[:300]
+    result["quarantine"] = {"flag": flag, "set": code == 0, "on_executable": on_exe, "error": err.strip()[:200] or None,
+                            "spctl": spctl}
+    if code != 0 or on_exe != flag or "accepted" not in spctl:
+        result["quarantine"]["skipped"] = "not launched: the flag is not on the executable or spctl does not accept it"
+    else:
         result["notarized_quarantined_approved"] = [launch_release(quarantined, f"notarized quarantined (approved) run {i}")
                                                     for i in (1, 2, 3)]
     shutil.rmtree(os.path.dirname(quarantined), ignore_errors=True)
@@ -600,8 +612,8 @@ def main():
     parser.add_argument("--runs", type=int, default=3)
     parser.add_argument("--no-xctrace", action="store_true")
     parser.add_argument("--exec-probe", action="store_true",
-                        help="also the exec-wait probe (ad-hoc bench app, notarized nightly, nightly re-signed ad hoc), after the launches")
-    parser.add_argument("--exec-probe-only", action="store_true", help="only the exec-wait probe, no app launch")
+                        help="also the signing probe (full launches: ad-hoc bench copy, notarized nightly, approved-quarantine nightly, nightly re-signed ad hoc), after the launches")
+    parser.add_argument("--exec-probe-only", action="store_true", help="only the signing probe, none of the A/B/C launches")
     args, _ = parser.parse_known_args()
     app = os.path.abspath(args.app)
     root = os.path.join(os.path.abspath(args.out), "premain-copies")
