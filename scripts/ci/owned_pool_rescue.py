@@ -250,6 +250,7 @@ from pr_runner_pool import MAX_QUEUE_ROUNDS, QUEUE_ROUND_MINUTES, nightly_dedica
 CI_WORKFLOW_PATH = ".github/workflows/ci.yml"
 IOS_TEST_WORKFLOW_PATH = ".github/workflows/test-ios.yml"
 IOS_SCREENSHOTS_WORKFLOW_PATH = ".github/workflows/ios-screenshots.yml"
+IOS_KIT_WORKFLOW_PATH = ".github/workflows/cmux-next-ios-kit.yml"
 IROH_RELEASE_GATE_WORKFLOW_PATH = ".github/workflows/iroh-release-gate.yml"
 # The DEV publisher's runner job offers its secret-free verify job to an owned
 # Mac while one is free, then leaves the workflow's Blacksmith fallback.
@@ -257,7 +258,7 @@ CMUX_NEXT_DEV_DAILY_WORKFLOW_PATH = ".github/workflows/cmux-next-dev-daily.yml"
 # workflow_dispatch runs watched as dispatch runs: each has a `runner` job that
 # picks the pool and uploads the marker.
 DISPATCH_WORKFLOW_PATHS = (IOS_TEST_WORKFLOW_PATH, IOS_SCREENSHOTS_WORKFLOW_PATH, IROH_RELEASE_GATE_WORKFLOW_PATH,
-                           CMUX_NEXT_DEV_DAILY_WORKFLOW_PATH)
+                           CMUX_NEXT_DEV_DAILY_WORKFLOW_PATH, IOS_KIT_WORKFLOW_PATH)
 # Workflows whose picker may queue a run's jobs on an owned pool within
 # CI_PR_POOL_QUEUE_ROUNDS (ios_runner_pool.py reads it since run 36136190497).
 QUEUEING_WORKFLOW_PATHS = (CI_WORKFLOW_PATH, IOS_TEST_WORKFLOW_PATH)
@@ -970,11 +971,12 @@ def target_from_event(event: Mapping[str, Any], repository: str) -> Target | str
             and run.get("head_branch") == MAIN_BRANCH)
     # test-ios.yml also runs for pull requests: watched as an E2E run, but
     # against its pull request's head like a CI run.
-    ios_pull = path == IOS_TEST_WORKFLOW_PATH and run.get("event") == "pull_request"
+    ios_pull = path in (IOS_TEST_WORKFLOW_PATH, IOS_KIT_WORKFLOW_PATH) and run.get("event") == "pull_request"
+    kit_push = path == IOS_KIT_WORKFLOW_PATH and run.get("event") == "push"
     expected = "workflow_dispatch" if e2e else "pull_request"
     # A side lane's trusted non-PR run (push, schedule, dispatch) is watched too.
     side_trusted = side and run.get("event") in TRUSTED_SIDE_EVENTS
-    if run.get("event") != expected and not on_main and not ios_pull and not side_trusted:
+    if run.get("event") != expected and not on_main and not ios_pull and not kit_push and not side_trusted:
         what = f"{expected} or a dispatch on {MAIN_BRANCH}" if path == CI_WORKFLOW_PATH else expected
         return f"a {run.get('event') or 'unknown'} run of {path}, not a {what}"
     head = (run.get("head_repository") or {}).get("full_name") or ""
@@ -1152,7 +1154,7 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
                           judged=nightly_watched if target.nightly else None,
                           include_blacksmith_macos=target.side and not target.nightly,
                           health_snapshot=health)
-            if look.action == "refused" and not finished and seen_at < deadline and not target.main:
+            if look.action == "refused" and not finished and seen_at < deadline and not target.main and target.path != IOS_KIT_WORKFLOW_PATH:
                 # GitHub re-runs no job of a run still in progress (403 "already
                 # running", for one job or the failed ones), and cancelling
                 # the run to re-run it killed every healthy sibling (run
@@ -1310,7 +1312,7 @@ def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep
             return "not rescued: the run already finished"
         api.rerun_failed(target.run_id, target.attempt + 1)
         return f"re-ran the failed jobs of run {target.run_id}; {next_attempt(target)}"
-    if target.pr_number:
+    if target.pr_number and target.path != IOS_KIT_WORKFLOW_PATH:
         # Actions cannot re-run a queued job while its run is active, and a
         # job-level retry would retain the successful upstream placement.
         # Never cancel an open PR at its current head to obtain a new attempt.
@@ -1445,6 +1447,8 @@ def follow(client: GitHub, target: Target, *, seconds: int, queue_rounds: str | 
     rescue_sleep = rescue_sleep or sleep
     clock = now
     effective_seconds = side_seconds if target.path == CMUX_NEXT_WORKFLOW_PATH and side_seconds is not None else seconds
+    if target.path == IOS_KIT_WORKFLOW_PATH:
+        effective_seconds = min(effective_seconds, 180)
 
     def capped(deadline: dt.datetime) -> dt.datetime:
         return min(deadline, latest) if latest is not None else deadline

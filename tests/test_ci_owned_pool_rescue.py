@@ -974,6 +974,10 @@ def e2e_runner(done_at=30):
     return lambda seconds: job("runner", status="completed" if seconds >= done_at else "in_progress")
 
 
+def kit_event(**overrides):
+    return event(**{"path": ".github/workflows/cmux-next-ios-kit.yml", **overrides})
+
+
 class Dispatch(unittest.TestCase):
     """A dispatch run whose runner job picked an owned pool (iroh-release-gate.yml here)."""
 
@@ -990,6 +994,14 @@ class Dispatch(unittest.TestCase):
                          (RUN_ID, 0, True, "runner"))
         self.assertEqual(target.watch_limit, rescue.E2E_WATCH_LIMIT_SECONDS)
 
+    def test_kit_pull_request_and_push_are_watched_by_the_dispatch_rescue(self):
+        target = rescue.target_from_event(kit_event(), "manaflow-ai/cmux")
+        self.assertIsInstance(target, rescue.Target)
+        self.assertEqual((target.pr_number, target.e2e, target.picker_job), (42, True, "runner"))
+        push = rescue.target_from_event(kit_event(event="push", pull_requests=[]), "manaflow-ai/cmux")
+        self.assertIsInstance(push, rescue.Target)
+        self.assertEqual((push.pr_number, push.e2e), (0, True))
+
     def test_ephemeral_e2e_run_stops_after_the_marker_check(self):
         clock = Clock()
         api = FakeAPI(clock, lambda s: [e2e_runner()(s)])
@@ -997,6 +1009,20 @@ class Dispatch(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(api.calls, ["jobs", f"artifact:macos-pool-persistent-{RUN_ID}-1-"])
         self.assertIn("a dispatch of .github/workflows/iroh-release-gate.yml", summary)
+
+    def test_a_stuck_kit_pull_request_reruns_after_owned_queue_stall(self):
+        def jobs(seconds):
+            found = [e2e_runner()(seconds)]
+            if seconds >= 40:
+                found.append(job("CmuxMobileKit tests (macOS swift test, iOS simulator)", labels=[MINI], created=40))
+            return found
+        clock = Clock()
+        api = FakeAPI(clock, jobs, marker=True)
+        code, summary = run_main(api, clock, payload=kit_event(), env_extra={"RESCUE_SECONDS": "600"})
+        self.assertEqual(code, 0, summary)
+        self.assertIn("rerun-failed", api.calls)
+        self.assertIn("cancel", api.calls)
+        self.assertIn("budget 180s", summary)
 
     def test_a_stuck_e2e_job_reruns_only_what_failed_without_a_pull_request(self):
         def jobs(seconds):
@@ -2256,7 +2282,7 @@ class Workflow(unittest.TestCase):
             {"iOS App Store screenshots", "Nightly macOS build", "CI", "iOS simulator tests", "Iroh release gate",
              "Agent brand icons", "Auth and session lifecycle", "cmux-next base autofix", "cmux-next batch queue",
              "cmux-next frame pacing", "cmux-next media", "cmux-next PR autofix", "cmux-next CEF shim C++ tests",
-             "cmux-next", "cmux-tui artifacts", "cmux NEXT DEV daily",
+             "cmux-next", "cmux-tui artifacts", "cmux NEXT DEV daily", "cmux-next-ios kit tests",
              "cmux-next", "cmux-tui", "IROH v2", "Relay TLS system trust", "reload-build",
              "SSH remote daemon", "Terminal hang diagnostics", "Feed reply provider verification",
              "nightly-next launch smoke", "cmux NEXT Stable"},

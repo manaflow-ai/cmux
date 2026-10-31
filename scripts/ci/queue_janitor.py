@@ -397,7 +397,7 @@ MAX_ARTIFACT_PAGES = 5
 # (post-admission jobs reuse admission's machine, so placed can exceed jobs).
 # The dispatch markers, and ones uploaded before `p<placed>`, omit it.
 # workflow_dispatch workflows whose runner job may pick an owned pool and upload it.
-OWNED_DISPATCH_WORKFLOWS = ("/test-ios.yml", "/ios-screenshots.yml", "/iroh-release-gate.yml")
+OWNED_DISPATCH_WORKFLOWS = ("/test-ios.yml", "/ios-screenshots.yml", "/cmux-next-ios-kit.yml", "/iroh-release-gate.yml")
 OWNED_MARKER = re.compile(r"macos-pool-persistent-(?P<run>[0-9]+)-(?P<attempt>[0-9]+)-(?P<jobs>[0-9]+)"
                           r"(?:p(?P<placed>[0-9]+))?-(?P<pool>.+)")
 
@@ -461,7 +461,8 @@ def may_hold_owned_pool(run: Mapping[str, Any], jobs: Sequence[Mapping[str, Any]
     if run.get("event") == "workflow_dispatch":
         return path.endswith(OWNED_DISPATCH_WORKFLOWS) or (
             path.endswith("/ci.yml") and run.get("head_branch") == "main")
-    return run.get("event") == "pull_request" and path.endswith("/ci.yml")
+    return ((run.get("event") == "pull_request" and (path.endswith("/ci.yml") or path.endswith("/cmux-next-ios-kit.yml"))) or
+            (run.get("event") == "push" and path.endswith("/cmux-next-ios-kit.yml")))
 
 
 def marker_may_exist(run: Mapping[str, Any], jobs: Sequence[Mapping[str, Any]]) -> bool:
