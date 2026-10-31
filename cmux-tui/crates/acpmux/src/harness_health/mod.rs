@@ -169,6 +169,7 @@ pub(crate) fn builtin_login(family: &str) -> Option<&'static str> {
         "gemini" => "gemini",
         "opencode" => "opencode auth login",
         "unii" => "unii login",
+        "hermes" => "hermes model",
         _ => return None,
     })
 }
