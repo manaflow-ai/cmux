@@ -141,7 +141,7 @@
    (chips/chips.css .cv-media__duration). A click plays it. */
 .acpmux-attachment-video-open {
   position: relative;
-  cursor: pointer;
+  cursor: default;
 }
 .acpmux-attachment-video-play {
   position: absolute;
@@ -265,7 +265,7 @@
   color: var(--agent-text);
   font: inherit;
   font-size: var(--text-caption);
-  cursor: pointer;
+  cursor: default;
   letter-spacing: var(--text-caption--letter-spacing);
 }
 .acpmux-attachment-retry:hover {
@@ -467,7 +467,7 @@
   background: color-mix(in srgb, var(--acpmux-composer-bg) 82%, transparent);
   box-shadow: 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge);
   color: var(--agent-text);
-  cursor: pointer;
+  cursor: default;
 }
 .acpmux-attachment-file .acpmux-attachment-remove {
   top: 8px;

@@ -107,6 +107,7 @@ import datetime as dt
 import importlib.util
 import math
 import os
+import signal
 import sys
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -123,6 +124,13 @@ def _picker():
 
 pool = _picker()
 SIDE_RETRY_CAP_SECONDS = 5.0
+# Keep the placement step below its workflow timeout. A timed-out read must
+# leave a concrete default route, not strand the dependent Mac jobs.
+PLACEMENT_DEADLINE_SECONDS = 90
+
+
+class PlacementDeadline(BaseException):
+    """A whole-operation deadline that per-request error handlers cannot swallow."""
 
 
 def _cascade():
@@ -289,6 +297,17 @@ def healthy_role_label(live: str, runners: Sequence[Mapping[str, Any]] | None, s
     """`live` (a gui_route_label() or session_route_label() result) while role_room() holds, else ""."""
     if not live or runners is None:
         return live
+    # The janitor's glaeda health contract is the authoritative full-pool
+    # signal. A queued job whose label has no listening runner and is held
+    # offline for capacity, CPU, or claim livelock overflows immediately; the
+    # existing runner/queue comparison remains the fallback until those fields
+    # are present in the artifact.
+    if getattr(seen, "owned_full", {}).get(live, False):
+        return ""
+    if getattr(seen, "owned_full_known", {}).get(live, False):
+        # No backlog is not proof that a listener exists: an empty/offline
+        # session lane must not become a route merely because it is not full.
+        return live if _role_online(live, runners)[0] else ""
     return live if role_room(live, runners, seen, waiting) else ""
 
 
@@ -568,12 +587,13 @@ FEAT_BRANCH = "refs/heads/feat-cmux-next"
 def rerun_main(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None) -> int:
     """The rescue's full re-run (next_macos_cascade.bot_rerun()): only the cascade is placed afresh.
 
-    The owned routes stay empty, as every re-run had them: the jobs that read runner, gui_runner,
+    The side runner is emitted only for freshly allocated owned jobs. Other owned routes stay empty:
+    the jobs that read gui_runner,
     session_runner, the free GUI and session labels, fast_runner or gateway_runner keep the routes their
     runs-on gives a re-run. With no gateway the build-fleet compiles skip, so their Mac fallbacks cascade.
 
     Idle minis are counted on SIDE_LABEL itself: a re-run's cascade jobs fall back to
-    vars.CI_SIDE_LANE_RUNNER, never to side_route()'s wider class (runner is not read). A FEAT_BRANCH
+    that exact label, never to side_route()'s wider class. A FEAT_BRANCH
     push's Release compile takes no placement on a re-run (its runs-on reads it on attempt 1 only), so it
     leaves the cascade and takes no slot, and no idle mini is counted for it.
     """
@@ -599,7 +619,7 @@ def rerun_main(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | No
             # The GUI jobs of the rescue's re-run never read gui_runner: they leave the owned GUI queue they were
             # rescued from for Blacksmith macOS (cmux-next.yml's gui_overflow leg).
             handle.write(f"owned_jobs={delimited(owned)}\nfallback_jobs={delimited(fallback)}\n"
-                         f"gui_overflow={GUI_OVERFLOW}\n"
+                         f"runner={label if owned else ''}\ndeferred_runner={label}\ngui_overflow={GUI_OVERFLOW}\n"
                          f"watch={'false' if fallback and not owned else 'true'}\n")
     live, waiting, seen = cascade.read(env, pool, now=dt.datetime.now(dt.timezone.utc))
     # Runners read: the jobs past `owned` have no idle mini, so the cascade's overflow may take them.
@@ -610,7 +630,7 @@ def rerun_main(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | No
     return 0
 
 
-def main(env: Mapping[str, str] = os.environ) -> int:
+def _main(env: Mapping[str, str] = os.environ) -> int:
     runners = None
     repo = env.get("GITHUB_REPOSITORY", "")
     # The routing App first, then cmux-bot (ROUTE_TOKEN_FALLBACK) when the first read is refused.
@@ -694,7 +714,7 @@ def main(env: Mapping[str, str] = os.environ) -> int:
             free_gui = free_gui_route_label(label, runners)
             free_session = free_session_route_label(label, runners)
             handle.write(f"owned_jobs={delimited(owned)}\nfallback_jobs={delimited(fallback)}\n"
-                         f"runner={route}\ngui_runner={gui_route}\nsession_runner={session_route}\n"
+                         f"runner={route}\ndeferred_runner={route or label}\ngui_runner={gui_route}\nsession_runner={session_route}\n"
                          f"free_gui_runner={free_gui}\nfree_session_runner={free_session}\n"
                          f"gui_overflow={gui_overflow}\nsession_lane_runner={session_lane}\n"
                          f"nightly_runner_ready={'true' if dedicated_ready else ''}\n"
@@ -730,6 +750,45 @@ def main(env: Mapping[str, str] = os.environ) -> int:
     print(f"macOS cascade: {placed.why}")
     cascade.write(placed, env)
     return 0
+
+
+def _timeout_fallback(env: Mapping[str, str]) -> int:
+    """Publish a safe ephemeral Mac route when placement reads exceed the deadline."""
+    output = env.get("GITHUB_OUTPUT")
+    if output:
+        with open(output, "a", encoding="utf-8") as handle:
+            handle.write(
+                f"owned_jobs=\nfallback_jobs=\nrunner={cascade.SMALL}\ndeferred_runner=\n"
+                f"gui_runner=\nsession_runner=\nfree_gui_runner=\nfree_session_runner=\n"
+                f"gui_overflow={cascade.SMALL}\nsession_lane_runner=\n"
+                f"nightly_runner_ready=\nfast_runner=\nfresh_runner=\nfresh_jobs=\n"
+                f"gateway_runner=\ngateway_attempt=\nwatch=false\n"
+                f"blacksmith_12_jobs=\nblacksmith_6_jobs=\nfresh_stalled=\nfleet_jobs=\n"
+                f"retry_runner={cascade.SMALL}\nfree_retry_runner={cascade.SMALL}\n"
+            )
+    summary = env.get("GITHUB_STEP_SUMMARY")
+    if summary:
+        with open(summary, "a", encoding="utf-8") as handle:
+            handle.write("### macOS placement\n\nPlacement exceeded its read deadline; using "
+                         f"{cascade.SMALL}.\n")
+    print(f"::warning title=side-lane placement::read deadline exceeded; using {cascade.SMALL}")
+    return 0
+
+
+def main(env: Mapping[str, str] = os.environ) -> int:
+    """Run placement with a hard deadline and a deterministic default route."""
+    previous = signal.getsignal(signal.SIGALRM)
+    def timeout(_signum: int, _frame: Any) -> None:
+        raise PlacementDeadline("side-lane placement read deadline exceeded")
+    try:
+        signal.signal(signal.SIGALRM, timeout)
+        signal.setitimer(signal.ITIMER_REAL, PLACEMENT_DEADLINE_SECONDS)
+        return _main(env)
+    except PlacementDeadline:
+        return _timeout_fallback(env)
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous)
 
 
 if __name__ == "__main__":

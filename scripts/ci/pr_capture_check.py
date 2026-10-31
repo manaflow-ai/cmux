@@ -15,10 +15,15 @@ Real capture, any one of:
     tour the head at that moment on a Mac and post the shots in the status comment; a later
     push does not tour again, so re-add the label or run `cmux-ci capture` for a newer head;
     the label is taken on trust, the tour reports itself);
+  - this pull request's own pr-media stills in the body (an image under
+    raw.githubusercontent.com/manaflow-ai/cmux/pr-media/<this PR>/, outside code and comments) with no
+    marker: what `pr-media` uploads for a lane that cannot capture itself (a lane VM), or for a capture
+    whose marker was not pasted (#27786 was failed with four of its own stills in the body). It is not
+    tied to a commit, so it passes with a warning to capture again if the UI changed since;
   - a line saying why none applies: `No capture: <reason>` (a refactor with no visible change).
 
-When a capture is required, the description must also say that the after image was viewed and
-include a one-sentence visual verdict.
+When a capture, a label or pr-media stills show the change, the description must also say that
+the after image was viewed and include a one-sentence visual verdict.
 
 A capture of an older commit passes with a warning. Prints GitHub annotations; exits 1 when the
 change is native UI and none of the above is there, 0 otherwise (2 on bad input).
@@ -79,6 +84,10 @@ def evidence(body: str, labels: set[str], pr: str = "") -> tuple[str, str | None
         return "media tour label", None
     if NO_CAPTURE.search(COMMENT.sub("", text)):
         return "no-capture reason", None
+    # This pull request's own pr-media stills with no marker (module docs). Only its own folder counts, and only
+    # when the PR number is known: another PR's stills are not this change's.
+    if pr.isdigit() and media.search(INLINE_CODE.sub("", COMMENT.sub("", text))):
+        return "pr-media stills", None
     return "", None
 
 
@@ -209,7 +218,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     how, sha = evidence(body, {l.strip() for l in a.labels.split(",") if l.strip()}, a.pr)
     if how:
-        if how in {"capture", "media tour label"} and not visual_judgment(body):
+        if how in {"capture", "media tour label", "pr-media stills"} and not visual_judgment(body):
             print("::error title=After image review required::This capture is missing the required review proof. "
                   "Add these body lines exactly:\n"
                   "Viewed after image: yes\n"
@@ -219,6 +228,9 @@ def main(argv: list[str] | None = None) -> int:
         if sha and a.head_sha and sha != a.head_sha:
             print(f"::warning::The capture is of {sha[:12]}, not the head {a.head_sha[:12]}. "
                   "Capture again if the UI changed since.")
+        if how == "pr-media stills":
+            print("::warning::The pr-media stills carry no capture marker, so they name no commit. "
+                  "Capture again if the UI changed since they were taken.")
         return 0
     sha = a.head_sha or "<head sha>"
     commands = "\n".join("  " + COMMAND.format(sha=sha, tour=t, pr=a.pr) for t in tours[:3])
