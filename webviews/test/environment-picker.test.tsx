@@ -40,6 +40,7 @@ let root: Root | undefined;
 let host: HTMLElement;
 /// How often the picker asked the host to read the machines again (`onRefreshMachines`).
 let refreshes = 0;
+let updateProps: (extra: Record<string, unknown>) => Promise<void>;
 
 beforeAll(() => {
   dom = new JSDOM("<!doctype html><div id=root></div>", {
@@ -137,14 +138,18 @@ async function mount(environments: boolean, extra: Record<string, unknown> = {})
   } as unknown as Parameters<typeof ComposerContext>[0];
   root = createRoot(host);
   // The composer this row heads: ⌥⌘1–9 work while its field has focus.
-  await act(async () =>
-    root!.render(
-      <form className="acpmux-composer">
-        <ComposerContext {...props} />
-        <textarea aria-label="Prompt" />
-      </form>,
-    ),
-  );
+  updateProps = async (extra) => {
+    Object.assign(props, extra);
+    await act(async () =>
+      root!.render(
+        <form className="acpmux-composer">
+          <ComposerContext {...props} />
+          <textarea aria-label="Prompt" />
+        </form>,
+      ),
+    );
+  };
+  await updateProps({});
   return calls;
 }
 
@@ -248,6 +253,63 @@ test("previews off: the row keeps its plain Computer menu", async () => {
   await openPicker();
   expect(doc().querySelector(".acpmux-env-popover")).toBeNull();
 });
+
+for (const environments of [false, true]) {
+  // Base UI retains a closed popup during its exit transition; only an open popup can cover the ask.
+  const menu = () =>
+    doc().querySelector(
+      environments ? ".acpmux-env-popover:not([data-closed])" : ".acpmux-location-menu:not([data-closed])",
+    );
+  test(`trust question closes an open destination picker (previews ${environments})`, async () => {
+    await mount(environments);
+    await openPicker();
+    expect(menu()).not.toBeNull();
+    await updateProps({ closeOnTrustAsk: true });
+    expect(menu()).toBeNull();
+    expect(computerButton()?.getAttribute("aria-expanded")).toBe("false");
+    await openPicker();
+    expect(menu()).toBeNull();
+    await updateProps({ closeOnTrustAsk: false });
+    await openPicker();
+    expect(menu()).not.toBeNull();
+  });
+  for (const via of ["trigger", "opener"] as const) {
+    test(`trust question prevents destination picker mounting via ${via} (previews ${environments})`, async () => {
+      await mount(environments, { closeOnTrustAsk: true });
+      const { flushSync } = await import("react-dom");
+      const { openPicker: openRegisteredPicker } = await import("../src/agent-session/acpmux/pickerOpeners");
+      const selector = environments ? ".acpmux-env-popover" : ".acpmux-location-menu";
+      // Record even a node inserted and removed in the same commit/effect flush. Checking only
+      // the final open state misses the popup stealing focus and refreshing before it closes.
+      const observer = new dom.window.MutationObserver(() => {});
+      observer.observe(doc().body, { childList: true, subtree: true });
+      try {
+        await act(async () => {
+          flushSync(() => {
+            if (via === "trigger") computerButton()!.click();
+            else expect(openRegisteredPicker("Computer")).toBe(true);
+          });
+          // Assert before the outer act flush; mutation records also catch anything flushSync flushed.
+          expect(Boolean(doc().querySelector(selector))).toBe(false);
+          expect(refreshes).toBe(0);
+          const insertedPopup = observer
+            .takeRecords()
+            .some((record) =>
+              [...record.addedNodes].some(
+                (node) =>
+                  node instanceof dom.window.Element && (node.matches(selector) || node.querySelector(selector)),
+              ),
+            );
+          expect(insertedPopup).toBe(false);
+        });
+        expect(Boolean(doc().querySelector(selector))).toBe(false);
+        expect(refreshes).toBe(0);
+      } finally {
+        observer.disconnect();
+      }
+    });
+  }
+}
 
 // A fresh home must offer setup without enabling the environments preview. The same
 // plain Computer menu is usable from an existing local chat; its machine stays fixed.

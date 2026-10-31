@@ -61,6 +61,7 @@ jobs:
           persist-credentials: false
           sparse-checkout: |
             scripts/ci/defaults_guard.py
+            scripts/ci/pr_status.py
             .github/defaults-call-owners.json
           sparse-checkout-cone-mode: false
 
