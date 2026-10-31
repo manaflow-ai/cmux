@@ -53,6 +53,9 @@
 #           the token), the phone's Settings > Devices (a base ref gives
 #           the "before") and its scanner with the camera off; the Mac's
 #           pairing log, hostd's log and paired-devices.json, keys redacted.
+#           Then the upload leg: the phone streams a sparse ~150 MB file (past
+#           the old 100 MiB cap) to the Mac with its own LinkUpload, and the
+#           stored file's size and SHA-256 must match (UploadProbe.swift).
 #
 # Isolation: the step makes its own simulator device set under its checkout
 # (`simctl --set`), so it never lists, boots or deletes another simulator, and
