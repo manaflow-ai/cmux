@@ -81,9 +81,23 @@ public final class AcpmuxChatWindows {
         /// cards, the palette's chats page): only this window's messages call it.
         @ObservationIgnored private var followers: [(owner: () -> AnyObject?, changed: @MainActor ([AcpmuxChat]) -> Void)] = []
 
+        /// Called when acpmux will not answer this window's current request (it refused it, busy, or the
+        /// connection dropped while it was in flight), while their owner lives.
+        @ObservationIgnored private var refusals: [(owner: () -> AnyObject?, refused: @MainActor () -> Void)] = []
+
         /// Calls `changed` with the rows after each message of this window, while `owner` lives.
         public func follow(_ owner: AnyObject, _ changed: @escaping @MainActor ([AcpmuxChat]) -> Void) {
             followers.append(({ [weak owner] in owner }, changed))
+        }
+
+        /// Calls `refused` when acpmux will not answer this window's current request, while `owner` lives.
+        public func followRefusal(_ owner: AnyObject, _ refused: @escaping @MainActor () -> Void) {
+            refusals.append(({ [weak owner] in owner }, refused))
+        }
+
+        fileprivate func refused() {
+            refusals.removeAll { $0.owner() == nil }
+            for refusal in refusals { refusal.refused() }
         }
 
         fileprivate func set(rows: [AcpmuxChat], total: Int? = nil) {
@@ -188,7 +202,15 @@ public final class AcpmuxChatWindows {
     /// The connection is gone: windows keep their rows until the next one answers.
     public func disconnected() {
         send = nil
+        // A request in flight on the dropped connection gets no answer from it.
+        for id in awaitingFull.sorted() { models[id]?.refused() }
     }
+
+    /// Whether a connection to acpmux is up (a window opened now is asked at once).
+    public var isConnected: Bool { send != nil }
+
+    /// Whether acpmux refused window `id`'s current request (busy); it is asked again at the next index change.
+    public func isRefused(_ id: String) -> Bool { failed.contains(id) }
 
     /// The connection dropped a notification (`_acpmux/lagged`): every window is asked again.
     public func resync() {
@@ -203,6 +225,7 @@ public final class AcpmuxChatWindows {
         guard specs[id] != nil else { return }
         awaitingFull.remove(id)
         failed.insert(id)
+        models[id]?.refused()
     }
 
     /// Asks again for every window whose request failed (an index change: the daemon is serving).
@@ -245,10 +268,11 @@ public final class AcpmuxChatWindows {
 
     /// Whether `spec` is its window's current spec and acpmux answered it (the rows are `spec`'s). A
     /// window asked again (a reconnect, a lag, a broken diff) is not answered until its full answer
-    /// comes: until then its rows are the old connection's.
+    /// comes, nor one whose request acpmux refused: until then its rows are the old connection's.
     public func isAnswered(_ spec: Spec) -> Bool {
         specs[spec.window] == spec && answeredGeneration[spec.window] != nil
             && answeredGeneration[spec.window] == generations[spec.window] && !awaitingFull.contains(spec.window)
+            && !failed.contains(spec.window)
     }
 
     /// Asks for `spec`'s whole window, once until it comes.

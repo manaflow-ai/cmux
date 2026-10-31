@@ -279,23 +279,23 @@ extension PaletteModel {
     func deliver(_ sections: [PaletteResultSection], to state: PageState, generation: Int, provisional: Bool = false,
                  complete: Bool = true) {
         guard pages[state.levelID] === state, state.generation == generation else { return }
-        // The contributed answers join the ranked rows (`PaletteContributedAnswers`). A leading answer the
-        // query still waits for keeps its rows provisional: not final, and a Return waits for it.
+        // The contributed answers join the ranked rows (`PaletteContributedAnswers`): an older query's answer
+        // shows only as a stand-in that navigation never selects, and a held query's rows are not final.
         state.rankedSections = sections
         state.rankedGeneration = generation
         state.rankedProvisional = provisional
         state.rankedComplete = complete
-        let held = !state.pendingLeads.isEmpty
-        let sections = state.answerSections.isEmpty ? sections
-            : Self.withAnswers(sections, answers: Array(state.answerSections.values), leading: state.leadingAnswers)
+        let joined = Self.joined(sections, state: state)
+        let held = joined.held
+        let sections = joined.shown
         state.lastSections = sections
         state.awaitsRank = provisional
         if !provisional { recordShownDeferredItems(sections, on: state) }
         if shownLevelID == state.levelID {
-            queryFrames.delivered(final: complete && !provisional, answerRows: 0)
+            queryFrames.delivered(final: complete && !provisional, answerRows: state.currentAnswers.reduce(0) { $0 + $1.rows.count })
             display(sections)
         }
-        send(.results(levelID: state.levelID, generation: generation, rows: navRows(sections), replace: true,
+        send(.results(levelID: state.levelID, generation: generation, rows: navRows(joined.selectable), replace: true,
                       isFinal: complete && !provisional && !held && state.pendingProviders.isEmpty,
                       emptyQuerySelection: state.emptyQuerySelection, provisional: provisional || held))
     }

@@ -97,8 +97,19 @@ public struct AgentChatsPalettePage {
         windows.window(window).follow(token) { rows in
             if windows.isAnswered(spec) { answer(rows) }
         }
+        // acpmux will not answer (refused, or the connection dropped): the query ends with no rows at once,
+        // so the palette never waits for chats that will not come.
+        let none = {
+            continuation.yield([])
+            continuation.finish()
+        }
+        windows.window(window).followRefusal(token) { none() }
         windows.open(spec)
-        if windows.isAnswered(spec) { answer(windows.window(window).rows) }
+        if windows.isAnswered(spec) {
+            answer(windows.window(window).rows)
+        } else if !windows.isConnected || windows.isRefused(window) {
+            none()
+        }
         continuation.onTermination = { _ in withExtendedLifetime(token) {} }
         return stream
     }

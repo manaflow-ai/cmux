@@ -43,11 +43,21 @@ characters are scarce). Its page reuses the providers the other pages already ha
 New code is only composition: `PaletteSources.searchContributions` (a list of the App's
 pages that join Search, each under its own section) and `PaletteController.searchPage()`.
 Every provider still returns its candidate set once; the palette's `PaletteSearcher` ranks
-off the main actor per keystroke, as it does for every page. A contributed page that answers
-its own queries (agent chats) is asked once per typed query instead, and its answer lands in a
-later turn beside the ranked rows; it never holds the rows from being final, so Return never
-waits for it. Nothing new runs on the main
-thread per keystroke, and the search page opens from the last snapshot in the first frame.
+off the main actor per keystroke, as it does for every page, and the search page opens from the
+last snapshot in the first frame.
+
+A contributed page that answers its own queries (agent chats, `PaletteContributedAnswers`) is
+asked once per typed query instead, in a later main-thread turn than the key's (its choice history
+is encoded off the main thread, and acpmux's request on the connection's queue). Each answer that
+lands is joined to the ranked rows on the main thread (one delivery and one frame per answer).
+- Search: the chats show after the best ranked section, at most their best 10 rows (taken from the
+  weakest ranked rows when the 400-row page is full). Return runs the best ranked row of the current
+  query; with no ranked row it waits for the chats answer, at most 1.5 s.
+- Chats & agents: the chats lead the page, and its rows are not final until acpmux answers (at most
+  1.5 s), so Return runs the best chat as the chats page does.
+- An older query's chats stay on screen only as stand-ins until the new answer replaces them: no key,
+  click or Return selects them. An answer that ends empty (acpmux refused it, is not connected, or no
+  chat matches) takes them off at once, and the rows stop waiting.
 
 A contributed row keeps its own section when it has one (Search Tabs' "Open" / "Closed");
 otherwise it takes the contribution's section (its page title). Providers are shown only

@@ -27,13 +27,14 @@ final class PageState {
     var tasks: [Task<Void, Never>] = []
     /// The query the page's contributed answers last asked for (`PaletteContributedAnswers`).
     var answeredQuery: String?
-    /// Each contributed answer's last rows, by section id: `answeredQuery`'s, or the query before
-    /// until `answeredQuery`'s answer replaces them.
+    /// Each contributed answer's last rows, by section id, and the query they answer: `answeredQuery`'s, or an
+    /// older query's, shown only as a stand-in (never selectable, never final) until the new answer replaces it.
     var answerSections: [String: PaletteResultSection] = [:]
+    var answerQueries: [String: String] = [:]
     /// The answers that lead the page (its main content, `PaletteContributedAnswers.leads`).
     var leadingAnswers = Set<String>()
-    /// The leading answers `answeredQuery` still waits for: its rows are not final until they end.
-    var pendingLeads = Set<String>()
+    /// The answers `answeredQuery` still waits for, within their bound (`PaletteContributedAnswers.holdLimit`).
+    var awaitedAnswers = Set<String>()
     var answerTasks: [Task<Void, Never>] = []
     /// The ranked rows last delivered, before the answers join them, and that delivery's generation
     /// and marks: an answer shows again with them only when they are the current query's.
@@ -169,12 +170,19 @@ final class PageState {
     func cancelAnswers() {
         cancelAnswerTasks()
         answerSections = [:]
+        answerQueries = [:]
     }
 
-    /// Ends the contributed answers' streams; their rows stay until the next answers replace them.
+    /// Ends the contributed answers' streams; their rows stay as stand-ins until the next answers replace them.
     func cancelAnswerTasks() {
         for task in answerTasks { task.cancel() }
         answerTasks = []
-        pendingLeads = []
+        awaitedAnswers = []
     }
+
+    /// The answer sections for the current query, and the stand-ins (an older query's answers still on screen).
+    var currentAnswers: [PaletteResultSection] { answerSections.filter { answerQueries[$0.key] == query }.map(\.value) }
+    var standInAnswers: [PaletteResultSection] { answerSections.filter { answerQueries[$0.key] != query }.map(\.value) }
+    /// Whether the current query waits for a leading answer (its main content).
+    var awaitsLead: Bool { !awaitedAnswers.isDisjoint(with: leadingAnswers) }
 }

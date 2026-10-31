@@ -30,7 +30,7 @@ extension PaletteModel {
         case .pageUp: moveSelection(by: -Self.pageStep, wrap: false)
         case .pageDown: moveSelection(by: Self.pageStep, wrap: false)
         case .moveToFirst: selectRow(at: 0, scroll: true)
-        case .moveToLast: selectRow(at: rows.count - 1, scroll: true)
+        case .moveToLast: selectRow(at: selectableRows.count - 1, scroll: true)
         case .submit, .submitAlternate:
             // Rows of an older query wait for the current query's first
             // batch in the reducer, then run.
@@ -240,8 +240,15 @@ extension PaletteModel {
 
     static let pageStep = 8
 
+    /// The rows on screen navigation may select: not an older query's answer still shown as a stand-in.
+    var selectableRows: [PaletteRow] {
+        guard let top = nav.top, top.rows.count != rows.count else { return rows }
+        let ids = Set(top.rows.map(\.id))
+        return rows.filter { ids.contains($0.id) }
+    }
+
     func moveSelection(by delta: Int, wrap: Bool) {
-        let rows = self.rows
+        let rows = selectableRows
         guard !rows.isEmpty else {
             // Even an empty-list navigation key is explicit navigation: release
             // an exhausted-section suppression before a later batch arrives.
@@ -259,7 +266,7 @@ extension PaletteModel {
     }
 
     func selectRow(at index: Int, scroll: Bool) {
-        let rows = self.rows
+        let rows = selectableRows
         guard rows.indices.contains(index) else {
             // Home/End on an empty page still count as explicit navigation.
             send(.move(0))
