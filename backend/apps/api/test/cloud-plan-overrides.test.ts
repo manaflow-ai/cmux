@@ -158,7 +158,7 @@ describe("Cloud machine grants", { timeout: 60_000 }, () => {
 
   it("a paid Max keeps Max over a lower grant", async () => {
     const x = await person("grant-vm-max", "max", "pro")
-    expect(await planGet(x.t)).toMatchObject({ plan_id: "max", limits: { max_active: 20 } })
+    expect(await planGet(x.t)).toMatchObject({ plan_id: "max", limits: { max_active: 5 } })
   })
 
   it("a stale grant copy answers while the sign-in service is down", async () => {

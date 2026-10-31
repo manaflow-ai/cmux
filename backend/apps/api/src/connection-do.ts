@@ -511,6 +511,11 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
   }
 
   private async callProvider(principal: Principal, op: string, params: Record<string, unknown>): Promise<unknown> {
+    if (isAgentGatewayPrincipal(principal)) {
+      const current = await resolveConnectionPrincipal(this.env, principal)
+      if (!current || "refused" in current) throw new ProviderError("policy.denied", "the caller no longer has access")
+      principal = current
+    }
     const { provider, c } = this.usableFor(principal, op, params)
     const impl = providers[provider]
     if (!impl.configured(this.env)) throw new ProviderError("integration.unavailable", `${provider} is not configured`)

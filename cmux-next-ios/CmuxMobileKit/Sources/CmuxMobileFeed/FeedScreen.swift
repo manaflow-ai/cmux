@@ -214,6 +214,7 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
             }
             .buttonStyle(.plain)
             .glassEffect(.regular.interactive(), in: .capsule)
+            .accessibilityIdentifier("feed.newPill")
             .padding(.top, 8)
             .transition(.offset(y: -12).combined(with: .opacity))
         }

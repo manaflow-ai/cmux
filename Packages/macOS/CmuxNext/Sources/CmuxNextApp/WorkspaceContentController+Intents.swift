@@ -1,6 +1,8 @@
 import AppKit
+import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextLayout
 
 // Layout intents -> daemon commands. A divider or column drag is local until
@@ -148,20 +150,27 @@ extension WorkspaceContentController {
         // [services, state]: the task pins this controller's owners until it ends (cx-6so P1b).
         // After the create before it (a fast second press may target its stand-in).
         let previous = pendingCreate
-        pendingCreate = Task { [services, state] in
+        let work: ActionWork = Task { [services, state] in
             var landed = false
             defer { keyRouter.creationInputCoordinator.resolve(keys, landed: landed, in: window) }
             await previous?.value
+            defer { withExtendedLifetime((services, state)) {} }
             do {
                 _ = try await send()
                 BenchSpans.mark("\(label).reply.optimistic")
                 landed = true
                 then?()
+                return nil
+            } catch is PaneSplitCancelled {
+                return nil // the person closed the new pane first
             } catch {
                 logger.error("\(label, privacy: .public) failed: \(String(describing: error), privacy: .public)")
+                return .create(label, error)
             }
-            withExtendedLifetime((services, state)) {}
         }
+        pendingCreate = work
+        // A refusal never vanishes: the stand-in rolls back and the refusal shows where refusals show (rule a).
+        services.registry.trackRollingBack(ActionID(rawValue: label), work)
     }
 
     /// Runs a pane-creating command and focuses the new pane when it lands;

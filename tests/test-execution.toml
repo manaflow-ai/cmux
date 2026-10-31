@@ -1309,6 +1309,10 @@ path = "tests/test_crash_class_fast_gate.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_check_objc_selectors_step.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_crash_ratchet_compare.py"
 lane = "linux-guard"
 
@@ -1785,6 +1789,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_next_dev_kick.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_next_base_tier.py"
 lane = "linux-guard"
 
 [[test]]
