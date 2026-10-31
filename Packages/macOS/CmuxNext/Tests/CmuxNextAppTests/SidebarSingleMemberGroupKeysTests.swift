@@ -9,7 +9,8 @@ import Testing
 /// the row's Group options submenu opens, needed the header's view and opened nothing; and a drop into the group (it
 /// opens no gap) lit the header's fill, which nothing drew, so an accepted drop showed no destination; and a drag of the
 /// row moved only the workspace, so the group could no longer be reordered; and a drop into a nested such group took its
-/// step-in from a header the list does not draw, so the gap and card sat at the list's inset.
+/// step-in from a header the list does not draw, so the gap and card sat at the list's inset; and opening a focused
+/// collapsed such group took its header away, so Down walked on from the active workspace instead of from the group.
 @MainActor @Suite(.serialized, .closesItsWindows) struct SidebarSingleMemberGroupKeysTests {
     static let group = GroupID("g-coord")
     static let coord = WorkspaceID("w-coord")
@@ -130,6 +131,46 @@ import Testing
         #expect(list.dropStepIn(list.displayed) == stepIn, "the gap into the nested one-row group sat at another level")
         list.morphLift(drag, point: NSPoint(x: start.x, y: one.maxY))
         #expect(abs(drag.lift.frame.minX - (list.inset + stepIn)) < 0.5, "the card into the nested one-row group sat at \(drag.lift.frame.minX)")
+    }
+
+    /// Active loose A, loose B, then collapsed same-named group G. Tab focuses G; Right opens it (its header gives way
+    /// to its one row); Down selects G's member, that row, as Down on its header did, not B (walked on from A).
+    @Test func keyboardFocusFollowsAnOpenedGroupIntoItsOneRow() throws {
+        let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
+        let nodes: [CmuxNextSidebar.SidebarNode] = [
+            .workspace(SidebarWorkspace(id: WorkspaceID("w-a"), title: "A")),
+            .workspace(SidebarWorkspace(id: WorkspaceID("w-b"), title: "B")),
+            .group(SidebarGroup(id: Self.group, name: "release-coord", isCollapsed: true,
+                                workspaces: [SidebarWorkspace(id: Self.coord, title: "release-coord")])),
+            .workspace(SidebarWorkspace(id: WorkspaceID("w-c"), title: "C")),
+        ]
+        let model = SidebarModel(sections: [CmuxNextSidebar.SidebarSection(kind: .machine(machine), nodes: nodes)], activeWorkspaceID: WorkspaceID("w-a"))
+        let sidebar = SidebarView(model: model, design: DesignSettings())
+        let window = NSWindow(contentRect: NSRect(x: 100, y: 200, width: 260, height: 600), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        sidebar.frame = NSRect(x: 0, y: 0, width: 260, height: 600)
+        window.contentView?.addSubview(sidebar)
+        defer { window.close() }
+        let list = sidebar.list
+        list.reload(animated: false)
+        sidebar.layoutSubtreeIfNeeded()
+        func key(_ characters: String, _ code: UInt16) throws {
+            let event = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+                                                      windowNumber: window.windowNumber, context: nil, characters: characters,
+                                                      charactersIgnoringModifiers: characters, isARepeat: false, keyCode: code))
+            _ = SidebarGroupKeys(list: list).handle(event, flags: [])
+            list.reload(animated: false)
+        }
+        try key("\t", 48)
+        #expect(list.focusedGroup == Self.group, "Tab did not focus the collapsed group")
+        try key(String(Character(UnicodeScalar(NSRightArrowFunctionKey)!)), 124)
+        #expect(model.group(Self.group)?.isCollapsed == false, "Right did not open the group")
+        #expect(try #require(list.displayed.row(for: .workspace(Self.coord))).standsForGroup)
+        try key(String(Character(UnicodeScalar(NSDownArrowFunctionKey)!)), 125)
+        #expect(model.activeWorkspaceID == Self.coord, "Down went to \(String(describing: model.activeWorkspaceID)), not the opened group's member")
+        #expect(list.focusedGroup == nil)
+        try key(String(Character(UnicodeScalar(NSDownArrowFunctionKey)!)), 125)
+        #expect(model.activeWorkspaceID == WorkspaceID("w-c"), "Down from the one row did not go on to the next row")
     }
 
     @Test func leftOnTheOneRowFocusesNoHeaderlessGroup() throws {
