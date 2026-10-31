@@ -95,7 +95,7 @@ describe("VM install revocation on every terminal state", { timeout: 60_000 }, (
   })
 
   it("prunes expired rows in batches without touching pending retries", async () => {
-    const s = await bound("cloud-bind-1")
+    const s = await bound("cloud-route-5")
     const remaining = await inDo(s.stub, async (i) => {
       const at = Date.now() + i.skewMs
       for (let n = 0; n < 105; n++) i.vmRevokes.queue("receipt-batch-" + n, s.a.user, "test", at)
