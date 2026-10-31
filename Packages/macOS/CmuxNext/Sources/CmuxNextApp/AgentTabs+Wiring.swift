@@ -256,10 +256,12 @@ extension AgentTabStore {
             guard let services, let (_, pane) = services.locateTab(chat), let source = services.paneController(for: pane) else { turn({}); return true }
             return services.linkOpener.turns.serially(beside: source.layoutPaneID, turn)
         }
-        tabs.locatePane = { [weak services] key in
-            guard let services else { return nil }
-            let pane = services.windows.controllers.lazy.compactMap { $0.content?.paneController(key: key) }.first
-            return pane.map { (pane: $0.pane.handle, daemon: $0.daemon) }
+        tabs.locatePane = { [weak services] chat, key in
+            // The chat's own workspace only (review of the #28044 carry at d495c86e: a first match across
+            // every window could take a same-keyed pane of another daemon or workspace).
+            guard let services, let (_, pane) = services.locateTab(chat), let source = services.paneController(for: pane),
+                  let found = source.workspace?.paneController(key: key) else { return nil }
+            return (pane: found.pane.handle, daemon: found.daemon)
         }
         tabs.selectInPane = { [weak services] key in
             guard let services, let (tab, pane) = services.locateTabOnAnyMachine(key) else { return }

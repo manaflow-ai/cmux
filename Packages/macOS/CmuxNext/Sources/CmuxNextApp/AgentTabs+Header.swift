@@ -132,7 +132,7 @@ extension AgentTabStore {
     @discardableResult
     func openBeside(_ provisional: String, in paneKey: String? = nil, split: Bool = true, direction: String = "right", origin: ActionOrigin = .user, main: String? = nil, open: (PaneID, DaemonService) throws -> AgentTabPending, created: (@MainActor (String) -> Void)? = nil, finished: (@MainActor (_ moved: Bool) -> Void)? = nil) -> Bool {
         if split, let main, let placed = openInMainPane(resolve(main), origin == .user, open, created, finished) { return placed }
-        let located = if let paneKey { locatePane(paneKey) } else { locate(resolve(provisional)) }
+        let located = if let paneKey { locatePane(resolve(provisional), paneKey) } else { locate(resolve(provisional)) }
         guard let (pane, daemon) = located, let pending = try? open(pane, daemon) else { return false }
         guard split || created != nil else { return true }
         // task-owner: one tab creation, then one move (or, not `split`, one focus) of that tab
