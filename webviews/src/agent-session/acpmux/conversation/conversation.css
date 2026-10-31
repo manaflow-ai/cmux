@@ -2296,6 +2296,13 @@ pre.cv-math-source {
 
 /* An opened group's calls hang off a hairline under the group's glyph (ToolGroupRow.tsx). */
 .cv-tool-group {
+  /* A group's body is content-sized. The transcript row may reserve room below its content while
+     it follows the bottom stack, but that room belongs to the scroller, never to this card. Keep
+     the card from accepting a flex/virtualizer stretch when it is the last row. */
+  min-height: 0;
+  height: fit-content;
+  flex: none;
+  align-self: flex-start;
   margin-left: 7.5px;
   padding-left: 14.5px;
   border-left: 1px solid var(--cv-rule);
