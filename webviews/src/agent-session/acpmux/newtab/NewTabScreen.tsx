@@ -626,12 +626,14 @@ export function NewTabScreen(props: Props) {
   const parentSignIn = useSignIn();
   // Auth must follow the same target precedence as askChat: a saved environment wins over a
   // previously picked machine, so an old machine verdict cannot block this environment's prompt.
+  // Under Auto, the machine Auto routes the prompt to is the target (askChat sends it there).
+  const autoPeer = autoOn && autoChoice.to === "machine" ? autoChoice.environment.id : undefined;
   const targetHost = environment
     ? environment.kind === "ssh" && environment.host && snapshot.peers?.includes(environment.host)
       ? environment.host
       : undefined
-    : machine?.peer;
-  const remoteTarget = environment ? environment.kind === "ssh" : Boolean(machine?.peer);
+    : (autoPeer ?? machine?.peer);
+  const remoteTarget = environment ? environment.kind === "ssh" : Boolean(autoPeer ?? machine?.peer);
   const authQuery =
     harness && (!remoteTarget || targetHost)
       ? { target: { harness, ...(targetHost ? { host: targetHost } : {}) } }

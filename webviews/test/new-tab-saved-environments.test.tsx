@@ -113,7 +113,10 @@ async function mount({
   cloudStarting,
   cloudFolder,
   notOffered,
+  authQueries,
 }: {
+  /// Records every session auth query the page makes (SignInContext's readSessionAuth).
+  authQueries?: unknown[];
   /// Run as shows (a Cloud pick App refuses), but Cloud is not offered now.
   notOffered?: boolean;
   cloudStarting?: boolean;
@@ -131,6 +134,7 @@ async function mount({
   onNewWorktree?: (cwd: string) => Promise<string | undefined>;
 } = {}) {
   const { createRoot } = await import("react-dom/client");
+  const { SignInContext } = await import("../src/agent-session/acpmux/signIn");
   const { NewTabScreen } = await import("../src/agent-session/acpmux/newtab/NewTabScreen");
   const { newTabScreenActions } = await import("../src/agent-session/acpmux/newtab/screenActions");
   const { newWorktree, pickFolder } = await import("../src/agent-session/acpmux/startFolder");
@@ -199,35 +203,45 @@ async function mount({
     requestFolder: (cwd, start) => void pickFolder(callNative, cwd, start),
   });
   root = createRoot(host);
+  const signIn = authQueries && {
+    signedOut: {},
+    logIn: noop,
+    readSessionAuth: async (query: unknown) => {
+      authQueries.push(query);
+      return undefined;
+    },
+  };
   await act(async () =>
     root!.render(
-      <NewTabScreen
-        snapshot={noChat(cloudHistory, {
-          peers: ["devbox", "cloud-1"],
-          peerKinds: { devbox: "ssh", "cloud-1": "cloud" },
-          ...(peerResources ? { peerResources } : {}),
-        })}
-        lastAgent="claude"
-        cwd={tabCwd}
-        projects={[
-          { cwd: APP, label: "app" },
-          { cwd: API, label: "api" },
-        ]}
-        environments={previews}
-        onConnect={noop}
-        onNewWorktree={
-          onNewWorktreeOverride ??
-          ((cwd) => {
-            let folder: string | undefined;
-            return newWorktree(callNative, cwd, (used) => {
-              folder = used;
-            }).then(() => folder);
-          })
-        }
-        {...actions}
-        {...runRows}
-        {...(cloudStarting ? { cloudStarting } : {})}
-      />,
+      <SignInContext.Provider value={signIn}>
+        <NewTabScreen
+          snapshot={noChat(cloudHistory, {
+            peers: ["devbox", "cloud-1"],
+            peerKinds: { devbox: "ssh", "cloud-1": "cloud" },
+            ...(peerResources ? { peerResources } : {}),
+          })}
+          lastAgent="claude"
+          cwd={tabCwd}
+          projects={[
+            { cwd: APP, label: "app" },
+            { cwd: API, label: "api" },
+          ]}
+          environments={previews}
+          onConnect={noop}
+          onNewWorktree={
+            onNewWorktreeOverride ??
+            ((cwd) => {
+              let folder: string | undefined;
+              return newWorktree(callNative, cwd, (used) => {
+                folder = used;
+              }).then(() => folder);
+            })
+          }
+          {...actions}
+          {...runRows}
+          {...(cloudStarting ? { cloudStarting } : {})}
+        />
+      </SignInContext.Provider>,
     ),
   );
   await settle();
@@ -643,6 +657,15 @@ test.each([
   await ask(prompt);
   expect(calls.some((call) => call.method === "cloud.start")).toBe(false);
   expect(calls.find((call) => call.method === "chat.new")?.params?.peer).toBe(peer);
+});
+
+test("Auto's machine is the one the sign-in check asks about", async () => {
+  const authQueries: unknown[] = [];
+  await mount({ tabCwd: APP, runMode: "persistent", authQueries });
+  await type(host.querySelector<HTMLTextAreaElement>(".nt-field"), "Run the tests on devbox");
+  await settle();
+  // The prompt goes to devbox (askChat), so devbox's sign-in decides whether it may go, not this Mac's.
+  expect(authQueries.at(-1)).toMatchObject({ target: { harness: "claude", host: "devbox" } });
 });
 
 test("Auto maps an ask for cloud work to the Cloud row, not a listed Cloud machine", async () => {
