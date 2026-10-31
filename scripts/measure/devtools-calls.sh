@@ -39,7 +39,7 @@ RUNNER_TEMP="$out" GITHUB_PATH="$out/bun-path" ./scripts/cmux-next/private-bun.s
 PATH="$(tail -n 1 "$out/bun-path"):$PATH"
 export PATH
 apps=()
-echo "DEVTOOLS-CALLS-DISK free at start: $(df -g "$out" | awk 'NR == 2 {print $4}') GiB"
+echo "DEVTOOLS-CALLS-DISK free at start: $(df -g "$HOME" | awk 'NR == 2 {print $4}') GiB"
 IFS=',' read -r -a arm_list <<< "$arms"
 for arm in "${arm_list[@]}"; do
   label="${arm%%:*}" sha="${arm#*:}"
@@ -80,14 +80,21 @@ for arm in "${arm_list[@]}"; do
     grep -E "error:|BUILD FAILED" "$out/reload-$label.log" | head -n 60 >&2 || true
     exit 1
   fi
-  # Two cold app builds take about 27 GiB each, and a measure mini may start this step with 40 GiB free: once the
-  # app is built, its build's intermediates go (the bundle in Build/Products is self-contained), so the next arm
-  # builds in the space this one used. Only inside this arm's own per-tag DerivedData.
+  # Only one build at a time fits: reload.sh needs 40 GiB free before each build, a cold build takes about 27 GiB,
+  # and a perf mini starts this step with 40-60 GiB (the first run on cmux20 stopped at 38 GiB before the first
+  # build). The app bundle is self-contained (embed-cef.sh copies Chromium in; cmux-tui and acpmux are copied in),
+  # so it moves out to $out/apps and the arm's whole per-tag DerivedData and worktree go before the next arm builds.
   derived="$(cd "$app/../../../.." && pwd)"
-  if [[ "$(basename "$derived")" == cmux-* && "$app" == "$derived/Build/Products/"* ]]; then
-    rm -rf "$derived/Build/Intermediates.noindex" "$derived/Index.noindex"
+  if [[ "$(basename "$derived")" != cmux-* || "$app" != "$derived/Build/Products/"* ]]; then
+    echo "devtools-calls: unexpected app path $app (not under a per-tag DerivedData)" >&2
+    exit 1
   fi
-  echo "DEVTOOLS-CALLS-ARM $label $sha $app (free after build: $(df -g "$out" | awk 'NR == 2 {print $4}') GiB)"
+  mkdir -p "$out/apps/$label"
+  mv "$app" "$out/apps/$label/"
+  app="$out/apps/$label/$(basename "$app")"
+  rm -rf "$derived"
+  git -C "$root" worktree remove --force "$tree" >/dev/null 2>&1 || rm -rf "$tree"
+  echo "DEVTOOLS-CALLS-ARM $label $sha $app (free after build: $(df -g "$HOME" | awk 'NR == 2 {print $4}') GiB)"
   apps+=(--app "$label=$app")
 done
 mkdir -p artifacts
