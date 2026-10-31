@@ -198,8 +198,13 @@ struct GatherWindowsTests {
         let tab = LocalBrowserTab.make(url: URL(string: "https://example.com"))
         there.state.localBrowserTabs[pane] = [tab]
 
+        // Another window's pane with the same id (another machine on an older daemon) keeps its tab.
+        let other = try Self.open(["k1"], services), unrelated = LocalBrowserTab.make(url: nil)
+        other.state.localBrowserTabs[pane] = [unrelated]
+
         try services.windows.bringSpace(Self.rooms[1], into: here.state)
         #expect(here.state.localBrowserTabs[pane] == [tab], "the pane's browser tab stayed behind")
+        #expect(other.state.localBrowserTabs[pane] == [unrelated], "a window that kept its workspaces lost a browser tab")
     }
 
     /// An incognito space, or an incognito window, takes part in no move (rule 2).
