@@ -93,6 +93,7 @@ enum AgentBesidePlacement {
             }
             let bound = DemandTimer(owner: "AgentBesidePlacement.tabOpen")
             bound.schedule(after: openLimit) { @MainActor in
+                finished = true
                 listed.cancel()
                 sink.finish()
             }
@@ -113,7 +114,7 @@ enum AgentBesidePlacement {
             guard let tab = store.tab(surface: surface) else {
                 return "beside-caller: the new tab did not open"
             }
-            if let chat, let content = lone?.workspace {
+            if let chat, services.locateTab(model: chat)?.1 === anchor, let content = lone?.workspace {
                 // The new tab is in the chat's pane, unselected: the chat docks, the tab stays. The
                 // chat stays where it shows; only the tab's pane comes in, from the right.
                 if let lone { content.layoutModel.handOffContent(of: lone.layoutPaneID) }

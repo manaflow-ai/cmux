@@ -441,6 +441,7 @@ final class DiffPageService: InternalPageProvider {
 
     func tabClosed(_ key: String) {
         guard let tab = tabs.removeValue(forKey: key) else { return }
+        for completion in tab.completions { completion.failed?(nil) }
         tab.reopen?.cancel()
         tab.page?.close()
         guard let provider = tab.provider else { return }
