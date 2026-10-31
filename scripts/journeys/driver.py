@@ -1528,6 +1528,9 @@ class Journey:
                 raise NotRun(f"{len(not_judged)} checks not judged: " + " | ".join(not_judged))
         except (Deadline, NotRun) as error:
             status, reason = "not run", str(error)
+            earlier = [n for n in not_judged if n not in reason]
+            if earlier:
+                reason += f" (and {len(earlier)} checks not judged before it: " + " | ".join(earlier) + ")"
         except (StepError, OSError, ValueError, subprocess.TimeoutExpired) as error:
             status, reason = "fail", f"step {len(self.steps)} ({self.steps[-1]['do'] if self.steps else '?'}): {error}"
         finally:

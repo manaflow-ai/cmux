@@ -893,18 +893,26 @@ def step_smoke_widths(j, step):
         if not no_frame or time.monotonic() >= end:
             break
         time.sleep(0.2)
+    hidden_alive = None
     if no_frame:
-        # A pane with no view frame: its column's width is unknown from the view. A gone terminal fails; a hidden one
-        # (its terminal alive) is not judged.
-        _no_frame_verdict(j, sorted({p for v in no_frame.values() for p in v}), "smoke_widths")
+        # A pane with no view frame: its column's width is unknown from the view. A gone terminal fails at once; a
+        # hidden one whose terminal lives is kept with width None, and the daemon's own column share (saved below)
+        # judges that column in smoke_same_widths.
+        panes = sorted({p for v in no_frame.values() for p in v})
+        evidence, gone = _frame_loss(j, panes)
+        if gone:
+            raise getattr(D, "TerminalGone", D.StepError)(
+                f"TERMINAL GONE under memory pressure (smoke_widths): panes {gone}: "
+                + json.dumps({p: evidence[p] for p in gone})[:1500])
+        hidden_alive = evidence
     if not hasattr(j, "smoke_width_snaps"):
         j.smoke_width_snaps = {}
     focused = _focused_pane(j)
     daemon = _daemon_widths(j, workspace)
     j.smoke_width_snaps[step["name"]] = {"workspace": workspace, "widths": widths, "columns": columns, "focused": focused,
-                                         "daemon_widths": daemon}
+                                         "daemon_widths": daemon, "hidden_alive": hidden_alive}
     return {"workspace": workspace, "widths": widths, "columns": columns, "focused": focused,
-            "daemon_widths": {",".join(sorted(k)): v for k, v in daemon.items()}}
+            "daemon_widths": {",".join(sorted(k)): v for k, v in daemon.items()}, "hidden_alive": hidden_alive}
 
 
 def cond_smoke_same_widths(j, want, cache):

@@ -48,8 +48,6 @@ OWNER_POOL = "perf-lead"
 # renamed check is missing and a duplicated one counts as not passed, so neither can stand in for another. A round
 # that ends before them is never a pass. test_smoke_gate.py checks that the journey's R3 titles are exactly these.
 REQUIRED_CHECKS = (
-    "R3b: New Column's key (Ctrl-Cmd-D) as the first new column of a one-column workspace keeps the old column's "
-    "exact width",
     "R3a split resize: the right pane is wider, the left narrower; in each, grid == fit(bounds) == PTY == daemon size, "
     "and a long line wraps at the new width",
     "R3a window resize: the window is 160 points narrower and the right pane narrower; grid == fit(bounds) == PTY == "
@@ -58,6 +56,8 @@ REQUIRED_CHECKS = (
     "R3b: New Column's key (Ctrl-Cmd-D) adds a column and every existing column keeps exactly its width",
     "R3b: Cmd-D (Split Right) splits the pane inside its own column and every other column keeps exactly its width",
     "R3b: Cmd-Shift-D (Split Down) adds no column and every column keeps exactly its width",
+    "R3b: New Column's key (Ctrl-Cmd-D) as the first new column of a new one-pane workspace (Cmd-N, Ctrl-`) keeps the "
+    "old column's exact width",
 )
 # Everything run.py ships to the mini: a change in any of them means the gate is not its commit.
 GATE_PATHS = ("scripts/journeys", "scripts/cmux-next/build_names.py", "scripts/ci/pr_media_ocr.swift")

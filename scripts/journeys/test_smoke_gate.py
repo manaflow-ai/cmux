@@ -168,6 +168,24 @@ class Verdicts(unittest.TestCase):
         self.assertEqual(titles, list(module.REQUIRED_CHECKS))
         self.assertEqual(len(titles), len(set(titles)))
 
+    def test_every_pane_count_in_the_journey_matches_the_panes_its_steps_make(self):
+        """B1 of 7e7243708c4: a column step moved the count; sum the panes each step makes in the measured workspace."""
+        with open(HERE / "journeys" / "dogfood" / "smoke-dogfood.json") as f:
+            steps = json.load(f)["steps"]
+        start = next(i for i, st in enumerate(steps) if st.get("do") == "smoke_snapshot" and st.get("name") == "before_splits")
+        panes, checked = 1, 0  # ws3: one pane (its New Tab page and its Ctrl-` terminal are tabs of it)
+        for st in steps[start:]:
+            mods = st.get("modifiers") or []
+            if st.get("do") == "key" and st.get("key") == "n" and mods == ["cmd"]:
+                break  # a new workspace: the counts below are another workspace's
+            if (st.get("do") == "key" and st.get("key") == "d") or (st.get("do") == "action" and st.get("action") == "newColumn"):
+                panes += 1
+            for cond in st.get("all", []):
+                if "smoke_panes" in cond:
+                    self.assertEqual(cond["smoke_panes"]["count"], panes, st.get("title"))
+                    checked += 1
+        self.assertEqual(checked, 2)
+
     def test_a_round_that_did_not_reach_or_pass_every_resize_check_is_no_pass(self):
         for r3, want in (("none", "R3a split resize: the right pane is wider"),
                          ("r3b-failed", "R3b: Cmd-D (Split Right) splits the pane inside its own column and every...: failed"),
@@ -739,7 +757,8 @@ class Resize(unittest.TestCase):
         self.assertIn("999999", str(caught.exception))
         bare = self.journey(columns=[(1, "P2", 650.0, 300.0)])
         del bare.app.panes()[1]["grid"]
-        with self.assertRaises(self.NotRun):
+        bare.shell_state["pid"] = 999999  # a frameless pane whose shell is dead: the snapshot step fails at once
+        with self.assertRaises(self.StepError):
             self.ext.step_smoke_widths(bare, {"name": "c1", "frame_wait": 0.3})
 
     def test_a_hidden_column_is_judged_by_the_daemons_column_width(self):
@@ -797,6 +816,22 @@ class Resize(unittest.TestCase):
         ok, detail = self.ext.cond_smoke_same_widths(opened, {"since": "c0", "new": 0, "split_in_place": True}, {})
         self.assertFalse(ok)
         self.assertTrue(any("new columns" in p for p in detail["problems"]), detail["problems"])
+
+    def test_a_snapshot_with_a_hidden_live_pane_is_kept_and_judged_by_the_daemon(self):
+        bare = self.journey(columns=[(1, "P2", 650.0, 300.0)])
+        bare.shell_state["daemon_cols"] = [("P1", 0.5), ("P2", 0.5)]
+        del bare.app.panes()[1]["grid"]  # P2's view hidden, its terminal alive
+        result = self.ext.step_smoke_widths(bare, {"name": "c1", "frame_wait": 0.3})
+        self.assertIsNone(result["widths"]["1"])
+        self.assertIn("P2", result["hidden_alive"])
+        later = self.journey(columns=[(1, "P2", 650.0, 300.0), (2, "P3", 951.0, 300.0)])
+        later.smoke_width_snaps = bare.smoke_width_snaps
+        del later.app.panes()[1]["grid"]
+        later.shell_state["daemon_cols"] = [("P1", 0.5), ("P2", 0.5), ("P3", 0.5)]
+        ok, detail = self.ext.cond_smoke_same_widths(later, {"since": "c1", "new": 1}, {})
+        self.assertTrue(ok, detail)
+        later.shell_state["daemon_cols"] = [("P1", 0.5), ("P2", 0.3), ("P3", 0.5)]
+        self.assertFalse(self.ext.cond_smoke_same_widths(later, {"since": "c1", "new": 1}, {})[0])
 
     def test_cmd_d_splits_in_place_and_no_other_column_changes(self):
         base = [(1, "P2", 650.0, 300.0)]
@@ -988,6 +1023,13 @@ class SettleThroughTheDriver(unittest.TestCase):
                 steps.append({"do": "expect", "title": "later", "timeout": 0.2, "all": [{"t_fails": {}}]})
                 result = driver.Journey(dict(spec, id="nj2"), App(), tmp, driver.now() + 30, 1.0).run()
                 self.assertEqual(result["status"], "fail")
+                # A later NotRun from a non-expect step keeps the earlier not-judged list in the reason (S3).
+                driver.Journey.step_t_stop = lambda self, step: (_ for _ in ()).throw(driver.NotRun("stopped"))
+                result = driver.Journey(dict(spec, id="nj4", steps=steps[:1] + [{"do": "t_stop"}]), App(), tmp,
+                                        driver.now() + 30, 1.0).run()
+                self.assertEqual(result["status"], "not run")
+                self.assertIn("hidden view", result["reason"])
+                del driver.Journey.step_t_stop
                 # Without the option, a not-judged check ends the journey.
                 calls.clear()
                 result = driver.Journey({"id": "nj3", "steps": steps[:2]}, App(), tmp, driver.now() + 30, 1.0).run()

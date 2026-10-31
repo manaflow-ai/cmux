@@ -350,8 +350,9 @@ the daemon (`cmux terminal ID screen read`: cols, rows), the topology tab (colum
 (`stty size`); terminal life from the daemon (`cmux terminal ID process show`) and the process table.
 
 **No pass without the resize checks** (cmux-ad 06:38Z): a round passes only when it reached and passed,
-exactly once each, the 2 R3a checks and the 5 R3b checks (the first, from the action fuzzer's case:
-Ctrl-Cmd-D as the first new column of a one-column workspace) (`REQUIRED_CHECKS` in smoke-gate.py: their
+exactly once each, the 2 R3a checks and the 5 R3b checks (the last, from the action fuzzer's case,
+in its own fourth workspace after the reopen: Cmd-N, Ctrl-` and a line, then Ctrl-Cmd-D as its first new
+column) (`REQUIRED_CHECKS` in smoke-gate.py: their
 exact titles; a renamed or duplicated check never counts). A round whose journey passed without them
 is a FAIL that names the missing checks; a round that failed at an earlier step stays a FAIL; a round
 that did not run (no lease, a known gap, a column width that cannot be read) stays NOT JUDGED. None is
