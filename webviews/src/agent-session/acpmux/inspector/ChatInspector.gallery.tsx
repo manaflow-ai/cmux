@@ -283,6 +283,15 @@ const summary = {
 
 // Icon-bearing section heads belong to the Environment rows' text column. The ordinary
 // section titles intentionally start at the icon column instead.
+/// Holds Outputs mid-drag over Context: pressed on its handle, moved, never released.
+const dragOutputsOverContext: Play = async (ctx) => {
+  const grip = '[data-section="outputs"] > .acpmux-chat-inspector-section__handle';
+  await ctx.waitFor(() => ctx.document.querySelector(grip));
+  await ctx.pointer.down({ selector: grip });
+  await ctx.pointer.move({ selector: '[data-section="context"]' });
+  await ctx.waitFor(() => ctx.document.querySelector('[data-slot="outputs"][data-lifted]'));
+};
+
 const checkTopBlockAlignment: Play = async (ctx) => {
   const rect = (selector: string) => ctx.find({ selector }).getBoundingClientRect();
   const environment = '[data-section="environment"] .acpmux-chat-inspector-row__name';
@@ -576,6 +585,8 @@ export default componentEntry<Props>({
     "agent-session/acpmux/inspector/PullRequestGlyph.tsx",
     "agent-session/acpmux/inspector/EnvironmentSection.tsx",
     "agent-session/acpmux/inspector/InspectorSection.tsx",
+    "agent-session/acpmux/inspector/InspectorGroup.tsx",
+    "agent-session/acpmux/inspector/sectionOrder.ts",
     "agent-session/acpmux/inspector/OutputsSection.tsx",
     "agent-session/acpmux/inspector/ServersSection.tsx",
     "agent-session/acpmux/inspector/SubagentLimitStepper.tsx",
@@ -631,6 +642,11 @@ export default componentEntry<Props>({
       note: "Narrow-width check: at 260px the longest supported model label truncates while the running agent name stays visible and state plus elapsed time keep separate columns.",
       props: workflowProps("running", "detail", 260, "anthropic/claude-sonnet-5-5"),
       play: assertNarrowWorkflowLayout,
+    },
+    "reorder-dragging": {
+      note: 'Mid-drag (Leo, 2026-10-31: "THE CLICK DRAG" ... "WHERE IS MY FUCKING PARITY"): Outputs held by its six-dot handle and carried up into where it runs, over Context. The held section is lifted (a raised surface and a shadow, only while held) and follows the pointer; Connectors and the sections under it have slid out of the way, and the hairlines follow the blocks now adjacent. Released, it settles there and the order is kept; Escape puts it back.',
+      props: full,
+      play: dragOutputsOverContext,
     },
     "layout-glance": {
       note: "Chosen (Leo, 2026-10-22: \"this session rail is tmi and too many boxes?\"). Eight cards became three blocks with a hairline between them and no box: the Environment's rows with no title, Context and Connectors one row each; Changes and Outputs; Subagents and Background tasks, the Servers card's row now heading Background tasks. Least ink of the three while every section and click stays; the rows line up under the panel's title.",
