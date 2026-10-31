@@ -340,6 +340,19 @@ test.each(MALFORMED_LIMITS)("usage limits with %s read as Not reported", async (
   expect(value).toBe("Not reported");
 });
 
+test("a reset time outside the dates JavaScript can hold shows the window with no reset, not a crash", async () => {
+  const { value, copiedLine } = await usageLimitsValue({
+    windows: [
+      { id: "session", usedPercent: 38, resetsAt: 1e300 },
+      { id: "weekly", usedPercent: 12.5, resetsAt: 8.64e12 + 1 },
+    ],
+  });
+  expect(value).toContain("38% used");
+  expect(value).toContain("12.5% used");
+  expect(value).not.toContain("resets");
+  expect(copiedLine).toBe(`Usage limits: ${value}`);
+});
+
 test("usage limits a harness reports as plain text still show as they are", async () => {
   const { value } = await usageLimitsValue("Weekly: 62% remaining");
   expect(value).toBe("Weekly: 62% remaining");
