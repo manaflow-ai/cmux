@@ -195,14 +195,17 @@ export async function papercutPane(
   });
   await vite.listen();
   await warmViteServer(vite, "/");
-  /// `prepare` runs before the page loads (a test's stand-in for the App's actions, say).
+  /// `prepare` runs before the page loads (a test's stand-in for the App's actions, say). `scale` and
+  /// `colorScheme` are for stills: a 2x page, light or dark.
   const open = async (
-    viewport = { width: 900, height: 700 },
+    viewport: { width: number; height: number; scale?: number; colorScheme?: "light" | "dark" } = {
+      width: 900,
+      height: 700,
+    },
     prepare?: (page: Page) => Promise<void>,
-    /// A 2x page for stills (the PR screenshots' scale); 1x by default.
-    display: { deviceScaleFactor?: number } = {},
   ): Promise<Page> => {
-    const page = await browser().newPage({ viewport, ...display });
+    const { scale, colorScheme, ...size } = viewport;
+    const page = await browser().newPage({ viewport: size, deviceScaleFactor: scale, colorScheme });
     await installPaintedFrames(page);
     await prepare?.(page);
     const { port } = vite.httpServer!.address() as { port: number };

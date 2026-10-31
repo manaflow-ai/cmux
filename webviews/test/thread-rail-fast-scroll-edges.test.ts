@@ -177,7 +177,7 @@ await requireBrowserLane("thread-rail-fast-scroll-edges.test.ts", async () => {
       current = browser;
       const results: Array<{ scheme: string; undrawn: number; rows: number; differing: number; pixels: number }> = [];
       for (const scheme of ["dark", "light"] as const) {
-        const opened = await pane!.open({ width: 1280, height: 900 }, undefined, { deviceScaleFactor: 2 });
+        const opened = await pane!.open({ width: 1280, height: 900, scale: 2, colorScheme: scheme });
         try {
           await opened.emulateMedia({ colorScheme: scheme });
           // The pane takes its look from the app (pageHost.ts applyTheme), as the app sends it.

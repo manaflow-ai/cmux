@@ -11,6 +11,7 @@ import React, { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, u
 import { flushSync } from "react-dom";
 import { type AcpmuxRow, type ConversationLayout } from "../model";
 import { useT } from "../i18n";
+import { layoutScrollTop, physicalScrollTop } from "../conversation/scrollCoordinates";
 import { MinimapTick } from "../../../ui/MinimapTick";
 import { useRailPlacement } from "./useRailPlacement";
 import { usePromptMarks } from "./promptMarks";
@@ -353,11 +354,11 @@ export function ThreadMinimap({
     if (!node) return;
     const scrolled = () => {
       const { turns: all, tops, total, viewportHeight: height, onScreen: drawn, sessionId: session } = live.current;
-      domTop.current = { sessionId: session, top: node.scrollTop };
+      domTop.current = { sessionId: session, top: layoutScrollTop(node) };
       restoring.current = undefined;
       // The full-height map moves its own bar; no band to draw here.
       if (!live.current.shown) return;
-      const next = visibleTurns(all, tops, total, node.scrollTop, height);
+      const next = visibleTurns(all, tops, total, layoutScrollTop(node), height);
       // Synchronously: a scroll event or a motion's frame callback is outside React's batch, which
       // would draw the band after this frame paints. Only a scroll that moves the band renders.
       if (next.first !== drawn.first || next.last !== drawn.last) flushSync(() => setBandMoves((count) => count + 1));
@@ -397,10 +398,10 @@ export function ThreadMinimap({
       const node = scroller.current;
       if (!node) return;
       const { turns: all, tops, total, viewportHeight: height, onScreen: drawn, sessionId: session } = live.current;
-      domTop.current = { sessionId: session, top: node.scrollTop };
+      domTop.current = { sessionId: session, top: layoutScrollTop(node) };
       restoring.current = undefined;
       if (!live.current.shown) return;
-      const next = visibleTurns(all, tops, total, node.scrollTop, height);
+      const next = visibleTurns(all, tops, total, layoutScrollTop(node), height);
       if (next.first !== drawn.first || next.last !== drawn.last) setBandMoves((count) => count + 1);
     };
     return () => {
@@ -429,7 +430,10 @@ export function ThreadMinimap({
     const turn = live.current.turns[index];
     if (!node || !turn) return undefined;
     const target = () =>
-      Math.min(turnScrollTop(turn, live.current.tops), Math.max(0, live.current.total - node.clientHeight));
+      physicalScrollTop(
+        node,
+        Math.min(turnScrollTop(turn, live.current.tops), Math.max(0, live.current.total - node.clientHeight)),
+      );
     let row = mountedRow(node, turn.id);
     // Keep the mounted target through the settle. Virtualization may replace it, so a stale
     // element is looked up again; ordinary frames never scan all mounted transcript rows.
@@ -488,7 +492,7 @@ export function ThreadMinimap({
       if (!node || !all.length) return undefined;
       const stepping =
         pending.tick !== undefined && performance.now() < pending.until ? tickIndex(keys, pending.tick) : -1;
-      const top = Math.min(node.scrollTop, Math.max(0, total - node.clientHeight));
+      const top = Math.min(layoutScrollTop(node), Math.max(0, total - node.clientHeight));
       let reading = 0;
       if (stepping >= 0) reading = stepping;
       else
