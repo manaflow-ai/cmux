@@ -24,8 +24,8 @@ public struct CloudAutomationRelay: Sendable {
     /// Mutations, sent to `/v1/ops`. `automation.deploy` and `automation.settings.set` stay out.
     public static let mutations: Set<String> = ["automation.create", "automation.update", "automation.delete", "automation.run"]
 
-    /// One HTTP POST: the path (`v1/ops` or `v1/read`) and the JSON body; the owner's JSON answer.
-    public typealias Post = @Sendable (String, Data) async throws -> Data
+    /// One HTTP POST: the path (`v1/ops` or `v1/read`) and the JSON body; the answer's bytes and HTTP status.
+    public typealias Post = @Sendable (String, Data) async throws -> (body: Data, status: Int)
 
     private let post: Post
 
@@ -53,7 +53,8 @@ public struct CloudAutomationRelay: Sendable {
             request.setValue("application/json", forHTTPHeaderField: "content-type")
             request.setValue("Bearer \(bearer)", forHTTPHeaderField: "authorization")
             request.httpBody = body
-            return try await CloudAPIClient.noStoreTransport.data(for: request).0
+            let (data, response) = try await CloudAPIClient.noStoreTransport.data(for: request)
+            return (data, (response as? HTTPURLResponse)?.statusCode ?? 0)
         }
     }
 
@@ -96,7 +97,7 @@ public struct CloudAutomationRelay: Sendable {
         case let .success(found): routed = found
         case let .failure(refusal): return Self.encode(refusal)
         }
-        let reply: Data
+        let reply: (body: Data, status: Int)
         do {
             reply = try await post(routed.path, routed.body)
         } catch CloudAutomationRelayError.signedOut {
@@ -104,12 +105,20 @@ public struct CloudAutomationRelay: Sendable {
         } catch {
             return Self.encode(.init("owner.unreachable", String(describing: error)))
         }
-        guard let answer = (try? JSONSerialization.jsonObject(with: reply)) as? [String: Any] else {
-            return Self.encode(.init("owner.bad_reply", "cmux Cloud answered something that is not a JSON object"))
-        }
-        if let error = answer["error"] as? [String: Any] {
-            var refusal: [String: Any] = ["code": error["code"] as? String ?? "error", "message": error["message"] as? String ?? ""]
-            if let details = error["details"] { refusal["details"] = details }
+        let answer = (try? JSONSerialization.jsonObject(with: reply.body)) as? [String: Any]
+        let succeeded = (200..<300).contains(reply.status) && answer?["error"] == nil && answer?["ok"] as? Bool != false
+        guard let answer, succeeded else {
+            // A refusal: the owner's error object, a plain error string, or only the HTTP status.
+            var refusal: [String: Any] = ["code": "http_\(reply.status)", "message": "cmux Cloud answered HTTP \(reply.status)"]
+            if let error = answer?["error"] as? [String: Any] {
+                refusal["code"] = error["code"] as? String ?? refusal["code"]
+                refusal["message"] = error["message"] as? String ?? ""
+                if let details = error["details"] { refusal["details"] = details }
+            } else if let text = answer?["error"] as? String {
+                refusal["message"] = text
+            } else if answer == nil, (200..<300).contains(reply.status) {
+                return Self.encode(.init("owner.bad_reply", "cmux Cloud answered something that is not a JSON object"))
+            }
             return Self.json(["ok": false, "error": refusal])
         }
         return Self.json(["ok": true, "value": answer["value"] ?? NSNull()])

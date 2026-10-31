@@ -22,10 +22,10 @@ import Testing
         var first: Call? { calls.first }
     }
 
-    static func relay(_ recorder: Recorder, reply: String) -> CloudAutomationRelay {
+    static func relay(_ recorder: Recorder, reply: String, status: Int = 200) -> CloudAutomationRelay {
         CloudAutomationRelay { path, body in
             await recorder.add(path, body)
-            return Data(reply.utf8)
+            return (Data(reply.utf8), status)
         }
     }
 
@@ -92,5 +92,13 @@ import Testing
         let relay = CloudAutomationRelay { _, _ in throw URLError(.notConnectedToInternet) }
         let answer = Self.object(await relay.forward(Self.data(["op": "automation.list"])))
         #expect((answer["error"] as? [String: Any])?["code"] as? String == "owner.unreachable")
+    }
+
+    @Test(arguments: [(401, #"{"error":"Unauthorized"}"#), (500, "{}"), (200, #"{"ok":false}"#), (502, "<html>bad gateway</html>")])
+    func aFailureWithoutAnErrorObjectIsNeverReportedAsSuccess(status: Int, body: String) async {
+        let answer = Self.object(await Self.relay(Recorder(), reply: body, status: status)
+            .forward(Self.data(["op": "automation.delete", "params": ["automation": "auto_x"], "idempotency_key": "k"])))
+        #expect(answer["ok"] as? Bool == false)
+        #expect((answer["error"] as? [String: Any])?["code"] as? String != nil)
     }
 }
