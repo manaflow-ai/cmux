@@ -176,7 +176,9 @@ pub(crate) fn watch() -> impl std::future::Future<Output = bool> + Send + 'stati
         // binary it may not read) is never taken for gone.
         let missing = matches!(&opened, Err(e) if e.kind() == std::io::ErrorKind::NotFound);
         let executable = Executable(opened.ok(), missing);
-        let app = App::of(&exe, executable.gone())?;
+        // Gone is read only after a failed Info.plist read: a bundle deleted between the open
+        // and that read has an executable gone by then, so it is still watched.
+        let app = App::of(&exe, || executable.gone())?;
         Some((app, executable))
     });
     async move {
@@ -199,17 +201,22 @@ pub(crate) struct App {
 }
 
 impl App {
-    /// The app around `exe`, whose file is `gone` already at start. A bundle deleted before
-    /// its Info.plist was read is still watched, as an app of unknown id: its executable is
-    /// gone, so it stops (an empty `bundle_id`; see [`App::ends_agents`]).
-    fn of(exe: &Path, gone: bool) -> Option<Self> {
+    /// The app around `exe`. A bundle deleted before its Info.plist was read is still watched,
+    /// as an app of unknown id: its executable is `gone` (asked only after the read failed, so
+    /// a deletion between the open and the read counts), so it stops (an empty `bundle_id`;
+    /// see [`App::ends_agents`]).
+    fn of(exe: &Path, gone: impl FnOnce() -> bool) -> Option<Self> {
         if !cfg!(target_os = "macos") {
             return None;
         }
-        let bundle = containing_app_bundle(exe)?;
+        Self::in_bundle(containing_app_bundle(exe)?, gone)
+    }
+
+    /// The app of `bundle`, read now; see [`App::of`].
+    fn in_bundle(bundle: PathBuf, gone: impl FnOnce() -> bool) -> Option<Self> {
         match bundle_id(&bundle) {
             Some(id) => Self::new(bundle, id, app_socket_env()),
-            None if gone => Some(Self { bundle, bundle_id: String::new(), socket: None }),
+            None if gone() => Some(Self { bundle, bundle_id: String::new(), socket: None }),
             None => None,
         }
     }
@@ -532,6 +539,35 @@ mod tests {
         // Not opened at the start: never gone, unless marked gone then (a binary unlinked).
         assert!(!Executable::open(&dir.join("missing")).gone());
         assert!(Executable::open(&dir.join("missing")).gone_at_start().gone());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_bundle_deleted_between_the_open_and_the_plist_read_is_still_watched() {
+        let dir = std::env::temp_dir().join(format!("amx-orph-plist-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let bundle = dir.join("cmux.app");
+        let macos = bundle.join("Contents/MacOS");
+        std::fs::create_dir_all(&macos).unwrap();
+        let exe = macos.join("acpmux");
+        std::fs::write(&exe, b"one").unwrap();
+        let executable = Executable::open(&exe);
+        // No Info.plist yet and the executable still there: not a cmux app it can tell.
+        assert_eq!(App::in_bundle(bundle.clone(), || executable.gone()), None);
+        std::fs::write(
+            bundle.join("Contents/Info.plist"),
+            br#"<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0"><dict><key>CFBundleIdentifier</key><string>com.cmuxterm.app.nightly</string></dict></plist>"#,
+        )
+        .unwrap();
+        let app = App::in_bundle(bundle.clone(), || executable.gone()).unwrap();
+        assert_eq!(app.bundle_id, "com.cmuxterm.app.nightly");
+        // Opened, then the bundle deleted before its Info.plist was read: gone is asked after
+        // the failed read, so the app is watched with an unknown id and stops.
+        std::fs::remove_dir_all(&bundle).unwrap();
+        let app = App::in_bundle(bundle.clone(), || executable.gone()).expect("watched");
+        assert_eq!(app.bundle_id, "");
+        assert!(app.ends_agents(executable.gone(), None));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
