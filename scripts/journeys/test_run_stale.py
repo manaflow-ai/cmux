@@ -76,6 +76,7 @@ class Stale(unittest.TestCase):
         os.environ.update(CAPTURE_HOST=str(ch), CH_LOG=str(self.tmp / "ch.log"))
         os.environ.pop("CH_LAUNCH_FAILS", None)
         self.saved = (run.remote, run.job_status, getattr(run, "harness_state", None))
+        self.saved_pattern = run.RESULT_FILE
         # The checkout's state at the run's start and at each lease; a clean checkout at one commit unless a test says.
         self.harness = [{"commit": "c" * 40, "dirty": [], "detached": True}]
         run.harness_state = lambda: self.harness[0] if len(self.harness) == 1 else self.harness.pop(0)
@@ -86,6 +87,7 @@ class Stale(unittest.TestCase):
         # What the stand-in mini's out folder holds after the driver: {name: json}; a callable gets the driver command.
         self.mini_files = lambda driver_cmd: {}
         self.driver_cmds = []
+        self.cut_tar = False
 
         def remote(host, script, input=None, timeout=600, check=True):
             if "driver.py" in script:
@@ -93,6 +95,8 @@ class Stale(unittest.TestCase):
                 return Done(b"journey smoke-dogfood: done\n")
             if "tar c" in script:
                 cmd = self.driver_cmds[-1] if self.driver_cmds else ""
+                if self.cut_tar:
+                    return Done(tar_of(self.mini_files(cmd))[:700])
                 return Done(tar_of(self.mini_files(cmd)))
             if "cmux-ci artifact" in script:
                 return Done(b"/tmp/x/build/cmux DEV t.app")
@@ -206,6 +210,60 @@ class Stale(unittest.TestCase):
         self.assertEqual((code, row["status"]), (0, "pass"), row)
         self.assertEqual(result["harness"], {"commit": "c" * 40, "dirty": [], "detached": True, "pinned": True})
         self.assertEqual(row["harness"]["commit"], "c" * 40)
+
+    def test_a_used_folder_keeps_no_old_file_at_the_usual_paths(self):
+        out = self.tmp / "used"
+        (out / JOURNEY).mkdir(parents=True)
+        (out / JOURNEY / "result.json").write_text(json.dumps(old_result("pass")))
+        (out / JOURNEY / "fuzz.json").write_text("{}")
+        (out / "run.json").write_text(json.dumps({"run_id": "old"}))
+        run.main(["--build", "JOB1", "--journey", JOURNEY, "--out", str(out)])
+        self.assertFalse((out / JOURNEY).exists(), "the old journey folder is still at <id>/")
+        self.assertNotEqual(json.loads((out / "run.json").read_text())["run_id"], "old")
+        self.assertTrue(list(out.glob("run.json.earlier-*")) and list(out.glob(f"{JOURNEY}.old-*")))
+
+    def test_a_refused_result_folder_is_moved_aside(self):
+        self.mini_files = lambda cmd: {f"{JOURNEY}/result.json": old_result("pass")}
+        out = self.tmp / "foreign"
+        run.main(["--build", "JOB1", "--journey", JOURNEY, "--out", str(out)])
+        row = json.loads((out / "results.jsonl").read_text().splitlines()[0])
+        self.assertEqual((row["status"], row["clip"], row["checks"]), ("not run", None, []), row)
+        self.assertFalse((out / JOURNEY).exists())
+        self.assertTrue(list(out.glob(f"{JOURNEY}.foreign-*")))
+
+    def test_an_unpinned_result_json_says_not_run_on_disk(self):
+        self.harness = [{"commit": "c" * 40, "dirty": [" M scripts/journeys/driver.py"], "detached": False}]
+        def own_with_fuzz(cmd):
+            files = self.own_result(cmd)
+            files[f"{JOURNEY}/fuzz.json"] = {"failure": {"oracle": "x"}}
+            return files
+        self.mini_files = own_with_fuzz
+        out = self.tmp / "unpinned-disk"
+        run.RESULT_FILE = __import__("re").compile(run.RESULT_FILE.pattern.replace("restore-trace", "fuzz\\.json|restore-trace"))
+        try:
+            run.main(["--build", "JOB1", "--journey", JOURNEY, "--out", str(out)])
+        finally:
+            run.RESULT_FILE = self.saved_pattern
+        on_disk = json.loads((out / JOURNEY / "result.json").read_text())
+        self.assertEqual(on_disk["status"], "not run")
+        self.assertIn("harness: unpinned", on_disk["reason"])
+        self.assertFalse((out / JOURNEY / "fuzz.json").exists())
+
+    def test_a_cut_short_tar_is_not_run_not_a_crash(self):
+        self.mini_files = self.own_result
+        self.cut_tar = True
+        out = self.tmp / "cut"
+        self.assertEqual(run.main(["--build", "JOB1", "--journey", JOURNEY, "--out", str(out)]), 75)
+        row = json.loads((out / "results.jsonl").read_text().splitlines()[0])
+        self.assertEqual(row["status"], "not run", row)
+
+    def test_a_harness_edit_while_packing_is_unpinned(self):
+        clean = {"commit": "c" * 40, "dirty": [], "detached": True}
+        edited = {"commit": "c" * 40, "dirty": [" M scripts/journeys/ext_smoke.py"], "detached": True}
+        self.harness = [clean, clean, edited, edited]
+        _, row, _ = self.play("packing")
+        self.assertEqual(row["status"], "not run", row)
+        self.assertIn("harness: unpinned", row["reason"])
 
     def test_default_folder_names_the_run_id(self):
         os.environ["CH_LAUNCH_FAILS"] = "1"
