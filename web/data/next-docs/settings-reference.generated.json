@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 529,
+  "count": 530,
   "sections": [
     {
       "id": "general",
@@ -1372,6 +1372,14 @@
             "badge",
             "silent"
           ]
+        },
+        {
+          "key": "updates.showFeatureTips",
+          "title": "Show Feature Tips",
+          "help": "Now and then, a small tip points at a feature an update added. Close it or use the feature and it never comes back.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Updates"
         },
         {
           "key": "updates.showWhatsNew",

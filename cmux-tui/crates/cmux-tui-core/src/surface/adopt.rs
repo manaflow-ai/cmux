@@ -247,6 +247,7 @@ impl Surface {
                 exit_notified: AtomicBool::new(true),
                 dead: AtomicBool::new(true),
                 owner_detaching: AtomicBool::new(false),
+                recover_requested: AtomicBool::new(false),
                 host_connection_state: AtomicU8::new(TerminalHostConnectionState::Exited as u8),
                 host_fallback: std::sync::OnceLock::new(),
                 dirty: AtomicBool::new(true),
