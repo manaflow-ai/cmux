@@ -12,3 +12,4 @@ workspace = true
 
 [dependencies]
 snow.workspace = true
+cmux-transport = { path = "../cmux-transport" }

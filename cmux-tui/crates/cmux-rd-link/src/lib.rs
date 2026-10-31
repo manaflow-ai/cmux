@@ -18,7 +18,10 @@
 //! range RFC 7983 assigns, so one UDP socket also carries STUN and TURN.
 
 mod control;
+pub mod endpoint;
 mod replay;
+
+pub use endpoint::{Endpoint, EndpointEvent, Route, Transmit};
 
 use control::{ControlReceiver, ControlSender};
 use replay::ReplayWindow;
