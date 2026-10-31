@@ -15,6 +15,7 @@ const row = (id: string, kind: string, extra: Partial<AcpmuxRow> = {}): AcpmuxRo
   kind,
   version: 1,
   at: (at += 1_000),
+  ...(kind === "user" ? { text: id } : {}),
   ...extra,
 });
 const tool = (id: string, kind = "read") =>
@@ -72,9 +73,12 @@ test("an empty completed notification turn has no footer, while a failed one kee
 
 test("an attachment-only prompt is still visible when its text is empty", () => {
   const attachment = row("attachment", "user", {
+    text: "",
     inlineParts: [{ kind: "file", name: "notes.txt", blockIndex: 1 }] as never,
   });
   expect(turnView([attachment, summary()], new Set()).map((entry) => entry.id)).toContain("attachment");
+  const received = row("received", "user", { text: "", received: {} as never });
+  expect(turnView([received, summary()], new Set()).map((entry) => entry.id)).toContain("received");
 });
 
 test("a turn stopped mid-tool folds its work under the stop line", () => {

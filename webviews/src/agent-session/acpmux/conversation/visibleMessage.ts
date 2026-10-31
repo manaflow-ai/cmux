@@ -14,10 +14,13 @@ export function isVisiblyEmptyMessage(row: AcpmuxRow): boolean {
   if (row.kind !== "assistant" && row.kind !== "user") return false;
   if (row.incoming?.kind === "hidden") return true;
   if (!isVisiblyEmptyText(row.text)) return false;
+  const inlineVisible = row.inlineParts?.some(
+    (part) => part.kind !== "text" || !isVisiblyEmptyText("text" in part ? part.text : undefined),
+  );
   return (
     !row.received &&
     !row.images?.length &&
-    !row.inlineParts?.length &&
+    !inlineVisible &&
     !row.pasted?.length &&
     !row.retryAttachments?.length &&
     !row.incoming &&
