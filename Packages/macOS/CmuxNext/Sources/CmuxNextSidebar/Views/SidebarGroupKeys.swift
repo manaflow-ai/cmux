@@ -20,13 +20,18 @@ import AppKit
     let list: SidebarListView
     private var model: SidebarModel { list.model }
 
-    /// The visible keyboard stops in drawn order.
+    /// The visible keyboard stops in drawn order. A group drawn as its one row (`SidebarLayout+SoleMember`) has that
+    /// row for its header: two stops, the group's (the row draws its focus ring) and then its member's, as a header
+    /// and its first member are, so every key on a focused group works there as on a header.
     var stops: [Stop] {
-        list.displayed.rows.compactMap { row in
+        list.displayed.rows.flatMap { row -> [Stop] in
             switch row.key {
-            case let .group(group): .group(group)
-            case let .workspace(id): model.isPlaceholder(id) ? nil : .workspace(id)
-            default: nil
+            case let .group(group): return [.group(group)]
+            case let .workspace(id):
+                guard !model.isPlaceholder(id) else { return [] }
+                guard row.standsForGroup, let group = row.group else { return [.workspace(id)] }
+                return [.group(group), .workspace(id)]
+            default: return []
             }
         }
     }
@@ -43,15 +48,12 @@ import AppKit
             return tab(forward: true)
         case .upArrow?, .downArrow?:
             let stops = stops
-            let current = list.focusedGroup.map(stop(focusing:)) ?? model.activeWorkspaceID.map(Stop.workspace)
+            let current = list.focusedGroup.map(Stop.group) ?? model.activeWorkspaceID.map(Stop.workspace)
             guard let current, let index = stops.firstIndex(of: current) else {
                 setFocus(nil)
                 return false
             }
-            // Focus on a group drawn as its one row stands where its header stood, just above its member: Down selects
-            // that row, as Down on a header selects its first member.
-            let standing = list.focusedGroup.map { stop(focusing: $0) != .group($0) } ?? false
-            let next = index + (event.specialKey == .upArrow ? -1 : standing ? 0 : 1)
+            let next = index + (event.specialKey == .upArrow ? -1 : 1)
             // Past the first or last stop, focus moves on to the items around the list (cx-qno.10).
             if stops.indices.contains(next) {
                 focus(stops[next])
@@ -65,9 +67,6 @@ import AppKit
                 return true
             }
             guard let active = model.activeWorkspaceID, let group = group(containing: active) else { return false }
-            // A group drawn as its one row (`SidebarLayout+SoleMember`) has no header to go to, as a loose row has none;
-            // its group's actions are on the row's menu, its editor opens at the row.
-            guard list.displayed.row(for: .workspace(active))?.standsForGroup != true else { return false }
             focus(.group(group))
             return true
         case .rightArrow?:
@@ -85,15 +84,6 @@ import AppKit
         default:
             return false
         }
-    }
-
-    /// The stop keyboard focus on `group` stands at: its header, or, once the group draws as its one row
-    /// (`SidebarLayout+SoleMember`: opening a collapsed same-named group takes its header away), that row's place.
-    private func stop(focusing group: GroupID) -> Stop {
-        guard list.displayed.row(for: .group(group)) == nil,
-              let row = list.displayed.rows.first(where: { $0.standsForGroup && $0.group == group }),
-              case let .workspace(id) = row.key else { return .group(group) }
-        return .workspace(id)
     }
 
     func focus(_ stop: Stop) {
@@ -118,7 +108,12 @@ import AppKit
         // (reuse, scrolling, a reload that dropped it) draws the ring too.
         list.showsFocusRing = ring && group != nil
         for key in [old, group].compactMap({ $0 }) {
-            (list.rowViews[.group(key)] as? GroupHeaderRowView)?.isKeyboardFocused = list.showsFocusRing && key == group
+            let ringed = list.showsFocusRing && key == group
+            (list.rowViews[.group(key)] as? GroupHeaderRowView)?.isKeyboardFocused = ringed
+            // A group drawn as its one row rings that row (`SidebarListView.configure` on a reload).
+            for row in list.displayed.rows where row.standsForGroup && row.group == key {
+                (list.rowViews[row.key] as? WorkspaceRowView)?.isKeyboardFocused = ringed
+            }
         }
     }
 
@@ -127,12 +122,7 @@ import AppKit
     /// loop moves on. Shift-Tab: the previous header; before the first, the
     /// workspaces. False when the key is not the list's.
     private func tab(forward: Bool) -> Bool {
-        // A focused group drawn as its one row (Right opened it, taking its header away) keeps its place in the
-        // order, so Tab and Shift-Tab go on from there; an unfocused one has no header to stop on, as Left finds.
-        let headers = list.displayed.rows.compactMap { row -> GroupID? in
-            if case let .group(group) = row.key { return group }
-            return row.standsForGroup && row.group == list.focusedGroup ? row.group : nil
-        }
+        let headers = stops.compactMap { if case let .group(group) = $0 { group } else { nil } }
         guard let current = list.focusedGroup, let index = headers.firstIndex(of: current) else {
             guard forward, let first = headers.first else { return false }
             focus(.group(first))
