@@ -109,7 +109,11 @@ test("a canceled start's late Trust refusal cannot replace the newer start's ret
     const started = await newStart;
     expect(started).toBeDefined();
     expect(client.shownSession()?.sessionId).toBe(started);
-    expect(client.shownSession()?.cwd).toBe("/tmp/newer-start");
+    // The retry started the newer folder's session. Read its folder from the daemon's listing: the
+    // mock's new session carries its seeded "This Mac" host (acpmux itself sends none), and
+    // shownSession() names a folder only for a session with no host.
+    const listed = (await daemon.answer("_acpmux/watch", {})) as { sessions: { sessionId: string; cwd?: string }[] };
+    expect(listed.sessions.find((session) => session.sessionId === started)?.cwd).toBe("/tmp/newer-start");
   } finally {
     client.close();
   }

@@ -154,6 +154,9 @@ final class AgentTabStore {
     /// The folders of every workspace on the machine of tab `key` (its terminals' folders there),
     /// for the project list of a chat on that machine.
     var remoteFolders: (@MainActor (String) -> [String])?
+    /// The folders the machine of tab `key` lists itself (`agent-session-folders`: its work folder,
+    /// then the folders under it), for the same project list; none from an older daemon.
+    var remoteMachineFolders: (@MainActor (String) async -> [String])?
     /// The display name of a remote daemon's machine, recorded on the tabs of its new chats.
     var remoteMachineName: @MainActor (DaemonService) -> String? = { _ in nil }
     /// Shared conversion and project actions for a direct blank chat, without a chooser page.
@@ -418,7 +421,9 @@ final class AgentTabStore {
             model.remoteChat = true
             model.onListRemoteProjects = { [weak self] query in
                 guard let self else { return [] }
-                let folders = remoteFolders?(resolveRemote(key)) ?? []
+                let listed = remoteFolders?(resolveRemote(key)) ?? []
+                let machine = await remoteMachineFolders?(resolveRemote(key)) ?? []
+                let folders = AgentTabRemoteStart.folders(listed: listed, machine: machine)
                 guard let query = query?.lowercased(), !query.isEmpty else { return folders }
                 return folders.filter { $0.lowercased().contains(query) }
             }
