@@ -180,7 +180,9 @@ await requireBrowserLane("agent-pane-transcript-view.test.ts", async () => {
       await menu.getByRole("menuitem", { name: "Transcript view" }).click();
       const radios = page.getByRole("menuitemradio");
       await radios.first().waitFor();
-      expect(await radios.allTextContents()).toEqual(["Normal", "Thinking", "Verbose"]);
+      // Each view by its accessible name (the picked one's check is drawn inside its row).
+      for (const view of ["Normal", "Thinking", "Verbose"])
+        expect(await page.getByRole("menuitemradio", { name: view, exact: true }).count()).toBe(1);
       await page.getByRole("menuitem", { name: /^Text & Width/ }).click();
       await page.locator(".acpmux-display").waitFor();
       await page.close();
