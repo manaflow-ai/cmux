@@ -74,11 +74,17 @@ public final class MobileHostService {
     }
 
     /// Follows Settings > Accounts > Phone Access from now on (once).
-    public func follow(_ settings: SettingsController, launch: LaunchIdentity) {
+    public func follow(_ settings: SettingsController, launch: LaunchIdentity,
+                       configureAdmission: (@MainActor (PhoneAccessGate, @escaping @Sendable (String) async -> Void) -> Void)? = nil) {
         guard follower == nil else { return }
+        configureAdmission?(access, { [weak self] id in await self?.disconnectPhone(id) })
         follower = PhoneAccessFollower(mobile: self, settings: settings,
                                        history: MobileHostHistory(stateDirectory: Self.stateDirectory(namespace: Self.namespace(launch))))
         follower?.start()
+    }
+
+    public func disconnectPhone(_ endpoint: String) async {
+        await host?.disconnectPhone(endpoint)
     }
 
     private func servingChanged() {

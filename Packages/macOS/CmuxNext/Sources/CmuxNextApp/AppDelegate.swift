@@ -314,7 +314,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let acpmux = QuitAgents.environment(services)
         ChatSettingsPush.start(settings: settings, socketPath: acpmux?.isAttached == true ? nil : acpmux?.socketPath)
         KeepAwakeService.shared.start(settings: settings, store: services.daemon.store)
-        services.mobile.follow(settings, launch: services.environment.launch)
+        services.mobile.follow(settings, launch: services.environment.launch, configureAdmission: services.iphone.followPhoneAccess)
         services.chatsFeed?.keepCurrent()
         services.projectsImport.start(feed: services.chatsFeed)
         if let feed = services.chatsFeed { AgentPageChats.wire(services.agentTabs, to: feed, opener: services.chatsOpener) }

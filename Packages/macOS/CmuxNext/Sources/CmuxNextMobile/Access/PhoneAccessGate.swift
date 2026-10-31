@@ -6,10 +6,28 @@ import CmuxNextCompat
 /// replacement transport applies the same gate, so the settings and the
 /// rules do not move with the transport decision.
 public final class PhoneAccessGate: Sendable {
+    private struct Admission: Sendable {
+        var decide: (@Sendable (MobileHostPairRequest) async -> Bool)?
+        var recheck: (@Sendable (MobileHostPairRequest) -> Bool)?
+    }
+    private let admission = Mutex(Admission())
     private let startsSessions: Mutex<Bool>
 
     public init(allowsStartingSessions: Bool = true) {
         startsSessions = Mutex(allowsStartingSessions)
+    }
+
+    /// Unwired and signed-out listeners fail closed.
+    public func setAdmission(decide: @escaping @Sendable (MobileHostPairRequest) async -> Bool,
+                             recheck: @escaping @Sendable (MobileHostPairRequest) -> Bool) {
+        admission.withLock { $0 = Admission(decide: decide, recheck: recheck) }
+    }
+    public func admits(_ phone: MobileHostPairRequest) async -> Bool {
+        guard let decide = admission.withLock({ $0.decide }) else { return false }
+        return await decide(phone)
+    }
+    public func stillAllows(_ phone: MobileHostPairRequest) -> Bool {
+        admission.withLock { $0.recheck }?(phone) ?? false
     }
 
     /// `phone.startSessions`: a phone may create workspaces and terminals.

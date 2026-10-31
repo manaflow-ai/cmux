@@ -17,35 +17,41 @@ public struct MobileHostPairRequest: Sendable, Equatable, Hashable {
     /// When the backend registered the phone's device (hostd's `registered_at_ms`), shown in
     /// the prompt so a device made minutes ago stands out; nil from an older hostd.
     public var registeredAt: Date?
+    public var transport: MobileHostPairedDevice.Transport
     /// The pre-approval the phone presented from this Mac's pairing code (``MobileHostPairTokens``),
     /// nil without one. A secret: never logged, never kept with a waiting request.
     public var pairToken: String?
 
     public init(phoneDeviceID: String, name: String, identityKey: String, approvalKey: String, registeredAt: Date? = nil,
-                pairToken: String? = nil) {
+                pairToken: String? = nil, transport: MobileHostPairedDevice.Transport = .hostd) {
         self.phoneDeviceID = phoneDeviceID
         self.name = name
         self.identityKey = identityKey
         self.approvalKey = approvalKey
         self.registeredAt = registeredAt
         self.pairToken = pairToken
+        self.transport = transport
     }
 
     /// The same device asking with the same keys (a retry, whatever its registration date).
     public func sameKeys(as other: MobileHostPairRequest) -> Bool {
-        phoneDeviceID == other.phoneDeviceID && identityKey == other.identityKey && approvalKey == other.approvalKey
+        transport == other.transport && phoneDeviceID == other.phoneDeviceID && identityKey == other.identityKey && approvalKey == other.approvalKey
     }
 }
 
 /// One phone the user allowed on this Mac.
 public struct MobileHostPairedDevice: Sendable, Equatable, Codable, Identifiable {
+    public enum Transport: String, Sendable, Codable, Hashable { case hostd, iroh }
+    public var transport: Transport
     public var id: String
     public var name: String
     public var identityKey: String
     public var approvalKey: String
     public var pairedAt: Date
 
-    public init(id: String, name: String, identityKey: String, approvalKey: String, pairedAt: Date) {
+    public init(id: String, name: String, identityKey: String, approvalKey: String, pairedAt: Date,
+                transport: Transport = .hostd) {
+        self.transport = transport
         self.id = id
         self.name = name
         self.identityKey = identityKey
@@ -53,8 +59,19 @@ public struct MobileHostPairedDevice: Sendable, Equatable, Codable, Identifiable
         self.pairedAt = pairedAt
     }
 
+    private enum CodingKeys: String, CodingKey { case id, name, identityKey, approvalKey, pairedAt, transport }
+    public init(from decoder: any Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        id = try values.decode(String.self, forKey: .id)
+        name = try values.decode(String.self, forKey: .name)
+        identityKey = try values.decode(String.self, forKey: .identityKey)
+        approvalKey = try values.decode(String.self, forKey: .approvalKey)
+        pairedAt = try values.decode(Date.self, forKey: .pairedAt)
+        transport = try values.decodeIfPresent(Transport.self, forKey: .transport) ?? .hostd
+    }
+
     /// The first 8 bytes of the approval key's SHA-256 as hex, as acpmux lists it.
-    public var fingerprint: String { MobileHostPairedDevices.fingerprint(approvalKey) }
+    public var fingerprint: String { MobileHostPairedDevices.fingerprint(transport == .hostd ? approvalKey : identityKey) }
 }
 
 /// The phones this Mac trusts for one signed-in user, and the requests the
@@ -88,22 +105,23 @@ public struct MobileHostPairedDevices: Sendable, Equatable, Codable {
 
     public func decision(for request: MobileHostPairRequest) -> Decision {
         if devices.contains(where: {
-            $0.id == request.phoneDeviceID && $0.identityKey == request.identityKey && $0.approvalKey == request.approvalKey
+            $0.transport == request.transport && $0.id == request.phoneDeviceID && $0.identityKey == request.identityKey && $0.approvalKey == request.approvalKey
         }) { return .trusted }
-        if denied.contains(where: { $0.id == request.phoneDeviceID && $0.identityKey == request.identityKey }) { return .denied }
+        if request.transport == .hostd, denied.contains(where: { $0.id == request.phoneDeviceID && $0.identityKey == request.identityKey }) { return .denied }
         return .ask
     }
 
     /// The user allowed the request: its keys replace any older keys of that device.
     public mutating func approve(_ request: MobileHostPairRequest, at date: Date) {
-        devices.removeAll { $0.id == request.phoneDeviceID }
-        denied.removeAll { $0.id == request.phoneDeviceID }
+        devices.removeAll { $0.id == request.phoneDeviceID && $0.transport == request.transport }
+        if request.transport == .hostd { denied.removeAll { $0.id == request.phoneDeviceID } }
         devices.append(MobileHostPairedDevice(id: request.phoneDeviceID, name: request.name, identityKey: request.identityKey,
-                                       approvalKey: request.approvalKey, pairedAt: date))
+                                       approvalKey: request.approvalKey, pairedAt: date, transport: request.transport))
     }
 
     /// The user refused the request.
     public mutating func deny(_ request: MobileHostPairRequest) {
+        guard request.transport == .hostd else { return }
         denied.removeAll { $0.id == request.phoneDeviceID }
         denied.append(Denied(id: request.phoneDeviceID, identityKey: request.identityKey))
         // Keep the newest refusals only; each refused key costs a prompt anyway.
@@ -111,8 +129,8 @@ public struct MobileHostPairedDevices: Sendable, Equatable, Codable {
     }
 
     /// Removed in Settings, or the phone signed out. Its keys stop working at once.
-    public mutating func remove(_ id: String) {
-        devices.removeAll { $0.id == id }
+    public mutating func remove(_ id: String, transport: MobileHostPairedDevice.Transport = .hostd) {
+        devices.removeAll { $0.id == id && $0.transport == transport }
     }
 
     /// The acpmux pairing name of phone `id`'s own credential (acpmux role `phone`): what
@@ -124,20 +142,22 @@ public struct MobileHostPairedDevices: Sendable, Equatable, Codable {
 
     /// The approvers acpmux gets (`_acpmux/approvers_set`).
     /// The pairing of `phone`, a phone of the account, if it is paired here (by its link id).
+    public var hostdDevices: [MobileHostPairedDevice] { devices.filter { $0.transport == .hostd } }
+
     public func pairing(of phone: MobileHostKnownPhone) -> MobileHostPairedDevice? {
-        devices.first { phone.owns($0.id) }
+        hostdDevices.first { phone.owns($0.id) }
     }
 
     /// The paired phones (link ids) that are among the account's `phones`: only these get an
     /// acpmux credential, so a phone removed from the account while this Mac was not running
     /// (still paired here, with no row in Settings > Devices) never holds Full access.
     public func listed(in phones: [MobileHostKnownPhone]) -> Set<String> {
-        Set(devices.map(\.id).filter { id in phones.contains { $0.owns(id) } })
+        Set(hostdDevices.map(\.id).filter { id in phones.contains { $0.owns(id) } })
     }
 
     public func approversParams(macDevice: String) -> [String: Any] {
         ["macDevice": macDevice,
-         "approvers": devices.map { ["id": $0.id, "publicKey": $0.approvalKey, "name": $0.name] }]
+         "approvers": hostdDevices.filter { !$0.approvalKey.isEmpty }.map { ["id": $0.id, "publicKey": $0.approvalKey, "name": $0.name] }]
     }
 
     /// Lowercase or uppercase hex; nil for anything else.
@@ -186,6 +206,11 @@ public struct MobileHostPairedDevicesFile: Sendable {
     /// seal is a Keychain item, and the iPhone host calls from the main actor) and keep its order.
     /// Registered in plans/cmux-next/threading-model.md.
     private static let queue = DispatchQueue(label: "com.cmuxterm.mobile.paired-devices", qos: .utility)
+
+    /// Shared-list transactions use the same queue, so quit's flush covers both transports.
+    static func enqueue(_ operation: @escaping @Sendable () -> Void) {
+        queue.async(execute: operation)
+    }
 
     /// Per file, the digest of the newest list this run saved: in this run only that list counts,
     /// so no list a later save replaced (a phone removed, a phone's keys replaced) is trusted again,

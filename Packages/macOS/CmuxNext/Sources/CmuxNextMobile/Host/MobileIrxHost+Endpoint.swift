@@ -147,26 +147,43 @@ extension MobileIrxHost {
 
     private func supervise(_ irx: IrxConnection, judgment: @escaping IrxGrantJudgment,
                            admission: V2InboundAdmissionAuthority, registry: IrxServerSessionRegistry) async {
+        let run = lifetime
         guard let (peer, control, sessionID) = await IrxAdmission().performServer(
             connection: irx, judgment: judgment, journal: journal) else { return }
-        let isMac = cachedState?.directory?.inboundPeers?.first {
+        let metadata = cachedState?.directory?.inboundPeers?.first {
             $0.device.descriptor.endpointID.caseInsensitiveCompare(peer.endpointIDHex) == .orderedSame
-        }?.device.descriptor.metadata.platform == .mac
-        guard !isMac, let backend, let macDeviceID else {
+        }?.device.descriptor.metadata
+        let isMac = metadata?.platform == .mac
+        guard run == lifetime, !isMac, let backend, let macDeviceID else {
             await irx.close(code: .revoked, origin: .local)
             return
         }
-        let recheck = admission.recheck(peer)
+        // The identity is the transport's TLS-proved endpoint, never a caller-supplied device id.
+        let endpoint = peer.endpointIDHex.lowercased()
+        let name = String((metadata?.displayName ?? "").components(separatedBy: .controlCharacters).joined().prefix(64))
+        let phone = MobileHostPairRequest(phoneDeviceID: endpoint, name: name.isEmpty ? String(endpoint.prefix(8)) : name,
+                                           identityKey: endpoint, approvalKey: "", transport: .iroh)
+        guard await self.access.admits(phone), run == lifetime else {
+            await irx.close(code: .revoked, origin: .local)
+            return
+        }
+        let accountRecheck = admission.recheck(peer)
+        let access = access
+        let recheck: @Sendable (String) -> Bool = { accountRecheck($0) && access.stillAllows(phone) }
         guard await registry.admit(deviceID: peer.bindingID, sessionID: sessionID, connection: irx,
                                    stillAuthorized: recheck) else {
             await irx.close(code: .revoked, origin: .local)
             return
         }
         await irx.authorizeDirectPaths()
+        guard run == lifetime, recheck(peer.endpointIDHex) else {
+            await irx.close(code: .revoked, origin: .local)
+            await registry.remove(deviceID: peer.bindingID, sessionID: sessionID)
+            return
+        }
         journal.record("next-host", "phone-admitted", ["session": sessionID])
         let host = hostInfo(macDeviceID: macDeviceID)
         let onUsable = onUsable
-        let access = access
         let server = MobileIrxConnectionServer(
             connection: irx, control: control, deviceID: peer.deviceID, access: access,
             makeSession: { emit in MobileCompatSession(backend: backend, host: host, emit: emit, access: access, onUsable: onUsable) },
@@ -175,6 +192,11 @@ extension MobileIrxHost {
         await irx.close(code: .hostShutdown, origin: .local)
         await registry.remove(deviceID: peer.bindingID, sessionID: sessionID)
         journal.record("next-host", "phone-closed", ["session": sessionID])
+    }
+
+    /// Local Settings removal closes all sessions proved by this endpoint.
+    public func disconnectPhone(_ endpoint: String) async {
+        await registry?.closeAll(code: .revoked, matching: { $0.lowercased() == endpoint })
     }
 
     /// Closes sessions whose v2 permission lapsed or was revoked.
