@@ -85,6 +85,48 @@ nonisolated struct CloudMoveCLI: Sendable {
         return answer
     }
 
+    /// `cmux link start-chat plan`'s answer: the machine a `cloud.startChat` send takes (nil: make
+    /// one named `newName`), pinned to the send, and the send's keys.
+    struct StartChatPlan: Sendable, Equatable {
+        var machine: String?
+        var newName: String?
+        var createKey: String
+        var tabKey: String
+    }
+
+    /// `cmux link start-chat plan --request JSON` (cmux-tui `link/start_chat_cli.rs`).
+    func startChatPlan(request: String) async throws -> (Answer, StartChatPlan) {
+        let run = try await parsed(["link", "start-chat", "plan", "--request", request])
+        let object = run.object ?? [:]
+        let plan = StartChatPlan(machine: object["machine"] as? String, newName: object["new_name"] as? String,
+                                 createKey: object["create_key"] as? String ?? "", tabKey: object["tab_key"] as? String ?? "")
+        // An ok answer without its keys is no answer: a create or open without them is not idempotent.
+        guard !run.answer.ok || (!plan.createKey.isEmpty && !plan.tabKey.isEmpty) else {
+            return (Answer(ok: false, errorCode: Self.badAnswer, error: "link start-chat plan answered ok without its keys"), plan)
+        }
+        return (run.answer, plan)
+    }
+
+    /// `cmux link start-chat pin`: the send `key` runs on `machine`, one the App just made for it.
+    func startChatPin(key: String, machine: String) async throws -> (Answer, Void) {
+        (try await run(["link", "start-chat", "pin", "--key", key, "--machine", machine]), ())
+    }
+
+    /// `cmux link start-chat copy`: copies `local` to the send's own place on the machine whose
+    /// daemon `socket` reaches, under the first of `workRoots` it can write, unless this send's copy
+    /// already finished there. The chat's folder there, and whether it copied now.
+    func startChatCopy(key: String, machine: String, socket: String, local: String, subpath: String,
+                       workRoots: [String]) async throws -> (Answer, (chat: String, copied: Bool)) {
+        let roots = workRoots.flatMap { ["--work-root", $0] }
+        let run = try await parsed(["link", "start-chat", "copy", "--key", key, "--machine", machine, "--socket", socket,
+                                    "--local", local, "--subpath", subpath] + roots)
+        let chat = run.object?["chat"] as? String ?? ""
+        guard !run.answer.ok || chat.hasPrefix("/") else {
+            return (Answer(ok: false, errorCode: Self.badAnswer, error: "link start-chat copy answered ok without its folder"), (chat, false))
+        }
+        return (run.answer, (chat, run.object?["copied"] as? Bool ?? false))
+    }
+
     /// Longer than `link machine update`'s own wait for the machine (25 minutes) plus a first download.
     static let machineUpdateTimeout: Duration = .seconds(45 * 60)
 
