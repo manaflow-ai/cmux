@@ -229,6 +229,18 @@ class Hosts(unittest.TestCase):
         self.assertIn("term_abc", rows[0]["argv"])
 
 
+class Closes(unittest.TestCase):
+    def test_only_ok_closes_with_terminals_are_noted(self):
+        rf.CLOSES.clear()
+        rf.note_close({"value": {}}, 3)
+        rf.note_close({"error": "x"}, 2)
+        rf.note_close([], 0)
+        self.assertEqual([n for _, n in rf.CLOSES], [3])
+        p = rf.pick_action(rf.Run(5), {"w1": ws("fz-1", ["a", "b"]), "w2": ws("fz-2", ["c"])})
+        if p[0] == "ws_close":
+            self.assertIn("tabs", p[1])
+
+
 class Answers(unittest.TestCase):
     def test_bare_list_answer_is_listed(self):
         # `cmux --json workspace list` answers a bare list (fleet run seed 1004, cmux21).

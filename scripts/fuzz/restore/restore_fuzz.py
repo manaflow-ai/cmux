@@ -320,8 +320,14 @@ def log_hosts(label):
     terms = sorted({first(t, "id", "terminal_id") for t in listed(listed_answer, "terminals") if isinstance(t, dict)} - {None})
     # A host's argv names its owner and session, not its terminal id, so hosts are compared by count only.
     shown = sum(len(w["tabs"]) for w in (daemon_state() or {}).values())
+    now = time.time()
+    recent = sum(n for t, n in CLOSES if now - t <= REAP_GRACE)
+    excess = len(terms) - shown - recent
+    EXCESS_MAX[0] = max(EXCESS_MAX[0], len(terms) - shown)
+    EXCESS_MAX[1] = max(EXCESS_MAX[1], excess)
     row = {"t": round(time.time() - T0, 2), "label": label, "hosts": len(hosts), "terminals_listed": len(terms),
-           "hosts_minus_listed": len(hosts) - len(terms), "fz_tabs_shown": shown, "sample_hosts": hosts[:3],
+           "hosts_minus_listed": len(hosts) - len(terms), "fz_tabs_shown": shown,
+           "closed_last_30s": recent, "listed_minus_shown_minus_recent": excess, "sample_hosts": hosts[:3],
            "terminal_ids": terms[:200]}
     with open(os.path.join(opts.out, "hosts.jsonl"), "a") as f:
         f.write(json.dumps(row) + "\n")
@@ -330,6 +336,14 @@ def log_hosts(label):
 
 
 HOSTS_MAX = [0]
+CLOSES = []          # (time of an ok close answer, terminals that close took off the topology)
+EXCESS_MAX = [0, 0]  # max of listed - shown fz tabs; max of listed - shown - closed in the last 30 s
+REAP_GRACE = 30.0    # the daemon's --terminal-reap-grace-seconds in a slot app
+
+
+def note_close(answer, terminals):
+    if isinstance(answer, (dict, list)) and "error" not in answer and terminals:
+        CLOSES.append((time.time(), terminals))
 
 
 def log_daemon_env(label):
@@ -496,7 +510,8 @@ def pick_action(run, state):
         wid, w = run.rng.choice([(i, w) for i, w in wss if len(w["tabs"]) > 1])
         return kind, {"ws": wid, "tab": run.rng.choice(sorted(w["tabs"]))}
     if kind == "ws_close":
-        return kind, {"ws": run.rng.choice(wss)[0]}
+        wid, w = run.rng.choice(wss)
+        return kind, {"ws": wid, "tabs": len(w["tabs"])}
     wid, w = run.rng.choice(wss)
     if kind == "rename":
         return kind, {"ws": wid, "name": run.name()}
@@ -517,8 +532,10 @@ def do_action(kind, p):
         mark(value(answer).get("terminal_id") if isinstance(value(answer), dict) else None)
     elif kind == "tab_close":
         answer, took = cli("tab", p["tab"], "close")
+        note_close(answer, 1)
     elif kind == "ws_close":
         answer, took = cli("workspace", p["ws"], "close")
+        note_close(answer, p.get("tabs", 1))
     elif kind == "rename":
         answer, took = cli("workspace", p["ws"], "rename", "--name", p["name"])
     else:
@@ -742,8 +759,10 @@ def judge(state, expected, inflight):
 # ---- one iteration -----------------------------------------------------------------------------
 
 def fresh(run):
-    for wid in list((daemon_state() or {})):
-        cli("workspace", wid, "close")
+    fz_before = daemon_state() or {}
+    for wid in list(fz_before):
+        answer, _ = cli("workspace", wid, "close")
+        note_close(answer, len(fz_before.get(wid, {}).get("tabs", {})))
     wait(lambda: daemon_state() == {}, 20, 0.5)
     names = []
     for _ in range(run.rng.randint(1, 3)):
@@ -984,7 +1003,8 @@ def main():
     p = lambda q: settle[min(len(settle) - 1, int(q * len(settle)))] if settle else None
     say(f"RESTORE-FUZZ SUMMARY seed={seed} chaos={opts.chaos} iterations={len(records)} judged={len(judged)} "
         f"not_run={len(records) - len(judged)} kills={json.dumps(kills, sort_keys=True)} violations={len(violations)} "
-        f"chaos_lost={chaos_lost[0]} hosts_max={HOSTS_MAX[0]} "
+        f"chaos_lost={chaos_lost[0]} hosts_max={HOSTS_MAX[0]} listed_minus_shown_max={EXCESS_MAX[0]} "
+        f"listed_minus_shown_minus_closed30s_max={EXCESS_MAX[1]} "
         f"settle_s p50={p(0.5)} p95={p(0.95)} max={settle[-1] if settle else None}")
     sys.exit(1 if violations else (0 if judged and not chaos_lost[0] else 75))
 
