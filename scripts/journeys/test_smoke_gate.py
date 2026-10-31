@@ -186,6 +186,14 @@ class Acquire(unittest.TestCase):
                     os.environ.pop(k, None) if v is None else os.environ.__setitem__(k, v)
 
 
+class Launch(unittest.TestCase):
+    def test_the_launch_names_the_build_commit_and_the_unpack_writes_it_beside_the_bundle(self):
+        # capture-host (hq main 2026-10-30) refuses `launch` without --commit SHA checked against the bundle.
+        src = (HERE / "run.py").read_text()
+        self.assertIn('[ch, "launch", "--commit", commit, lease, app', src)
+        self.assertIn("capture-commit", src)
+
+
 class NewTerminals(unittest.TestCase):
     """cond_smoke_new_terminals on a fake app: the lines must be one each on new terminals, placed as asked."""
 

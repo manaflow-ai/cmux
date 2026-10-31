@@ -330,11 +330,20 @@ def run_lease(specs, build, out, frame_interval, exclusive=False, hog_swap_gb=0.
                            f"( [ -x {ocr} ] || {{ swiftc -O kit/ocr.swift -o {ocr}.$$ && mv -f {ocr}.$$ {ocr}; }} ) >ocr.log 2>&1 & "
                            f"cmux-ci artifact {q(build['id'])} app.zip >&2; ditto -x -k app.zip build; rm -f app.zip; wait || true; "
                            f"[ -x {ocr} ] || {{ cat ocr.log >&2; exit 3; }}; "
-                           f"find \"$PWD/build\" -maxdepth 2 -name '*.app' -type d | head -1",
+                           f"a=$(find \"$PWD/build\" -maxdepth 2 -name '*.app' -type d | head -1); "
+                           # The commit the build job names, beside the bundle unpacked from that job's artifact:
+                           # capture-host launch --commit checks it (and the bundle's own CMUXCommit, if any, must agree).
+                           f"[ -z \"$a\" ] || {{ [ {len(str(build.get('commit') or ''))} -ne 40 ] || "
+                           f"printf '%s\\n' {q(build.get('commit') or '')} > \"$(dirname \"$a\")/capture-commit\"; }}; echo \"$a\"",
                      timeout=left(420)).stdout.decode().strip()
         if not app.endswith(".app"):
             raise RuntimeError(f"build {build['id']} has no app bundle")
-        launched = run([ch, "launch", lease, app, build.get("tag") or "journeys", "--"], timeout=left(180), check=False)
+        # capture-host (hq main since 2026-10-30) launches only the build of --commit, checked against the bundle.
+        commit = str(build.get("commit") or "")
+        if not re.fullmatch(r"[0-9a-f]{7,40}", commit):
+            raise RuntimeError(f"build {build['id']} names no commit sha ({commit!r}): capture-host launch needs --commit")
+        launched = run([ch, "launch", "--commit", commit, lease, app, build.get("tag") or "journeys", "--"],
+                       timeout=left(180), check=False)
         facts = launch_facts(launched.stdout.decode())
         if facts.get("socket", "none") == "none":
             raise RuntimeError(f"the app did not answer on its control socket: "
