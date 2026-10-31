@@ -363,6 +363,19 @@ side-lane failure listing; below BUDGET_RESERVE it waits for the reset
 instead of spending refusals. With BOT_APP_ID and BOT_APP_KEY the script
 mints a new installation token before the old one's hour is up (the 5-hour
 sweeper's token expired at minute 60 and every read after it was a 401).
+GitHub's ETag covers the request's Authorization header as well as the
+body (2026-10-31: the same token sent as `Bearer` and as `token` got two
+ETags, and either one's If-None-Match under the other was a 200), so a
+stored answer is only ever confirmed for the token that read it: each
+re-mint starts the stored answers afresh, and no answer is worth keeping
+from one job to the next. Listings bounded by `created>=` round the bound
+down (created_floor()) so the URL repeats and can answer 304; a finished
+job's annotations and a finished rescue run's jobs are read once; and the
+rescue history stops at its first page when GitHub's count already says it
+cannot be read whole (rescue_jobs()). When the budget is spent and resets
+further out than a watch may wait, a single watch (not a nightly's) ends
+green with a warning instead of holding its runner through the reset
+(QuotaSpent).
 
 A CI run's owned jobs may wait on purpose. pr_runner_pool.py puts a run on
 an owned pool while its jobs are expected to start there no later than on
@@ -389,6 +402,7 @@ import base64
 import dataclasses
 import datetime as dt
 import http.client
+import io
 import json
 import os
 import re
@@ -1151,7 +1165,7 @@ def canceller(api: GitHub, jobs: Sequence[Mapping[str, Any]], sleep: Callable[[f
                        key=lambda job: not unacquired(job))
     for job in cancelled[:CANCELLED_BY_READS]:
         try:
-            notes = read(lambda: api.annotations(int(job["id"])), sleep, log)
+            notes = read(lambda: api.annotations(int(job["id"]), final=job.get("status") == "completed"), sleep, log)
         except (*READ_ERRORS, AnnotationsCapped) as error:
             log(f"could not read who cancelled the run ({error})")
             return None
@@ -1475,6 +1489,28 @@ RATE_LIMIT_FIRST_WAIT_SECONDS = 60
 RATE_LIMIT_MAX_WAIT_SECONDS = 300
 
 
+class QuotaSpent(urllib.error.HTTPError):
+    """A single watch's read found the token's hourly budget spent, with its reset further out than the watch may
+    wait. Waiting through it only holds a runner, so the read is refused at once and the watch ends green with a
+    warning (an infra skip, main()), never red. Still an HTTPError, so every caller that treats a refused read as a
+    failed one (READ_ERRORS) keeps doing so. Only before the watch has sent any write (GitHub.may_end_on_spent()): a
+    rescue that has cancelled a run still waits through every rate limit for the reads and the re-run that follow,
+    as before. The cmux-bot installation ran dry at about 00:50Z on 2026-10-31, and the per-run rescues that hit it
+    waited 15 minutes and then failed red."""
+
+    def __init__(self, error: urllib.error.HTTPError, said: str, why: str) -> None:
+        super().__init__(error.url, error.code, why, error.headers, io.BytesIO(said.encode()))
+        self.why = why
+
+
+def quota_skip(error: BaseException) -> str | None:
+    """The infra-skip warning for a watch that ended on a spent API budget, or None for any other error."""
+    if not isinstance(error, QuotaSpent):
+        return None
+    return (f"::warning title=GitHub API budget::infra skip: {error.why}; the run is left as GitHub scheduled it "
+            "(a later sweeper adopts what it would have watched)")
+
+
 def rate_limit_wait(code: int, headers: Mapping[str, str], body: str, now: float, tries: int) -> float | None:
     """Seconds to wait before retrying a refused request, or None when it is not a rate limit.
 
@@ -1550,6 +1586,24 @@ def app_token_minter(app_id: str, key: str, repo: str) -> Callable[[], str]:
     return mint
 
 
+# A listing's `created>=` bound is rounded down to this step, so the same URL is asked again tick after tick and its
+# ETag can answer 304 (a bound that moved every tick made every listing a new URL, never conditional); the runs the
+# rounding adds are dropped by their own created_at (created_before()).
+CREATED_STEP_SECONDS = 30 * 60
+
+
+def created_floor(moment: dt.datetime) -> dt.datetime:
+    """`moment` in UTC, rounded down to CREATED_STEP_SECONDS."""
+    stamp = int(moment.astimezone(dt.timezone.utc).timestamp())
+    return dt.datetime.fromtimestamp(stamp - stamp % CREATED_STEP_SECONDS, dt.timezone.utc)
+
+
+def created_before(run: Mapping[str, Any], oldest: dt.datetime) -> bool:
+    """The run was created before `oldest` (a run the rounded-down listing bound let in)."""
+    created = parse_time(run.get("created_at"))
+    return created is not None and created < oldest
+
+
 def _kind(path: str) -> str:
     return re.sub(r"/[0-9]+", "/{n}", path.split("?", 1)[0])
 
@@ -1579,7 +1633,8 @@ class GitHub:
         # RATE_LIMIT_WAIT_SECONDS, so one run's waits never spend another's.
         self._limits = threading.local()
         self._lock = threading.Lock()
-        # GET answers by (token, path): (ETag, body, monotonic time read or confirmed).
+        # GET answers by (token, path): (ETag, body, monotonic time read or confirmed). By token: GitHub's ETag
+        # covers the Authorization header, so another token's ETag never answers 304 (the module docstring).
         self._cache: dict[tuple[str, str], tuple[str, bytes, float]] = {}
         # Finished jobs' cancel marks by job id (job_marks()): a finished job's log no longer changes.
         self._logs: dict[int, dict[tuple[int, int], str] | None] = {}
@@ -1597,6 +1652,14 @@ class GitHub:
         self._pool = 0
         # Every Authorization the minted App (GH_TOKEN) has used: only its 401s mint a new token.
         self._app_auths = {self.headers["Authorization"]}
+        # Set by main() for a single watch that is not a nightly's: pace() ends it (QuotaSpent) instead of waiting
+        # through a reset further out than RATE_LIMIT_WAIT_SECONDS. The sweeper keeps waiting: it is the one
+        # watcher of every marked run, and the next one starts only with the cron.
+        self.end_on_spent = False
+        # Annotations of finished jobs by job id (annotations(final=True)): they no longer change.
+        self._annotations: dict[int, list[Mapping[str, Any]]] = {}
+        # Finished rescue runs' finished job ids by (run id, attempt) (rescue_jobs()): they no longer change.
+        self._rescue_attempt_jobs: dict[tuple[int, int], list[int]] = {}
 
     def _count(self, path: str, outcome: str) -> None:
         with self._lock:
@@ -1675,8 +1738,19 @@ class GitHub:
         if remaining is None or remaining >= BUDGET_FLOOR:
             return interval
         if remaining < BUDGET_RESERVE and reset is not None:
-            return max(interval, reset - time.time() + 5)
+            until = reset - time.time() + 5
+            if until > RATE_LIMIT_WAIT_SECONDS and self.may_end_on_spent():
+                # A single watch (not the sweeper, not a nightly's) does not hold its runner through the reset.
+                raise QuotaSpent(urllib.error.HTTPError(f"{API}/rate_limit", 403, "spent", None, None), "",
+                                 f"{remaining} API requests left and the budget resets in {until:.0f}s, past the "
+                                 f"{RATE_LIMIT_WAIT_SECONDS}s a watch may wait")
+            return max(interval, until)
         return max(interval, IDLE_POLL_SECONDS)
+
+    def may_end_on_spent(self) -> bool:
+        """A spent budget may end this thread's watch (QuotaSpent): a single watch that is not a nightly's
+        (end_on_spent), before this thread has sent any write. After a cancel, its reads and re-run wait as before."""
+        return self.end_on_spent and not getattr(self._limits, "wrote", False)
 
     def _fresh_token(self, stale: str | None = None) -> None:
         """Swap in a new installation token when the current one is TOKEN_REFRESH_SECONDS old, or when
@@ -1721,7 +1795,8 @@ class GitHub:
         self._limits.waited = float(RATE_LIMIT_WAIT_SECONDS)
 
     def _wait_for_rate_limit(self, method: str, path: str, error: urllib.error.HTTPError) -> bool:
-        """Wait out a GITHUB_TOKEN request's rate-limit refusal; False when it is not one or the budget is spent."""
+        """Wait out a GITHUB_TOKEN request's rate-limit refusal; False when it is not one. Raises QuotaSpent when this
+        thread's waits are used up, or when the hour's budget is spent and resets later than they could wait."""
         try:
             said = error.read().decode("utf-8", "replace")
         except Exception:  # noqa: BLE001 - the body only explains the refusal
@@ -1733,6 +1808,12 @@ class GitHub:
         left = RATE_LIMIT_WAIT_SECONDS - self.rate_limit_waited
         if left < 1:
             return False
+        spent = {key.lower(): value for key, value in headers.items()}.get("x-ratelimit-remaining", "").strip() == "0"
+        if spent and wait > left and method == "GET" and self.may_end_on_spent():
+            # The hour's budget is gone and its reset is further out than the wait left: waiting it out only holds
+            # the runner, and the request fails at the end anyway.
+            raise QuotaSpent(error, said, f"{method} {path} was refused: the API budget is spent and resets in "
+                                          f"{wait:.0f}s, past the {left:.0f}s this watch may wait")
         wait = min(wait, left)
         self._limits.tries = self.rate_limit_tries + 1
         self._limits.waited = self.rate_limit_waited + wait
@@ -1749,6 +1830,8 @@ class GitHub:
                 before_retry: Callable[[], None] | None = None, refreshed: bool = False,
                 before_send: Callable[[], None] | None = None) -> Any:
         self._fresh_token()
+        if method != "GET":
+            self._limits.wrote = True  # from here on this watch waits through rate limits (may_end_on_spent())
         headers = self.read_headers if method == "GET" and not own_token else self.headers
         with self._lock:
             # One token for the whole request, read under the lock _fresh_token() swaps it under.
@@ -1901,7 +1984,7 @@ class GitHub:
         Those workflows upload no marker (sweep()), and a job the fleet refused fails its run, so a
         refusal shows here once the run ends, which is when its failed jobs can be re-run.
         """
-        created = oldest.astimezone(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        created = created_floor(oldest).strftime("%Y-%m-%dT%H:%M:%SZ")
         found: list[tuple[int, int]] = []
         # Cancelled ones too, one page: a rescue's cancel whose re-run never came (sweep_target()).
         listings = [*(("failure", page) for page in range(1, pages + 1)), ("cancelled", 1)]
@@ -1914,7 +1997,8 @@ class GitHub:
                 finished = parse_time(run.get("updated_at"))
                 entry = (int(run.get("id") or 0), int(run.get("run_attempt") or 0))
                 if entry[0] and entry not in found and run.get("path") in SIDE_WORKFLOW_PATHS and not (
-                        since is not None and finished is not None and finished < since):
+                        since is not None and finished is not None and finished < since) \
+                        and not created_before(run, oldest):
                     found.append(entry)
             # A status-filtered page can come back short before the last one (queue_janitor.GitHub.
             # in_flight_runs()), so only an empty page ends the listing before `pages`.
@@ -1931,7 +2015,7 @@ class GitHub:
         failover (unstarted_failover()) may move it. A delivery run (never_fails_over(): a scheduled launch smoke,
         say) is not listed: nothing here cancels one that has not failed.
         """
-        created = oldest.astimezone(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        created = created_floor(oldest).strftime("%Y-%m-%dT%H:%M:%SZ")
         found: list[tuple[int, int]] = []
         for page in range(1, pages + 1):
             data = self.request("GET", f"/actions/runs?status=queued&exclude_pull_requests=true&per_page={count}"
@@ -1941,7 +2025,7 @@ class GitHub:
                 entry = (int(run.get("id") or 0), int(run.get("run_attempt") or 0))
                 path = str(run.get("path") or "")
                 if entry[0] and entry not in found and path in SIDE_WORKFLOW_PATHS and path != CMUX_NEXT_WORKFLOW_PATH \
-                        and not never_fails_over(path, run.get("event")):
+                        and not never_fails_over(path, run.get("event")) and not created_before(run, oldest):
                     found.append(entry)
             # As in failed_runs(): only an empty page ends the listing before `pages`.
             if not runs:
@@ -1972,6 +2056,12 @@ class GitHub:
                                        f"&page={page}&created=%3E%3D{since.strftime('%Y-%m-%dT%H:%M:%SZ')}")
             batch = [run for run in (data or {}).get("workflow_runs") or [] if isinstance(run, Mapping)]
             runs += batch
+            total = (data or {}).get("total_count") if isinstance(data, Mapping) else None
+            if page == 1 and isinstance(total, int) and total > 100 * RESCUE_RUN_PAGES:
+                # GitHub already counts more than the pages would hold: the other nine pages would only end in the
+                # same RescueHistoryCapped. The window holds every skipped rescue run too (360 an hour on
+                # 2026-10-30), so every read of it ended here, after ten charged pages, 64 times in one sweeper.
+                raise RescueHistoryCapped(f"{total} rescue runs in the window, more than {RESCUE_RUN_PAGES} pages")
             # A page can come back short before the last one (failed_runs()): only an empty one ends.
             if not batch:
                 break
@@ -1997,10 +2087,21 @@ class GitHub:
             # the rescue workflow would hide an earlier attempt's CANCEL_SENT or CANCEL_SETTLED. Only finished jobs
             # have a log to read; a running one has not settled anything a successor needs.
             for attempt in range(attempts, 0, -1):
-                jobs = self.request("GET", f"/actions/runs/{int(run['id'])}/attempts/{attempt}/jobs?per_page=20")
-                found += [int(job["id"]) for job in (jobs or {}).get("jobs") or []
-                          if isinstance(job, Mapping) and job.get("id") and job.get("status") == "completed"
-                          and job.get("conclusion") != "skipped"]
+                # A finished attempt's jobs no longer change: listed once per process. An earlier attempt of a run
+                # is finished once a later one exists; the newest only once the run is.
+                done = attempt < attempts or run.get("status") == "completed"
+                memo = (int(run["id"]), attempt)
+                with self._lock:
+                    known = self._rescue_attempt_jobs.get(memo) if done else None
+                if known is None:
+                    jobs = self.request("GET", f"/actions/runs/{int(run['id'])}/attempts/{attempt}/jobs?per_page=20")
+                    known = [int(job["id"]) for job in (jobs or {}).get("jobs") or []
+                             if isinstance(job, Mapping) and job.get("id") and job.get("status") == "completed"
+                             and job.get("conclusion") != "skipped"]
+                    if done:
+                        with self._lock:
+                            self._rescue_attempt_jobs[memo] = known
+                found += known
         return found
 
     def job_marks(self, job_id: int) -> dict[tuple[int, int], str] | None:
@@ -2071,14 +2172,23 @@ class GitHub:
                 lines = scan(response)
         return lines
 
-    def annotations(self, job_id: int) -> list[Mapping[str, Any]]:
-        """The annotations of a job's check run (GitHub's "The run was canceled by @actor." among them)."""
+    def annotations(self, job_id: int, *, final: bool = False) -> list[Mapping[str, Any]]:
+        """The annotations of a job's check run (GitHub's "The run was canceled by @actor." among them). `final`: the
+        job has finished, so its annotations no longer change and are read once per job (canceller())."""
+        if final:
+            with self._lock:
+                known = self._annotations.get(job_id)
+            if known is not None:
+                return known
         notes: list[Mapping[str, Any]] = []
         for page in range(1, ANNOTATION_PAGES + 1):
             data = self.request("GET", f"/check-runs/{job_id}/annotations?per_page=100&page={page}")
             batch = [note for note in data or [] if isinstance(note, Mapping)]
             notes += batch
             if len(batch) < 100:
+                if final:
+                    with self._lock:
+                        self._annotations[job_id] = notes
                 return notes
         # Not all read: the canceller's line may be past them, so the caller must not read "none says" (canceller()).
         raise AnnotationsCapped(f"job {job_id} has over {100 * ANNOTATION_PAGES} annotations")
@@ -4110,6 +4220,9 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         try:
             event = {"workflow_run": read(lambda: client.run(int(run_id)), sleep, log)}
         except READ_ERRORS as error:
+            skip = quota_skip(error)
+            if skip:
+                return finish(skip)
             finish(f"gave up: could not read run {run_id}: {error}")
             return 1
     else:
@@ -4122,11 +4235,21 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     if ((env.get("LATE_PLACEMENT") or "").strip() == "1" and target.attempt == 1
             and not (target.e2e or target.main or target.side)):
         target = dataclasses.replace(target, late=True)
+    if hasattr(client, "end_on_spent"):
+        # A nightly's watch still waits for the reset (nightly work comes first on the fleet); any other single watch
+        # ends as an infra skip rather than hold its runner for up to an hour (GitHub.pace()).
+        client.end_on_spent = not target.nightly
     try:
         return finish(follow(client, target, seconds=seconds, queue_rounds=env.get("QUEUE_ROUNDS"),
                              now=clock, sleep=sleep, log=log, side_seconds=side_seconds))
     except (*READ_ERRORS, Aborted) as error:
-        # A failed watch leaves the run exactly as GitHub scheduled it.
+        # A failed watch leaves the run exactly as GitHub scheduled it. One that ran out of API budget is an infra
+        # skip, green with a warning: nothing about the run was wrong, and the next sweeper looks again.
+        skip = quota_skip(error)
+        if skip:
+            if target.nightly:
+                skip += f"; if run {target.run_id} was cancelled, the nightly-next tick re-runs it (nightly-next-tick.yml)"
+            return finish(skip)
         finish(gave_up(target, error))
         return 1
 
@@ -4516,6 +4639,9 @@ def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | 
                              light_retry=light_retry, side_seconds=side_seconds)
         except Stopping:
             outcome = "handed over"
+        except QuotaSpent as error:
+            outcome = "quota spent"
+            say(f"stopped: {error.why}")
         except (*READ_ERRORS, Aborted) as error:
             outcome = "gave up"
             say(f"gave up: {error}")
