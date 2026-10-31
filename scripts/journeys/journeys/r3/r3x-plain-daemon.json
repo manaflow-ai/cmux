@@ -1,0 +1,158 @@
+{
+ "id": "r3x-plain-daemon",
+ "priority": "P1",
+ "title": "Step-17 diagnosis (control, no scroll region): plain output ending in cat, quit, reopen; the daemon and topology before and after",
+ "why": "Step-17 diagnosis: does the daemon survive the quit (pid, socket) and does the topology come back late.",
+ "source": "cmux-ad P0 2026-10-31 (Lawrence on v2.2.11-opt: resizing terminals is broken); R3 invariant",
+ "budget_seconds": 240,
+ "steps": [
+  {
+   "do": "smoke_remember_workspaces"
+  },
+  {
+   "do": "key",
+   "title": "Cmd-N: a new workspace",
+   "key": "n",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "ws0"
+  },
+  {
+   "do": "expect",
+   "title": "the new workspace shows",
+   "since": "ws0",
+   "timeout": 20,
+   "all": [
+    {
+     "smoke_workspaces": {
+      "new": 1
+     }
+    }
+   ]
+  },
+  {
+   "do": "new_terminal",
+   "via": "key",
+   "name": "jr-r3-e2r"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "type",
+   "text": "echo base-${nonce}",
+   "enter": true
+  },
+  {
+   "do": "smoke_adopt_line",
+   "line": "base-${nonce}",
+   "as": "main"
+  },
+  {
+   "do": "window_place",
+   "title": "set-up: the window at 70% x 70% of the screen",
+   "fraction": [
+    0.05,
+    0.05,
+    0.7,
+    0.7
+   ]
+  },
+  {
+   "do": "expect",
+   "title": "the terminal fits the placed window",
+   "timeout": 15,
+   "settle": 1.5,
+   "all": [
+    {
+     "r3_settled": {
+      "pane": "main"
+     }
+    }
+   ]
+  },
+  {
+   "do": "remember",
+   "as": "start",
+   "pane": "main"
+  },
+  {
+   "do": "type",
+   "text": "seq -f 'in-%02g plain' 1 12; echo e2r-${nonce}; cat",
+   "enter": true
+  },
+  {
+   "do": "expect",
+   "title": "the plain output is on the daemon's screen",
+   "timeout": 15,
+   "all": [
+    {
+     "daemon_contains": "in-12 plain"
+    }
+   ]
+  },
+  {
+   "do": "rpc",
+   "title": "the daemon before the quit",
+   "method": "debug.daemon"
+  },
+  {
+   "do": "relaunch",
+   "how": "quit",
+   "mark": "reopen"
+  },
+  {
+   "do": "rpc",
+   "title": "the daemon right after the reopen",
+   "method": "debug.daemon"
+  },
+  {
+   "do": "rpc",
+   "title": "the topology right after the reopen",
+   "method": "snapshot.get"
+  },
+  {
+   "do": "wait",
+   "seconds": 10
+  },
+  {
+   "do": "rpc",
+   "title": "the daemon 10 s after the reopen",
+   "method": "debug.daemon"
+  },
+  {
+   "do": "rpc",
+   "title": "the topology 10 s after the reopen",
+   "method": "snapshot.get"
+  },
+  {
+   "do": "smoke_adopt_line",
+   "line": "e2r-${nonce}",
+   "as": "again"
+  },
+  {
+   "do": "expect",
+   "title": "after the reopen: the workspace and its terminal came back",
+   "since": "reopen",
+   "timeout": 30,
+   "settle": 2,
+   "all": [
+    {
+     "r3_settled": {
+      "pane": "again"
+     }
+    },
+    {
+     "smoke_frame": {}
+    }
+   ]
+  }
+ ],
+ "finally": [
+  {
+   "do": "restore_window",
+   "from": "before-place"
+  }
+ ]
+}
