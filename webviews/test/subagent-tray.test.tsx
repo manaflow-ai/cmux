@@ -414,13 +414,16 @@ describe("the tray", () => {
         },
       });
     }
-    const { root, done } = await render(
+    const { root, show, done } = await render(
       createElement(SubagentTray, { items, working: true, waiting: new Set<string>(), onOpen: () => {} }),
     );
     try {
       const head = root.querySelector<HTMLButtonElement>(".acpmux-running-tray__head")!;
       expect(head.getAttribute("aria-expanded")).toBe("false");
       expect(root.querySelectorAll(".acpmux-agent-line")).toHaveLength(0);
+      expect(nameReads).toBe(0);
+      // A header rerender while collapsed must also skip all row construction.
+      await show(createElement(SubagentTray, { items, working: true, waiting: new Set<string>(), onOpen: () => {} }));
       expect(nameReads).toBe(0);
       await act(async () => head.click());
       expect(root.querySelectorAll(".acpmux-agent-line")).toHaveLength(300);
