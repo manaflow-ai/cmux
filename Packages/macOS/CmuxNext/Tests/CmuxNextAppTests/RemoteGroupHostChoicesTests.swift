@@ -1,4 +1,5 @@
 import CmuxNextServer
+import Foundation
 import Testing
 
 /// New Remote Group lists the hosts a person can pick (remote-groups-DESIGN.md slice E): the
@@ -33,6 +34,26 @@ struct RemoteGroupHostChoicesTests {
         #expect(choices.map(\.destination) == ["mini", "studio.tail1234.ts.net", "linux-vm"])
         #expect(choices.map(\.kind) == [.connected, .tailnet, .sshAlias])
         #expect(choices.map(\.name) == ["mini", "studio", "linux-vm"])
+    }
+
+    /// The palette asks synchronously: the catalog answers from its cache and refreshes it once a minute.
+    @MainActor @Test func theCatalogListsPeersAndAliasesAfterItsRefresh() async {
+        let peer = HostCandidate(name: "studio", dnsName: "studio.ts.net.", ip: "100.2.2.2", os: "macOS", online: true, alreadyPeer: false)
+        let catalog = RemoteHostCatalog(connected: { ["mini"] }, peers: { [peer] }, aliases: { ["linux-vm"] })
+        await catalog.reload()
+        #expect(catalog.choices().map(\.destination) == ["mini", "studio.ts.net", "linux-vm"])
+        #expect(catalog.choices().map(\.title).allSatisfy { !$0.isEmpty })
+    }
+
+    @Test func aliasesAreReadFromConfigAndItsIncludes() throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "ssh-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root.appending(path: "config.d"), withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try "Include config.d/*\nHost mini\n".write(to: root.appending(path: "config"), atomically: true, encoding: .utf8)
+        try "Host linux-vm\n".write(to: root.appending(path: "config.d/work"), atomically: true, encoding: .utf8)
+        let read = { (path: String) in try? String(contentsOfFile: path, encoding: .utf8) }
+        #expect(SSHConfigHosts.aliases(in: root, home: root, read: read) == ["mini", "linux-vm"])
+        #expect(SSHConfigHosts.aliases(in: root.appending(path: "none"), home: root, read: read).isEmpty)
     }
 
     @Test func noHostsIsAnEmptyList() {
