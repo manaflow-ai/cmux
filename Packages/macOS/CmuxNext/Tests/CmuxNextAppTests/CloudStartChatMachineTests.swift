@@ -172,4 +172,13 @@ struct CloudStartChatMachineTests {
         #expect(CloudStartChat.createRequest(for: retry, sizedFor: nil).idempotencyKey == request.idempotencyKey)
         #expect(!request.wasSent)
     }
+
+    /// Not behind Labs (Leo, 2026-10-30: "that seems dumb. i dont like putting so much stuff in
+    /// labs"): only Cloud off by policy and a signed-out account refuse.
+    @Test func aCloudStartIsRefusedOnlyWhenCloudIsOffOrNobodyIsSignedIn() {
+        #expect(CloudStartChat.refusal(cloudDisabled: false, signedIn: true) == nil)
+        #expect(CloudStartChat.refusal(cloudDisabled: false, signedIn: false) == "not_signed_in")
+        #expect(CloudStartChat.refusal(cloudDisabled: true, signedIn: true) == "cloud_disabled")
+        #expect(CloudStartChat.refusal(cloudDisabled: true, signedIn: false) == "cloud_disabled")
+    }
 }
