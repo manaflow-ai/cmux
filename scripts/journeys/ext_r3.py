@@ -92,14 +92,18 @@ def cond_r3_replay_matches(j, want, cache):
     rec = ext_smoke._named(j, want["pane"])
     row = next((p for p in ext_smoke._surfaces(j, cache) if p.get("pane") == rec["pane"]), None)
     app, daemon = _stream((row or {}).get("text")), _stream(j.app.screen(rec["term"])["text"])
-    n = int(want.get("chars", 800))
-    n = min(n, len(app), len(daemon))
+    want_n = min(int(want.get("chars", 800)), len(daemon))
+    # The app must show at least as much as it is compared on: a view that lost its replay (only the prompt) must not
+    # pass against a daemon screen with its history (review of c1382c7e34a).
+    n = min(want_n, len(app))
     a, d = app[len(app) - n:], daemon[len(daemon) - n:]
     first = next((i for i, (x, y) in enumerate(zip(a, d)) if x != y), None if len(a) == len(d) else min(len(a), len(d)))
     detail = {"pane": rec["pane"], "app_chars": len(app), "daemon_chars": len(daemon), "first_difference": first}
     if first is not None:
         detail.update(app_around=a[max(0, first - 40):first + 40], daemon_around=d[max(0, first - 40):first + 40])
-    return row is not None and first is None and len(a) > 0, detail
+    if len(app) < want_n:
+        detail["short"] = f"the app shows {len(app)} characters, the daemon {len(daemon)}: the replay is missing"
+    return row is not None and first is None and len(a) > 0 and len(app) >= want_n, detail
 
 
 STEPS = {"r3_long_line": step_r3_long_line}
