@@ -1906,7 +1906,7 @@
         ],
         "id" : "look",
         "title" : {
-          "key" : "settings.sidebarSection.look",
+          "key" : "settings.sidebarSection.lookAndFeel",
           "text" : "Look and Feel"
         }
       },
