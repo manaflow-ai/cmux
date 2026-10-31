@@ -14,8 +14,12 @@ let the user watch.
 
 ## 1. Make the folder
 
+Use the bundled `cmux-tui` companion for the supervisor read commands below.
+The curated `cmux` CLI does not expose `raw`; both binaries ship together.
+Keep using `cmux` for the App Store and pane actions.
+
 ```sh
-LOCAL=$(cmux --json raw command --request-json '{"cmd":"apps-list"}' | jq -r .local_dir)
+LOCAL=$(cmux-tui --json raw command --request-json '{"cmd":"apps-list"}' | jq -r .local_dir)
 NAME=standup-board   # lowercase letters, digits and dashes, starts with a letter
 test -n "$LOCAL" && test "$LOCAL" != null || exit 1
 mkdir -p "$LOCAL/$NAME/web"
@@ -72,7 +76,7 @@ Then `web/index.html`, `web/app.js` and `web/style.css`. The sample
 Read it to debug:
 
 ```sh
-cmux raw command --request-json '{"cmd":"apps-logs","app":"local/standup-board"}'
+cmux-tui --json raw command --request-json '{"cmd":"apps-logs","app":"local/standup-board"}'
 ```
 
 ## 3. Install and open it
