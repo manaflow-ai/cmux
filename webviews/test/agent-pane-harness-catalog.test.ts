@@ -293,7 +293,7 @@ await requireBrowserLane("agent-pane-harness-catalog.test.ts", async () => {
       .locator(noProject ? '.nt-env .nt-stage-row[aria-pressed="false"]' : '[data-action="browse-project"]')
       .click();
     await page.locator('.nt-env .nt-stage-row[aria-pressed="true"]').waitFor();
-    const field = page.locator(".nt-field");
+    const field = page.locator(".nt-field .acpmux-md");
     await field.fill(DRAFT);
     await field.evaluate(async (target, pendingImage) => {
       if (pendingImage) {
@@ -325,7 +325,7 @@ await requireBrowserLane("agent-pane-harness-catalog.test.ts", async () => {
       .locator(noProject ? '.nt-env .nt-stage-row[aria-pressed="false"]' : '[data-action="browse-project"]')
       .click();
     await page.locator('.nt-env .nt-stage-row[aria-pressed="true"]').waitFor();
-    const field = page.locator(".nt-field");
+    const field = page.locator(".nt-field .acpmux-md");
     await field.fill(DRAFT);
     await field.evaluate((target) => {
       const data = new DataTransfer();
@@ -339,7 +339,7 @@ await requireBrowserLane("agent-pane-harness-catalog.test.ts", async () => {
   test.each(["", "Implement a todo list"])("first-run Return opens setup and returns to draft %j", async (draft) => {
     const page = await firstRunPage();
     try {
-      const field = page.locator(".nt-field");
+      const field = page.locator(".nt-field .acpmux-md");
       if (draft) await field.fill(draft);
       await field.press("Enter");
       await page.locator(".acpmux-harnesses-close").waitFor();
