@@ -401,15 +401,6 @@ enum HomeMapping {
         summary?.displayTitle(me: me) ?? ""
     }
 
-    /// The other participant's initials (the header avatar); a group shows
-    /// the title's.
-    static func initials(_ summary: ConversationSummary?, me: ParticipantID) -> String {
-        let others = (summary?.participants ?? []).filter { $0.id != me }
-        if others.count == 1, let other = others.first { return other.initials }
-        let words = title(summary, me: me).split(separator: " ").prefix(2).compactMap(\.first)
-        return String(words).uppercased()
-    }
-
     /// The loaded window's place in the history: (messages before it, total).
     /// HomeStore's window always ends at the newest message it has (Home has
     /// no pager), so the total is the window's end, never the summary's
