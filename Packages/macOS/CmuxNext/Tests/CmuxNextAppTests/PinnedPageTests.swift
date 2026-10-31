@@ -11,7 +11,7 @@ import Testing
 actor AppTestDaemonOwner {
     private let launcher: DaemonLauncher
     private var endpoints: Set<DaemonEndpoint> = []
-    private var processes: [DaemonEndpoint: AcpmuxUnresponsiveWatch.Daemon] = [:]
+    private var processes: [DaemonEndpoint: AcpmuxDaemonStop.Daemon] = [:]
     private var ensureFailed = false
     private var stopping = false
     private var ensures: [UUID: Task<DaemonEndpoint, any Error>] = [:]
@@ -102,10 +102,10 @@ actor AppTestDaemonOwner {
         endpoints.insert(endpoint)
         guard processes[endpoint] == nil, let pid = endpoint.pid, pid > 1, pid != getpid(),
               endpoint.bridge == nil,
-              let before = AcpmuxUnresponsiveWatch.kernelProcess(pid: pid),
+              let before = AcpmuxDaemonStop.kernelProcess(pid: pid),
               AcpmuxVersionHandoff.executablePath(pid: pid) == launcher.configuration.binary.resolvingSymlinksInPath().path,
               Self.listenerPID(socketPath: endpoint.socketPath) == pid,
-              AcpmuxUnresponsiveWatch.kernelProcess(pid: pid) == before else { return }
+              AcpmuxDaemonStop.kernelProcess(pid: pid) == before else { return }
         processes[endpoint] = before
     }
 
@@ -136,9 +136,9 @@ actor AppTestDaemonOwner {
 
     /// Waits for this recorded process to exit without treating an unreadable identity as exit.
     /// The exit source is registered first; an already-gone PID is handled by its ESRCH check.
-    static func waitForRecordedExit(pid: Int32, process: AcpmuxUnresponsiveWatch.Daemon,
+    static func waitForRecordedExit(pid: Int32, process: AcpmuxDaemonStop.Daemon,
                                     timeout: Duration = .seconds(60),
-                                    currentProcess: @Sendable (Int32) -> AcpmuxUnresponsiveWatch.Daemon? = AcpmuxUnresponsiveWatch.kernelProcess(pid:)) async -> Bool {
+                                    currentProcess: @Sendable (Int32) -> AcpmuxDaemonStop.Daemon? = AcpmuxDaemonStop.kernelProcess(pid:)) async -> Bool {
         await AgentPaneProcessExit(pid: pid).event(within: timeout) {
             guard let current = currentProcess(pid) else { return nil }
             return current == process ? nil : true
@@ -147,7 +147,7 @@ actor AppTestDaemonOwner {
 
     /// Shared with the failure-path regression: graceful shutdown may throw before identify.
     /// Its fallback uses the existing audit-token signaler and bounded TERM/KILL exit watches.
-    static func reap(_ endpoint: DaemonEndpoint, process: AcpmuxUnresponsiveWatch.Daemon?,
+    static func reap(_ endpoint: DaemonEndpoint, process: AcpmuxDaemonStop.Daemon?,
                      grace: Duration = .seconds(10),
                      shutdown: @Sendable () async throws -> Bool) async -> Bool {
         guard let pid = endpoint.pid, pid > 1,
@@ -163,12 +163,29 @@ actor AppTestDaemonOwner {
             // kernel exit event, so PID reuse cannot be mistaken for a clean reap.
             return await waitForRecordedExit(pid: pid, process: process, timeout: .seconds(60))
         }
-        let watch = AcpmuxUnresponsiveWatch(clock: ContinuousClock(), process: { pid in
+        return await stop(process, grace: grace, currentProcess: { pid in
             // Unreadable identity is not proof of exit. The retained audit token still lets
             // the kernel refuse a signal to any replacement process without a pid-only fallback.
-            AcpmuxUnresponsiveWatch.kernelProcess(pid: pid) ?? process
+            AcpmuxDaemonStop.kernelProcess(pid: pid) ?? process
         })
-        return await watch.stop(process, grace: grace)
+    }
+
+    /// Test teardown only: SIGTERM, then SIGKILL when `daemon` outlives `grace`. True once it
+    /// exited. Each signal goes through ``AcpmuxDaemonStop/signal(_:_:process:)``, so it reaches only
+    /// the process `daemon` names (exit watch first, then the audit token); a pid that names
+    /// another process now means `daemon` exited. The app itself never SIGKILLs acpmux (#28083).
+    static func stop(_ daemon: AcpmuxDaemonStop.Daemon, grace: Duration,
+                     currentProcess: @escaping @Sendable (Int32) -> AcpmuxDaemonStop.Daemon? = AcpmuxDaemonStop.kernelProcess(pid:)) async -> Bool {
+        let pid = daemon.pid
+        func send(_ signal: Int32) -> Bool? { AcpmuxDaemonStop.signal(daemon, signal, process: currentProcess) }
+        var unsent = false
+        let exited = await AgentPaneProcessExit(pid: pid).event(within: grace) {
+            let answer = send(SIGTERM)
+            unsent = answer != nil
+            return answer
+        }
+        if exited || unsent { return exited }
+        return await AgentPaneProcessExit(pid: pid).event(within: .seconds(5)) { send(SIGKILL) }
     }
 }
 
