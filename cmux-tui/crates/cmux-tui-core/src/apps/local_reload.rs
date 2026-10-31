@@ -284,8 +284,15 @@ fn next_burst(
 
 /// Arms the local development directory on the background watcher thread.
 fn watch_local(watcher: &mut notify::RecommendedWatcher, local: Option<&Path>) {
-    if let Some(local) = local.filter(|dir| dir.is_dir()) {
-        let _ = watcher.watch(local, notify::RecursiveMode::Recursive);
+    let Some(local) = local else { return };
+    // Fresh profiles have no local apps yet. Create their configured root here,
+    // off the request thread, so the first pane written after startup is seen.
+    if let Err(error) = std::fs::create_dir_all(local) {
+        eprintln!("cmux-tui: cannot create local apps directory {}: {error}", local.display());
+        return;
+    }
+    if let Err(error) = watcher.watch(local, notify::RecursiveMode::Recursive) {
+        eprintln!("cmux-tui: cannot watch local apps directory {}: {error}", local.display());
     }
 }
 
