@@ -18,6 +18,7 @@ import {
   refreshCloudMachines,
   runCloudMachine,
   useCloudMachines,
+  useCloudSignedIn,
   withCloudMachines,
   type CloudMachine,
 } from "./cloudMachines";
@@ -123,6 +124,7 @@ export function ComposerContext({
   runMode,
   closeOnTrustAsk = false,
   showMachineLoadWarnings,
+  cloudSignedIn: cloudSignedInSeam,
 }: {
   summary?: Summary;
   sessions?: Session[];
@@ -190,11 +192,15 @@ export function ComposerContext({
   closeOnTrustAsk?: boolean;
   /// Gallery seam; the persisted composer setting is used when omitted.
   showMachineLoadWarnings?: boolean;
+  /// Gallery seam; the app's Cloud account state (cloudMachines.ts) is used when omitted.
+  cloudSignedIn?: boolean;
 }) {
   const t = useT();
   const composerSettings = useComposerSettings();
   const newChat = !started && onProject !== undefined;
   const accountMachines = useCloudMachines();
+  const accountSignedIn = useCloudSignedIn();
+  const cloudSignedIn = cloudSignedInSeam ?? accountSignedIn;
   const shownMachines = cloudMachines ?? accountMachines;
   // Every machine acpmux lists (`_acpmux/status` peers) and every host its chats ran on, with each
   // one's transport and state, in both the environment picker and the plain Computer menu; for a
@@ -229,14 +235,16 @@ export function ComposerContext({
     t,
   ]);
   // The list opened, and every few seconds while it is open: acpmux's peers and, for a new chat,
-  // the app's Cloud machines are read again.
-  const onRefreshMachines =
-    onRefreshPeers || (newChat && !cloudMachines)
-      ? () => {
-          onRefreshPeers?.();
-          if (newChat && !cloudMachines) void refreshCloudMachines();
-        }
-      : undefined;
+  // the app's Cloud machines are read again. A menu with connect rows reads the Cloud account too,
+  // so Sign in for Cloud goes away once the app says the person is signed in (an older chat's
+  // menu otherwise never asks, and would offer sign-in to someone already signed in).
+  const readsCloudAccount = !cloudMachines && (newChat || onConnect !== undefined);
+  const onRefreshMachines = readsCloudAccount
+    ? () => {
+        onRefreshPeers?.();
+        void refreshCloudMachines();
+      }
+    : onRefreshPeers;
   // The plain Computer menu lists them in the picker's sections and order (environments.ts), one
   // line each; a machine a chat cannot start on yet says its state on a second line.
   const menuComputers = useMemo(() => {
@@ -532,6 +540,9 @@ export function ComposerContext({
               onPick={pickEnvironment}
               {...(offload && onOffload ? { offload, onOffload } : {})}
               {...(!started && onConnect ? { onConnect } : {})}
+              // Sign in for Cloud shows only once the app says signed out; before its reply (or
+              // after a refused read) the state is unknown, and a signed-in person must not see it.
+              cloudSignedIn={cloudSignedIn}
               {...(savedRows ? { saved: savedRows } : {})}
               {...(onRefreshMachines ? { onOpen: onRefreshMachines } : {})}
               {...(runMode && !started && !readOnly ? { runMode } : {})}
@@ -560,6 +571,15 @@ export function ComposerContext({
                         label: t(CONTEXT_LABELS.addComputer),
                         onSelect: () => onboardingConnect?.("addMachine"),
                       },
+                      ...(cloudSignedIn === false
+                        ? [
+                            {
+                              id: "cloudSignIn",
+                              label: t("composer.cloudSignIn"),
+                              onSelect: () => onboardingConnect?.("cloudSignIn"),
+                            },
+                          ]
+                        : []),
                       {
                         id: "cloud",
                         label: t(CONTEXT_LABELS.newCloudMachine),
@@ -570,6 +590,15 @@ export function ComposerContext({
                     ]
                   : !started && onConnect && !connectOnlyWhenEmpty
                     ? [
+                        ...(cloudSignedIn === false
+                          ? [
+                              {
+                                id: "cloudSignIn",
+                                label: t("composer.cloudSignIn"),
+                                onSelect: () => onConnect("cloudSignIn"),
+                              },
+                            ]
+                          : []),
                         { id: "ssh", label: t(CONTEXT_LABELS.connectSSH), onSelect: () => onConnect("ssh") },
                         {
                           id: "cloud",

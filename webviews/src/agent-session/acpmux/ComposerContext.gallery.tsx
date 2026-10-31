@@ -517,6 +517,18 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       props: { ...baseProps, sessions: [], peers: [], cloudMachines: [], localName: "Studio Mac" },
       play: openComputer,
     },
+    "computer-first-setup-signed-out": {
+      note: "The same fresh home once the app says Cloud is signed out (`cloudMachine.list` signedIn false): Sign in for Cloud sits between Add a computer and New Cloud Machine, and signs in only (palette.auth.signIn).",
+      props: {
+        ...baseProps,
+        sessions: [],
+        peers: [],
+        cloudMachines: [],
+        localName: "Studio Mac",
+        cloudSignedIn: false,
+      },
+      play: openComputer,
+    },
     "computer-first-setup-chat": {
       note: "The same first-computer setup footer in an existing local chat, without enabling Labs or allowing the chat to change its machine.",
       props: {
@@ -596,6 +608,22 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
         peers: ["gpu-box", "Cloud machine"],
         peerKinds: { "gpu-box": "ssh", "Cloud machine": "cloud" },
         peerConnected: { "gpu-box": true, "Cloud machine": false },
+      },
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: /^Environment/ });
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [role="option"]'));
+      },
+    },
+    "environment-picker-signed-out": {
+      note: "Preview, Cloud signed out (`cloudMachine.list` signedIn false): Sign in for Cloud heads the Cloud actions, above New Cloud Machine, and signs in only. Before the app answers, or signed in, it is not shown.",
+      props: {
+        ...baseProps,
+        environments: true,
+        peers: ["gpu-box"],
+        peerKinds: { "gpu-box": "ssh" },
+        peerConnected: { "gpu-box": true },
+        cloudMachines: [],
+        cloudSignedIn: false,
       },
       play: async (ctx) => {
         await ctx.click({ role: "button", name: /^Environment/ });
