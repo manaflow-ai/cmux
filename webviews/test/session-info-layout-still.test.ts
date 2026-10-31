@@ -93,7 +93,10 @@ await requireBrowserLane("session-info-layout-still.test.ts", async () => {
             dh: Math.round((now.height - was.height) * 2) / 2,
           };
           const size = (one: Moved) => Math.abs(one.dx) + Math.abs(one.dy) + Math.abs(one.dw) + Math.abs(one.dh);
-          if (size(moved) > 0.5 && size(moved) > size(probe.__stillWorst!.get(element) ?? { ...moved, dx: 0, dy: 0, dw: 0, dh: 0 }))
+          if (
+            size(moved) > 0.5 &&
+            size(moved) > size(probe.__stillWorst!.get(element) ?? { ...moved, dx: 0, dy: 0, dw: 0, dh: 0 })
+          )
             probe.__stillWorst!.set(element, moved);
         }
       };
@@ -127,9 +130,10 @@ await requireBrowserLane("session-info-layout-still.test.ts", async () => {
     );
   const tabRow = (page: Page) =>
     page.evaluate(() =>
-      (
-        window as unknown as { cmuxAcpmuxBridge: { applyTabRow(row: unknown): void } }
-      ).cmuxAcpmuxBridge.applyTabRow({ height: 28, trailingInset: 40 }),
+      (window as unknown as { cmuxAcpmuxBridge: { applyTabRow(row: unknown): void } }).cmuxAcpmuxBridge.applyTabRow({
+        height: 28,
+        trailingInset: 40,
+      }),
     );
   const panel = (page: Page) => page.locator("aside.acpmux-chat-inspector");
   const toggle = (page: Page) => page.locator("button.acpmux-chat-inspector-toggle");
@@ -141,7 +145,8 @@ await requireBrowserLane("session-info-layout-still.test.ts", async () => {
 
   /// A window's frame: a synthetic 360x240 app window (title bar, sidebar, striped rows), so the card
   /// draws at its size in the stills.
-  const FRAME = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAWgAAADwCAIAAACixWkYAAADnUlEQVR42u3dIQoAIBBFQe9/ToPZIGJZm1UFizCfdwKRqZtyLpJ0VfIEksAhCRySwCEJHJLAIUngkAQOSeCQBA5J4JAkcEgChyRwSAKHJHBIEjgkgUMSOCSBQxI4JIFDksAhCRySwCEJHJLAIUlbOGptWoWZHQwc4DADBzjMwAEOM3CAwwwc4DADh3wIM3CAwwwc4DADBzjMwAEOM3CAw8zAAQ4zcIDDDBzgMAMHOMzAAQ4zAwc4zMABDjNwgMMMHP/UR0jaBg5wSOAAhwQOcEjgAIcEDnBI4JAPIYEDHBI4wCGBAxwSOMAhgQMcksABDgkc4JDAAQ4JHOCQwAEOSeAAhwQOcEjgAIcEDnBI4ACHBA5egEMCBzgkcDjIZOYgEzjMwAEOM3CAw8zAAQ4zcIDDDBzgMAMHOMzAAQ4zAwc4zMABDjNwgMMMHOAwAwc4zAwc4DADBzjMwAEOM3CAwwwc4DADh8BhBg5wmIEDHGbgAIcZOMBhBg4HmSQ5yAQOCRzgkMABDgkc4JDAAQ5J4ACHBA5wSOAAhwQOcEjgAIckcIBDAgc4JHCAQwIHOCRwgEMCh8AhgQMcEjjAIYEDHBI4wCGBAxySwAEOCRzgkMDhIJOZg0zgMAMHOMwMHOAwAwc4zMABDjNwgMMMHOAwM3CAwwwc4DADBzjMwAEOM3CAwwwcAocZOMBhBg5wmIEDHGbgAIcZOMBhZuAAhxk4wGEGDnCYgQMcZuAAh5mBw0EmyUEmcEjgAIcEDnBI4ACHBA5egEMCBzgkcIBDAgc4JHCAQwIHOPwJCRzgkMABDgkc4JDAAQ4JHOCQBA5wSOAAhwQOcEjgAIcEDnBIAgc4JHCAQwIHOCRwOMhk5iATOMzAIXCYgQMcZuAAhxk4wGEGDnCYgQMcZgYOcJiBAxxm4ACHGTjAYQYOcJgZOMBhBg5wmIEDHGbgAIcZOMBhZuAAhxk4wGEGDnCYgQMcZuAAhxk4BA4zcDjIJDnIBA4JHOCQwAEOCRzgkAQOcEjgAIcEDnBI4ACHBA5wSAIHOCRwgEMCBzgkcIBDAgc4JIEDHBI4wCGBAxwSOMAhgQMcEjgEDgkc4JDAAQ4JHOCQwOEgk5mDTOAwM3CAwwwc4DADBzjMwAEOM3CAw8zAAQ4zcIDDDBzgMAMHOMzAAQ4zcMACHGbgAIcZOMBhBg5wmIEDHGbgAIeZgQMcZuAAhxk4wGEGDnCYgQMcZgYOcJg92gTLGv2E3aKKfgAAAABJRU5ErkJggg==";
+  const FRAME =
+    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAWgAAADwCAIAAACixWkYAAADnUlEQVR42u3dIQoAIBBFQe9/ToPZIGJZm1UFizCfdwKRqZtyLpJ0VfIEksAhCRySwCEJHJLAIUngkAQOSeCQBA5J4JAkcEgChyRwSAKHJHBIEjgkgUMSOCSBQxI4JIFDksAhCRySwCEJHJLAIUlbOGptWoWZHQwc4DADBzjMwAEOM3CAwwwc4DADh3wIM3CAwwwc4DADBzjMwAEOM3CAw8zAAQ4zcIDDDBzgMAMHOMzAAQ4zAwc4zMABDjNwgMMMHP/UR0jaBg5wSOAAhwQOcEjgAIcEDnBI4JAPIYEDHBI4wCGBAxwSOMAhgQMcksABDgkc4JDAAQ4JHOCQwAEOSeAAhwQOcEjgAIcEDnBI4ACHBA5egEMCBzgkcDjIZOYgEzjMwAEOM3CAw8zAAQ4zcIDDDBzgMAMHOMzAAQ4zAwc4zMABDjNwgMMMHOAwAwc4zAwc4DADBzjMwAEOM3CAwwwc4DADh8BhBg5wmIEDHGbgAIcZOMBhBg4HmSQ5yAQOCRzgkMABDgkc4JDAAQ5J4ACHBA5wSOAAhwQOcEjgAIckcIBDAgc4JHCAQwIHOCRwgEMCh8AhgQMcEjjAIYEDHBI4wCGBAxySwAEOCRzgkMDhIJOZg0zgMAMHOMwMHOAwAwc4zMABDjNwgMMMHOAwM3CAwwwc4DADBzjMwAEOM3CAwwwcAocZOMBhBg5wmIEDHGbgAIcZOMBhZuAAhxk4wGEGDnCYgQMcZuAAh5mBw0EmyUEmcEjgAIcEDnBI4ACHBA5egEMCBzgkcIBDAgc4JHCAQwIHOPwJCRzgkMABDgkc4JDAAQ4JHOCQBA5wSOAAhwQOcEjgAIcEDnBIAgc4JHCAQwIHOCRwOMhk5iATOMzAIXCYgQMcZuAAhxk4wGEGDnCYgQMcZgYOcJiBAxxm4ACHGTjAYQYOcJgZOMBhBg5wmIEDHGbgAIcZOMBhZuAAhxk4wGEGDnCYgQMcZuAAhxk4BA4zcDjIJDnIBA4JHOCQwAEOCRzgkAQOcEjgAIcEDnBI4ACHBA5wSAIHOCRwgEMCBzgkcIBDAgc4JIEDHBI4wCGBAxwSOMAhgQMcEjgEDgkc4JDAAQ4JHOCQwOEgk5mDTOAwM3CAwwwc4DADBzjMwAEOM3CAw8zAAQ4zcIDDDBzgMAMHOMzAAQ4zcMACHGbgAIcZOMBhBg5wmIEDHGbgAIeZgQMcZuAAhxk4wGEGDnCYgQMcZgYOcJg92gTLGv2E3aKKfgAAAABJRU5ErkJggg==";
   /// The host's computer use card, as AgentPaneComputerUsePreview pushes it.
   const computerUse = (page: Page) =>
     page.evaluate(async (frame) => {
