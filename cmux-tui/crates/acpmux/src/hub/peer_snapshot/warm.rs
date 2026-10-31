@@ -22,7 +22,7 @@ use tokio::sync::Notify;
 /// Chats of one peer read ahead: its open chats that changed last.
 const WARM_PER_PEER: usize = if cfg!(test) { 2 } else { 24 };
 /// A chat whose row changed longer ago than this is not read ahead.
-const WARM_WITHIN_MS: u64 = 24 * 60 * 60 * 1000;
+const WARM_WITHIN_MS: u64 = 86_400_000;
 /// The least time between two reads of one chat; a change inside it is read when it ends.
 const WARM_EVERY: Duration = Duration::from_millis(if cfg!(test) { 200 } else { 30_000 });
 /// How long after a peer's first row change its round starts, so a burst of changes (a turn ends,
@@ -42,8 +42,9 @@ const WARM_KINDS: [&str; 7] = [
     "secret_request",
     "secret_decision",
 ];
-/// `beforeSeq` past every seq: the newest page (the pane's read-ahead asks the same).
-pub(super) const NEWEST: u64 = (1 << 53) - 1;
+/// `beforeSeq` past every seq, 2^53 - 1 (the largest a client's number holds exactly): the newest
+/// page (the pane's read-ahead asks the same).
+pub(super) const NEWEST: u64 = 9_007_199_254_740_991;
 
 /// What the hub keeps of the reads ahead.
 #[derive(Default)]
@@ -114,6 +115,11 @@ impl Warm {
     }
 }
 
+/// `d` after `at`; `at` itself on a clock that cannot go that far (it never comes to that).
+fn after(at: Instant, d: Duration) -> Instant {
+    at.checked_add(d).unwrap_or(at)
+}
+
 /// One chat a round reads: which session, the generation its row names, its params.
 #[derive(Debug, PartialEq)]
 pub(super) struct Ask {
@@ -167,18 +173,23 @@ pub(super) fn plan(
         }
         if let Some((read, at)) = read_at.get(&(peer.to_owned(), mux.to_owned()))
             && *read == generation
-            && *at + WARM_EVERY > now
+            && after(*at, WARM_EVERY) > now
         {
-            later = Some(later.map_or(*at + WARM_EVERY, |l| l.min(*at + WARM_EVERY)));
+            let due = after(*at, WARM_EVERY);
+            later = Some(later.map_or(due, |l| l.min(due)));
             continue;
         }
-        let mut params = json!({"sessionId": mux, "limit": WARM_LIMIT, "maxBytes": WARM_BYTES,
-                                "kinds": WARM_KINDS});
         // Past what the copy covers, when that joins it within one page; else the newest page,
         // which replaces a copy it does not reach.
-        match through.filter(|to| *to < last && last - to <= WARM_LIMIT) {
-            Some(to) => params["afterSeq"] = json!(to),
-            None => params["beforeSeq"] = json!(NEWEST),
+        let (cursor, seq) =
+            match through.filter(|to| *to < last && last.saturating_sub(*to) <= WARM_LIMIT) {
+                Some(to) => ("afterSeq", to),
+                None => ("beforeSeq", NEWEST),
+            };
+        let mut params = json!({"sessionId": mux, "limit": WARM_LIMIT, "maxBytes": WARM_BYTES,
+                                "kinds": WARM_KINDS});
+        if let Some(object) = params.as_object_mut() {
+            object.insert(cursor.to_owned(), json!(seq));
         }
         asks.push(Ask { mux: mux.to_owned(), generation, params });
     }
@@ -237,7 +248,7 @@ impl Hub {
         if !warm.wanted.load(Ordering::SeqCst) || self.peer_snapshots.dir.is_none() {
             return;
         }
-        warm.due_by(peer, Instant::now() + WARM_SETTLE);
+        warm.due_by(peer, after(Instant::now(), WARM_SETTLE));
         if !warm.started.swap(true, Ordering::SeqCst) {
             tokio::spawn(warm_loop(Arc::downgrade(self)));
         }
@@ -286,7 +297,7 @@ impl Hub {
         let mut later = later;
         // Read again after the interval: a chat refused or not read to its end.
         let again = |later: &mut Option<Instant>| {
-            let at = Instant::now() + WARM_EVERY;
+            let at = after(Instant::now(), WARM_EVERY);
             *later = Some(later.map_or(at, |l| l.min(at)));
         };
         for ask in asks {
