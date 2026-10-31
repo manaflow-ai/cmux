@@ -681,6 +681,16 @@
       "owner": "Performance Lead",
       "receipt": "Review (independent exception reviewer, audit-rh): SHIP at 2391c5ec903a544620ccb6179e4c948adaec9143",
       "expiry": "2026-11-30"
+    },
+    {
+      "date": "2026-10-30",
+      "row": "app_lines",
+      "allow": 709,
+      "why": "PR #25696 repairs Cloud diff/file routing in the existing Markdown/editor file-page domain and adds an injected local/remote file source. Extracting only the remote transport would split that domain; removing this one-time allowance requires extracting the cohesive file-page domain with its production IO, snapshot types, lifecycle, AppServices routing, resources and tests. This allows only the reviewed +709 lines in this PR, not future growth or a cap increase.",
+      "author": "Codex implementation agent for PR #25696",
+      "owner": "PR #25696 implementation owner (austinywang)",
+      "receipt": "Review (Codex review_cloud_final): SHIP at 558fec7808177bb7074bba43bf5fc6e99f135d23",
+      "expiry": "2026-11-13"
     }
   ],
   "escape_reviews": [
