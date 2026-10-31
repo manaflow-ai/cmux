@@ -110,7 +110,7 @@
   },
   {
    "do": "type",
-   "text": "printf '\\033[3;10r'; for i in 1 2 3 4 5 6 7 8 9 10 11 12; do printf 'in-%02d region\\n' $i; done; printf '\\e7\\033[%d;1HNu-out-${nonce}\\e8' $(tput lines); printf '\\033[5;1H'; echo e2r-${nonce}",
+   "text": "printf '\\033[3;10r'; for i in 1 2 3 4 5 6 7 8 9 10 11 12; do printf 'in-%02d region\\n' $i; done; printf '\\e7\\033[%d;1HNu-out-${nonce}\\e8' $(tput lines); printf '\\033[5;1H'; echo e2r-${nonce}; cat",
    "enter": true
   },
   {
