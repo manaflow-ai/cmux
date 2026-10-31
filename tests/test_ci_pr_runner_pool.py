@@ -3567,6 +3567,93 @@ class IOSRouting(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             ios_pool.live_free([runner("mini-e", 0, IOS_SIM)], MINI, [], now=NOW, capacity=3)
 
+    def test_kit_queue_reads_use_routing_token_before_exhausted_job_token(self):
+        idle = [{"name": "mini-a-glaeda", "status": "online", "busy": False,
+                 "labels": [{"name": MINI}, {"name": IOS_SIM}]}]
+        for route_fails, job_fails in ((False, True), (True, False), (True, True)):
+            calls = []
+
+            class Client:
+                def __init__(self, token, repo):
+                    self.token = token
+
+                def runners(self):
+                    self_outer.assertEqual(self.token, "route")
+                    return idle
+
+                def read(self):
+                    calls.append(self.token)
+                    if (route_fails if self.token == "route" else job_fails):
+                        raise urllib.error.HTTPError("https://api.github.com", 403, "Forbidden", {}, None)
+
+                def runs_since(self, workflow, since, **filters):
+                    self.read()
+                    return []
+
+                def get(self, path):
+                    self.read()
+                    return {"artifacts": []}
+
+                def snapshot(self, *, now):
+                    self.read()
+                    return None
+
+            self_outer = self
+            out, err = io.StringIO(), io.StringIO()
+            args = ["--lane", "kit", "--owned", "1", "--ios-owned", "1", "--owned-slots",
+                    json.dumps(IOS_SLOTS), "--pr-xcode-app", PR_XCODE, "--order", MINI]
+            with self.subTest(route_fails=route_fails, job_fails=job_fails), \
+                    unittest.mock.patch.object(pool, "GitHub", Client), \
+                    unittest.mock.patch("sys.stdout", out), unittest.mock.patch("sys.stderr", err):
+                self.assertEqual(ios_pool.main(args, env={"GH_TOKEN": "job", "ROUTE_TOKEN": "route",
+                                                         "GH_REPO": "manaflow-ai/cmux"}), 0)
+                outputs = dict(line.split("=", 1) for line in out.getvalue().splitlines())
+                self.assertEqual(outputs["persistent"], str(not (route_fails and job_fails)).lower(), err.getvalue())
+                self.assertEqual(calls[0], "route")
+                if not route_fails:
+                    self.assertNotIn("job", calls)
+                else:
+                    self.assertIn("job", calls)
+                if route_fails and job_fails:
+                    self.assertEqual(calls.count("route"), 2)  # live queue, then snapshot
+                    self.assertEqual(calls.count("job"), 2)
+
+    def test_kit_uses_routing_token_for_snapshot_when_live_runners_are_unreadable(self):
+        calls = []
+
+        class Client:
+            def __init__(self, token, repo):
+                self.token = token
+
+            def runners(self):
+                raise RuntimeError("runner listing unavailable")
+
+            def snapshot(self, *, now):
+                calls.append(self.token)
+                return {**sim_fleet(), "generated_at": pool.iso(now)}
+
+            def pull_request_runs_since(self, since, *, exclude_run_id):
+                calls.append(self.token)
+                return 0
+
+            def runs_since(self, workflow, since, **filters):
+                calls.append(self.token)
+                return []
+
+            def get(self, path):
+                calls.append(self.token)
+                return {"artifacts": []}
+
+        args = ["--lane", "kit", "--owned", "1", "--ios-owned", "1", "--owned-slots",
+                json.dumps(IOS_SLOTS), "--pr-xcode-app", PR_XCODE, "--order", MINI]
+        out = io.StringIO()
+        with unittest.mock.patch.object(pool, "GitHub", Client), \
+                unittest.mock.patch("sys.stdout", out), unittest.mock.patch("sys.stderr", io.StringIO()):
+            self.assertEqual(ios_pool.main(args, env={"ROUTE_TOKEN": "route", "GH_REPO": "manaflow-ai/cmux"}), 0)
+        self.assertIn("persistent=true", out.getvalue())
+        self.assertTrue(calls)
+        self.assertEqual(set(calls), {"route"})
+
     def test_main_reads_runners_with_the_route_token_and_falls_back_on_error(self):
         idle = [{"name": f"mini-{n}-glaeda", "status": "online", "busy": False,
                  "labels": [{"name": MINI}, {"name": IOS_SIM}]} for n in range(2)]
