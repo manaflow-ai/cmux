@@ -19,8 +19,11 @@
 //!
 //! A request whose answer reports a change ([`Hub::save_meta_answered`]) waits until its version
 //! is durable; a commit that fails fails the request (`store.save_failed`), and the change stays
-//! in memory for the next commit. A change no request answers for ([`Hub::save_meta`]) takes its
-//! version and returns: the writer at work (or this caller, when none is) commits it.
+//! in memory for the next commit, which a change that came during the failed one gets at once.
+//! A change no request answers for ([`Hub::save_meta`]) takes its version and returns: the
+//! writer at work (or this caller, when none is) commits it. A request that changed nothing
+//! (the chat was unread already) waits for every earlier change ([`Hub::meta_barrier`]). The
+//! shutdown's flush waits for each chat's commit before the store is sealed.
 //!
 //! Test seam (debug builds): `ACPMUX_TEST_SAVE_META_HOLD_DIR` names a folder. When it holds
 //! `hold-<session id>`, the writer's next commit for that chat takes the file (renames it to
@@ -79,6 +82,27 @@ impl MetaWriter {
         // After the caller's change: a copy taken once this version is the target holds it.
         state.requested += 1;
         let version = state.requested;
+        self.reach(state, version, wait, write)
+    }
+
+    /// Waits until every change made so far is durable, taking no version of its own: the
+    /// answer of a request that changed nothing, because an earlier change made it so already
+    /// (`markUnread` on an unread chat), must not come before that change is on disk.
+    pub(super) fn barrier(&self, write: &dyn Fn() -> Result<()>) -> Result<()> {
+        let state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let version = state.requested;
+        self.reach(state, version, Wait::Durable, write)
+    }
+
+    /// Until `version` is durable (or, `Wait::No`, handed to a writer): as the writer when none
+    /// is at work.
+    fn reach(
+        &self,
+        mut state: std::sync::MutexGuard<'_, WriterState>,
+        version: u64,
+        wait: Wait,
+        write: &dyn Fn() -> Result<()>,
+    ) -> Result<()> {
         loop {
             if state.durable >= version {
                 return Ok(());
@@ -142,11 +166,16 @@ impl MetaWriter {
                     self.done.notify_all();
                 }
                 Err(e) => {
-                    // No retry here: the requests it covered fail, and the next change commits
-                    // again.
+                    // The requests it covered fail. No retry of it: a change that came during
+                    // it (one nobody waits for returned at once, counting on this writer) is
+                    // committed next, as a newer version, and the role goes back only when none
+                    // waits.
                     state.failed = Some((target, e.to_string()));
-                    state.writing = false;
                     self.done.notify_all();
+                    if state.requested > target {
+                        continue;
+                    }
+                    state.writing = false;
                     return;
                 }
             }
@@ -172,9 +201,20 @@ impl Hub {
         })
     }
 
-    /// Commits the chat's metadata and waits until it is durable (a chat's first save, a fork's).
+    /// Commits the chat's metadata and waits until it is durable (a chat's first save, a fork's,
+    /// the shutdown's flush).
     pub(super) fn write_meta(&self, session: &Session) -> Result<()> {
         self.commit_meta(session, Wait::Durable)
+    }
+
+    /// For a request that changed nothing: waits until every earlier change of the chat is
+    /// durable ([`MetaWriter::barrier`]); a failed commit fails the request.
+    pub(super) fn meta_barrier(&self, session: &Session) -> Result<(), RpcError> {
+        session.meta_writer.barrier(&|| self.write_snapshot(session)).map_err(|e| {
+            tracing::warn!(session = %session.id, "save meta failed: {e}");
+            RpcError::internal(format!("the chat's change was not saved: {e}"))
+                .with_data(json!({"reason": "store.save_failed"}))
+        })
     }
 
     /// The commit of the change just made to `session`'s metadata (module text).

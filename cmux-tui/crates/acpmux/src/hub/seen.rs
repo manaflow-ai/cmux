@@ -53,20 +53,30 @@ impl Hub {
     /// The person marked the chat unread (`_acpmux/markUnread`): sets `unread` and tells every
     /// client. A client that shows it keeps it unread until it hides and shows it again.
     pub fn mark_unread(&self, session: &Session) {
-        // A failed save is logged there; no request waits for this one.
-        let _ = self.mark_unread_answered(session);
+        // No request waits for this one: a failed save is logged there.
+        let _ = self.mark_unread_as(session, false);
     }
 
     /// [`Hub::mark_unread`] for the person's `_acpmux/markUnread`: answered only once the mark is
-    /// saved (`meta_save.rs`).
+    /// on disk, also when the chat was unread already (an earlier change may not be yet;
+    /// `meta_save.rs`).
     pub(crate) fn mark_unread_answered(&self, session: &Session) -> Result<(), RpcError> {
+        self.mark_unread_as(session, true)
+    }
+
+    fn mark_unread_as(&self, session: &Session, answered: bool) -> Result<(), RpcError> {
         let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
         let was_read = !std::mem::replace(&mut meta.unread, true);
         drop(meta);
         if !was_read {
-            return Ok(());
+            return if answered { self.meta_barrier(session) } else { Ok(()) };
         }
-        let saved = self.save_meta_answered(session);
+        let saved = if answered {
+            self.save_meta_answered(session)
+        } else {
+            self.save_meta(session);
+            Ok(())
+        };
         self.append(
             session,
             "mux",

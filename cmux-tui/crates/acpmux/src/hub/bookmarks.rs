@@ -50,10 +50,13 @@ impl Hub {
             let changed =
                 if bookmarked { meta.bookmarks.insert(seq) } else { meta.bookmarks.remove(&seq) };
             let marks = meta.bookmarks.iter().copied().collect::<Vec<_>>();
-            if !changed {
-                return Ok(marks);
-            }
-            (marks, meta.updated_at)
+            (marks, changed.then_some(meta.updated_at))
+        };
+        // Unchanged: answered once the earlier change that made the marks so is on disk.
+        let Some(before) = before else {
+            let durable = self.meta_barrier(session);
+            drop(moving);
+            return durable.map(|()| marks);
         };
         let record = self.append(session, "mux", "bookmarks", json!({"bookmarks": marks}));
         {
