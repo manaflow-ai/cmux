@@ -347,6 +347,74 @@ fn before_current_goes_below_a_group_right_above_the_current_row() {
     mux.shutdown();
 }
 
+/// Dense positions (written before rows were spaced out) leave no room
+/// before the current row, so the create respaces every row: the groups
+/// right above the current row still stay above the new rows, and a group
+/// below it stays below.
+#[test]
+fn before_current_keeps_group_slots_when_the_create_respaces_rows() {
+    use crate::user_settings::NewWorkspacePlacement;
+    let session = Session::new("new-before-current-respace");
+    let mux = session.open();
+    let bottom = NewWorkspacePlacement::Bottom.set_for_test();
+    let a = empty_workspace(&mux, "a");
+    let b = empty_workspace(&mux, "b");
+    let c = empty_workspace(&mux, "c");
+    let w = empty_workspace(&mux, "w");
+    let x = empty_workspace(&mux, "x");
+    let work = group(&mux, "Work");
+    let later = group(&mux, "Later");
+    mutate(&mux, "workspace.place", json!({"workspace": w, "group": work}), "w-in-work");
+    mutate(&mux, "workspace.place", json!({"workspace": x, "group": later}), "x-in-later");
+    mutate(
+        &mux,
+        "workspace_group.update",
+        json!({"workspace_group": work, "top_index": 1}),
+        "work-before-b",
+    );
+    mutate(
+        &mux,
+        "workspace_group.update",
+        json!({"workspace_group": later, "top_index": 2}),
+        "later-before-c",
+    );
+    drop(bottom);
+    {
+        // Every row and slot one apart, far above where a respace puts rows.
+        let registry = mux.workspace_registry.lock().unwrap();
+        let db = registry.connection.get();
+        db.execute_batch(
+            "CREATE TEMP TABLE dense AS
+               SELECT p, (1 << 50) + ROW_NUMBER() OVER (ORDER BY p) AS d FROM (
+                 SELECT position AS p FROM personal_workspaces
+                 UNION SELECT top_position FROM personal_groups WHERE top_position IS NOT NULL);
+             UPDATE personal_workspaces
+               SET position = (SELECT d FROM dense WHERE p = personal_workspaces.position);
+             UPDATE personal_groups
+               SET top_position = (SELECT d FROM dense WHERE p = personal_groups.top_position)
+               WHERE top_position IS NOT NULL;
+             DROP TABLE dense;",
+        )
+        .unwrap();
+    }
+    let ids = [&a, &b, &c, &w, &x].map(String::as_str);
+    let [a_id, b_id, c_id, w_id, x_id] = ids;
+    assert_eq!(listed(&mux, Some("personal"), &ids), [a_id, w_id, b_id, x_id, c_id]);
+    let before = NewWorkspacePlacement::BeforeCurrent.set_for_test();
+    let mut created = Vec::new();
+    for name in ["n1", "n2", "n3"] {
+        mutate(&mux, "workspace.focus", json!({"workspace": b}), &format!("focus-b-{name}"));
+        created.push(empty_workspace(&mux, name));
+    }
+    drop(before);
+    let all: Vec<&str> = ids.iter().copied().chain(created.iter().map(String::as_str)).collect();
+    let [n1, n2, n3] = [&created[0], &created[1], &created[2]].map(String::as_str);
+    let expected = [a_id, w_id, n1, n2, n3, b_id, x_id, c_id];
+    assert_eq!(listed(&mux, Some("personal"), &all), expected);
+    assert_eq!(listed(&mux, None, &all), expected, "the sidebar document agrees");
+    mux.shutdown();
+}
+
 /// `create-workspace {current}`: the workspace the creating client shows
 /// places the new one, not the session's active workspace (a legacy default
 /// the app's windows never move). `afterCurrent` goes right after it; `top`

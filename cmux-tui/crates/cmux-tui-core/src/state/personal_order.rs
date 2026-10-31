@@ -296,10 +296,6 @@ fn place_created_rows(
         return Ok(());
     };
     let groups_before = read_groups(transaction)?;
-    let current_position = match below_groups {
-        Some((session, key)) => row_position(transaction, session, key)?,
-        None => None,
-    };
     for (offset, key) in placed.iter().enumerate() {
         WorkspaceRegistry::move_personal_row_in(transaction, &local, key, index + offset)?;
         if group.is_some() {
@@ -310,11 +306,14 @@ fn place_created_rows(
             )?;
         }
     }
-    if let (Some(current), Some(first)) = (current_position, placed.first()) {
+    if let (Some((session, key)), Some(first)) = (below_groups, placed.first()) {
         // Moving a row lands it before the groups at its new place; a group
         // that showed right before the current row keeps showing before the
-        // first new row instead.
-        if let Some(first) = row_position(transaction, &local, first)? {
+        // first new row instead. Both positions are read after the moves: a
+        // move that finds no room respaces every row.
+        if let (Some(current), Some(first)) =
+            (row_position(transaction, session, key)?, row_position(transaction, &local, first)?)
+        {
             transaction.execute(
                 "UPDATE personal_groups SET top_position = ?1
                  WHERE top_position > ?1 AND top_position <= ?2",
