@@ -180,7 +180,7 @@ struct AgentNotificationRegressionTests {
         return FileManager.default.fileExists(atPath: url.path)
     }
 
-    @Test("Muted workspaces do not execute notification policy hooks")
+    @Test("Muted workspaces record read history without executing notification policy hooks")
     func mutedWorkspaceSkipsPolicyHooks() async throws {
         let marker = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-muted-hook-\(UUID().uuidString)",
@@ -204,7 +204,66 @@ struct AgentNotificationRegressionTests {
         )
 
         #expect(!(await waitForFile(at: marker, timeout: .milliseconds(500))))
-        #expect(fixture.store.notifications.isEmpty)
+        #expect(fixture.store.notifications.map(\.isRead) == [true])
+    }
+
+    @Test("Muted workspaces record notifications as read history without delivery")
+    func mutedWorkspaceRecordsReadHistoryWithoutDelivery() throws {
+        let fixture = try makeFixture()
+        defer { fixture.restore() }
+        let surfaceId = try #require(fixture.destination.focusedPanelId)
+        var deliveredCount = 0
+        fixture.store.configureNotificationDeliveryHandlerForTesting { _, _ in deliveredCount += 1 }
+        fixture.store.configureSuppressedNotificationFeedbackHandlerForTesting { _, _ in deliveredCount += 1 }
+        let orderBefore = fixture.manager.tabs.map(\.id)
+
+        fixture.destination.isMuted = true
+        let id = fixture.store.addNotification(
+            tabId: fixture.destination.id,
+            surfaceId: surfaceId,
+            title: "Muted",
+            subtitle: "",
+            body: "Kept as read history"
+        )
+
+        let recorded = try #require(fixture.store.notifications.first)
+        #expect(id == recorded.id)
+        #expect(fixture.store.notifications.count == 1)
+        #expect(recorded.tabId == fixture.destination.id)
+        #expect(recorded.isRead)
+        #expect(!recorded.paneFlash)
+        #expect(fixture.store.unreadCount == 0)
+        #expect(fixture.store.unreadCount(forTabId: fixture.destination.id) == 0)
+        #expect(deliveredCount == 0)
+        #expect(fixture.manager.tabs.map(\.id) == orderBefore)
+    }
+
+    @Test("Muted workspaces keep desktop notifications as read history without resolving hooks")
+    func mutedWorkspaceDesktopNotificationRecordsReadHistory() async throws {
+        let marker = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-muted-desktop-hook-\(UUID().uuidString)",
+            isDirectory: false
+        )
+        let fixture = try makeFixture(
+            policyHookCommand: "touch '\(marker.path)'; cat"
+        )
+        defer {
+            fixture.restore()
+            try? FileManager.default.removeItem(at: marker)
+        }
+
+        fixture.source.isMuted = true
+        await fixture.store.addDesktopNotificationResolvingHooks(
+            tabId: fixture.source.id,
+            surfaceId: fixture.panelId,
+            hookDirectory: nil,
+            title: "Muted",
+            body: "Desktop notification kept as read history"
+        )
+
+        #expect(!(await waitForFile(at: marker, timeout: .milliseconds(500))))
+        #expect(fixture.store.notifications.map(\.isRead) == [true])
+        #expect(fixture.store.unreadCount == 0)
     }
 
     @Test("Feed notification admission follows a moved surface to its muted owner")
