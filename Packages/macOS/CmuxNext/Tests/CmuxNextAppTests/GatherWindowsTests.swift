@@ -154,8 +154,8 @@ struct GatherWindowsTests {
     }
 
     /// A window with a workspace still being created (claimed, a sidebar placement, a queued
-    /// create, a provisional row) is not closed under it: a move that would empty it is refused
-    /// and nothing changes. A source window the move leaves open does not block it.
+    /// create, a provisional row) gives nothing up: its pending placement may anchor on a moving
+    /// workspace or its window may close, so the move is refused and nothing changes.
     @Test func aWindowStillCreatingAWorkspaceIsNotGathered() throws {
         let services = try Self.services()
         defer { Self.closeAll(services) }
@@ -174,13 +174,15 @@ struct GatherWindowsTests {
         #expect(throws: ActionFailure.self) { try services.windows.mergeWindows(into: here.state) }
         services.windows.pendingPlacements["k-new-2"] = nil
 
-        // A create in a window the move leaves open (k1 stays in `other`) does not block it.
-        services.windows.claimNew(workspaceID: "k-new-3", window: other.state.id)
+        // A window the move leaves open (k1 stays in `other`) but takes k3 from: its pending placement may anchor on k3.
+        services.windows.pendingPlacements["k-new-3"] = PendingPlacement(window: other.state.id, slot: nil, byDefault: nil, then: nil)
+        #expect(throws: ActionFailure.self) { try services.windows.bringSpace(Self.rooms[1], into: here.state) }
+        #expect(services.windows.registry.value == before, "a refused move changed windows")
+        services.windows.pendingPlacements["k-new-3"] = nil
         try services.windows.bringSpace(Self.rooms[1], into: here.state)
         let registry = services.windows.registry.value
         #expect(registry.window(there.state.id) == nil)
         #expect(registry.window(other.state.id)?.workspaceIDs == ["k1"])
-        #expect(services.windows.pendingClaims["k-new-3"] == other.state.id)
     }
 
     /// A window's own Home stays with its window: moved next to another window's Home it would be
