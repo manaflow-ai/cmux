@@ -98,8 +98,7 @@ export function useProcessRegistry(
     if (!source || !sessionId || !on) return;
     let current = true;
     // This subscription's updates: newer than the list's records.
-    // A list may answer after hundreds of live updates. Retain the latest record per
-    // process ID in insertion order, then overlay them with one linear pass on its reply.
+    // Retain only the latest update per process ID while the list is pending.
     const pending = new Map<string, InspectorProcess>();
     let awaitingList = true;
     setState((known) => (known.sessionId === sessionId ? known : { sessionId, processes: [], listed: false }));
@@ -119,7 +118,7 @@ export function useProcessRegistry(
       (reply) => {
         if (!current) return;
         const listed = processesOf(reply, sessionId);
-        // Keep the buffered updates even when the list was sampled before they arrived.
+        // Buffered updates win over the stale list snapshot.
         const reconciled = replayProcessUpdates(listed, pending);
         awaitingList = false;
         pending.clear();
