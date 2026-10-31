@@ -256,6 +256,21 @@ struct SSHDeepSleepReattachTests {
 
     @MainActor
     @Test func confirmedCloudPTYExitRestartsWithInheritedCustomIdentity() throws {
+        // Cloud Machines graduated to a persisted first-use activation marker
+        // (#16669), and `reconnectRemoteConnection` refuses managed Cloud VM
+        // workspaces while the marker is unset. The isolated app-host defaults
+        // never carry it, so opt in for this test the same way the other
+        // Cloud-gated suites do, and restore the previous value on exit.
+        let cloudMarkerKey = RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey
+        let previousCloudMarker = UserDefaults.standard.object(forKey: cloudMarkerKey)
+        UserDefaults.standard.set(true, forKey: cloudMarkerKey)
+        defer {
+            if let previousCloudMarker {
+                UserDefaults.standard.set(previousCloudMarker, forKey: cloudMarkerKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: cloudMarkerKey)
+            }
+        }
         let workspace = Workspace()
         let initialPanel = try #require(workspace.focusedTerminalPanel)
         let customSessionID = "cloud-custom-session"
