@@ -89,6 +89,12 @@ cmux_next_require_fleet cmux-next-ios-sim.sh "xcodebuild and an iOS simulator" "
   "cmux-ci run --class simulator --script scripts/ci/cmux-next-ios-sim.sh --ref SHA --arg bench --artifact artifacts/ios-sim/evidence.zip"
 
 mode="${1:-build}"
+# MEASUREMENT REF ONLY (never for a PR): the controller admits only its listed modes, so `build`
+# runs listperf with the arguments in this file when the tree carries it.
+if [[ "$mode" == build && -f cmux-next-ios/verify/listperf/fleet-args ]]; then
+  # shellcheck disable=SC2046
+  set -- listperf $(cat cmux-next-ios/verify/listperf/fleet-args); mode=listperf
+fi
 case "$mode" in build|release-build|test|bench|all|pair-e2e|shots|listperf) ;; *) echo "cmux-next-ios-sim.sh: MODE is build, release-build, test, bench, all, pair-e2e, shots or listperf, got '$mode'" >&2; exit 2 ;; esac
 if [[ "$mode" == release-build && $# -ne 1 ]]; then
   echo "cmux-next-ios-sim.sh: release-build takes no further arguments" >&2; exit 2
