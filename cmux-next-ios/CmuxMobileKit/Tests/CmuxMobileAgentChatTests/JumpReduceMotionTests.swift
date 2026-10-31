@@ -7,8 +7,9 @@ import UIKit
 /// With Reduce Motion on, Jump to latest from far up a long transcript hid
 /// the whole transcript, waited 50 ms, faded it back over 150 ms and sprang
 /// the last screen over 400 ms. It now lands at once with the transcript
-/// shown throughout. Without Reduce Motion the long jump keeps its cut,
-/// its hidden frame (a stale tile drew over the composer) and its spring.
+/// shown throughout. Without Reduce Motion the long jump keeps its cut and
+/// its spring. (The native transcript draws the rows it lands on in the cut's
+/// own pass, so it no longer hides them for a frame either way.)
 /// An animation writes the final model values at once, so the end point
 /// is no proof: each check records every offset and opacity the jump wrote
 /// on its way (the cut one screen short, the hidden transcript), and reads
@@ -19,7 +20,7 @@ import UIKit
     struct Transcript {
         let controller: ChatTranscriptController
         let scroll: UIScrollView
-        /// The hosted transcript (the view the long jump hid).
+        /// The transcript (the view the long jump hid when it was hosted SwiftUI).
         let content: UIView
         let window: UIWindow
         var bottomY: CGFloat { scroll.contentSize.height + scroll.contentInset.bottom - scroll.bounds.height }
@@ -80,9 +81,11 @@ import UIKit
 
     /// A transcript many screens tall, read from its top.
     func transcript(reducesMotion: Bool) throws -> Transcript {
+        let store = AgentChatStore(source: SmoothChatTests.Silent())
+        store.apply(.batch((0 ..< 80).flatMap { SmoothChatTests.turn($0) }))
         let controller = ChatTranscriptController(
-            placement: .owned, surface: AgentChatSurface(),
-            content: AnyView(Color.gray.frame(height: 9000)), empty: AnyView(EmptyView()),
+            placement: .owned, surface: AgentChatSurface(), store: store,
+            empty: AnyView(EmptyView()),
             dock: AnyView(Color.clear.frame(height: 96)), jump: nil
         )
         controller.reducesMotion = { reducesMotion }
@@ -90,14 +93,14 @@ import UIKit
         window.rootViewController = controller
         window.makeKeyAndVisible()
         controller.view.layoutIfNeeded()
-        let scroll = try #require(controller.view.subviews.lazy.compactMap { $0 as? ChatTranscriptScrollView }.first)
-        // SwiftUI reports the content's height on a later turn of the run loop.
+        let scroll = try #require(controller.view.subviews.lazy.compactMap { $0 as? ChatTranscriptCollectionView }.first)
+        // Rows are measured as they lay out, over a few turns of the run loop.
         for _ in 0 ..< 100 where scroll.contentSize.height < 8000 {
             RunLoop.main.run(until: Date().addingTimeInterval(0.02))
             controller.view.layoutIfNeeded()
         }
         try #require(scroll.contentSize.height >= 8000, "content measured \(scroll.contentSize.height)")
-        let content = try #require(controller.children.first?.view)
+        let content: UIView = scroll
         // Up at the first turn, no longer following the newest one.
         controller.scrollTranscript(toContentY: 0, animated: false)
         #expect(scroll.contentOffset.y < scroll.bounds.height)
@@ -125,15 +128,13 @@ import UIKit
     }
 
     /// The oracle sees motion: without Reduce Motion the long jump still
-    /// cuts to one screen short, hides the transcript for a frame, and
-    /// springs the last screen.
+    /// cuts to one screen short and springs the last screen.
     @Test func withoutReduceMotionTheLongJumpStillAnimates() throws {
         let transcript = try transcript(reducesMotion: false)
         defer { transcript.window.isHidden = true }
         let path = transcript.jump()
         let cut = try #require(transcript.cut(path), "the long jump cuts first: \(path.offsets)")
         #expect(abs(transcript.bottomY - cut - transcript.scroll.bounds.height) < 1, "one screen short")
-        #expect(path.opacities.contains(0), "the transcript is hidden for the cut: \(path.opacities)")
         #expect(abs(transcript.scroll.contentOffset.y - transcript.bottomY) < 1)
     }
 }

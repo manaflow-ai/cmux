@@ -37,7 +37,7 @@ import UIKit
         let surface = AgentChatSurface()
         surface.text = "/"
         let dock = AnyView(AgentChatBottomStack(store: store, surface: surface, bottomPadding: 0).dynamicTypeSize(dynamicType))
-        let controller = ChatTranscriptController(placement: .owned, surface: surface, content: AnyView(EmptyView()),
+        let controller = ChatTranscriptController(placement: .owned, surface: surface, store: store,
                                                   empty: AnyView(EmptyView()), dock: dock, jump: nil)
         controller.isEmpty = true
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 375, height: 667))
