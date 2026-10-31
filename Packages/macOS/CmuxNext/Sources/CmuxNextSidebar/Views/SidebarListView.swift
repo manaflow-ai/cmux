@@ -94,6 +94,8 @@ final class SidebarListView: NSView {
     /// before it renames the row.
     var lastTabFold: WorkspaceID?
     let middleClick = SidebarMiddleClick()
+    /// A click on a group's name waits out the double-click interval before it folds.
+    let groupNameClick = SidebarGroupNameClick()
     var drag: Drag?
     /// Rows kept invisible while a lifted view stands in for them.
     var suppressed: Set<SidebarRowKey> = []
