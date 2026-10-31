@@ -2476,8 +2476,13 @@ def exception_valid(entry: dict, today: str) -> bool:
     found = RECEIPT.fullmatch(str(entry.get("receipt") or "").strip())
     if not found or found.group("who").strip().casefold() == entry["author"].strip().casefold():
         return False
-    date, expiry = str(entry.get("date") or ""), str(entry.get("expiry") or "")
-    return bool(ISO_DATE.fullmatch(date) and ISO_DATE.fullmatch(expiry)) and date <= today <= expiry
+    import datetime
+    try:  # real calendar dates: 2026-02-31 or 2026-00-00 allows nothing
+        date, expiry = (datetime.date.fromisoformat(str(entry.get(k) or "")) for k in ("date", "expiry"))
+        now = datetime.date.fromisoformat(today)
+    except ValueError:
+        return False
+    return bool(ISO_DATE.fullmatch(str(entry["date"])) and ISO_DATE.fullmatch(str(entry["expiry"]))) and date <= now <= expiry
 
 
 def excepted(repo: Path, head: str, refusals, warnings, today: str | None = None):

@@ -80,6 +80,10 @@ final class CloudService {
     private(set) var hasLoadedMachines = false
     /// Whom the loaded list is for (``listAccount`` when it landed).
     @ObservationIgnored private var loadedAccount: [String?]?
+    /// The machines the loaded list named (and machines made since for that account): a session the
+    /// store keeps while an omission waits on a newer read (``reconcile(_:read:connectsAtRead:)``)
+    /// may be another team's, and is not one of them.
+    private(set) var listedMachineIDs: Set<String> = []
     /// Whether the store holds a list the server answered for the user and
     /// team signed in now. A team switch keeps the user signed in, so the
     /// previous team's list stays in the store until the next refresh lands:
@@ -465,6 +469,7 @@ final class CloudService {
             reconcile(list, read: read, connectsAtRead: connectsAtRead)
             hasLoadedMachines = true
             loadedAccount = account
+            listedMachineIDs = Set(list.filter { $0.status != .destroyed }.map(\.id))
             listLoadedAt = .now
             await startHubForSSHRoutes()
             return true
@@ -717,6 +722,7 @@ final class CloudService {
         }
         if let existing = machines.session(machine.id) { existing.sizePick = machine.sizePick ?? existing.sizePick; return existing }
         guard let session = addSession(machine) else { throw ActionFailure(message: CloudStrings.noClient) }
+        listedMachineIDs.insert(machine.id)
         // A list in flight was asked before this machine existed.
         listGeneration += 1
         return session

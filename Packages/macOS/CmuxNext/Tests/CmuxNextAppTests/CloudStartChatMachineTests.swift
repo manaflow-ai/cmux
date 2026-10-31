@@ -145,6 +145,15 @@ struct CloudStartChatMachineTests {
         #expect(destinations.copiedChat(for: first, on: "vm-1") == nil)
     }
 
+    /// Router review at c1d0cf8: after a team switch the store keeps the previous team's sessions while
+    /// an omission waits on a newer read. A pin is to a machine of the list read for this account, or
+    /// kept while only the store has it (a create the list predates), and dropped once neither does.
+    @Test func aPinStandsOnlyOnThisAccountsList() {
+        #expect(CloudStartChat.pinExists("vm-a", listed: ["vm-a"], inStore: true) == true)
+        #expect(CloudStartChat.pinExists("vm-new", listed: ["vm-a"], inStore: true) == nil)
+        #expect(CloudStartChat.pinExists("vm-gone", listed: ["vm-a"], inStore: false) == false)
+    }
+
     @Test func aRetryWhoseMachineIsGonePicksAfreshAndARetryOfANewMachineStaysOnIt() {
         let destinations = CloudStartChat.Destinations()
         let key = UUID().uuidString

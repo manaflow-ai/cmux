@@ -890,7 +890,8 @@ class AppSizeTests(Fixture):
         self.assertTrue(any("excepted by" in text for _, text in self.check()[1]))
         # A self-reviewed, an expired or another file's entry allows nothing.
         for broken in ({"receipt": "Review (lane-a): SHIP at " + "a" * 40}, {"expiry": "2026-10-30"},
-                       {"path": f"{APP}/Cloud/Other.swift"}, {"rule": "god-file"}):
+                       {"path": f"{APP}/Cloud/Other.swift"}, {"rule": "god-file"}, {"date": "2026-02-31"},
+                       {"expiry": "2999-00-00"}):
             self.write(guardrails.EXCEPTIONS, json.dumps({"exceptions": [{**entry, **broken}]}))
             self.commit("a broken exception")
             self.assertRefused("new App file")

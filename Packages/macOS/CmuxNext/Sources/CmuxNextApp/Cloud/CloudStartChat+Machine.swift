@@ -240,6 +240,12 @@ extension CloudStartChat {
         guard listCurrent else { throw CloudMove.Failure(message: CloudMoveStrings.startChatListUnread) }
     }
 
+    /// Whether a send's pinned machine `id` still exists for its account: listed for it (true); in the
+    /// store only (nil, kept: the list may predate its create); else gone (false).
+    static func pinExists(_ id: String, listed: Set<String>, inStore: Bool) -> Bool? {
+        listed.contains(id) ? true : inStore ? nil : false
+    }
+
     /// The machine for the send `start`, connected (``destination(for:destinations:candidates:user:exists:)``);
     /// a new one is named for chats and sized for the chat (`pick`). Pins the send to it before
     /// anything runs there, so a retry of the send names it. Only a machine of the list the server
@@ -250,7 +256,8 @@ extension CloudStartChat {
         if !cloud.hasLoadedCurrentMachines { await cloud.refresh() }
         try Self.checkAccount(account, now: cloud.account, listCurrent: cloud.hasLoadedCurrentMachines)
         let pin = Self.pinKey(start.key, account: account)
-        let candidates = machines.cloud.map { session in
+        let listed = cloud.listedMachineIDs
+        let candidates = machines.cloud.filter { listed.contains($0.machineID) }.map { session in
             let connected = session.daemon.connection != nil
             let chats = connected
                 ? session.daemon.store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).filter { $0.agentSession != nil }.count
@@ -260,7 +267,7 @@ extension CloudStartChat {
         }
         let destination = Self.destination(for: pin, destinations: destinations, candidates: candidates, user: cloud.auth.user?.id,
                                            used: destinations.machines(of: account)) { id in
-            machines.session(id) != nil
+            Self.pinExists(id, listed: listed, inStore: machines.session(id) != nil)
         }
         var invocation = invocation
         switch destination {
