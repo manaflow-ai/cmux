@@ -321,3 +321,40 @@ test("a theme color below its contrast floor says so and Raise Contrast lifts it
   await click(reset);
   expect(ops(page.provider, "cmux.settings.reset").at(-1)).toEqual({ key: "appearance.themeEdits" });
 });
+
+test("a light/dark pair shows the side for the Mac's appearance, not the window's", async () => {
+  // A dark App Theme makes the page's window dark (prefers-color-scheme: dark) while macOS is light:
+  // the terminals use the pair's light side, so Settings must show and edit that side.
+  const previous = window.matchMedia;
+  window.matchMedia = ((query: string) =>
+    ({
+      matches: query.includes("dark"),
+      media: query,
+      addEventListener() {},
+      removeEventListener() {},
+    }) as unknown as MediaQueryList) as typeof window.matchMedia;
+  try {
+    page = await renderPage({
+      path: "/settings/theme",
+      mock: { values: { "appearance.theme": "light:GitHub Light,dark:Dracula" } },
+      setup: (provider) =>
+        provider.setHost({ ...provider.host, theme: { ...provider.host.theme!, system_scheme: "light" } }),
+    });
+    expect(theme(page).querySelector("[data-theme-preview]")?.getAttribute("data-theme-preview")).toBe("GitHub Light");
+    // Match System Appearance off keeps the side in effect on this Mac.
+    await click(theme(page).querySelector('[data-theme-row="match"] [role=switch]')!);
+    expect(ops(page.provider, "cmux.settings.set").at(-1)).toEqual({ key: "appearance.theme", value: "GitHub Light" });
+  } finally {
+    window.matchMedia = previous;
+  }
+});
+
+test("with an App Theme set, a space or workspace theme says it replaces the App Theme in its window too", async () => {
+  // A workspace theme colors its window's chrome (the room shows its workspace's colors), App Theme
+  // or not: the note must not read as if only the terminal theme gave way.
+  page = await renderPage({ path: "/settings/theme", mock: { values: { "appearance.appTheme": "GitHub Light" } } });
+  const note = theme(page).querySelector<HTMLElement>('[data-override="workspace"]')!;
+  expect(note.textContent).toContain("Overridden in this workspace by Dracula, App Theme included");
+  await run(() => page!.store.reset("appearance.appTheme"));
+  expect(theme(page).querySelector('[data-override="workspace"]')?.textContent).not.toContain("App Theme included");
+});
