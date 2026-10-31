@@ -265,6 +265,138 @@
         }
       }
     },
+    "runs.error.cloudUnavailable": {
+      "comment": "cmux run --sandboxed and cmux vm token refusal: Cloud may not be called here (a managed team missing, or a local-only backend).",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud غير متاح لهذا الحساب أو الفريق."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud nije dostupan za ovaj račun ili tim."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud er ikke tilgængelig for denne konto eller dette team."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud ist für dieses Konto oder Team nicht verfügbar."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud is not available for this account or team."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud no está disponible para esta cuenta o equipo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud n’est pas disponible pour ce compte ou cette équipe."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud non è disponibile per questo account o team."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このアカウントまたはチームでは cmux Cloud を利用できません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud មិនអាចប្រើបានសម្រាប់គណនី ឬក្រុមនេះទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 계정 또는 팀에서는 cmux Cloud를 사용할 수 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud er ikke tilgjengelig for denne kontoen eller dette teamet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud nie jest dostępny dla tego konta lub zespołu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O cmux Cloud não está disponível para esta conta ou equipe."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud недоступен для этой учётной записи или команды."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud ไม่พร้อมใช้งานสำหรับบัญชีหรือทีมนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud bu hesap veya ekip için kullanılamıyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud недоступний для цього облікового запису або команди."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud không khả dụng cho tài khoản hoặc nhóm này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此账户或团队无法使用 cmux Cloud。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此帳號或團隊無法使用 cmux Cloud。"
+          }
+        }
+      }
+    },
     "runs.error.idRequired": {
       "comment": "runs.wait or runs.cancel refusal when no Run id was given.",
       "extractionState": "manual",
@@ -525,138 +657,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Ảnh đó không phải ảnh VM của cmux Cloud. Bỏ --image để dùng ảnh cơ sở."
-          }
-        }
-      }
-    },
-    "runs.error.labsOff": {
-      "comment": "cmux run --sandboxed refusal while the Labs preview flag is off.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sandboxed runs are a preview. Turn on Settings > Advanced > Labs > Show Preview Features."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sandbox-Läufe sind eine Vorschau. Aktiviere Einstellungen > Erweitert > Labs > Vorschaufunktionen anzeigen."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Les exécutions isolées sont en aperçu. Activez Réglages > Avancé > Labs > Afficher les fonctions en aperçu."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "التشغيلات المعزولة ميزة تجريبية. فعّل الإعدادات > متقدم > المختبرات > إظهار الميزات التجريبية."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Las ejecuciones aisladas son una vista previa. Activa Ajustes > Avanzado > Labs > Mostrar funciones en vista previa."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "沙箱執行仍為預覽功能。請開啟「設定 > 進階 > Labs > 顯示預覽功能」。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "沙箱运行仍是预览功能。请打开“设置 > 高级 > Labs > 显示预览功能”。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "샌드박스 실행은 미리보기 기능입니다. 설정 > 고급 > Labs > 미리보기 기능 표시를 켜세요."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "サンドボックス実行はプレビュー機能です。設定 > 詳細 > Labs > プレビュー機能を表示 をオンにしてください。"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Izolirana izvršavanja su pregled. Uključite Postavke > Napredno > Labs > Prikaži funkcije u pregledu."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Sandkassekørsler er en forhåndsvisning. Slå Indstillinger > Avanceret > Labs > Vis forhåndsvisningsfunktioner til."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Le esecuzioni isolate sono un’anteprima. Attiva Impostazioni > Avanzate > Labs > Mostra funzioni in anteprima."
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ការដំណើរការក្នុង sandbox ជាការមើលជាមុន។ បើក ការកំណត់ > កម្រិតខ្ពស់ > Labs > បង្ហាញមុខងារមើលជាមុន។"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Sandkassekjøringer er en forhåndsvisning. Slå på Innstillinger > Avansert > Labs > Vis forhåndsvisningsfunksjoner."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Uruchomienia w piaskownicy to wersja zapoznawcza. Włącz Ustawienia > Zaawansowane > Labs > Pokaż funkcje w wersji zapoznawczej."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Execuções isoladas são uma prévia. Ative Ajustes > Avançado > Labs > Mostrar recursos em prévia."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Запуски в песочнице — предварительная функция. Включите «Настройки > Дополнительно > Labs > Показывать предварительные функции»."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "การรันในแซนด์บ็อกซ์เป็นฟีเจอร์ตัวอย่าง เปิด การตั้งค่า > ขั้นสูง > Labs > แสดงฟีเจอร์ตัวอย่าง"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Korumalı çalıştırmalar önizlemedir. Ayarlar > Gelişmiş > Labs > Önizleme Özelliklerini Göster'i açın."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Запуски в пісочниці — попередня функція. Увімкніть «Налаштування > Додатково > Labs > Показувати попередні функції»."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chạy trong hộp cát là tính năng xem trước. Bật Cài đặt > Nâng cao > Labs > Hiện tính năng xem trước."
           }
         }
       }
@@ -1977,138 +1977,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Lượt chạy đã hết thời gian"
-          }
-        }
-      }
-    },
-    "vm.token.error.labsOff": {
-      "comment": "cmux vm token create refusal: VM tokens are behind the Labs preview flag.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "VM tokens are a preview. Turn on Settings > Advanced > Labs > Show Preview Features."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "VM-Tokens sind eine Vorschau. Aktiviere Einstellungen > Erweitert > Labs > Vorschaufunktionen anzeigen."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Les jetons de VM sont en aperçu. Activez Réglages > Avancé > Labs > Afficher les fonctionnalités en aperçu."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "رموز الأجهزة الافتراضية ميزة تجريبية. فعّل الإعدادات > متقدم > Labs > إظهار الميزات التجريبية."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Los tokens de VM son una vista previa. Activa Ajustes > Avanzado > Labs > Mostrar funciones en vista previa."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "VM 權杖是預覽功能。請開啟「設定 > 進階 > Labs > 顯示預覽功能」。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "VM 令牌是预览功能。请打开“设置 > 高级 > Labs > 显示预览功能”。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "VM 토큰은 미리보기 기능입니다. 설정 > 고급 > Labs > 미리보기 기능 표시를 켜세요."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "VM トークンはプレビュー機能です。設定 > 詳細 > Labs > プレビュー機能を表示 をオンにしてください。"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "VM tokeni su pregled. Uključi Postavke > Napredno > Labs > Prikaži funkcije pregleda."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "VM-tokens er en forhåndsvisning. Slå Indstillinger > Avanceret > Labs > Vis forhåndsvisningsfunktioner til."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "I token VM sono in anteprima. Attiva Impostazioni > Avanzate > Labs > Mostra funzionalità in anteprima."
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ថូខឹន VM ជាមុខងារសាកល្បង។ សូមបើក ការកំណត់ > កម្រិតខ្ពស់ > Labs > បង្ហាញមុខងារសាកល្បង។"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "VM-tokener er en forhåndsvisning. Slå på Innstillinger > Avansert > Labs > Vis forhåndsvisningsfunksjoner."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tokeny VM to funkcja w wersji zapoznawczej. Włącz Ustawienia > Zaawansowane > Labs > Pokaż funkcje zapoznawcze."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Os tokens de VM são uma prévia. Ative Ajustes > Avançado > Labs > Mostrar recursos em prévia."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Токены VM — предварительная функция. Включите Настройки > Дополнительно > Labs > Показывать предварительные функции."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "โทเค็น VM เป็นฟีเจอร์ตัวอย่าง เปิด การตั้งค่า > ขั้นสูง > Labs > แสดงฟีเจอร์ตัวอย่าง"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "VM belirteçleri bir önizlemedir. Ayarlar > Gelişmiş > Labs > Önizleme Özelliklerini Göster seçeneğini açın."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Токени VM — попередня функція. Увімкніть Налаштування > Додатково > Labs > Показувати попередні функції."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Token VM là tính năng xem trước. Hãy bật Cài đặt > Nâng cao > Labs > Hiện tính năng xem trước."
           }
         }
       }

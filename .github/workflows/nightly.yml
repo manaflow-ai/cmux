@@ -7018,7 +7018,8 @@ jobs:
     steps: &sign-nightly-identity-legacy-steps
       # First, before the checkout's token or any secret: on an owned Mac this job holds the whole
       # mini (glaeda's exclusive class) or fails here (tests/test_ci_signing_owned_mac.py CLAIM_GATE).
-      - name: Hold the whole Mac before any credential
+      - &hold-the-whole-mac
+        name: Hold the whole Mac before any credential
         id: claim-gate
         shell: bash
         run: |
@@ -7635,11 +7636,9 @@ jobs:
     permissions:
       contents: read
       actions: read
-    # Nightlies never use Blacksmith (Lawrence, 2026-10-30): an owned Mac, the nightly slot first, then the side
-    # lane, then the owned std pool. Deltas are optional: a failed or slow delta never fails the run or holds the
-    # feed, which already serves the full DMG (republish-nightly-deltas then republishes nothing).
-    # NIGHTLY_DELTAS=off skips them.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.CI_SIDE_LANE_RUNNER || 'glaeda-std-xcode-26.6' }}
+    # Never Blacksmith (Lawrence, 2026-10-30). A Sparkle key: placed and held whole as the legacy sign. Optional:
+    # a failed or refused delta never fails the run or holds the feed. NIGHTLY_DELTAS=off skips them.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.sign_owned && fromJSON(needs.pick-nightly-sign-runner.outputs.sign_owned) || vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.CI_SIDE_LANE_RUNNER || 'glaeda-std-xcode-26.6' }}
     continue-on-error: true
     strategy:
       fail-fast: false
@@ -7654,14 +7653,12 @@ jobs:
       CHANNEL_RELEASE_TAG: ${{ needs.decide.outputs.release_tag }}
       NIGHTLY_SPARKLE_KEY: ${{ vars.NIGHTLY_SPARKLE_KEY }}
       TRACK: ${{ needs.decide.outputs.track }}
-      # The nightly-next track gets only its own key; the others never see it.
-      SHARED_SPARKLE_PRIVATE_KEY: ${{ needs.decide.outputs.track != 'nightly-next' && secrets.SPARKLE_PRIVATE_KEY || '' }}
-      NIGHTLY_SPARKLE_PRIVATE_KEY: ${{ needs.decide.outputs.track != 'nightly-next' && secrets.NIGHTLY_SPARKLE_PRIVATE_KEY || '' }}
-      NEXT_SPARKLE_PRIVATE_KEY: ${{ needs.decide.outputs.track == 'nightly-next' && secrets.SPARKLE_NEXT_PRIVATE_KEY || '' }}
       # Every item starts on the new build's ring; republish-nightly-deltas
       # moves the ones whose canary passed back to Nightly.
       SPARKLE_CHANNEL: ${{ needs.decide.outputs.track == 'nightly-next' && (vars.NIGHTLY_NEXT_DEV_RING == 'on' && 'cmux-next-dev' || 'cmux-next') || '' }}
     steps:
+      - *hold-the-whole-mac
+
       - name: Checkout build ref
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -7682,7 +7679,13 @@ jobs:
             scripts/ci/gh_app_token.sh
             scripts/ci/nightly-steps/release-notes-recheck-publication-head.sh
             scripts/ci/nightly-steps/release-notes-upload-to-r2.sh
+            scripts/ci/signing-runner-claim.sh
+            scripts/ci/glaeda-signing-hooks.txt
           sparse-checkout-cone-mode: false
+
+      # The build ref may predate the hook list.
+      - name: Claim the whole Mac for signing
+        run: bash .publish-tooling/scripts/ci/signing-runner-claim.sh
 
       - *gh-app-token-read
 
@@ -7702,6 +7705,10 @@ jobs:
       - name: Generate deltas and revised appcast
         env:
           GH_TOKEN: ${{ github.token }}
+          # The nightly-next track gets only its own key; the others never see it.
+          SHARED_SPARKLE_PRIVATE_KEY: ${{ needs.decide.outputs.track != 'nightly-next' && secrets.SPARKLE_PRIVATE_KEY || '' }}
+          NIGHTLY_SPARKLE_PRIVATE_KEY: ${{ needs.decide.outputs.track != 'nightly-next' && secrets.NIGHTLY_SPARKLE_PRIVATE_KEY || '' }}
+          NEXT_SPARKLE_PRIVATE_KEY: ${{ needs.decide.outputs.track == 'nightly-next' && secrets.SPARKLE_NEXT_PRIVATE_KEY || '' }}
         run: |
           set -euo pipefail
           feed="appcast.xml"

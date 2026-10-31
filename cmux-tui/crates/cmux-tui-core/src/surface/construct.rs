@@ -501,7 +501,8 @@ impl Surface {
         if let Some((offset, at_bottom)) = scroll_changed
             && let Some(mux) = mux.upgrade()
         {
-            mux.emit(MuxEvent::ScrollChanged { surface: surface.id, offset, at_bottom });
+            // Drops a position output deferred, so it cannot follow this one.
+            pty.frame_requests.publish_scroll_now(&mux, surface.id, offset, at_bottom);
         }
     }
 }
