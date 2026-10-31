@@ -51,7 +51,10 @@ fn is_ready_at(binary: &Path, marker: &Path, expected_sha256: &str) -> bool {
     std::fs::read(marker)
         .ok()
         .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
-        .is_some_and(|ready| ready["version"] == VERSION && ready["sha256"] == expected_sha256)
+        .is_some_and(|ready| {
+            let field = |name: &str| ready.get(name).and_then(serde_json::Value::as_str);
+            field("version") == Some(VERSION) && field("sha256") == Some(expected_sha256)
+        })
 }
 
 pub fn status() -> serde_json::Value {

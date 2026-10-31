@@ -426,7 +426,9 @@ async fn icon_cmd(id: &str, value: Option<String>, clear: bool, json_out: bool) 
 
 /// An install's result with whether a running daemon reloaded after it.
 fn with_daemon_reloaded(mut installed: serde_json::Value, reloaded: bool) -> serde_json::Value {
-    installed["daemonReloaded"] = json!(reloaded);
+    if let Some(fields) = installed.as_object_mut() {
+        fields.insert("daemonReloaded".to_owned(), json!(reloaded));
+    }
     installed
 }
 
