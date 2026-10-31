@@ -68,10 +68,12 @@ await requireBrowserLane("agent-pane-tool-group-scroll.test.ts", async () => {
     // A run's own rows end in a chevron at the row's end. A step's chevron follows its words instead
     // (conversation.css `.cv-step > .cv-tool > .cv-tool__chevron`), so steps are not measured here.
     const trailing = await group.locator(".cv-tool.is-toggle .cv-tool__chevron").evaluateAll((nodes) => {
-      const values = nodes.filter((node) => !node.closest(".cv-step")).map((node) => {
-        const button = node.closest<HTMLElement>(".cv-tool")!;
-        return button.getBoundingClientRect().right - node.getBoundingClientRect().right;
-      });
+      const values = nodes
+        .filter((node) => !node.closest(".cv-step"))
+        .map((node) => {
+          const button = node.closest<HTMLElement>(".cv-tool")!;
+          return button.getBoundingClientRect().right - node.getBoundingClientRect().right;
+        });
       return { count: values.length, spread: Math.max(...values) - Math.min(...values) };
     });
     expect(trailing.count).toBeGreaterThan(3);
