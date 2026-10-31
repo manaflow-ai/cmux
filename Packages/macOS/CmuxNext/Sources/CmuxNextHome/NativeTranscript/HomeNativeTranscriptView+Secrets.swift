@@ -6,7 +6,7 @@ extension HomeNativeTranscriptView {
     /// The vault rollout owns both the paste offer and secret draft filtering. Off restores Home's usual send.
     public func connectCredentialVault(vault: CredentialVault, window: @escaping @MainActor @Sendable () -> NSWindow?) {
         withObservationTracking {
-            if CredentialVault.rolloutEnabled.value {
+            if CredentialVault.isRolloutEnabled {
                 secretHost = { findings in
                     guard let window = window() else { return nil }
                     var moved: [(value: String, name: String)] = []
