@@ -4,6 +4,8 @@
 // peers', sorted by 24h cost or by context. Leo, 2026-10-30: "that visibility into huge-blue guys
 // was (and is?) pretty bad i feel like we can make more improvements to acpmux/cmux-next".
 import { afterEach, beforeEach, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
@@ -12,6 +14,7 @@ import { DEFAULT_SECTIONS, resetInspectorState } from "../src/agent-session/acpm
 import { groupOrder } from "../src/agent-session/acpmux/inspector/sectionOrder";
 import { sessionEntry } from "../src/agent-session/acpmux/sessionList";
 import { byUsage, sameUsageStats, usageCost, usageStatsOf } from "../src/agent-session/acpmux/usageStats";
+import { SessionPager, withUsage } from "../src/agent-session/acpmux/sessionPages";
 
 const scope = globalThis as Record<string, unknown>;
 const saved = new Map<string, unknown>();
@@ -345,4 +348,68 @@ test("more than five sessions fold behind View all", async () => {
   expect(fold?.textContent).toBe("View all 7");
   await click(fold);
   expect(rows()).toBe(7);
+});
+
+// The usage itself has to be asked for: a plain `_acpmux/watch` or `_acpmux/sessions` read carries
+// acpmux's last pass, and none at all while nothing asked since acpmux started (hub/usage_view.rs),
+// so Usage and the sessions by usage list stayed empty or stale.
+test("the usage read asks _acpmux/sessions for usage on every page, as the cmux host's pane policy lets it", async () => {
+  const policy = JSON.parse(
+    readFileSync(path.resolve(import.meta.dir, "../../cmux-tui/crates/cmux-agent-pane-policy/policy.json"), "utf8"),
+  ) as { known_params: Record<string, { params: string[] }> };
+  const asked: Array<{ method: string; params: Record<string, unknown> }> = [];
+  const pages: Record<string, { sessions: unknown[]; nextCursor: string | null }> = {
+    first: {
+      sessions: [{ sessionId: "dep-fleet", usageStats: stats({ costUsd24h: 1_500 }) }, { sessionId: "fresh" }],
+      nextCursor: "k1",
+    },
+    k1: { sessions: [{ sessionId: "dep-land", usageStats: stats({ costUsd24h: 1_200 }) }], nextCursor: null },
+  };
+  const pager = new SessionPager(async (method, params) => {
+    asked.push({ method, params });
+    return pages[(params.cursor as string | undefined) ?? "first"];
+  });
+  const usage = await pager.usage();
+  expect(asked.map((ask) => ask.method)).toEqual(["_acpmux/sessions", "_acpmux/sessions"]);
+  for (const ask of asked) {
+    expect(ask.params.usage).toBe(true);
+    // The host refuses a frame with a param its policy lacks (#20644): the list would be lost.
+    for (const key of Object.keys(ask.params)) expect(policy.known_params["_acpmux/sessions"]!.params).toContain(key);
+  }
+  expect([...usage.keys()]).toEqual(["dep-fleet", "dep-land"]);
+});
+
+test("withUsage lays newer numbers over the list, keeps a turn's newer ones, and keeps the array when nothing moved", () => {
+  const raw = [
+    { sessionId: "dep-fleet", usageStats: stats({ costUsd24h: 1_420.5 }) },
+    { sessionId: "dep-land", usageStats: stats({ costUsd24h: 1_100, updatedAt: 1_761_800_009_000 }) },
+    { sessionId: "fresh" },
+  ];
+  const read = new Map<string, unknown>([
+    ["dep-fleet", stats({ costUsd24h: 1_500, updatedAt: 1_761_800_005_000 })],
+    // Older than the turn end acpmux announced meanwhile: the list keeps the turn's.
+    ["dep-land", stats({ costUsd24h: 900, updatedAt: 1_761_800_005_000 })],
+    ["fresh", stats({ costUsd24h: 0.4, updatedAt: 1_761_800_005_000 })],
+  ]);
+  const next = withUsage(raw, read);
+  expect(next).not.toBe(raw);
+  expect(next.map((session) => (session.usageStats as { costUsd24h?: number } | undefined)?.costUsd24h)).toEqual([
+    1_500, 1_100, 0.4,
+  ]);
+  expect(next[1]).toBe(raw[1]);
+  // The same numbers read again later: nothing to draw, the same array.
+  const again = new Map<string, unknown>([["dep-fleet", stats({ costUsd24h: 1_500, updatedAt: 1_761_800_010_000 })]]);
+  expect(withUsage(next, again)).toBe(next);
+});
+
+test("Session Info asks for every chat's usage once when it shows", async () => {
+  let asked = 0;
+  const onShowUsage = () => {
+    asked += 1;
+  };
+  await render(<ChatInspector summary={{ sessionId: "fresh", cwd: "/repo" }} allSessions={SESSIONS} onShowUsage={onShowUsage} />);
+  expect(asked).toBe(1);
+  // A redraw with the same callback asks nothing more.
+  await render(<ChatInspector summary={{ sessionId: "fresh", cwd: "/repo" }} allSessions={SESSIONS} onShowUsage={onShowUsage} />);
+  expect(asked).toBe(1);
 });
