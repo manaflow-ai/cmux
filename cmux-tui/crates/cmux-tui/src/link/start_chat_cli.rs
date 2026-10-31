@@ -10,15 +10,19 @@
 //!   person's free one, else a new one named for chats; and the send's keys
 //!   ([`Keys`]). A machine that exists is pinned to the send before anything
 //!   runs there, so a retry of the send names it.
-//! - `pin --key K --machine ID`: pins the send to the machine the App just
-//!   made for it.
-//! - `copy --key K --machine ID --socket PATH --local ROOT [--subpath SUB]
-//!   --work-root R...`: copies ROOT to the send's own place on the machine
-//!   (`cmux link sync push`), trying each work root in turn, unless this
-//!   send's copy already finished there: a second push would overwrite what
-//!   the chat changed since. Answers the chat's folder there.
+//! - `pin --key K --account A --machine ID`: pins the send to the machine the
+//!   App just made for it.
+//! - `copy --key K --account A --machine ID --socket PATH --local ROOT
+//!   [--subpath SUB] --work-root R...`: copies ROOT to a folder of the send's
+//!   own on the machine (`cmux link sync push`), trying each work root in
+//!   turn, unless this send's copy already finished there: a second push
+//!   would overwrite what the chat changed since. Answers the chat's folder
+//!   there.
 //!
-//! The pins live in this Mac's state folder ([`ledger`]). Output: one JSON
+//! Every send is kept under the account it began in (`account`: the user and
+//! the team, as the App spells them): a team switch keeps the person signed
+//! in, and a send of the previous team must never take, or copy to, this
+//! team's machine. The pins live in this Mac's state folder ([`ledger`]). Output: one JSON
 //! line on stdout, `{"ok":true,...}` with exit 0, or
 //! `{"ok":false,"error":...,"error_code":...}` with exit 1; bad usage exits 64.
 
@@ -31,12 +35,12 @@ use std::path::{Path, PathBuf};
 
 use serde_json::{Value, json};
 
-use ledger::Ledger;
+use ledger::{Ledger, Send};
 use pick::{Candidate, Destination};
 
 const USAGE: &str = "usage: cmux link start-chat plan --request JSON\n       \
-cmux link start-chat pin --key KEY --machine ID\n       \
-cmux link start-chat copy --key KEY --machine ID --socket PATH --local FOLDER [--subpath PATH] --work-root PATH...";
+cmux link start-chat pin --key KEY --account ACCOUNT --machine ID\n       \
+cmux link start-chat copy --key KEY --account ACCOUNT --machine ID --socket PATH --local FOLDER [--subpath PATH] --work-root PATH...";
 
 /// The error code a work root the machine's user cannot write answers with:
 /// the next root is tried.
@@ -64,8 +68,8 @@ pub(super) fn run(args: &[String]) -> i32 {
     };
     let answer = match action.as_str() {
         "plan" => flags.one("--request").map(|request| plan(&ledger, request)),
-        "pin" => match (flags.key(), flags.one("--machine")) {
-            (Some(key), Some(machine)) => Some(pin(&ledger, &key, machine)),
+        "pin" => match (flags.key(), flags.account(), flags.one("--machine")) {
+            (Some(key), Some(account), Some(machine)) => Some(pin(&ledger, &key, account, machine)),
             _ => None,
         },
         "copy" => StartCopy::of(&flags).map(|copy| copy.run(&ledger, &push)),
@@ -89,9 +93,10 @@ pub(super) struct Keys {
     /// The creation key of the machine's chat tab: a retry gets the tab its
     /// first try made, never a second chat with the prompt again.
     pub(super) tab: String,
-    /// The folder under the machine's work root the send's copy goes to: its
+    /// The folder under the machine's work root the send's copies go in: its
     /// own, so a second chat from the same folder never writes over the first
-    /// one's changes on a reused machine.
+    /// one's changes on a reused machine. Each copy goes to a new folder in it
+    /// ([`StartCopy::run`]).
     pub(super) place: String,
 }
 
@@ -123,18 +128,30 @@ fn refused(code: &str, error: impl std::fmt::Display) -> Value {
     json!({"ok": false, "error": error.to_string(), "error_code": code})
 }
 
-/// What `plan` reads: the send, who is signed in, and this app's Cloud machines.
+/// The account a send began in, as the App spells it: printable, at most 512 bytes.
+pub(super) fn valid_account(account: &str) -> bool {
+    account.len() <= 512 && !account.chars().any(char::is_control)
+}
+
+/// What `plan` reads: the send, the account it began in, who is signed in,
+/// and the Cloud machines the App's list for that account named.
 #[derive(serde::Deserialize)]
 struct PlanRequest {
     key: String,
+    account: String,
     #[serde(default)]
     user: Option<String>,
     /// Whether the App has loaded its machine list: before it has, a machine
     /// a pin names is kept (it may be one made for this send, not listed yet).
     #[serde(default)]
     loaded: bool,
+    /// The machines the account's list named: the only ones a send may take.
     #[serde(default)]
     machines: Vec<Candidate>,
+    /// Machines in the App's store that its list did not name yet (made
+    /// since): a send pinned to one keeps it, but none is picked.
+    #[serde(default)]
+    stored: Vec<String>,
 }
 
 /// `plan`: where the send goes, pinned when it is a machine that exists.
@@ -146,17 +163,23 @@ pub(super) fn plan(ledger: &Path, request: &str) -> Value {
     if !valid_key(&request.key) {
         return refused("bad_request", "the send's key is not a UUID");
     }
+    if !valid_account(&request.account) {
+        return refused("bad_request", "the account is too long or has control characters");
+    }
     let keys = Keys::of(&request.key);
+    let send = Send::new(&request.key, &request.account);
     let planned = Ledger::update(ledger, |pins| {
         let destination = pick::destination(
-            &request.key,
+            &send,
+            &request.account,
             pins,
             &request.machines,
+            &request.stored,
             request.user.as_deref(),
             request.loaded,
         );
         if let Destination::Machine(id) = &destination {
-            pins.record(id, &request.key);
+            pins.record(id, &send);
         }
         destination
     });
@@ -176,9 +199,9 @@ pub(super) fn plan(ledger: &Path, request: &str) -> Value {
     line
 }
 
-/// `pin`: the send `key` runs on `machine` (one the App just made for it).
-pub(super) fn pin(ledger: &Path, key: &str, machine: &str) -> Value {
-    match Ledger::update(ledger, |pins| pins.record(machine, key)) {
+/// `pin`: the send `key` of `account` runs on `machine` (one the App just made for it).
+pub(super) fn pin(ledger: &Path, key: &str, account: &str, machine: &str) -> Value {
+    match Ledger::update(ledger, |pins| pins.record(machine, &Send::new(key, account))) {
         Ok(()) => json!({"ok": true}),
         Err(error) => refused("ledger_failed", format!("{error:#}")),
     }
@@ -204,6 +227,7 @@ fn push(socket: &Path, local: &Path, remote: &str) -> Result<(), (String, String
 #[derive(Clone, Debug)]
 pub(super) struct StartCopy {
     pub(super) key: String,
+    pub(super) account: String,
     pub(super) machine: String,
     pub(super) socket: PathBuf,
     /// The folder that is copied (a Git working copy's top, else the chat's
@@ -232,6 +256,7 @@ impl StartCopy {
         }
         Some(Self {
             key: flags.key()?,
+            account: flags.account()?.to_string(),
             machine: flags.one("--machine")?.to_string(),
             socket: PathBuf::from(flags.one("--socket")?),
             local: local.to_string(),
@@ -240,32 +265,46 @@ impl StartCopy {
         })
     }
 
-    /// The copied folder and the chat's folder in it, under `work_root`.
-    pub(super) fn remote(&self, work_root: &str) -> (String, String) {
-        let place = join(work_root, &Keys::of(&self.key).place);
-        let folder = join(&place, &remote_name(&self.local));
+    /// A new folder for one copy of the send, under its [`Keys::place`].
+    pub(super) fn fresh_place(&self) -> String {
+        let id = uuid::Uuid::new_v4().simple().to_string();
+        format!("{}/{}", Keys::of(&self.key).place, &id[..8])
+    }
+
+    /// The copied folder and the chat's folder in it, in `place` under `work_root`.
+    pub(super) fn remote(&self, work_root: &str, place: &str) -> (String, String) {
+        let folder = join(&join(work_root, place), &remote_name(&self.local));
         let chat =
             if self.subpath.is_empty() { folder.clone() } else { join(&folder, &self.subpath) };
         (folder, chat)
     }
 
     /// The copy, or the chat's folder of the one that already finished.
+    /// Each copy goes to a new folder, kept before the push starts: the
+    /// ledger is not locked during the push, which can take minutes, so a
+    /// copy whose answer was lost (it may have finished on the machine) or
+    /// a second copy of the same send at once never writes over another.
     pub(super) fn run(&self, ledger: &Path, push: &Push<'_>) -> Value {
-        // The ledger is not locked during the push, which can take minutes: a
-        // second copy of the same send at once is held off by the App's
-        // one-start-per-page hold, and would record the same folder.
-        match Ledger::update(ledger, |pins| pins.copied_chat(&self.key, &self.machine)) {
+        let send = Send::new(&self.key, &self.account);
+        let place = self.fresh_place();
+        match Ledger::update(ledger, |pins| {
+            let finished = pins.copied_chat(&send, &self.machine);
+            if finished.is_none() {
+                pins.start_copy(&send, &self.machine, &place);
+            }
+            finished
+        }) {
             Ok(Some(chat)) => return json!({"ok": true, "chat": chat, "copied": false}),
             Ok(None) => {}
             Err(error) => return refused("ledger_failed", format!("{error:#}")),
         }
         let mut last = ("sync_failed".to_string(), "no work root to copy to".to_string());
         for root in &self.work_roots {
-            let (folder, chat) = self.remote(root);
+            let (folder, chat) = self.remote(root, &place);
             match push(&self.socket, Path::new(&self.local), &folder) {
                 Ok(()) => {
                     return match Ledger::update(ledger, |pins| {
-                        pins.record_copy(&chat, &self.key, &self.machine);
+                        pins.record_copy(&chat, &send, &self.machine, &place);
                     }) {
                         Ok(()) => {
                             json!({"ok": true, "chat": chat, "folder": folder, "copied": true})
@@ -336,5 +375,9 @@ impl Flags {
 
     fn key(&self) -> Option<String> {
         self.one("--key").filter(|key| valid_key(key)).map(str::to_string)
+    }
+
+    fn account(&self) -> Option<&str> {
+        self.one("--account").filter(|account| valid_account(account))
     }
 }

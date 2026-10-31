@@ -9,7 +9,7 @@
 
 use std::collections::BTreeSet;
 
-use super::ledger::Ledger;
+use super::ledger::{Ledger, Send};
 
 /// One Cloud machine as the App lists it.
 #[derive(Clone, Debug, Default, PartialEq, Eq, serde::Deserialize)]
@@ -127,22 +127,29 @@ pub(crate) enum Destination {
     New,
 }
 
-/// Where the send `key` goes: the machine its first try took while that
-/// machine exists (before the App's list is `loaded`, it is kept: it may be
-/// one made for this send), else [`pick`]. Drops a pin to a machine that is
-/// gone, which holds no tab of this send.
+/// Where `send` goes: the machine its first try took while that machine
+/// exists (listed, or `stored`: in the App's store but not yet in its list,
+/// one made since; before the App's list is `loaded`, it is kept), else
+/// [`pick`], among the machines this account's sends count as the person's.
+/// Drops a pin to a machine that is gone, which holds no tab of this send.
 pub(crate) fn destination(
-    key: &str,
+    send: &Send,
+    account: &str,
     pins: &mut Ledger,
     candidates: &[Candidate],
+    stored: &[String],
     user: Option<&str>,
     loaded: bool,
 ) -> Destination {
-    if let Some(pinned) = pins.machine(key) {
-        if !loaded || candidates.iter().any(|machine| machine.id == pinned) {
+    if let Some(pinned) = pins.machine(send) {
+        if !loaded
+            || candidates.iter().any(|machine| machine.id == pinned)
+            || stored.contains(&pinned)
+        {
             return Destination::Machine(pinned);
         }
-        pins.forget(key);
+        pins.forget(send);
     }
-    pick(candidates, user, &pins.machines()).map_or(Destination::New, Destination::Machine)
+    pick(candidates, user, &pins.machines_of(account))
+        .map_or(Destination::New, Destination::Machine)
 }

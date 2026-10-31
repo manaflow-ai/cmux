@@ -107,19 +107,20 @@ nonisolated struct CloudMoveCLI: Sendable {
         return (run.answer, plan)
     }
 
-    /// `cmux link start-chat pin`: the send `key` runs on `machine`, one the App just made for it.
-    func startChatPin(key: String, machine: String) async throws -> (Answer, Void) {
-        (try await run(["link", "start-chat", "pin", "--key", key, "--machine", machine]), ())
+    /// `cmux link start-chat pin`: the send `key` of `account` (``CloudStartChat/accountText(_:)``)
+    /// runs on `machine`, one the App just made for it.
+    func startChatPin(key: String, account: String, machine: String) async throws -> (Answer, Void) {
+        (try await run(["link", "start-chat", "pin", "--key", key, "--account", account, "--machine", machine]), ())
     }
 
-    /// `cmux link start-chat copy`: copies `local` to the send's own place on the machine whose
+    /// `cmux link start-chat copy`: copies `local` to a folder of the send's own on the machine whose
     /// daemon `socket` reaches, under the first of `workRoots` it can write, unless this send's copy
     /// already finished there. The chat's folder there, and whether it copied now.
-    func startChatCopy(key: String, machine: String, socket: String, local: String, subpath: String,
+    func startChatCopy(key: String, account: String, machine: String, socket: String, local: String, subpath: String,
                        workRoots: [String]) async throws -> (Answer, (chat: String, copied: Bool)) {
         let roots = workRoots.flatMap { ["--work-root", $0] }
-        let run = try await parsed(["link", "start-chat", "copy", "--key", key, "--machine", machine, "--socket", socket,
-                                    "--local", local, "--subpath", subpath] + roots)
+        let run = try await parsed(["link", "start-chat", "copy", "--key", key, "--account", account, "--machine", machine,
+                                    "--socket", socket, "--local", local, "--subpath", subpath] + roots)
         let chat = run.object?["chat"] as? String ?? ""
         guard !run.answer.ok || chat.hasPrefix("/") else {
             return (Answer(ok: false, errorCode: Self.badAnswer, error: "link start-chat copy answered ok without its folder"), (chat, false))
