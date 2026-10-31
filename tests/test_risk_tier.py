@@ -53,6 +53,34 @@ class ClassifyTests(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertEqual(self.tier(path), "normal")
 
+    def test_peer_identity_and_code_signature_trust_are_high(self):
+        # #29072 changed which time a moved acpmux's signing chain must be valid at, and graded normal.
+        for path in (
+            "Native/OptChat/optchat-chief/src/code_signature.rs",
+            "Native/OptChat/optchat-chief/src/acpmux_peer.rs",
+            NEXT + "CmuxNextAgentPane/AcpmuxServerPeer.swift",
+            "cmux-tui/crates/cmux-link/src/caller.rs",
+            "cmux-tui/crates/cmux-link/src/caller_macos.rs",
+            "cmux-tui/crates/cmux-link/src/app_caller.rs",
+            "Packages/macOS/CmuxComputerUseHelper/Sources/CmuxCuaHelperCore/HostVerifier.swift",
+            NEXT + "CmuxNextAgentActivity/CuaHelperIdentity.swift",
+            NEXT + "CmuxNextBrowser/CEF/SecCodeCEFCodeSignatureChecker.swift",
+            NEXT + "CmuxNextBrowser/CEF/CEFCodeSignatureChecking.swift",
+            NEXT + "CmuxNextChromiumRuntime/SecCodeChromiumRuntimeSignatureChecker.swift",
+        ):
+            with self.subTest(path=path):
+                self.assertEqual(risk.classify_path(path), ("high", "peer identity or code-signature trust"))
+        # Their tests and fixtures stay low; a file that only mentions a signature stays normal.
+        for path, tier in (
+            ("Native/OptChat/optchat-chief/tests/acpmux_peer_moved.rs", "low"),
+            ("Native/OptChat/optchat-chief/tests/fixtures/nightly-acpmux-signature.bin", "low"),
+            ("cmux-tui/crates/cmux-link/src/caller_macos_sign_clone_tests.rs", "low"),
+            ("cmux-tui/crates/cmux-pane-protocol/src/token.rs", "normal"),
+            ("Native/OptChat/optchat-chief/src/cloud/signature_cache.rs", "normal"),
+        ):
+            with self.subTest(path=path):
+                self.assertEqual(risk.classify_path(path)[0], tier)
+
     def test_size_alone_never_raises_the_tier(self):
         path = NEXT + "CmuxNextSidebar/A.swift"
         patch = "\n".join(f"+let line{i} = {i}" for i in range(5000))
