@@ -10079,26 +10079,25 @@ function AcpmuxPane() {
     const link = snapshot.sessionId ? sessionLink(snapshot.sessionId) : undefined;
     // Pause or Resume the chat's Cloud machine (cloudMachineMenu.ts), as the account's machines in
     // the composer's machine list are.
-    const machine =
-      !quick
-        ? cloudMachineRows(
-            chatMachine,
-            snapshot.isWorking,
-            t,
-            (method, params) => callNative(method, params),
-            (picked) => void readUntilMoved(picked),
-            () => {
+    const machine = !quick
+      ? cloudMachineRows(
+          chatMachine,
+          snapshot.isWorking,
+          t,
+          (method, params) => callNative(method, params),
+          (picked) => void readUntilMoved(picked),
+          () => {
+            const client = directClient.current;
+            return { session: client?.shownSession()?.sessionId, running: client?.turnRunning() ?? false };
+          },
+          (session) =>
+            stopWaiter.wait(() => {
               const client = directClient.current;
-              return { session: client?.shownSession()?.sessionId, running: client?.turnRunning() ?? false };
-            },
-            (session) =>
-              stopWaiter.wait(() => {
-                const client = directClient.current;
-                return client !== undefined && client.shownSession()?.sessionId === session && client.turnRunning();
-              }),
-            snapshot.sessionId,
-          )
-        : [];
+              return client !== undefined && client.shownSession()?.sessionId === session && client.turnRunning();
+            }),
+          snapshot.sessionId,
+        )
+      : [];
     const copy = copyRow(
       { link, rows: snapshot.rows, sessionId: snapshot.sessionId },
       (text) => ignoreFailure(copyText(text)),
