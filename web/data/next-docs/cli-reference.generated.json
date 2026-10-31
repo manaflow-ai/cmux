@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "verbs": 758,
-    "mcp": 676
+    "verbs": 764,
+    "mcp": 682
   },
   "nouns": [
     {
@@ -524,6 +524,20 @@
           "id": "app.hide",
           "mcp": true,
           "mcpTool": "app_apps_hide"
+        },
+        {
+          "command": "cmux apps install",
+          "title": "Install App…",
+          "id": "app.install",
+          "mcp": true,
+          "mcpTool": "app_apps_install"
+        },
+        {
+          "command": "cmux apps remove",
+          "title": "Remove App…",
+          "id": "app.remove",
+          "mcp": true,
+          "mcpTool": "app_apps_remove"
         },
         {
           "command": "cmux apps unhide",
@@ -3497,6 +3511,39 @@
           "id": "appearance.chromeStyle.twoTone",
           "mcp": false,
           "mcpTool": null
+        }
+      ]
+    },
+    {
+      "noun": "share",
+      "verbs": [
+        {
+          "command": "cmux share chat",
+          "title": "Share Chat with Guest…",
+          "id": "agent.share",
+          "mcp": true,
+          "mcpTool": "app_share_chat"
+        },
+        {
+          "command": "cmux share kick",
+          "title": "Remove Guest",
+          "id": "agent.share.kick",
+          "mcp": true,
+          "mcpTool": "app_share_kick"
+        },
+        {
+          "command": "cmux share list",
+          "title": "List Guest Links",
+          "id": "agent.share.list",
+          "mcp": true,
+          "mcpTool": "app_share_list"
+        },
+        {
+          "command": "cmux share revoke",
+          "title": "Revoke Guest Link",
+          "id": "agent.share.revoke",
+          "mcp": true,
+          "mcpTool": "app_share_revoke"
         }
       ]
     },
