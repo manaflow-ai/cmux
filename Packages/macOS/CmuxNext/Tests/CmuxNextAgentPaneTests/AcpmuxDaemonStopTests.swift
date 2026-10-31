@@ -174,7 +174,7 @@ struct AcpmuxRestartStuckTests {
         }
         defer { fixture.remove(silent) }
         try fixture.writePidFile(silent.processIdentifier)
-        let host = AcpmuxHost(environment: fixture.environment)
+        let host = AcpmuxHost(daemons: AcpmuxLocalDaemons(), environment: fixture.environment)
 
         #expect(await !host.restartStuckAcpmux(sessionId: nil), "a daemon no pane waits for was stopped")
         #expect(agentPaneProcessIsRunning(silent.processIdentifier))

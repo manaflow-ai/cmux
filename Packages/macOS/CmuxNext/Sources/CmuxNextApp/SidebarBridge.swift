@@ -388,7 +388,8 @@ final class SidebarBridge {
                                                iconAsset: groupIcon, rowSource: rows, workspaceFilter: workspaceFilter,
                                                harnessIcons: harnessIcons)
         for session in machines.cloud {
-            let header = CloudCreationRows.machine(session, compatibility: machines.compatibility(of: session.daemon), limits: machines.cloudLimits)
+            let header = CloudCreationRows.machine(session, compatibility: machines.compatibility(of: session.daemon), limits: machines.cloudLimits,
+                                                   updates: machines.updates)
             sections += SidebarMapping.shared.sections(PersonalSidebar.sections(of: session.daemon, room: profile, machines: machines),
                                                 machine: header, showsUnread: showsUnread, muted: muted, selectedTab: selectedTab,
                                                 newTabPages: newTabPages, newTabTitle: Strings.untitledBrowser, pageFace: pageFace,

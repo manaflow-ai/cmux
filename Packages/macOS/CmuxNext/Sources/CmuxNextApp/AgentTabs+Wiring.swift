@@ -110,7 +110,8 @@ extension AgentTabStore {
     /// The agent tabs' view store of `services`, wired to every machine's tree and daemon.
     static func wired(to services: AppServices) -> AgentTabStore {
         let tabs = AgentTabStore(build: services.environment.build, registry: services.registry, environment: services.agentPaneEnvironment ?? ProcessInfo.processInfo.environment, showcase: services.environment.showcase,
-                                 linkScheme: services.linkScheme, settings: services.settings, openPanel: services.openPanel, peerApprover: services.peerApprover)
+                                 linkScheme: services.linkScheme, settings: services.settings, openPanel: services.openPanel, daemons: services.acpmuxDaemons,
+                                 updates: services.daemonUpdates, peerApprover: services.peerApprover)
         tabs.machineTargets = { [weak services] in
             // Only the machines of the account signed in now, from a list loaded for it (as the
             // Cloud machine picker, AgentPaneCloudMachines+App.swift): never a previous account's or
@@ -167,7 +168,7 @@ extension AgentTabStore {
         tabs.relaunchWake = services.relaunchWake
         // The Chief home's acpmux: the Chief host's subagent tabs attach there.
         let home = ChiefHome.resolve(tag: services.environment.tag)
-        let chief = ChiefHomeAcpmux(home: home, local: tabs.host, ensureHost: { [weak services] in
+        let chief = ChiefHomeAcpmux(home: home, local: tabs.host, daemons: services.acpmuxDaemons, ensureHost: { [weak services] in
             await MainActor.run { _ = services?.home.brain.ensure(asked: false) }
         }, startHost: { [weak services] in
             await MainActor.run { services?.home.brain.ensureForChat() ?? false }
@@ -175,7 +176,9 @@ extension AgentTabStore {
         (tabs.chiefHost, tabs.chiefPaneHost) = (chief.host, chief.paneHost)
         // A subagent tab made under another Chief home of this Mac attaches there (#25262).
         tabs.chiefHomes = ChiefHomeDirectory(parents: ChiefHomeDirectory.homeParents(of: home), work: services.work,
-                                             environment: { ChiefHomeAcpmux.environment(home: $0) }, peerApprover: tabs.peerApprover)
+                                             environment: { ChiefHomeAcpmux.environment(home: $0) }) { [daemons = services.acpmuxDaemons, peerApprover = tabs.peerApprover] in
+            AcpmuxHost(daemons: daemons, environment: $0, startsDaemons: $1, peerApprover: peerApprover)
+        }
         tabs.localSessionHost = chief.localRouter(tabs.host)
         // This Mac's stable install id (the Cloud device id): only this host attaches to its acpmux.
         tabs.blankChatHandler = { [weak services] key in

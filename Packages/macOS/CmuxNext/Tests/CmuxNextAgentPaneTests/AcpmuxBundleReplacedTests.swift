@@ -51,7 +51,7 @@ struct AcpmuxBundleReplacedTests {
         let pids: Result<(Int32?, Int32?), any Error>
         do {
             // Build N's launch starts acpmux from its bundle.
-            try await AcpmuxHost(environment: try environment()).prewarm()
+            try await AcpmuxHost(daemons: AcpmuxLocalDaemons(), environment: try environment()).prewarm()
             let before = try await AcpmuxStatusClient.status(socketPath: socket, deadline: .seconds(15)).pid
             // The update: the bundle goes aside and away, the new one takes its place.
             step = "the bundle swap"
@@ -63,7 +63,7 @@ struct AcpmuxBundleReplacedTests {
             try FileManager.default.removeItem(at: aside)
             // Build N+1's launch: its chats connect, to an acpmux run from its own bundle.
             step = "build N+1's launch"
-            try await AcpmuxHost(environment: try environment()).prewarm()
+            try await AcpmuxHost(daemons: AcpmuxLocalDaemons(), environment: try environment()).prewarm()
             pids = .success((before, try await AcpmuxStatusClient.status(socketPath: socket, deadline: .seconds(15)).pid))
         } catch {
             pids = .failure(error)

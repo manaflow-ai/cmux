@@ -164,7 +164,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         FeaturePolicyEnforcer(services: services).start()
         cloudContext = services.startCloud()
         // The daemon update's one failure toast: Details opens Settings > Updates, which lists the machines.
-        DaemonUpdateBoard.shared.openDetails = { [weak services] in
+        services.daemonUpdates.board.openDetails = { [weak services] in
             try? services?.settingsWindow.show(section: nil, focus: true, route: "#/settings/updates")
         }
         firstFrame.whenOpen { [weak services] in services?.startNonPaintServices() }
