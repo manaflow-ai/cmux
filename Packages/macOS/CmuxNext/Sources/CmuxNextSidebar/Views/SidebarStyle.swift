@@ -42,7 +42,11 @@ enum SidebarStyle {
     /// The one leading icon column (Leo 2026-10-28: "the alignment"): in a row whose leading slot starts at `leading`,
     /// every leading glyph (a band row's, a pinned row's pin, a workspace row's icon) centers its ink here, one
     /// `iconBox` wide, so glyphs of different shapes and margins share one center x at every density.
-    static func iconColumnCenterX(leading: CGFloat) -> CGFloat { leading + iconBox / 2 }
+    static func iconColumnCenterX(leading: CGFloat) -> CGFloat { leading + iconColumnBox / 2 }
+    /// The leading icon column's box (grid.md 3: 16 compact, 20 comfortable, wider when the text size grows the
+    /// glyph). Leading icon frames take this box and draw their glyph, at its own `iconBox` size, centered in it,
+    /// so the text column is one 8 pt gap after the frame at both densities.
+    static var iconColumnBox: CGFloat { columns(rowWidth: 0).iconBox }
     /// A workspace row's leading glyph: the size an icon takes beside the
     /// row title (cap height and stroke matched to the text).
     static var kindGlyphSize: CGFloat { .iconRowSize(forLabelPointSize: titleFont.pointSize) }

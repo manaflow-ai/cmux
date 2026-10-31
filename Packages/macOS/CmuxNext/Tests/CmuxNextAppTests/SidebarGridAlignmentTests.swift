@@ -394,3 +394,58 @@ extension SidebarGridAlignmentTests {
         #expect(second.maxX <= first.minX)
     }
 }
+
+extension SidebarGridAlignmentTests {
+    /// A tab with nothing on the trailing column (no status, unread dot or hover ✕) still ends its text one
+    /// `horizontalInset` short of the row's end; it never runs to the row edge (Astra's c8a8b25e follow-up 1).
+    @Test(arguments: [false, true])
+    func aTabWithNoTrailingMarkStopsTextOneInsetShortOfTheEdge(comfortable: Bool) throws {
+        try Self.withDensity(comfortable) {
+            let workspaceID = WorkspaceID("grid-workspace"), tabID = TabID("grid-quiet-tab")
+            let view = SidebarTabRowView(key: .tab(workspaceID, tabID))
+            let tab = SidebarTab(id: tabID, title: String(repeating: "A long quiet tab title ", count: 8), isUnread: false)
+            let height = SidebarDensityTokens.rowHeight
+            view.configure(tab, row: Self.row(view.key, height: height))
+            view.frame = NSRect(x: 0, y: 0, width: 304, height: height)
+            view.layout()
+            let labels = view.subviews.compactMap { $0 as? ChromeLabel }.filter { !$0.isHidden && $0.frame.width > 0 }
+            #expect(!labels.isEmpty)
+            for label in labels {
+                #expect(label.frame.maxX <= 304 - SidebarStyle.horizontalInset + 0.5)
+            }
+        }
+    }
+
+    /// grid.md 3: a leading icon's box is 16 (compact) or 20 (comfortable) and the text starts one 8 pt gap after
+    /// it, so the icon-to-text gap is 8 at both densities; the glyph centers in the box and keeps its size
+    /// (Astra's c8a8b25e follow-up 2: comfortable reserved a 20 column around a 16 frame, a 12 pt gap).
+    @Test(arguments: [false, true])
+    func leadingIconBoxEndsOneGapBeforeTheText(comfortable: Bool) throws {
+        try Self.withDensity(comfortable) {
+            let box: CGFloat = comfortable ? 20 : 16
+            let origin: CGFloat = comfortable ? 8 : 6
+            let c = Case(kind: .workspace, comfortable: comfortable, depth: 0, marks: 1)
+            let workspace = try #require(Self.view(c, width: 320 - origin - 1.5,
+                                                  height: SidebarDensityTokens.rowHeight) as? WorkspaceRowView)
+            workspace.layout()
+            #expect(abs(workspace.icon.frame.width - box) <= 0.5)
+            #expect(abs(origin + workspace.icon.frame.minX - Self.lead(comfortable)) <= 0.5)
+            #expect(abs(workspace.title.frame.minX - workspace.icon.frame.maxX - 8) <= 0.5)
+            // The emoji keeps its 16 pt square, centered in the column box.
+            for glyph in workspace.icon.subviews where !glyph.isHidden {
+                #expect(glyph.frame.width <= 16.5)
+                #expect(abs(glyph.frame.midX - box / 2) <= 0.5)
+            }
+
+            let itemCase = Case(kind: .item, comfortable: comfortable, depth: 0, marks: 1)
+            let item = try #require(Self.view(itemCase, width: 320 - origin - 1.5,
+                                             height: SidebarDensityTokens.rowHeight) as? SidebarItemRowView)
+            item.layout()
+            let ink = try #require(item.glyphInkFrame)
+            // Band rows own their outer inset: the row starts at the sidebar edge less the rail inset (0 here).
+            let lead = Self.lead(comfortable) - origin + SidebarStyle.horizontalInset
+            #expect(abs(ink.midX - (lead + box / 2)) <= 0.5)
+            #expect(abs(item.titleFrame.minX - (lead + box) - 8) <= 0.5)
+        }
+    }
+}

@@ -111,9 +111,10 @@ extension WorkspaceRowView {
         switch iconKind {
         case nil: side = 0 // text only: no kind glyph or agent brand (WORKSPACE-ROWS-NO-DEFAULT-ICON)
         case .swatch?: side = SidebarStyle.dotSize + Metrics.space1
-        case .symbol?, .emoji?, .favicon?: side = SidebarStyle.iconBox
+        case .symbol?, .emoji?, .favicon?: side = SidebarStyle.iconColumnBox
         }
-        // The glyph starts on lead (where an iconless title would start); the text column after it is the grid's.
+        // The icon's box starts on lead (where an iconless title would start) and its glyph centers in it; the text
+        // column is the grid's, one gap after the box.
         icon.frame = NSRect(x: leading, y: cy - side / 2, width: side, height: side)
         layoutTreeLine(leading: SidebarStyle.columns(rowWidth: b.width).lead)
 

@@ -249,9 +249,13 @@ class SidebarItemRowView: NSView {
         // After a pin, the row's own icon, color dot and title move one icon column in.
         let inner = info.leadingPin ? bandColumns(in: b, after: columns.text - columns.lead) : columns
         let lead = style == .chip ? Metrics.space2 : inner.lead
+        // A list row's icon frame is the grid's icon column box (16 compact, 20 comfortable); its glyph and well keep
+        // their own `side`, centered in it, so the title is one 8 pt gap after the frame at both densities.
+        let columnSide = style == .chip ? side : Swift.max(side, inner.iconBox)
         let iconFrame = style.isIconOnly
             ? NSRect(x: (b.width - side) / 2, y: (b.height - side) / 2, width: side, height: side)
-            : NSRect(x: lead, y: (b.height - side) / 2, width: side, height: side)
+            : NSRect(x: lead, y: (b.height - columnSide) / 2, width: columnSide, height: columnSide)
+        let wellFrame = NSRect(x: iconFrame.midX - side / 2, y: iconFrame.midY - side / 2, width: side, height: side)
         pin.isHidden = !info.leadingPin
         pin.frame = pinFrame
         // Icon-only items keep their pill around the glyph (a full-width fill reads
@@ -263,8 +267,8 @@ class SidebarItemRowView: NSView {
         pill.cornerRadius = isRailButton ? SidebarStyle.railTileCornerRadius : SidebarStyle.rowCornerRadius
         // A text-only workspace with a color draws it as its list row does: a dot before the title.
         let dot = SidebarStyle.dotSize
-        chip.frame = showsSwatchDot ? NSRect(x: lead + (side - dot) / 2, y: (b.height - dot) / 2, width: dot, height: dot)
-            : style == .list && !bare ? iconFrame : .zero
+        chip.frame = showsSwatchDot ? NSRect(x: iconFrame.midX - dot / 2, y: (b.height - dot) / 2, width: dot, height: dot)
+            : style == .list && !bare ? wellFrame : .zero
         chip.cornerRadius = showsSwatchDot ? dot / 2 : Metrics.space1 + 1
         CATransaction.commit()
 

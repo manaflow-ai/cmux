@@ -75,7 +75,7 @@ final class SidebarItemListRowView: SidebarRowView {
         // The workspace row's geometry: the icon in the leading slot, else the title at the leading inset.
         let columns = SidebarStyle.columns(rowWidth: b.width)
         let leading = columns.lead
-        let side: CGFloat = hasIcon ? SidebarStyle.iconBox : 0
+        let side: CGFloat = hasIcon ? SidebarStyle.iconColumnBox : 0
         icon.frame = NSRect(x: leading, y: (b.height - side) / 2, width: side, height: side)
         let textX = columns.text(hasLeadingMark: hasIcon) - WorkspaceRowView.labelInset
         let height = ceil(title.intrinsicContentSize.height)

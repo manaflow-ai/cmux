@@ -174,7 +174,9 @@ final class SidebarTabRowView: SidebarRowView {
         icon.frame = NSRect(x: iconX, y: (b.height - iconSide) / 2, width: iconSide, height: iconSide)
         // Without a favicon the title takes the icon's place (Lawrence 2026-10-23: "as left as possible").
         let textX = icon.isHidden ? iconX - Metrics.space1 : icon.frame.maxX + Metrics.space2
-        var trailing = b.width
+        // With no mark on the column (no activity, unread dot or hover ✕) the text still stops one inset short of
+        // the row's end, as it did before the shared columns.
+        var trailing = b.width - SidebarStyle.horizontalInset
         // The tab's status, else its dot, centers on the trailing column, as a workspace row's does (Leo 2026-10-28:
         // "do we seriously not have these fucking things aligned? ... because it's the inner tab thing"); a dot
         // beside a status goes left of the column. On hover the ✕ takes the column (`SidebarRowCloseButton`, the
