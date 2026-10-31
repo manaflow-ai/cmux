@@ -748,6 +748,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         Err(_) => {
             tracing::warn!("agents did not stop within {SHUTDOWN_BUDGET:?}; exiting anyway");
             hub.flush();
+            // As a shutdown that ends in time (`Hub::shutdown_all`): no write after this one.
+            hub.seal();
             usize::MAX
         }
     };

@@ -108,6 +108,7 @@
 
 :root[data-settings-look="refined"] .settings .section-link:hover { background: var(--polish-hover); }
 :root[data-settings-look="refined"] .settings .section-icon { color: var(--polish-muted); }
+:root[data-settings-look="refined"] .settings .sidebar-section-title { color: var(--polish-muted); }
 :root[data-settings-look="refined"] .settings .section-link[aria-current] .section-icon { color: var(--polish-ink); }
 :root[data-settings-look="refined"] .settings .section-icon svg { width: 16px; height: 16px; }
 
