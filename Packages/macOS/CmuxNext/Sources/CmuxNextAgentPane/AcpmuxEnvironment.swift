@@ -4,7 +4,9 @@ public import Foundation
 /// Where this app's acpmux daemon lives and how to start it.
 ///
 /// Same rule as `cmux acp` (cmux-tui `acp::build_home`), so the pane and
-/// the CLI in its terminals reach one daemon: `ACPMUX_HOME` wins, else the
+/// the CLI in its terminals reach one daemon: `ACPMUX_HOME` wins (except one naming
+/// `~/.acpmux` or another build's home for a build with a home of its own, as every
+/// agent shell exports it: ``inheritsAnotherBuildsHome(_:ownHome:root:)``, cmux#29050), else the
 /// build's own home (``BuildIdentity/acpmuxHome(userHome:)``, per-build
 /// isolation cx-is1kf): NIGHTLY keeps `~/.acpmux`, shared with a standalone
 /// `acpmux`; every other build has `~/.acpmux/builds/<key>`, so no build
@@ -130,6 +132,7 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
         let ownHome = build?.acpmuxHome(root: root) ?? root
         let home: URL
         let customHome = environment["ACPMUX_HOME"].flatMap { $0.isEmpty ? nil : $0 }
+            .flatMap { inheritsAnotherBuildsHome($0, ownHome: ownHome, root: root) ? nil : $0 }
         if let customHome {
             home = URL(fileURLWithPath: customHome, isDirectory: true)
         } else {
@@ -156,6 +159,23 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
             daemonArguments: ownHome == root ? [] : ["--listen", "127.0.0.1:0"], childEnvironment: childEnvironment,
             passesPersonKeyAtSpawn: teamIdentifier == nil
         )
+    }
+
+    /// Whether `ACPMUX_HOME` (`custom`) names another build's home while this build has a home of
+    /// its own (`ownHome` is not `root`): the shared root (NIGHTLY's `~/.acpmux`) or another
+    /// `<root>/builds/<key>`. Every agent shell under acpmux exports its daemon's home, so a tagged
+    /// DEV app launched from one inherits it; honoring it made that app hand NIGHTLY's daemon off
+    /// to its own and every new NIGHTLY chat waited on the re-adoption (cmux#29050). Reading
+    /// another build's chats is ``attachKey``'s job, which never hands off. A home outside the
+    /// root (a Chief brain's, a test's) still wins.
+    static func inheritsAnotherBuildsHome(_ custom: String, ownHome: URL, root: URL) -> Bool {
+        let rootPath = root.standardizedFileURL.path
+        let ownPath = ownHome.standardizedFileURL.path
+        guard ownPath != rootPath else { return false }
+        let path = URL(fileURLWithPath: custom, isDirectory: true).standardizedFileURL.path
+        if path == ownPath { return false }
+        let builds = rootPath + "/builds"
+        return path == rootPath || path == builds || path.hasPrefix(builds + "/")
     }
 
     /// `~/.acpmux` of `userHome`: NIGHTLY's home, and the root of every build home.
