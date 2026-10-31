@@ -639,12 +639,9 @@ export function NewTabScreen(props: Props) {
     if (authBlocksSend(targetAuth)) return false;
     if (command.intercept(prompt, agent, attachments.length)) return false;
     if (props.runMode?.mode === "cloud" && props.onCloud) {
-      // No project picked: a Cloud start copies a folder, and without one the host would take the
-      // tab's inherited folder, which the person just said not to work in. Nothing goes.
-      if (none) {
-        setSandboxRefusal(t("composer.offloadNotRun", { action: t("composer.cloud") }));
-        return false;
-      }
+      // No project picked: no folder goes (`envFolder` is none), so the start copies nothing and the
+      // chat opens in the machine's own folder (cloudRun.ts cloudStartFolder, `home`), never the
+      // tab's inherited folder the person just said not to work in.
       // The folder the chip names (envFolder), never the raw `cwd` a caller passes: a tab that
       // inherited home with a start folder elsewhere shows and copies the start folder.
       const started = props.onCloud(agent, sent.text, envFolder, model, sentAttachments);
