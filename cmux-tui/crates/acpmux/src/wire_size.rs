@@ -116,16 +116,18 @@ impl SizeWatch {
                 .warned
                 .get(&key)
                 .is_none_or(|at| now.saturating_duration_since(*at) >= WARN_EVERY);
-            if due {
-                if inner.warned.len() >= WARN_KEYS {
-                    inner.warned.retain(|_, at| now.saturating_duration_since(*at) < WARN_EVERY);
-                    if inner.warned.len() >= WARN_KEYS {
-                        inner.warned.clear();
-                    }
-                }
+            // A key new to a full set: the expired ones go first; while every one is still in
+            // its quiet minute, the new key waits too (counted, not warned), and no method's
+            // quiet minute is cut short to make room.
+            if due && !inner.warned.contains_key(&key) && inner.warned.len() >= WARN_KEYS {
+                inner.warned.retain(|_, at| now.saturating_duration_since(*at) < WARN_EVERY);
+            }
+            let room = inner.warned.contains_key(&key) || inner.warned.len() < WARN_KEYS;
+            let warn = due && room;
+            if warn {
                 inner.warned.insert(key.clone(), now);
             }
-            due.then_some(key.1)
+            warn.then_some(key.1)
         };
         let Some(method) = warn else {
             return false;

@@ -77,15 +77,29 @@ fn a_method_warns_again_after_a_quiet_minute() {
     assert_eq!(watch.status()["nearCap"], 3);
 }
 
-/// Methods are few, but a label is made from what a peer sent: the warned set stays bounded.
+/// Methods are few, but a label is made from what a peer sent: the warned set stays bounded,
+/// and a full set never cuts a method's quiet minute short; a new method waits for room.
 #[test]
 fn the_methods_remembered_for_the_quiet_minute_are_bounded() {
     let watch = SizeWatch::new();
-    for n in 0..(WARN_KEYS * 3) {
+    let t0 = Instant::now();
+    for n in 0..WARN_KEYS {
         let method = format!("_x/{n}");
-        assert!(watch.observe(What::Method(&method), pct(80)));
+        assert!(watch.observe_at(What::Method(&method), pct(80), t0));
     }
-    assert!(watch.warned_len() <= WARN_KEYS, "{} remembered", watch.warned_len());
+    let later = t0 + WARN_EVERY / 2;
+    for n in WARN_KEYS..(WARN_KEYS * 3) {
+        let method = format!("_x/{n}");
+        assert!(!watch.observe_at(What::Method(&method), pct(80), later), "no room for {method}");
+    }
+    assert!(!watch.observe_at(What::Method("_x/0"), pct(80), later), "_x/0 is still quiet");
+    assert_eq!(watch.warned_len(), WARN_KEYS);
+    assert_eq!(watch.status()["nearCap"], WARN_KEYS * 3 + 1, "every one is counted");
+    // A minute on, the expired make room.
+    let after = t0 + WARN_EVERY + Duration::from_secs(1);
+    assert!(watch.observe_at(What::Method("_y/new"), pct(80), after));
+    assert!(watch.observe_at(What::Method("_x/0"), pct(80), after));
+    assert!(watch.warned_len() <= WARN_KEYS);
 }
 
 #[test]
