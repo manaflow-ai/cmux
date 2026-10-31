@@ -299,6 +299,23 @@ struct CloudMachineChangeStateTests {
         #expect(await resolver.attempts == 2)
     }
 
+    @Test func aStaleProviderFailureCannotRetireANewerMutation() async throws {
+        let session = Self.session(status: .running)
+        let changes = CloudMachineChanges()
+        defer { changes.stop(); session.disconnect() }
+        changes.readIssued(1)
+        try await changes.run(.pausing, machineID: session.machineID, of: { session }) {}
+        let mutationID = session.machine.pendingMutationID
+        let failure = CloudMachine(id: session.machineID, status: .running,
+            lastChangeFailure: .init(code: "pause_failed", message: "provider refused"))
+        let stale = changes.applyingPending(to: failure, read: 1)
+        #expect(stale.pendingMutationID == mutationID)
+        #expect(stale.failedMutationID == nil)
+        let confirmed = changes.applyingPending(to: failure, read: 2)
+        #expect(confirmed.pendingMutationID == nil)
+        #expect(confirmed.failedMutationID == mutationID)
+    }
+
     @Test func aProviderKillFailureDoesNotRetireAnOlderPause() async throws {
         let session = Self.session(status: .running)
         let changes = CloudMachineChanges()
