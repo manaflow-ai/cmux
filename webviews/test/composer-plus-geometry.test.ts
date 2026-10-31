@@ -215,7 +215,8 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
     send: Control | null;
     /** Codex's controls row inside the box under the prompt, when + sits in one. */
     bar: Box | null;
-    /** The prompt's first line, from the viewport: its line box's top and center. */
+    /** The prompt's first line, from the viewport: the center of its text's box (a range's box, the
+        font's ascent to descent, which is what the eye centers: design/grid.md rule 7), not its line box. */
     line: { top: number; center: number; source: string } | null;
     /** Where the placeholder's (or, with a draft, the typed text's) first character's box starts. */
     text: number | null;
@@ -304,7 +305,27 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
         text = rect.left + parseFloat(style.borderLeftWidth) + parseFloat(style.paddingLeft);
         textSource = area.value ? "textarea value" : "textarea placeholder";
         const top = rect.top + parseFloat(style.borderTopWidth) + parseFloat(style.paddingTop) - area.scrollTop;
-        line = { top, center: top + parseFloat(style.lineHeight) / 2, source: "textarea" };
+        // A textarea's text has no range: a probe line in its font, on its first line's box.
+        const probe = document.createElement("div");
+        probe.textContent = "helo";
+        Object.assign(probe.style, {
+          position: "fixed",
+          left: "0px",
+          top: `${top}px`,
+          font: style.font,
+          lineHeight: style.lineHeight,
+          letterSpacing: style.letterSpacing,
+          whiteSpace: "pre",
+          margin: "0",
+          padding: "0",
+          visibility: "hidden",
+        });
+        document.body.append(probe);
+        const glyphs = document.createRange();
+        glyphs.selectNodeContents(probe);
+        const ink = glyphs.getBoundingClientRect();
+        probe.remove();
+        line = { top, center: (ink.top + ink.bottom) / 2, source: "textarea" };
       } else {
         const prompt = card?.querySelector(".ProseMirror");
         const typed = firstChar(prompt);
@@ -314,13 +335,8 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
           text = chosen.left;
           textSource = typed ? "typed" : "placeholder";
         }
-        // The caret's line: the prompt's first block, whose line box the caret takes.
-        const block = prompt?.firstElementChild ?? prompt;
-        if (block) {
-          const rect = block.getBoundingClientRect();
-          const lineHeight = parseFloat(getComputedStyle(block).lineHeight);
-          line = { top: rect.top, center: rect.top + lineHeight / 2, source: "prompt block" };
-        }
+        // The first line's text: what is typed, else the placeholder.
+        if (chosen) line = { top: chosen.top, center: (chosen.top + chosen.bottom) / 2, source: textSource };
       }
       /** The leftmost drawn mark in `root`: a glyph (svg, img) or a text character, and what it is. */
       const leadingMark = (root: Element | null) => {

@@ -381,7 +381,12 @@
 .nt-popover {
   --nt-composer-inset: max(0px, calc((var(--text-content--line-height) + 2 * var(--text-content) - 28px) / 2));
 }
+/* The composer's control tokens (composerLocation.css), restated here so a page that loads only this
+   sheet draws the same row. */
 .nt-screen .nt-composer {
+  --acpmux-composer-control: 28px;
+  --acpmux-composer-lead-gap: calc(var(--ds-space-2) * var(--cmux-interface-scale, 1));
+  --acpmux-text-drop: calc(var(--text-content) / 14);
   --acpmux-composer-inset: var(--nt-composer-inset);
 }
 /* The suggestions' popover frosts what is under it (the Chats header and cards read through its lower
@@ -404,6 +409,15 @@
 .nt-input[data-split] > .acpmux-chrome-area > .nt-pickers {
   min-height: var(--acpmux-composer-control);
   margin: 0 0 max(0px, calc(var(--nt-input-pad-block) + var(--text-content--line-height) / 2 - var(--acpmux-composer-control) / 2));
+}
+/* The field's text drops by --acpmux-text-drop (composerLocation.css) so its ink, not its line box,
+   centers on the row's middle where the controls stand; the shell glyph drops with it. */
+.nt-input[data-split] .nt-field {
+  padding-top: calc(var(--nt-input-pad-block) + var(--acpmux-text-drop));
+  padding-bottom: calc(var(--nt-input-pad-block) - var(--acpmux-text-drop));
+}
+.nt-input[data-split] .nt-input-glyph {
+  top: calc(var(--nt-input-pad-block) + var(--acpmux-text-drop));
 }
 .nt-input[data-split] .nt-pickers .acpmux-mic,
 .nt-input[data-split] .nt-pickers .acpmux-send {

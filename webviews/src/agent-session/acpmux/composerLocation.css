@@ -1293,8 +1293,8 @@
    text" and "why is our shit not vertically centered like claude's is??? applies to the send and
    mic buttons"; leo-workspace design/composer.md, Controls): +, the mic and Send are one 28 px
    control, each `--acpmux-composer-inset` (8 px) off every box edge it meets, so a one-line box is
-   8 + 28 + 8 = 44 px and every control's center is the prompt's line's center, with no optical
-   lift. The text starts one `--acpmux-composer-lead-gap` (8 px) after +. The prompt's top and
+   8 + 28 + 8 = 44 px and every control stands on the box's middle; the prompt's text drops by
+   --acpmux-text-drop so its ink (not its line box) centers there too. The text starts one `--acpmux-composer-lead-gap` (8 px) after +. The prompt's top and
    bottom padding are derived, (44 - line height) / 2, never literals (design/grid.md 5.1).
    test/composer-plus-geometry.test.ts measures it. */
 /* The control tokens live on the composer's root, so the rows outside the box (the strip over it,
@@ -1303,6 +1303,10 @@
   --acpmux-composer-control: 28px;
   --acpmux-composer-inset: calc(8px * var(--cmux-interface-scale, 1));
   --acpmux-composer-lead-gap: calc(8px * var(--cmux-interface-scale, 1));
+  /* The text, not the controls, moves for optical centering (design/grid.md rule 7): a line's ink
+     sits about 1 px over its line box's center at 14 px, so the prompt's line box drops that far
+     and its ink centers on the box's middle, where the controls are. */
+  --acpmux-text-drop: calc(var(--text-content, 14px) / 14);
 }
 .acpmux-composer-box:has(> .acpmux-chrome-area > .acpmux-composer-inner) {
   display: grid;
@@ -1351,9 +1355,9 @@
 }
 /* The right inset less the minimal scroller's reserved lane (markdownField.css). */
 .acpmux-composer-box:has(> .acpmux-chrome-area > .acpmux-composer-inner) .acpmux-md-field {
-  padding: var(--acpmux-prompt-inset)
+  padding: calc(var(--acpmux-prompt-inset) + var(--acpmux-text-drop))
     max(0px, calc(8px * var(--cmux-interface-scale, 1) - var(--cmux-scroller-size, 8px)))
-    var(--acpmux-prompt-inset) var(--acpmux-composer-lead-gap);
+    calc(var(--acpmux-prompt-inset) - var(--acpmux-text-drop)) var(--acpmux-composer-lead-gap);
 }
 /* The draft's scrollbar runs down the box's own right edge, as the chat's runs down the pane's (Leo
    2026-10-22: "shouldn't the styling wrt composer vs the chat/window (these should be one and hte
@@ -1385,7 +1389,7 @@
 }
 .acpmux-composer-box:has(> .acpmux-chrome-area > .acpmux-composer-inner) .acpmux-md-placeholder {
   left: var(--acpmux-composer-lead-gap);
-  top: var(--acpmux-prompt-inset);
+  top: calc(var(--acpmux-prompt-inset) + var(--acpmux-text-drop));
   right: calc(8px * var(--cmux-interface-scale, 1));
 }
 /* Shell mode draws from the prompt's insets (composerStates.css), so this look gives it the ones it
@@ -1393,9 +1397,9 @@
    starts at, and the 8 px right. The glyph then stands on the caret's column and the command keeps the prompt's
    line, at every chrome size. */
 .acpmux-composer-box:has(> .acpmux-chrome-area > .acpmux-composer-inner) {
-  --acpmux-shell-inset-top: var(--acpmux-prompt-inset);
+  --acpmux-shell-inset-top: calc(var(--acpmux-prompt-inset) + var(--acpmux-text-drop));
   --acpmux-shell-inset-right: calc(8px * var(--cmux-interface-scale, 1));
-  --acpmux-shell-inset-bottom: var(--acpmux-prompt-inset);
+  --acpmux-shell-inset-bottom: calc(var(--acpmux-prompt-inset) - var(--acpmux-text-drop));
   --acpmux-shell-inset-left: var(--acpmux-composer-lead-gap);
 }
 /* Under the attachments' band the prompt starts one gap down, as in the other look
