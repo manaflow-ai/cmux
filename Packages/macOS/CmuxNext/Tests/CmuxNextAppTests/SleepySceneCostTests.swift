@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextApp
 import CmuxNextDesign
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -8,7 +9,7 @@ import Testing
 /// other-main-work: `SleepySceneView.drawSky` held main 20-38 ms per frame, ten frames a
 /// second, while the scene showed and agents kept working). The sky's loops run in the render
 /// server; the main thread only updates the clock once a second.
-@MainActor @Suite(.serialized) struct SleepySceneCostTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct SleepySceneCostTests {
     /// Runs the main run loop for `seconds`.
     private func spin(_ seconds: TimeInterval) {
         let end = Date(timeIntervalSinceNow: seconds)
