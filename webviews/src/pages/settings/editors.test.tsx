@@ -294,6 +294,52 @@ describe("editors", () => {
     expect(row().querySelector(".reset-slot button")!.hasAttribute("inert")).toBe(false);
   });
 
+  test("Escape drops a typed address instead of saving it on blur", async () => {
+    page = await renderPage({ path: "/settings/browser" });
+    const field = () =>
+      rowElement(page!.container, "browser.newTabPage").querySelector<HTMLInputElement>("input.text")!;
+    await changeValue(field(), "https://example.org");
+    await fire(field(), "keydown", { key: "Escape" });
+    await fire(field(), "focusout");
+    expect(field().value).not.toBe("https://example.org");
+    expect(ops(page.provider, "cmux.settings.set")).toEqual([]);
+  });
+
+  test("Reset clears an invalid address that was still being typed", async () => {
+    page = await renderPage({ path: "/settings/browser" });
+    const row = () => rowElement(page!.container, "browser.newTabPage");
+    const field = () => row().querySelector<HTMLInputElement>("input.text")!;
+    await changeValue(field(), "https://example.org");
+    await fire(field(), "keydown", { key: "Enter" });
+    await changeValue(field(), "not an address");
+    await fire(field(), "keydown", { key: "Enter" });
+    expect(row().querySelector("[role=alert]")).not.toBeNull();
+    await click(row().querySelector("[data-reset]")!);
+    expect(row().querySelector("[role=alert]")).toBeNull();
+    expect(field().value).not.toBe("not an address");
+  });
+
+  test("the self-hosted address field drops its draft on Escape and on Reset", async () => {
+    page = await renderPage({
+      path: "/settings/accounts",
+      mock: { values: { "home.server": { selfHosted: "http://mini.example.ts.net:7320" } } },
+    });
+    const row = () => rowElement(page!.container, "home.server");
+    const field = () => row().querySelector<HTMLInputElement>("input.text")!;
+    await changeValue(field(), "http://other.example.ts.net:7320");
+    await fire(field(), "keydown", { key: "Escape" });
+    await fire(field(), "focusout");
+    expect(field().value).toBe("http://mini.example.ts.net:7320");
+    expect(ops(page.provider, "cmux.settings.set")).toEqual([]);
+    await changeValue(field(), "not an address");
+    await fire(field(), "focusout");
+    expect(row().querySelector("[role=alert]")).not.toBeNull();
+    await click(row().querySelector("[data-reset]")!);
+    expect(row().querySelector("[role=alert]")).toBeNull();
+    expect(row().querySelector("input.text")).toBeNull();
+    expect(row().querySelector<HTMLSelectElement>("select")!.value).toBe("hosted");
+  });
+
   test("a refused value shows a localized error on the row, the daemon's text as detail", async () => {
     page = await renderPage({ path: "/settings/browser" });
     // The page refuses a bad address itself; a value the daemon refuses comes back as a row error.
