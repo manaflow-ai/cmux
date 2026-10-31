@@ -27,7 +27,12 @@ enum CloudMachineShare {
         do {
             try await cloud.api.grantChat(session.machineID, to: user)
         } catch {
-            return refusal(error)
+            // Not allowed to share, but the owner may already have shared it with this person (Ask
+            // the Owner): then this click only has to make the link ask for its owner answer again.
+            guard case .refused(CloudMachineShareRefusal.forbidden.code, _) = refusal(error),
+                  (try? await cloud.api.chatGrants(session.machineID))?.contains(where: { $0.userId == user }) == true else {
+                return refusal(error)
+            }
         }
         if let link = session.link {
             await link.renew()

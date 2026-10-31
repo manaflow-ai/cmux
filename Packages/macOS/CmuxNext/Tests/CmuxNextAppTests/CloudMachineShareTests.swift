@@ -59,7 +59,10 @@ struct CloudMachineShareTests {
             try await api().grantChat("vm-1", to: "user-b")
             Issue.record("the grant should be refused")
         } catch {
-            guard case .refused(let code, let message) = CloudMachineShare.refusal(error) else { return Issue.record("not refused") }
+            guard case .refused(let code, let message) = CloudMachineShare.refusal(error) else {
+                Issue.record("not refused")
+                return
+            }
             #expect(code == "vm_chat_share_forbidden")
             #expect(message == CloudShareStrings.refusal(.forbidden))
         }
