@@ -88,22 +88,29 @@ extension LayoutRootView: ScrollGestureOwning {
         guard event.window === window, window != nil else { return event }
         switch event.type {
         case .leftMouseDown, .rightMouseDown, .otherMouseDown:
-            // AppKit hit tests the press on the frames: a strip that shows moved lands where it shows first.
-            landStripsWhereTheyShow()
-            let point = convert(event.locationInWindow, from: nil)
-            guard bounds.contains(point), let active = model.activeScreenID, let view = screenViews[active] else { return event }
-            // The strip scrollbar takes its own clicks.
-            if let scrollbar = view.scrollbar, !scrollbar.isHidden,
-               scrollbar.hitTest(view.convert(event.locationInWindow, from: nil)) != nil { return event }
-            // Mid render-server spring, the pane drawn under the press, as AppKit's hit test.
-            if let pane = view.pressedPane(at: view.convert(event.locationInWindow, from: nil)) {
-                model.focus(pane, source: .pointer)
-            }
+            handleMonitoredPress(at: event.locationInWindow)
             return event
         case .magnify:
             return handleCanvasMagnify(event) ? nil : event
         default:
             return event
+        }
+    }
+
+    /// A press at `locationInWindow` (the window's coordinates), as the intercept sees it before AppKit
+    /// dispatches it: the pane under it takes the focus. Apart from ``handleMonitored(_:)`` so tests can
+    /// send a press, which a synthesized event for a window off screen cannot carry.
+    func handleMonitoredPress(at locationInWindow: NSPoint) {
+        // AppKit hit tests the press on the frames: a strip that shows moved lands where it shows first.
+        landStripsWhereTheyShow()
+        let point = convert(locationInWindow, from: nil)
+        guard bounds.contains(point), let active = model.activeScreenID, let view = screenViews[active] else { return }
+        // The strip scrollbar takes its own clicks.
+        if let scrollbar = view.scrollbar, !scrollbar.isHidden,
+           scrollbar.hitTest(view.convert(locationInWindow, from: nil)) != nil { return }
+        // Mid render-server spring, the pane drawn under the press, as AppKit's hit test.
+        if let pane = view.pressedPane(at: view.convert(locationInWindow, from: nil)) {
+            model.focus(pane, source: .pointer)
         }
     }
 
