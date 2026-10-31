@@ -1,12 +1,36 @@
 import CMUXAgentLaunch
+import CmuxFoundation
 import Foundation
 import OSLog
 
 struct CmuxVaultConfigDefinition: Codable, Hashable, Sendable {
     var agents: [CmuxVaultAgentRegistration]
+    /// Hides Claude transcripts produced by the Agent SDK (`sdk-*` entrypoints).
+    var hideClaudeSDKSessions: Bool
+    /// Rules applied to every session after its metadata has been read.
+    var exclude: [CmuxVaultSessionExclusion]
 
-    init(agents: [CmuxVaultAgentRegistration] = []) {
+    private enum CodingKeys: String, CodingKey {
+        case agents
+        case hideClaudeSDKSessions
+        case exclude
+    }
+
+    init(
+        agents: [CmuxVaultAgentRegistration] = [],
+        hideClaudeSDKSessions: Bool = false,
+        exclude: [CmuxVaultSessionExclusion] = []
+    ) {
         self.agents = agents
+        self.hideClaudeSDKSessions = hideClaudeSDKSessions
+        self.exclude = exclude
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        agents = try container.decodeIfPresent([CmuxVaultAgentRegistration].self, forKey: .agents) ?? []
+        hideClaudeSDKSessions = try container.decodeIfPresent(Bool.self, forKey: .hideClaudeSDKSessions) ?? false
+        exclude = try container.decodeIfPresent([CmuxVaultSessionExclusion].self, forKey: .exclude) ?? []
     }
 }
 
@@ -460,8 +484,14 @@ struct CmuxVaultAgentRegistry: Sendable {
     private static let logger = Logger(subsystem: "ai.manaflow.cmux", category: "VaultAgentRegistry")
 
     var registrations: [CmuxVaultAgentRegistration]
+    let hideClaudeSDKSessions: Bool
+    let sessionExclusions: [CmuxVaultSessionExclusion]
 
-    init(registrations: [CmuxVaultAgentRegistration]) {
+    init(
+        registrations: [CmuxVaultAgentRegistration],
+        hideClaudeSDKSessions: Bool = false,
+        sessionExclusions: [CmuxVaultSessionExclusion] = []
+    ) {
         var ordered: [CmuxVaultAgentRegistration] = []
         var indexesByID: [String: Int] = [:]
         for registration in registrations {
@@ -473,10 +503,51 @@ struct CmuxVaultAgentRegistry: Sendable {
             }
         }
         self.registrations = ordered
+        self.hideClaudeSDKSessions = hideClaudeSDKSessions
+        self.sessionExclusions = sessionExclusions
     }
 
     func registration(id: String) -> CmuxVaultAgentRegistration? {
         registrations.first { $0.id == id }
+    }
+
+    /// Whether any filter can hide a session of `agent`. Agents no rule can
+    /// match keep their direct offset reads instead of a filtered page.
+    func hasSessionExclusions(for agent: SessionAgent) -> Bool {
+        (hideClaudeSDKSessions && agent == .claude)
+            || sessionExclusions.contains { $0.applies(to: agent) }
+    }
+
+    var compiledSessionExclusions: [CmuxVaultSessionExclusionMatcher] {
+        sessionExclusions.map(CmuxVaultSessionExclusionMatcher.init)
+    }
+
+    func compiledSessionExclusions(for agent: SessionAgent) -> [CmuxVaultSessionExclusionMatcher] {
+        sessionExclusions
+            .filter { $0.applies(to: agent) }
+            .map(CmuxVaultSessionExclusionMatcher.init)
+    }
+
+    /// The same agent registrations with every session filter removed, for
+    /// lookups that name one session explicitly.
+    var withoutSessionExclusions: CmuxVaultAgentRegistry {
+        CmuxVaultAgentRegistry(registrations: registrations)
+    }
+
+    func excludes(_ entry: SessionEntry) -> Bool {
+        excludes(entry, matchers: compiledSessionExclusions)
+    }
+
+    func excludes(
+        _ entry: SessionEntry,
+        matchers: [CmuxVaultSessionExclusionMatcher]
+    ) -> Bool {
+        if hideClaudeSDKSessions,
+           entry.agent == .claude,
+           entry.entrypoint?.lowercased().hasPrefix("sdk-") == true {
+            return true
+        }
+        return matchers.contains { $0.matches(entry) }
     }
 
     func mergingProjectConfig(
@@ -487,11 +558,14 @@ struct CmuxVaultAgentRegistry: Sendable {
               !workingDirectory.isEmpty,
               let path = Self.findLocalConfig(startingAt: workingDirectory, fileManager: fileManager),
               let config = Self.decodeConfig(at: path, fileManager: fileManager),
-              let agents = config.vault?.agents,
-              !agents.isEmpty else {
+              let vault = config.vault else {
             return self
         }
-        return CmuxVaultAgentRegistry(registrations: registrations + agents)
+        return CmuxVaultAgentRegistry(
+            registrations: registrations + vault.agents,
+            hideClaudeSDKSessions: hideClaudeSDKSessions || vault.hideClaudeSDKSessions,
+            sessionExclusions: sessionExclusions + vault.exclude
+        )
     }
 
     static func load(
@@ -511,11 +585,30 @@ struct CmuxVaultAgentRegistry: Sendable {
             CmuxVaultAgentRegistration.builtInMuse,
             CmuxVaultAgentRegistration.builtInHermes,
         ]
-        for path in configPaths(homeDirectory: homeDirectory, workingDirectory: workingDirectory, environment: environment, fileManager: fileManager) {
+        var hideClaudeSDKSessions = false
+        var sessionExclusions: [CmuxVaultSessionExclusion] = []
+        let paths = configPaths(homeDirectory: homeDirectory, workingDirectory: workingDirectory, environment: environment, fileManager: fileManager)
+        for (index, path) in paths.enumerated() {
             guard let config = decodeConfig(at: path, fileManager: fileManager) else { continue }
-            registrations.append(contentsOf: config.vault?.agents ?? [])
+            guard let vault = config.vault else { continue }
+            registrations.append(contentsOf: vault.agents)
+            // A project's filters apply only to a caller scoped to that
+            // folder. Without one, the local config is the launch folder's
+            // (`PWD`), and global listings use the global filters only.
+            guard index == 0 || hasExplicitWorkingDirectory(workingDirectory) else { continue }
+            hideClaudeSDKSessions = hideClaudeSDKSessions || vault.hideClaudeSDKSessions
+            sessionExclusions.append(contentsOf: vault.exclude)
         }
-        return CmuxVaultAgentRegistry(registrations: registrations)
+        return CmuxVaultAgentRegistry(
+            registrations: registrations,
+            hideClaudeSDKSessions: hideClaudeSDKSessions,
+            sessionExclusions: sessionExclusions
+        )
+    }
+
+    private static func hasExplicitWorkingDirectory(_ workingDirectory: String?) -> Bool {
+        guard let workingDirectory else { return false }
+        return !workingDirectory.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     private static func configPaths(
