@@ -108,6 +108,7 @@ nonisolated extension ActionSurfaceCatalog {
         "palette.launchClaudeTeams", "palette.launchCodexTeams", "palette.forkAgentConversation", "palette.forkAgentConversationRight",
         "palette.forkAgentConversationLeft", "palette.forkAgentConversationTop", "palette.forkAgentConversationBottom",
         "palette.forkAgentConversationNewTab", "palette.forkAgentConversationNewWorkspace", "palette.forkAgentConversationNewWindow", "computerUseStop",
+        "palette.forkAgentConversationNewColumnRight", "palette.forkAgentConversationNewColumnLeft", "palette.forkAgentConversationNewRow",
         "newCloudWorkspace", "newCloudMachine", "palette.cloud.fork", "palette.cloud.snapshot",
         "palette.cloud.restore", "palette.cloud.promoteTemplate", "palette.cloud.status", "palette.cloud.ports",
         "palette.cloud.handoff", "cloudMove", "cloudBringBack", "cloudSSH", "cloudExec", "cloudSetupGitHub", "cloudEnrollMachine", "cloudApplyMachineConfig", "cloudDeliverSecrets", "cloudFilesList", "cloudFileRead", "cloudFileWrite",
