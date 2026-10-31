@@ -5,7 +5,7 @@ runs --ab-rounds rounds on this one host; each round runs one segment per build 
 quick pairs, the warm presses), the build order rotated each round. Prints one AB-RESULT line per build and arm:
 typeable_ms (Cmd-T sent to the first field read that holds the letter typed right after it) and key_ms.
 """
-import json, os, re, subprocess, sys, time
+import json, os, re, shutil, subprocess, sys, time
 
 REPO_URL = "https://github.com/manaflow-ai/cmux.git"
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -22,14 +22,8 @@ def sh(cmd, cwd, log):
 
 
 def build(label, sha, tag, out):
-    """The bench app of `sha`, built in a worktree of this checkout (cached per worker by sha and tag)."""
+    """The bench app of `sha`, built in a worktree of this checkout, then held in the step (hold)."""
     cache_root = os.environ.get("CI_SHARED_CACHE_DIR")
-    cache = os.path.join(cache_root, "newtab-ab-apps", f"{sha}-{tag}") if cache_root else None
-    if cache and os.path.exists(os.path.join(cache, "ok")):
-        apps = [a for a in os.listdir(cache) if a.endswith(".app")]
-        if apps:
-            print(f"AB-BUILD {label} {sha[:12]} tag {tag}: from the worker cache", flush=True)
-            return os.path.join(cache, apps[0])
     log = os.path.join(out, f"build-{label}.log")
     wt = os.path.join(ROOT, ".build", f"newtab-ab-{label}")
     start = time.time()
@@ -61,12 +55,31 @@ def build(label, sha, tag, out):
         print((proc.stdout + proc.stderr)[-3000:], flush=True)
         sys.exit(f"AB-BUILD {label}: reload.sh printed no app path (see {log})")
     print(f"AB-BUILD {label} {sha[:12]} tag {tag}: built in {time.time() - start:.0f} s: {app}", flush=True)
-    if cache:
-        os.makedirs(cache, exist_ok=True)
-        dest = os.path.join(cache, os.path.basename(app))
-        if subprocess.run(["ditto", app, dest]).returncode == 0:
-            open(os.path.join(cache, "ok"), "w").close()
-    return app
+    held = hold(label, app, out)
+    shutil.rmtree(wt, ignore_errors=True)
+    subprocess.run(["git", "worktree", "prune"], cwd=ROOT)
+    return held
+
+
+def free_gib():
+    st = os.statvfs(os.path.expanduser("~"))
+    return st.f_bavail * st.f_frsize / 2 ** 30
+
+
+def hold(label, app, out):
+    """Moves a built app out of its DerivedData into the step's out folder and deletes that DerivedData: a mini
+    holds one bench build's intermediates at a time (reload.sh wants 40 GiB free; three builds side by side do not
+    fit on a 228 GB mini, 2026-10-31 job a861baa35e87bb620f0d0729)."""
+    dest_dir = os.path.join(out, "apps", label)
+    os.makedirs(dest_dir, exist_ok=True)
+    dest = os.path.join(dest_dir, os.path.basename(app))
+    if subprocess.run(["ditto", app, dest]).returncode != 0:
+        sys.exit(f"AB-BUILD {label}: could not copy {app}")
+    derived = app.split("/Build/Products/")[0] if "/Build/Products/" in app else None
+    if derived and os.path.basename(derived).startswith("cmux-") and "/DerivedData/" in derived:
+        shutil.rmtree(derived, ignore_errors=True)
+    print(f"AB-HOLD {label}: {dest}; {free_gib():.0f} GiB free", flush=True)
+    return dest
 
 
 def main(opts, argv):
@@ -87,8 +100,8 @@ def main(opts, argv):
         # The step's own app (instant-new-surfaces.sh built it) serves the build whose commit is the step's parent:
         # the step's commit adds only these two harness files to it.
         if opts.app and sha in [head, *parents] and tag == opts.tag:
-            apps[label] = os.path.abspath(opts.app.rstrip("/"))
-            print(f"AB-BUILD {label} {sha[:12]}: the step's own app {apps[label]}", flush=True)
+            print(f"AB-BUILD {label} {sha[:12]}: the step's own app {opts.app}", flush=True)
+            apps[label] = hold(label, os.path.abspath(opts.app.rstrip("/")), out)
         else:
             apps[label] = build(label, sha, tag, out)
     passthrough = []
