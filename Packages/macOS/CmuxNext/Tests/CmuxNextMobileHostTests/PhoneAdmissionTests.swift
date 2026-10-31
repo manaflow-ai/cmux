@@ -62,6 +62,43 @@ import Testing
         #expect(!store.trusts(Self.phone))
     }
 
+    @Test func aRemovalStopsAtAnAccountSwitchDuringItsDisconnect() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = await Self.store(at: directory)
+        let calls = AsyncStream<(String, CheckedContinuation<Void, Never>)>.makeStream()
+        let admission = PhoneAdmission(phones: store, disconnect: { id in
+            await withCheckedContinuation { calls.continuation.yield((id, $0)) }
+        })
+        var second = Self.phone
+        second.phoneDeviceID = String(repeating: "b", count: 64)
+        second.identityKey = String(repeating: "b", count: 64)
+        try await store.change(for: "one") { $0.approve(Self.phone, at: Date()); $0.approve(second, at: Date()) }
+        try await store.change(for: "one") {
+            $0.remove(Self.phone.phoneDeviceID, transport: .iroh)
+            $0.remove(second.phoneDeviceID, transport: .iroh)
+        }
+        var disconnects = calls.stream.makeAsyncIterator()
+        let (first, resume) = try #require(await disconnects.next())
+        // While account one's removal waits on its first disconnect, account two asks about the other phone.
+        store.select(userID: "two")
+        await store.reload()
+        let questions = AsyncStream<CheckedContinuation<PhoneAdmission.PromptResult, Never>>.makeStream()
+        admission.ask = { _, _ in await withCheckedContinuation { questions.continuation.yield($0) } }
+        let other = first == Self.phone.phoneDeviceID ? second : Self.phone
+        // task-owner: this test owns and awaits its pending admission
+        let asked = Task { await admission.decide(other) }
+        var events = questions.stream.makeAsyncIterator()
+        let answer = try #require(await events.next())
+        resume.resume()
+        for _ in 0..<20 { await Task.yield() }
+        answer.resume(returning: .allow)
+        #expect(await asked.value)
+        #expect(store.trusts(other))
+        calls.continuation.finish()
+        #expect(await disconnects.next() == nil)
+    }
+
     @Test func denialsAreBoundedAndBelongToTheQuestionUser() async {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }

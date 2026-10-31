@@ -7,6 +7,10 @@ public final class MobileHostPairedStore: Sendable {
     public struct Change: Sendable {
         public var list: MobileHostPairedDevices?
         public var removed: [MobileHostPairedDevice]
+        /// The account generation the event belongs to (``generation`` when it happened).
+        public var generation: UInt64
+        /// The event is an account switch or sign-out: `removed` is the earlier account's list.
+        public var switchedAccount = false
     }
 
     private struct Removal: Hashable, Sendable {
@@ -58,7 +62,7 @@ public final class MobileHostPairedStore: Sendable {
             state.revision &+= 1
             state.list = nil
             state.removals = [:]
-            return (Change(list: nil, removed: removed), state.observers)
+            return (Change(list: nil, removed: removed, generation: state.generation, switchedAccount: true), state.observers)
         }
         notify(event)
     }
@@ -130,7 +134,7 @@ public final class MobileHostPairedStore: Sendable {
                     } catch { /* Memory and the marker stay revoked; a later load retries. */ }
                 }
             }
-            return (Change(list: state.list, removed: removed), state.observers)
+            return (Change(list: state.list, removed: removed, generation: selected), state.observers)
         }
         notify(event)
     }
@@ -194,7 +198,7 @@ public final class MobileHostPairedStore: Sendable {
             }
             state.list = next
             state.revision &+= 1
-            return (Change(list: next, removed: removed), state.observers)
+            return (Change(list: next, removed: removed, generation: generation), state.observers)
         }
         notify(event)
     }

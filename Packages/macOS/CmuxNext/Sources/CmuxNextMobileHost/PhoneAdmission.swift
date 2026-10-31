@@ -81,7 +81,12 @@ final class PhoneAdmission {
                         }
                     }
                 }
+                // An account switch is settled above, and the listener restarts for the new account.
+                guard !change.switchedAccount else { return }
                 for phone in change.removed where phone.transport == .iroh {
+                    // A removal belongs to its own account: stop once another account is selected,
+                    // including while a disconnect is suspended.
+                    guard self.phones.generation == change.generation else { return }
                     remove(phoneDeviceID: phone.id)
                     denied[phone.id] = nil
                     await disconnect(phone.id)
