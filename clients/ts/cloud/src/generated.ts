@@ -202,6 +202,8 @@ export type CloudMachine = {
     readonly at: number
   } | null
   readonly pause_reason?: "idle" | "no_report" | "provider_stopped" | "provider_paused" | null
+  readonly hourly_rate_usd?: number | "Infinity" | "-Infinity" | "NaN" | null
+  readonly running_since?: number | null
   readonly revision: Revision
 }
 
