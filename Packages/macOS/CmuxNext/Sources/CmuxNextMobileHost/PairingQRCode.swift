@@ -6,11 +6,13 @@ import CoreImage.CIFilterBuiltins
 /// pixel per module, dark on white with a quiet zone, as a PNG data URL the
 /// page scales up without smoothing (`image-rendering: pixelated`). Dark on
 /// white whatever the theme, so every camera reads it.
-struct PairingQRCode {
+public struct PairingQRCode {
     private let context = CIContext(options: [.useSoftwareRenderer: true])
 
+    public init() {}
+
     /// `data:image/png;base64,…` for `payload`, or nil when it cannot be encoded.
-    func pngDataURL(for payload: String, quiet: Int = 2) -> String? {
+    public func pngDataURL(for payload: String, quiet: Int = 2) -> String? {
         let filter = CIFilter.qrCodeGenerator()
         filter.message = Data(payload.utf8)
         filter.correctionLevel = "M"
