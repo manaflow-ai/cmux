@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1230,
+    "entries": 1232,
     "shortcuts": 189
   },
   "sections": [
@@ -6874,6 +6874,12 @@
           "command": null
         },
         {
+          "id": "app.install",
+          "title": "Install App…",
+          "shortcut": null,
+          "command": "cmux apps install"
+        },
+        {
           "id": "palette.applyUpdateIfAvailable",
           "title": "Install Available Update",
           "shortcut": null,
@@ -6992,6 +6998,12 @@
           "title": "Reload Configuration",
           "shortcut": "⇧⌘,",
           "command": "cmux settings reload-configuration"
+        },
+        {
+          "id": "app.remove",
+          "title": "Remove App…",
+          "shortcut": null,
+          "command": "cmux apps remove"
         },
         {
           "id": "appearance.reset",

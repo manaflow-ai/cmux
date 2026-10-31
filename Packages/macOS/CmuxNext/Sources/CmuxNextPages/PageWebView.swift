@@ -73,7 +73,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// ``chromiumHosting`` (its composition root). Nil: a file input does nothing (tests).
     public static var openPanel: MadeAheadOpenPanel?
     /// This page's file chooser (its web view holds the UI delegate weakly).
-    private var fileChooser: PageOpenPanel?
+    private(set) var fileChooser: PageOpenPanel?
     var loaded = false
     /// The tab closed (``close()``): its web view is retired and never loads again.
     var isClosed = false
