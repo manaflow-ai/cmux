@@ -163,13 +163,6 @@ def tested_sha(run: dict) -> str:
     return match.group(1) if match else str(run.get("head_sha") or "")
 
 
-TESTS = (
-    re.compile(r"✘ Test (.+?\)) (?:recorded an issue|failed)"),  # Swift Testing
-    re.compile(r"Test Case '-\[(\S+ \S+)\]' failed"),  # XCTest
-    re.compile(r"^test (\S+) \.\.\. FAILED$"),  # cargo test
-    re.compile(r"^(?:FAIL|ERROR): (\S+ \([^)]+\))"),  # unittest
-    re.compile(r"^FAILED (\S+::\S+)"),  # pytest
-)
 ERROR = re.compile(r"##\[error\]|\berror:")
 WARNING = re.compile(r"##\[warning\]|\bwarning:")
 # Summaries carry counts, and a test's own lines already name it.
@@ -352,15 +345,17 @@ def lines_of(log: str) -> list[str]:
 
 
 def signature(job: dict, log: str) -> tuple[set[str], set[str], set[str]]:
-    """(failed step names, failing test names, error lines with numbers masked)."""
+    """(failed step names, failing test names, error lines with numbers masked), from what the steps printed: the
+    runner's echo of each step's script is never a test or an error (test_reds.echoed; 2026-10-30, cmux#28145 was
+    excused because the base's log echoed the same `echo "::error::..."` lines of its step's script)."""
     steps = {step["name"] for step in job.get("steps") or []
              if step.get("conclusion") not in (None, "success", "skipped")}
-    tests: set[str] = set()
+    tests = test_reds.failed_names(test_reds.lines_of(log))
     errors: set[str] = set()
-    for text in lines_of(log):
-        for pattern in TESTS:
-            if match := pattern.search(text):
-                tests.add(match.group(1))
+    skip = test_reds.echoed(test_reds.log_lines(log))
+    for n, text in enumerate(lines_of(log)):
+        if n in skip:
+            continue
         if ERROR.search(text) and not GENERIC.search(text) and not WARNING.search(text) and not CRASH_LINE.search(text):
             errors.add(re.sub(r"\d+", "#", mask_shas(text.replace("##[error]", "").strip())))
     return steps, tests, errors
