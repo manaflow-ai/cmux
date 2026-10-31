@@ -212,6 +212,7 @@ mod kitty_reservation;
 mod launch_identity;
 mod ledger_maintenance;
 mod pinned_columns;
+mod pty_reclaim;
 mod workspace_name;
 use kitty_reservation::kitty_image_limits_exceed;
 mod agent_presence;
@@ -762,6 +763,8 @@ pub struct Mux {
     idle_close: Mutex<idle_close::IdleCloseTracker>,
     /// Wakes the idle-close reaper when a policy changes.
     idle_close_waker: Mutex<Option<std::sync::mpsc::Sender<idle_close::ReaperMessage>>>,
+    /// A launch failed for lack of PTYs: the next reclaim pass runs at once (`pty_reclaim.rs`).
+    pty_reclaim_forced: AtomicBool,
     /// Hosts of closed terminals that were asked to exit.
     terminal_host_closes: Arc<host_close::TerminalHostCloses>,
     /// Reap grace period for unplaced terminals, in milliseconds.
