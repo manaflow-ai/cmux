@@ -1,0 +1,98 @@
+{
+  "version": 1,
+  "build": "4122410931101",
+  "notes": "notes/4122410931101.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 28975,
+      "title": "test(ios): Chief waits count only the time they could run",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28185,
+      "title": "New Tab quick actions fit narrow panes (carries #27353)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26103,
+      "title": "cmux NEXT Home: the Chief welcomes a first launch with ⌘P, shortcuts and what to ask",
+      "author": "Austin Wang",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/26103/af5d5b8d/next-chief-settings-after/tour.mp4",
+      "source": "tour-after",
+      "sha8": "af5d5b8d",
+      "tour": "chief-settings"
+    },
+    {
+      "pr": 29282,
+      "title": "fix(agent-pane): the summary card holds still while the chat scrolls",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28053,
+      "title": "chore(webviews): remove retired agent session types",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25659,
+      "title": "cmux NEXT Chief: replies link PRs, issues, commits, runs and workspaces by short name; a workspace link reopens a closed workspace",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29325,
+      "title": "cmux NEXT: shorten tab and pane menus while keeping every command searchable (carries #28048/#28401)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25616,
+      "title": "Home: Chief thread replies stay in their thread (#25588)",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25607,
+      "title": "cmux NEXT: the unread dot waits for an agent's background subagents",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24307,
+      "title": "cmux-tui: after a restart the owner answers at once; adoptions take turns, visible workspace first (perf100)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23179,
+      "title": "cmux-tui: output's scroll events publish once per frame, not once per chunk (perf100)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23019,
+      "title": "optchat-chief: Chief survives an update handoff while the old acpmux still holds its lock",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22919,
+      "title": "cmux NEXT: a keep quit ends within 4 s whatever any step does; Restart to Update never leaves cmux invisible",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29368,
+      "title": "EditCounts: keep one count per group, not every earlier prefix",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
