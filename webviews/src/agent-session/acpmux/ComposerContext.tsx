@@ -256,7 +256,7 @@ export function ComposerContext({
     () =>
       computers.map((computer) => {
         const warning = environmentReady(computer) ? warningText(computer.resources) : undefined;
-        return warning ? { ...computer, warning } : computer;
+        return warning ? { ...computer, loadWarning: warning } : computer;
       }),
     [computers, warningText],
   );

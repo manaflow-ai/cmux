@@ -510,12 +510,12 @@ export function EnvironmentPicker({
         {/* A machine a chat cannot start on yet says why, greyed; one that can shows a status dot.
             Only an SSH or Cloud machine acpmux lists has a status; this Mac never shows one. */}
         {!ready && <span className="acpmux-env-state">{environmentStateLabel(environment)}</span>}
-        {ready && environment.warning && (
+        {ready && environment.loadWarning && (
           <span className="acpmux-env-state" data-warning="true">
-            {environment.warning}
+            {environment.loadWarning}
           </span>
         )}
-        {ready && !environment.warning && environment.kind !== "local" && environment.connected !== undefined && (
+        {ready && !environment.loadWarning && environment.kind !== "local" && environment.connected !== undefined && (
           <span className="acpmux-env-status" data-connected={String(environment.connected)}>
             <span className="acpmux-env-status-text">
               {t(environment.connected ? "composer.envConnected" : "composer.envNotConnected")}
