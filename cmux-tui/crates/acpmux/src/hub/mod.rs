@@ -40,6 +40,8 @@ pub use file_uploads::FEATURE as FILE_PUT_FEATURE;
 mod first_work_tests;
 mod fork;
 #[cfg(test)]
+mod prompt_accept_tests;
+#[cfg(test)]
 mod shutdown_tests;
 pub(crate) use fork::offers_fork;
 mod fork_at;
@@ -1141,6 +1143,7 @@ impl Hub {
             auto_resume: Default::default(),
             turn_lock: Mutex::new(()),
             turn_claimed: AtomicBool::new(false),
+            admit: StdMutex::new(()),
             input_handoff: std::sync::Arc::new(Mutex::new(())),
             turn: StdMutex::new(None),
             queued: AtomicU64::new(0),
