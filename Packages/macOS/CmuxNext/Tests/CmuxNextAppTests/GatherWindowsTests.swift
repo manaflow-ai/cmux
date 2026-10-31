@@ -205,6 +205,14 @@ struct GatherWindowsTests {
         #expect(services.windows.registry.value == before, "a refused move changed windows")
         #expect(there.state.localBrowserTabs[pane] == [tab])
 
+        // Nor into a window that keeps its own browser tabs: a moved pane could share one's pane id.
+        there.state.localBrowserTabs[pane] = []
+        here.state.localBrowserTabs[pane] = [tab]
+        #expect(throws: ActionFailure.self) { try services.windows.bringSpace(Self.rooms[1], into: here.state) }
+        #expect(throws: ActionFailure.self) { try services.windows.mergeWindows(into: here.state) }
+        #expect(services.windows.registry.value == before, "a refused move changed windows")
+        here.state.localBrowserTabs[pane] = []
+
         // A window that keeps tabs but gives nothing up (room0's k1 stays) does not block Move Space.
         there.state.localBrowserTabs[pane] = []
         let other = try Self.open(["k1"], services)
