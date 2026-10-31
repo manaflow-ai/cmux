@@ -538,6 +538,29 @@ fn permanently_failed_hook_projection_is_quarantined() {
         mux.workspace_registry.lock().unwrap().pending_agent_hook_projections().unwrap().len(),
         1
     );
+
+    // A later live hook catches up on earlier queued hooks, but a quarantined one stays
+    // quarantined: it neither blocks the terminal nor projects again.
+    let later = crate::agent_hooks::agent_hook_journal_ingress(
+        "claude",
+        "UserPromptSubmit",
+        Some(&terminal_id.to_string()),
+        serde_json::json!({}),
+    )
+    .unwrap();
+    mux.apply_agent_hook_record(&later, receipt.sequence + 1).unwrap();
+    let after = mux
+        .workspace_registry
+        .lock()
+        .unwrap()
+        .agent_hook_pending_retry_state_for_test(
+            crate::agent_hooks::AGENT_HOOK_PRODUCER_ID,
+            "test",
+            "dead-letter",
+        )
+        .unwrap()
+        .expect("quarantined hook is not replayed by a later live hook");
+    assert_eq!(after.0, crate::workspace_registry::AGENT_HOOK_MAX_ATTEMPTS);
 }
 
 #[test]
