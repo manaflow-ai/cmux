@@ -256,14 +256,94 @@ async fn cpu_class_a_start_that_misses_its_deadline_at_background_class_runs_onc
     let id = c.new_session(&dir, "retried").await.expect("the retried start failed");
     assert!(once.exists(), "the first harness never started");
     let events = hub.events(&id, 0, 10_000).unwrap();
-    let retried = events
-        .iter()
-        .find(|e| e.kind == "agent_start_retried_at_normal")
-        .unwrap_or_else(|| panic!("no retry logged: {:?}", events.iter().map(|e| &e.kind).collect::<Vec<_>>()));
+    let retried =
+        events.iter().find(|e| e.kind == "agent_start_retried_at_normal").unwrap_or_else(|| {
+            panic!("no retry logged: {:?}", events.iter().map(|e| &e.kind).collect::<Vec<_>>())
+        });
     let harness = &retried.msg["harness"];
     assert_eq!(harness["background"], json!(true), "{harness}");
     // The second harness answered session/new at normal class.
     let [(_, at_start)] = class_log(&dir)[..] else { panic!("{:?}", class_log(&dir)) };
     assert!(at_start > BACKGROUND_PRI, "the retried harness started at background class");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The agent host this process starts runs in background class (`ACPMUX_QOS=background`, set by
+/// HERMETIC). Its harness clears that class at its exec, so the harness and a tool it starts as it
+/// starts run above it; once its start is over the daemon lowers the harness, and a tool its turn
+/// starts inherits that.
+#[tokio::test]
+async fn cpu_class_a_hosted_harness_starts_at_normal_under_a_background_host_then_runs_below() {
+    let dir = scratch("h");
+    let fifo = dir.join("pids");
+    let c = std::ffi::CString::new(fifo.as_os_str().as_encoded_bytes()).unwrap();
+    // SAFETY: valid NUL-terminated path.
+    assert_eq!(unsafe { libc::mkfifo(c.as_ptr(), 0o600) }, 0);
+    let script = format!(
+        "sleep 120 & echo \"$$ $!\" > {}; exec python3 {}",
+        daemon_env::sh_quote(fifo.display()),
+        daemon_env::sh_quote(FAKE)
+    );
+    let hosts = dir.join("hosts");
+    // As the daemon sends it (`hub/hosts.rs`).
+    let spec: SpawnSpec = serde_json::from_value(json!({
+        "session_id": "s-cpu-h",
+        "program": "/bin/sh",
+        "args": ["-c", script],
+        // The stand-in's environment: never the host's (its PATH has real agents).
+        "env": daemon_env::vars(&dir, daemon_env::Agents::StandIn, &[]),
+        "cwd": dir,
+        "translator": null,
+        "socket": agent_host::socket_path(&hosts, "s-cpu-h"),
+        "hosts_dir": hosts,
+        "buffer_cap": agent_host::DEFAULT_BUFFER_CAP,
+    }))
+    .unwrap();
+    let launcher = HostLauncher { exe: daemon_env::bin().into(), prefix: Vec::new() };
+    let record = link::spawn(&launcher, &spec).await.expect("spawn the host");
+    let host_pri = base_priority(record.host_pid as i32);
+    let line = tokio::time::timeout(
+        Duration::from_secs(20),
+        tokio::task::spawn_blocking(move || std::fs::read_to_string(fifo).unwrap()),
+    )
+    .await
+    .expect("the harness did not write its pids")
+    .unwrap();
+    let mut pids = line.split_whitespace().map(|p| p.parse::<i32>().unwrap());
+    let (harness, starter_tool) = (pids.next().unwrap(), pids.next().unwrap());
+    assert_eq!(record.harness_pid, Some(harness as u32));
+    let (at_start, starter_tool_pri) = (base_priority(harness), base_priority(starter_tool));
+    kill(starter_tool);
+
+    let (inbound, _rx) = tokio::sync::mpsc::channel(64);
+    let tap: acpmux::agent::Tap = Arc::new(|_, _, _| true);
+    let Attached::Ready(agent, ..) =
+        ChildAgent::attach_hosted("fake", record.clone(), 0, Vec::new(), inbound, tap)
+            .await
+            .unwrap()
+    else {
+        panic!("the host refused its controller")
+    };
+    agent.request(method::INITIALIZE, json!({"protocolVersion": 1})).await.unwrap();
+    let new = agent.request(method::SESSION_NEW, json!({"cwd": dir, "mcpServers": []})).await;
+    let sid = new.unwrap()["sessionId"].as_str().unwrap().to_owned();
+    // The start is over (as `ensure_child` ends it).
+    agent.set_run_class(CpuClass::Background);
+    assert!(agent.enter_run_class().await, "the running harness was not lowered");
+    let running = base_priority(harness);
+    let out = dir.join("tool.json");
+    let text = format!("class-probe: {}", out.display());
+    let prompt = json!({"sessionId": sid, "prompt": [{"type": "text", "text": text}]});
+    agent.request(method::SESSION_PROMPT, prompt).await.unwrap();
+    let tool = read_json(&out)["sleeper"].as_i64().unwrap() as i32;
+    let tool_pri = base_priority(tool);
+    kill(tool);
+    // SAFETY: signals the process group the harness leads.
+    unsafe { libc::killpg(harness, libc::SIGKILL) };
+    assert_eq!(host_pri, BACKGROUND_PRI, "the host did not run at background class");
+    assert!(at_start > BACKGROUND_PRI, "the hosted harness started at background class");
+    assert!(starter_tool_pri > BACKGROUND_PRI, "a tool its start ran is at background class");
+    assert_eq!(running, BACKGROUND_PRI, "the started harness runs at the GUI's class");
+    assert_eq!(tool_pri, BACKGROUND_PRI, "a tool its turn started runs at the GUI's class");
     let _ = std::fs::remove_dir_all(&dir);
 }

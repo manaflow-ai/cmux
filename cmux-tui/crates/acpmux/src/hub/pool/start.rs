@@ -105,8 +105,9 @@ impl Hub {
         } else {
             crate::agent::command_env(&cmd)
         };
-        // From the harness's own env: its profile's value as resolved (`cpu_class.rs`).
-        let cpu_class = crate::cpu_class::CpuClass::for_session(
+        // The class it runs at once a chat's start took it, from the harness's own env: its
+        // profile's value as resolved (`cpu_class.rs`). Until then it stays at normal class.
+        let run_class = crate::cpu_class::CpuClass::for_session(
             env.iter().map(|(k, v)| (k.as_str(), v.as_str())),
         );
         let mut host_spec = agent_host::SpawnSpec {
@@ -123,7 +124,6 @@ impl Hub {
             router_owner_fifo: crate::daemon::router_owner_path(),
             // Never a sub-session's checked folder: a sub-session start takes no pooled harness.
             cwd_pin: None,
-            cpu_class,
             orphan_exit: None,
         };
         // No host starts once `stop_pool` began: it could not end it.
@@ -155,6 +155,7 @@ impl Hub {
             self.start_pooled(session_id.clone(), name, record.clone(), spec, claude, off).await;
         let started = started.map(|p| {
             p.child.record_launch(servers);
+            p.child.set_run_class(run_class);
             Pooled { preview, ..p }
         });
         if started.is_err() {
@@ -238,8 +239,15 @@ impl Hub {
                 }
             }
         })
-        .await
-        .unwrap_or_else(|_| Err(anyhow::anyhow!("no harness session within {START_BUDGET:?}")));
+        .await;
+        let outcome = match outcome {
+            Ok(outcome) => outcome,
+            // What its harness was doing, read before it is ended (`cpu_class.rs`).
+            Err(_) => Err(anyhow::anyhow!(
+                "no harness session within {START_BUDGET:?}{}",
+                crate::cpu_class::deadline_detail(child.harness_state().await.as_ref())
+            )),
+        };
         let (init, new_result) = match outcome {
             Ok(v) => v,
             Err(e) => {

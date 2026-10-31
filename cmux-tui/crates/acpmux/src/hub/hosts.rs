@@ -1731,8 +1731,9 @@ impl Hub {
         } else {
             crate::agent::command_env(&cmd)
         };
-        // From the harness's own env: its profile's value as resolved (`cpu_class.rs`).
-        let cpu_class = crate::cpu_class::CpuClass::for_session(
+        // The class it runs at once its start is over, from the harness's own env: its profile's
+        // value as resolved (`cpu_class.rs`). It starts at normal class.
+        let run_class = crate::cpu_class::CpuClass::for_session(
             env.iter().map(|(k, v)| (k.as_str(), v.as_str())),
         );
         let mut spec = crate::agent_host::SpawnSpec {
@@ -1748,7 +1749,6 @@ impl Hub {
             buffer_cap: crate::agent_host::DEFAULT_BUFFER_CAP,
             router_owner_fifo: crate::daemon::router_owner_path(),
             cwd_pin: crate::cwd_pin::CwdPin::current(),
-            cpu_class,
             orphan_exit: None,
         };
         let launcher = crate::agent_host::link::HostLauncher::current().map_err(internal)?;
@@ -1758,6 +1758,7 @@ impl Hub {
         spec.orphan_exit = servers.orphan_exit(self.orphan_exit());
         let launched = |child: Arc<ChildAgent>| {
             child.record_launch(servers.clone());
+            child.set_run_class(run_class);
             child
         };
         let first = match self.start_hosted(session, meta, &launcher, &spec, tap.clone()).await {
