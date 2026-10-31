@@ -172,6 +172,10 @@ export default componentEntry<PrototypeProps>({
       note: "Split: source table and chart share the same reading frame.",
       props: { mode: "split", fixture: "week" },
     },
+    "split-large": {
+      note: "Split with the 1,000-row fixture: the source table scrolls in its own bounded region, so the chart and export controls stay in view.",
+      props: { mode: "split", fixture: "large" },
+    },
     focus: {
       note: "Focus: chart gets visual priority; source stays one disclosure away.",
       props: { mode: "focus", fixture: "week" },
