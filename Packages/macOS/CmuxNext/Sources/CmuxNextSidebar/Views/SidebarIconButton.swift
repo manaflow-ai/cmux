@@ -47,6 +47,14 @@ final class SidebarIconButton: ClickableButton {
     /// the pack has no name for, such as the group editor's emoji button.
     private var symbol: String?
 
+    /// Replaces the SF Symbol a ``init(symbol:pointSize:label:)`` button draws.
+    func setSymbol(_ name: String) {
+        guard name != symbol else { return }
+        symbol = name
+        renderedSize = 0
+        renderIcon()
+    }
+
     init(icon: IconName, pointSize: @escaping () -> CGFloat = { Metrics.smallIconSize }, label: String) {
         self.icon = icon
         self.label = label

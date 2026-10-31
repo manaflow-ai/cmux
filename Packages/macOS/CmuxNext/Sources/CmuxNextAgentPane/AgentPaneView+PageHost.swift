@@ -51,6 +51,7 @@ extension AgentPaneView {
         // IME composition, unsent chips): a crash shows the notice, and Reload is the person's.
         page.reloadsAfterCrash = false
         page.onCrash = { [weak self] _, reloading in self?.pageCrashed(reloading: reloading) }
+        page.onDocumentLoaded = { [weak self] in self?.pageLoadedAgain() }
         pageEvents?.replay = { [weak self] in
             // A new subscriber is a page that loaded again: its registry renderers are gone.
             guard let self else { return [] }

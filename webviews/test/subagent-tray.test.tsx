@@ -366,7 +366,9 @@ describe("the tray", () => {
     try {
       const head = shown.root.querySelector<HTMLButtonElement>(".acpmux-running-tray__head")!;
       expect(head.getAttribute("aria-expanded")).toBe("true");
-      expect(head.querySelector('svg[data-icon="agent.session"]')).not.toBeNull();
+      // A fixed running-work mark, never the spinner (#27103) and never the chat bubble.
+      expect(head.querySelector('svg[data-icon="app.sample.runningagents"]')).not.toBeNull();
+      expect(head.querySelector('svg[data-icon="agent.session"]')).toBeNull();
       expect(head.querySelector('[role="progressbar"]')).toBeNull();
       expect(head.querySelector(".acpmux-running-tray__title")?.textContent).toBe("2 subagents running · 1 command");
       expect(shown.root.querySelectorAll(".acpmux-agent-line").length).toBe(3);
@@ -646,9 +648,9 @@ describe("a tray line says what it is and what a click does", () => {
     }
   });
 
-  // Leo, 2026-10-29: "why are you saying sub-agent so many fucking times? Like, you can just add
-  // the icon when it's in here."
-  test("a subagent leads with its icon, not the word, keeps its spinner and ends in a chevron", async () => {
+  // Leo, 2026-10-29: "why are you saying sub-agent so many fucking times?"; 2026-10-31, on the fork
+  // glyph before a subagent's title: "the leading icons — just the stupid fork one".
+  test("a subagent line has no kind word or fork glyph, keeps its spinner and ends in a chevron", async () => {
     const items = trayItems([agent("Reviewer", { startedAt: Date.now(), action: "Read src/app.ts" })], [], NONE, true);
     const { root, done } = await render(
       createElement(SubagentTray, { items, working: true, waiting: new Set<string>(), onOpen: () => {} }),
@@ -656,10 +658,7 @@ describe("a tray line says what it is and what a click does", () => {
     try {
       const line = root.querySelector<HTMLElement>(".acpmux-agent-line")!;
       expect(line.querySelector(".acpmux-agent-line__kind")).toBeNull();
-      const kind = line.querySelector<HTMLElement>(".acpmux-agent-line__kind-icon");
-      // The kind is an accessible SVG title, with no repeated visible label beside the icon.
-      expect(kind?.querySelector('svg[role="img"]')?.getAttribute("aria-label")).toBe("Subagent");
-      expect(kind?.querySelector("title")?.textContent).toBe("Subagent");
+      expect(line.querySelector(".acpmux-agent-line__kind-icon")).toBeNull();
       // The working-state mark stays a spinner, before the subagent's icon.
       expect(
         line.querySelector(".acpmux-lineage__icon [data-spinner], .acpmux-lineage__icon .cv-spinner"),
@@ -1201,7 +1200,7 @@ describe("a failed sub-session's line", () => {
 describe("workflow progress in the default tray and Inspector", () => {
   const waiting = new Set<string>();
   for (const surface of ["tray", "inspector"] as const) {
-    test(`${surface} updates counts, warnings and tokens without replacing another row`, async () => {
+    test(`${surface} updates counts and warnings without replacing another row`, async () => {
       const { SubagentsSection } = await import("../src/agent-session/acpmux/inspector/SubagentsSection");
       const workflow = agent("Review modules", { kind: "workflow", action: "Review" });
       const other = agent("Unrelated agent");
@@ -1223,13 +1222,17 @@ describe("workflow progress in the default tray and Inspector", () => {
         await view.show(
           draw({ ...workflow, agents: { done: 37, started: 101, failed: 2, queued: 4 }, tokens: 1_200_000 }),
         );
+        // The tray's row says no tokens (Leo, 2026-10-31: "we can remove the symbols and the tokens");
+        // the Inspector's list still does.
         expect(view.root.querySelector(".acpmux-agent-line__progress")?.textContent).toBe(
-          "37/101 agents · 2 failed · 4 queued · 1.2M tokens",
+          surface === "tray"
+            ? "37/101 agents · 2 failed · 4 queued"
+            : "37/101 agents · 2 failed · 4 queued · 1.2M tokens",
         );
         expect(buttons().find((button) => button.textContent?.includes("Unrelated agent"))).toBe(unrelated);
         await view.show(draw({ ...workflow, agents: { done: 40, started: 101 }, tokens: 1_300_000 }));
         expect(view.root.querySelector(".acpmux-agent-line__progress")?.textContent).toBe(
-          "40/101 agents · 1.3M tokens",
+          surface === "tray" ? "40/101 agents" : "40/101 agents · 1.3M tokens",
         );
         expect(buttons().find((button) => button.textContent?.includes("Unrelated agent"))).toBe(unrelated);
       } finally {

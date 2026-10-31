@@ -103,6 +103,7 @@ export function SentMessageLine({
   target,
   targetSession,
   text,
+  file,
   detail,
   others = 0,
   disclosureKey,
@@ -120,6 +121,8 @@ export function SentMessageLine({
   others?: number;
   /// The message, when the call holds it; without it the row names only the target.
   text?: string;
+  /// The file the message was read from when the call has no message words.
+  file?: string;
   /// How it was delivered, after the line ("queued", "read at its next step").
   detail?: string;
   disclosureKey: string;
@@ -153,6 +156,7 @@ export function SentMessageLine({
   const readChat = () => targetChat(store, target, targetSession);
   const chat = useSyncExternalStore(store.subscribeNames, readChat, readChat);
   const preview = text ? messagePreview(text) : "";
+  const source = !text && file && state !== "failed" ? file : "";
   // The open row shows the whole message under it: its first line on the row would say it twice.
   const trailing = preview && state !== "failed" && !(open && text) ? preview : "";
   const label =
@@ -218,6 +222,11 @@ export function SentMessageLine({
           )}
           {shape === "sentence" && trailing && (
             <span className="cv-agentmsg__preview cv-sent__preview">{trailing}</span>
+          )}
+          {source && (
+            <code className="cv-tool__detail cv-sent__preview cv-sent__file" title={source}>
+              {source}
+            </code>
           )}
           {/* Copy takes the message's text, shown while the row is pointed at, as a SendMessage
               row's is (MessageCard.tsx); its click never toggles the row. It stays at the
@@ -310,6 +319,7 @@ export function AcpmuxSendLine({ tool, send }: { tool: Tool; send: AcpmuxSendCal
       state={send.state}
       target={send.target}
       text={send.text}
+      file={send.file}
       detail={detail}
       disclosureKey={`send:${tool.id}`}
       others={send.others}
