@@ -305,8 +305,5 @@ final class FeedService {
     }
 }
 
-enum FeedServiceError: Error {
-    case signedOut
-    case badReply
-    case owner(code: String, message: String)
-}
+/// The Worker call's error, in CmuxNextCloud since `HomeDirectory` (CmuxNextHostedChief) throws and reads it too.
+typealias FeedServiceError = CmuxNextCloud.FeedServiceError

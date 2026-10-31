@@ -1,6 +1,7 @@
 @testable import CmuxNextApp
 import CmuxNextCompat
 import CmuxNextHome
+import CmuxNextHostedChief
 import Foundation
 import Observation
 import Testing

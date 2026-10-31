@@ -23,7 +23,7 @@ extension HomeService {
         let me = homeStore.me?.id ?? homeSource.me.id
         let team = directory.teamMembers
         cloudSource.remember(team.map { Participant(id: $0.id, kind: .human, displayName: $0.name) })
-        let rows = TopHomePageView.visible(homeStore.rows, archivedChiefs: directory.archivedChiefs, me: me)
+        let rows = HomeArchivedChiefs(directory.archivedChiefs, me: me).visible(homeStore.rows)
         return HomeContact.merged(team: team, connections: HomeContact.connections(in: rows, me: me),
                                   agents: HomeContact.agents(in: rows, me: me))
     }
@@ -154,7 +154,7 @@ extension HomeService {
         let store = homeStore
         let source = HomeSidebarSource(
             store: HomePinStore(), inboxes: [homeInbox, homeCloudInbox], account: { [weak self] in self?.pinAccount ?? "local" },
-            rows: { [weak self] in TopHomePageView.visible(store.rows, archivedChiefs: self?.directory.archivedChiefs ?? [], me: store.me?.id) },
+            rows: { [weak self] in HomeArchivedChiefs(self?.directory.archivedChiefs ?? [], me: store.me?.id).visible(store.rows) },
             me: { store.me?.id }, contacts: { [weak self] in self?.contacts() ?? [] },
             chiefAvatars: { [weak self] in self?.chiefFaces ?? [:] },
             defaultChiefAvatar: { [weak self] in HomeHostView.defaultTileAvatar(picture: self?.services.wornUpload(of: nil)?.still) },
