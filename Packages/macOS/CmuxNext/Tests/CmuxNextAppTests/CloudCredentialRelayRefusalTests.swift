@@ -144,4 +144,39 @@ struct CloudCredentialRelayRefusalTests {
         #expect(!result.ok)
         #expect(result.body["code"]?.stringValue == "not_signed_in")
     }
+
+    @Test func privateLinkRouteRejectsAnOldSocketGeneration() async {
+        let relay = Self.relay(Sent())
+        let result = await relay.linkConnectInfo(host: "host_0123456789abcdefghij", expectedInstall: "install-old")
+        #expect(!result.ok)
+        #expect(result.body["code"]?.stringValue == "not_signed_in")
+    }
+
+    @Test func privateLinkRouteDoesNotPostWhenInstallChangesDuringTokenMint() async {
+        actor Generation {
+            var install = "install-a"
+            var posts = 0
+            func current() -> String { install }
+            func rotate() { install = "install-b" }
+            func posted() { posts += 1 }
+            func postCount() -> Int { posts }
+        }
+        let generation = Generation()
+        let relay = CloudCredentialRelay(
+            post: { _, _, _ in await generation.posted(); return (200, Data(#"{"value":{}}"#.utf8)) },
+            token: { await generation.rotate(); return "token-a" }, invalidate: {},
+            session: { CloudCredentialRelay.Session(signedIn: true, team: "team_test") },
+            allowedOps: { [] }, installID: { await generation.current() })
+        let result = await relay.linkConnectInfo(host: "host_0123456789abcdefghij")
+        #expect(!result.ok)
+        #expect(await generation.postCount() == 0)
+    }
+
+    @Test func credentialSocketRejectsUnknownFieldsAndBoundsLongStatePaths() throws {
+        let unknown = Data(#"{"op":"connect_info","host":"host_0123456789abcdefghij","extra":true}"#.utf8)
+        #expect(!CloudLinkLauncher.credentialRequestAcceptedForTesting(unknown))
+        let state = URL(fileURLWithPath: "/" + String(repeating: "very-long-state-root/", count: 20))
+        let path = CloudLinkLauncher.credentialSocketPath(stateRoot: state, runtimeBase: URL(fileURLWithPath: "/tmp"))
+        #expect(path.utf8.count < 104)
+    }
 }

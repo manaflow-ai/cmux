@@ -18,6 +18,8 @@ private final class CloudLinkCredentialServer: @unchecked Sendable {
     private var expected: Expected?
     private var listener: Int32 = -1
     private var source: DispatchSourceRead?
+    private var ownsPath = false
+    private var activeReaders = 0
     private let queue = DispatchQueue(label: "cmux.cloud.link-credential", qos: .utility)
     private let maxLine = 64 * 1024
 
@@ -47,10 +49,12 @@ private final class CloudLinkCredentialServer: @unchecked Sendable {
             guard let self else { return }
             let fd = self.listener
             self.listener = -1
+            let ownsPath = self.ownsPath
+            self.ownsPath = false
             let hadSource = self.source != nil
             self.source?.cancel(); self.source = nil
             if !hadSource, fd >= 0 { Darwin.close(fd) }
-            unlink(self.path)
+            if ownsPath { unlink(self.path) }
             self.lock.lock(); self.expected = nil; self.lock.unlock()
         }
     }
@@ -79,7 +83,7 @@ private final class CloudLinkCredentialServer: @unchecked Sendable {
                 Darwin.close(probe)
                 if connected == 0 { throw StartError.unavailable("credential socket is already in use") }
                 // Never remove a socket we cannot prove belongs to this
-                // process. `link stop` removes our own stale endpoint.
+                // process. Each launcher instance has a unique endpoint.
                 throw StartError.unavailable("credential socket path is unavailable")
             }
         }
@@ -90,10 +94,11 @@ private final class CloudLinkCredentialServer: @unchecked Sendable {
         guard bytes.count < MemoryLayout.size(ofValue: address.sun_path) else { Darwin.close(fd); throw StartError.unavailable("credential socket path is too long") }
         withUnsafeMutableBytes(of: &address.sun_path) { $0.copyBytes(from: bytes) }
         let bound = withUnsafePointer(to: &address) { $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { Darwin.bind(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) } }
-        guard bound == 0, Darwin.listen(fd, 8) == 0 else { Darwin.close(fd); unlink(path); throw StartError.unavailable("cannot bind credential socket") }
+        guard bound == 0, Darwin.listen(fd, 8) == 0 else { Darwin.close(fd); throw StartError.unavailable("cannot bind credential socket") }
         _ = fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK)
         _ = chmod(path, 0o600)
         listener = fd
+        ownsPath = true
         let source = DispatchSource.makeReadSource(fileDescriptor: fd, queue: queue)
         source.setEventHandler { [weak self] in self?.accept() }
         source.setCancelHandler { Darwin.close(fd) }
@@ -108,6 +113,13 @@ private final class CloudLinkCredentialServer: @unchecked Sendable {
             guard let install = authorized(fd) else { Darwin.close(fd); continue }
             var noSigPipe: Int32 = 1
             _ = setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, socklen_t(MemoryLayout<Int32>.size))
+            var sendTimeout = timeval(tv_sec: 5, tv_usec: 0)
+            _ = setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &sendTimeout, socklen_t(MemoryLayout<timeval>.size))
+            lock.lock()
+            let canServe = activeReaders < 32
+            if canServe { activeReaders += 1 }
+            lock.unlock()
+            guard canServe else { Darwin.close(fd); continue }
             DispatchQueue.global(qos: .utility).async { [weak self] in
                 guard let self else { Darwin.close(fd); return }
                 self.serve(fd, expectedInstall: install)
@@ -127,10 +139,14 @@ private final class CloudLinkCredentialServer: @unchecked Sendable {
     }
 
     private func serve(_ fd: Int32, expectedInstall: String) {
+        defer { lock.lock(); activeReaders -= 1; lock.unlock() }
         var data = Data(); var byte: UInt8 = 0
+        let deadline = DispatchTime.now().uptimeNanoseconds + 5_000_000_000
         while data.count <= maxLine {
             var descriptor = pollfd(fd: fd, events: Int16(POLLIN), revents: 0)
-            let ready = poll(&descriptor, 1, 5_000)
+            let now = DispatchTime.now().uptimeNanoseconds
+            let remaining = now < deadline ? Int32(min((deadline - now) / 1_000_000, UInt64(Int32.max))) : 0
+            let ready = poll(&descriptor, 1, remaining)
             guard ready > 0 else { Darwin.close(fd); return }
             let count = Darwin.read(fd, &byte, 1)
             if count < 0 && errno == EINTR { continue }
@@ -166,10 +182,18 @@ private final class CloudLinkCredentialServer: @unchecked Sendable {
             guard Set(container.allKeys.map(\.stringValue)).subtracting(allowed).isEmpty else {
                 throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "unknown link request field"))
             }
-            op = try container.decode(String.self, forKey: AnyKey(stringValue: "op")!)
-            host = try container.decode(String.self, forKey: AnyKey(stringValue: "host")!)
-            services = try container.decodeIfPresent([String].self, forKey: AnyKey(stringValue: "services")!)
+            guard let opKey = container.allKeys.first(where: { $0.stringValue == "op" }),
+                  let hostKey = container.allKeys.first(where: { $0.stringValue == "host" }) else {
+                throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "missing link request field"))
+            }
+            op = try container.decode(String.self, forKey: opKey)
+            host = try container.decode(String.self, forKey: hostKey)
+            let servicesKey = container.allKeys.first(where: { $0.stringValue == "services" })
+            services = try servicesKey.flatMap { try container.decodeIfPresent([String].self, forKey: $0) }
         }
+    }
+    static func acceptsRequestForTesting(_ data: Data) -> Bool {
+        (try? JSONDecoder().decode(Request.self, from: data)) != nil
     }
     private static func answer(_ request: Request, relay: CloudCredentialRelay, expectedInstall: String) async -> JSONValue {
         guard request.host.utf8.count == 25, request.host.hasPrefix("host_"),
@@ -241,6 +265,7 @@ public nonisolated struct CloudLinkLauncher: Sendable {
     let runtimeBase: URL
     let tagged: Bool
     private let credentialServer: CloudLinkCredentialServer?
+    private let credentialSocketValue: URL?
     private let clock: any Clock<Duration>
 
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "cloud.link")
@@ -253,9 +278,13 @@ public nonisolated struct CloudLinkLauncher: Sendable {
         self.runtimeBase = runtimeBase
         self.tagged = tagged
         if let relay, let stateRoot {
-            self.credentialServer = CloudLinkCredentialServer(path: Self.credentialSocketPath(stateRoot: stateRoot, runtimeBase: runtimeBase), executable: binary, relay: relay)
+            let base = Self.credentialSocketPath(stateRoot: stateRoot, runtimeBase: runtimeBase)
+            let unique = base.replacingOccurrences(of: ".sock", with: "-\(UUID().uuidString.lowercased()).sock")
+            self.credentialServer = CloudLinkCredentialServer(path: unique, executable: binary, relay: relay)
+            self.credentialSocketValue = URL(fileURLWithPath: unique)
         } else {
             self.credentialServer = nil
+            self.credentialSocketValue = nil
         }
         self.clock = clock
     }
@@ -295,8 +324,7 @@ public nonisolated struct CloudLinkLauncher: Sendable {
     /// The private credential socket passed to `cmux-tui link`; it carries no
     /// token and is only useful while this app's relay is serving.
     var credentialSocket: URL? {
-        guard let stateRoot else { return nil }
-        return URL(fileURLWithPath: Self.credentialSocketPath(stateRoot: stateRoot, runtimeBase: runtimeBase))
+        credentialSocketValue
     }
 
     /// Unix-domain sockets have a 104-byte path limit on Darwin. Keep this
@@ -308,6 +336,10 @@ public nonisolated struct CloudLinkLauncher: Sendable {
             hash ^= UInt64(byte); hash &*= 1099511628211
         }
         return runtimeBase.appendingPathComponent(String(format: "cmux-link-%016llx.sock", hash)).path
+    }
+
+    static func credentialRequestAcceptedForTesting(_ data: Data) -> Bool {
+        CloudLinkCredentialServer.acceptsRequestForTesting(data)
     }
 
     /// The `link ensure` command line for `install` (pure). `--handoff`
