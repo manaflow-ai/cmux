@@ -1,12 +1,12 @@
 import React, { useCallback, useImperativeHandle, useRef, type RefObject } from "react";
-import type { ComposerAttachment } from "./attachments";
+import { type ComposerAttachment, inlineTokenIds } from "./attachments";
+import { useInlineAttachments } from "./composer/inlineAttachments";
 import {
   AttachmentStrip,
   backspacedAttachment,
   type MadeFile,
   type PendingAttachment,
 } from "./composer/attachmentIntake";
-import { reordered } from "./composer/stripReorder";
 import { isPasteAsPlainTextKey, usePastedChips } from "./composer/pastedChips";
 import { ComposerFoot } from "./ComposerFoot";
 import { useComposerSettings } from "./composerSettings";
@@ -25,6 +25,9 @@ const CARD_OWN_PRESS =
 export type ComposerBoxHandle = {
   /// Paste as Plain Text is starting (the prompt's menu): its paste goes in as text, never a chip.
   plainPaste(): void;
+  place(chips: readonly PendingAttachment[]): void;
+  /// Attachments `ids` went with a prompt: gone from the text for good (composer/inlineAttachments.tsx).
+  sent(ids: Iterable<string>): void;
 };
 
 export type ComposerBoxProps = {
@@ -51,6 +54,10 @@ export type ComposerBoxProps = {
   /// A loading chip's × and a failed chip's Retry (attachmentIntake.tsx PendingChip).
   onCancelAttachment?(id: string): void;
   onRetryAttachment?(id: string): void;
+  /// A cancelled loading chip's node came back (undo): read its file again; false when it can't.
+  onReviveAttachment?(id: string): boolean;
+  /// Why a staged image's original failed to upload, by chip id (AttachmentStrip).
+  originalFailures?: Readonly<Record<string, string>>;
   /// A staged chip dragged along the strip; unset, the box moves it in `attachments` itself.
   onReorderAttachment?(id: string, index: number): void;
   /// Attaches a file as a pasted one is: a paste of text past what a prompt carries goes as one.
@@ -104,6 +111,8 @@ export function ComposerBox({
   onRemoveAttachment,
   onCancelAttachment,
   onRetryAttachment,
+  onReviveAttachment,
+  originalFailures,
   onReorderAttachment,
   onPasteFile,
   fieldMenu,
@@ -121,8 +130,9 @@ export function ComposerBox({
   bottom,
 }: ComposerBoxProps) {
   // Debug Settings' plain footer look (composerSettings.ts plainFooter, composerLocation.css): the
-  // chips stay in the quiet row under the box in either look (composerLook.ts).
-  const { plainFooter } = useComposerSettings();
+  // chips stay in the quiet row under the box in either look; Codex's keeps the ring and the look dots in
+  // the box's own row (composerLook.ts).
+  const { plainFooter, attachmentView } = useComposerSettings();
   const quietRow = useQuietRow();
   const look = useComposerLook();
   const claudeGrid = look !== "codex";
@@ -144,7 +154,37 @@ export function ComposerBox({
   const pastedChips = usePastedChips(attachmentsRef ?? ownAttachments, setAttachments, prompt, onPasteFile);
   const plainPaste = useRef(pastedChips.plainPaste);
   plainPaste.current = pastedChips.plainPaste;
-  useImperativeHandle(handle, () => ({ plainPaste: () => plainPaste.current() }), []);
+  const inline = useInlineAttachments({
+    field: prompt,
+    scope: field.selectionKey,
+    text: field.value,
+    attachments,
+    attachmentsRef: attachmentsRef ?? ownAttachments,
+    setAttachments,
+    pending: pending ?? [],
+    cancel: (id) => onCancelAttachment?.(id),
+    retry: (id) => onRetryAttachment?.(id),
+    revive: (id) => onReviveAttachment?.(id) ?? false,
+    expand: (id) => {
+      pastedChips.expand(id);
+      prompt.current?.removeInline(id);
+    },
+    placing: () => !fieldOverlay,
+    codex,
+    ...(originalFailures ? { originalFailures } : {}),
+  });
+  // A block pasted again opens its chip as a click does, kept for an undo.
+  pastedChips.opens.current = inline.expand;
+  useImperativeHandle(
+    handle,
+    () => ({
+      plainPaste: () => plainPaste.current(),
+      place: (chips) => inline.place(chips, "paste"),
+      sent: (ids) => inline.sent(ids),
+    }),
+    [inline],
+  );
+  const placed = new Set(inlineTokenIds(field.value, inline.known));
   const { onBeforeInput, onKeyDown } = field;
   // A press on the card around the text (the field's padding, the gap around the button row, the
   // card's edge) focuses the prompt where its caret was, as in Codex and Claude Code, whose whole
@@ -171,18 +211,31 @@ export function ComposerBox({
   return (
     <>
       {/* oxlint-disable-next-line jsx-a11y/no-static-element-interactions -- A pointer convenience only: the prompt inside is the control and takes the keyboard itself. */}
-      <div ref={boxRef} className="ui-glass ui-glass-floats acpmux-composer-box" onMouseDown={focusFromCard}>
+      <div
+        ref={boxRef}
+        className="ui-glass ui-glass-floats acpmux-composer-box"
+        data-attachment-view={attachmentView}
+        onMouseDown={focusFromCard}
+      >
         {top}
         <AttachmentStrip
-          attachments={attachments}
-          {...(pending ? { pending } : {})}
+          attachments={attachmentView === "inline" ? attachments.filter((chip) => !placed.has(chip.id)) : attachments}
+          {...(pending
+            ? {
+                pending: attachmentView === "inline" ? pending.filter((chip) => !placed.has(chip.id)) : pending,
+              }
+            : {})}
           {...(attachError ? { error: attachError } : {})}
           codex={codex}
-          onRemove={onRemoveAttachment}
-          {...(onCancelAttachment ? { onCancel: onCancelAttachment } : {})}
+          onRemove={(id) => {
+            inline.remove(id);
+            onRemoveAttachment(id);
+          }}
+          {...(onCancelAttachment ? { onCancel: inline.cancel } : {})}
           {...(onRetryAttachment ? { onRetry: onRetryAttachment } : {})}
-          onReorder={onReorderAttachment ?? ((id, index) => setAttachments((current) => reordered(current, id, index)))}
-          onExpand={pastedChips.expand}
+          {...(originalFailures ? { originalFailures } : {})}
+          onReorder={onReorderAttachment ?? inline.reorder}
+          onExpand={inline.expand}
         />
         {/* The prompt's own right-click menu (POLISH.md right-click contract); WebKit's never shows. */}
         <ContextMenu className="acpmux-composer-field-menu" items={fieldMenu} selection="menu" onOpen={onFieldMenuOpen}>
@@ -190,6 +243,16 @@ export function ComposerBox({
           <MarkdownField
             ref={setPrompt}
             {...field}
+            onReady={() => {
+              inline.ready();
+              field.onReady?.();
+            }}
+            onInlineViews={inline.onInlineViews}
+            isInlineAttachment={inline.known}
+            onChange={(markdown, caret) => {
+              inline.edited(markdown);
+              field.onChange(markdown, caret);
+            }}
             onBeforeInput={(data, state) => {
               // A huge paste is a chip, the prompt as it was (pastedText.ts); a chip's own text going
               // back in is the person's to edit, never the host's (shell mode).
@@ -205,21 +268,26 @@ export function ComposerBox({
               // Backspace at the prompt's start takes back the last chip (backspacedAttachment).
               const backspaced = composing
                 ? undefined
-                : backspacedAttachment(event, prompt.current?.atStart() ?? false, attachments);
+                : backspacedAttachment(
+                    event,
+                    prompt.current?.atStart() ?? false,
+                    attachments.filter((chip) => attachmentView === "strip" || !placed.has(chip.id)),
+                  );
               if (backspaced) {
                 event.preventDefault();
-                setAttachments((current) => current.filter((item) => item.id !== backspaced.id));
+                inline.remove(backspaced.id);
                 return;
               }
               onKeyDown?.(event);
             }}
           />
+          {inline.chips}
           {fieldOverlay}
         </ContextMenu>
         {/* The button row: a right-click here shows a control hidden from its own (composerChrome.tsx). */}
         <ChromeArea className="acpmux-chrome-area" items={chromeItems}>
-          {/* The model group stays in ComposerFoot for both looks. Claude keeps its compact box grid
-              for +, prompt, mic and Send; Codex keeps its own bar layout. */}
+          {/* Claude keeps its compact box grid for +, prompt, mic and Send, with the model group in
+              ComposerFoot; Codex's row holds them all (composerLook.css). */}
           <div
             ref={quietRow ? undefined : bar}
             className={claudeGrid ? "acpmux-composer-bar acpmux-composer-inner" : "acpmux-composer-bar"}
@@ -230,7 +298,7 @@ export function ComposerBox({
                 compact row): grants live in the permission mode's Access menu, one lock. */}
             {!quietRow && shownChips}
             {/* Codex's look: the context ring before the model, where Codex shows its own. */}
-            {!quietRow && plainFooter && ring}
+            {!quietRow && ring}
             <span className="acpmux-composer-actions">
               {actionsLead}
               {/* The mic stays at every width; the prompt shrinks instead (composerRowFit.ts). */}
@@ -254,7 +322,7 @@ export function ComposerBox({
       )}
       {/* One stable host for both looks, so a look switched from the dots by keys keeps the same
           radios and focus: with the quiet row they draw over its empty middle, with Codex's look
-          the host is positioned inside the box's dead-space row (composerLook.css). */}
+          over the empty middle of the box's own control row (composerLook.css). */}
       {bottom && (
         <div className="acpmux-composer-under" data-beside-foot={quietRow ? "" : undefined}>
           {bottom}
