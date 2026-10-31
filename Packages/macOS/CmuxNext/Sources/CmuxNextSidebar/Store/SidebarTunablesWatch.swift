@@ -20,14 +20,13 @@ final class SidebarTunablesWatch {
         var rowTitle: SidebarRowTitleMode, rowTitleSingleChat: Bool
         /// Laid out, not configured: the hover close's spot and glyph size.
         var rowCloseSpot: SidebarRowCloseSpot
-        var tabLines: SidebarTabLineLook
 
         static func read() -> Snapshot {
             Snapshot(agentMark: SidebarTunables.agentMark.value, presenceDots: SidebarTunables.presenceDots.value,
                      rowBadge: SidebarRowBadgeStyle.tunable.value, stackCap: SidebarRowBadgeStackCap.tunable.value,
                      workspaceTitleMotion: SidebarTunables.workspaceTitleMotion.value, quietUnnamedRows: SidebarTunables.quietUnnamedRows.value,
                      rowTitle: SidebarTunables.rowTitle.value, rowTitleSingleChat: SidebarTunables.rowTitleSingleChat.value,
-                     rowCloseSpot: SidebarTunables.rowCloseSpot.value, tabLines: SidebarTunables.tabLines.value)
+                     rowCloseSpot: SidebarTunables.rowCloseSpot.value)
         }
 
         var values: Values {
@@ -36,7 +35,6 @@ final class SidebarTunablesWatch {
     }
 
     private let rows = NSHashTable<WorkspaceRowView>.weakObjects()
-    private let tabRows = NSHashTable<SidebarTabRowView>.weakObjects()
     /// The values the live rows drew with; nil until a row first asks.
     private var snapshot: Snapshot?
     /// An observation is registered and has not fired yet (its hop to `fired()` is not done).
@@ -46,13 +44,6 @@ final class SidebarTunablesWatch {
     func values(for row: WorkspaceRowView) -> Values {
         rows.add(row)
         return current().values
-    }
-
-    /// The listed tab rows' look (`sidebar.tabLines`); `row` is redrawn when it changes.
-    func tabLook(for row: SidebarTabRowView) -> SidebarTabLineLook {
-        tabRows.add(row)
-        // A tab-only viewport still follows its offscreen parent's leading mark (`agentMark` is in the snapshot).
-        return current().tabLines
     }
 
     /// Redraws the live rows when a tunable they read differs from what they drew with. The observation runs this
@@ -69,11 +60,6 @@ final class SidebarTunablesWatch {
             // `sidebar.rowCloseSpot` changes no configuration: lay the controls out again (the close re-renders its glyph).
             row.needsLayout = true
             row.closeButton.needsLayout = true
-        }
-        for row in tabRows.allObjects {
-            row.redrawLastConfiguration()
-            // The parent's title column can change while the tab's own Content stays equal.
-            row.needsLayout = true
         }
     }
 

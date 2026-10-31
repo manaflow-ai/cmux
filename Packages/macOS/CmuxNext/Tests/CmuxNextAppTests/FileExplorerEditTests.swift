@@ -2,13 +2,14 @@ import AppKit
 @testable import CmuxNextApp
 import CmuxNextCompat
 import CmuxNextFiles
+import CmuxNextTestSupport
 import Foundation
 import Testing
 import CmuxNextFilesUI
 
 /// The Files tree makes, renames and trashes items (classic's file explorer menu: New File, New
 /// Folder, Rename, Move to Trash) and shows each item's git state.
-@MainActor @Suite(.serialized)
+@MainActor @Suite(.serialized, .closesItsWindows)
 struct FileExplorerEditTests {
     /// The real operator, except that Move to Trash deletes (a test leaves nothing in the Trash).
     struct DeletingTrash: FileOperating {
@@ -133,6 +134,7 @@ struct FileExplorerEditTests {
         let model = FileExplorerModel(git: FakeGit(top: "/nowhere", porcelain: ""))
         await model.setRoot(root)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.borderless], backing: .buffered, defer: true)
+        defer { window.closeAfterTest() }
         let undo = try #require(window.undoManager)
         let commands = FileExplorerCommands(model: model, effects: FileExplorerTests.Recorder(), files: FolderTrash(bin: bin), undoManager: undo)
         let b = try #require(model.rows.first { $0.name == "b.txt" }).url

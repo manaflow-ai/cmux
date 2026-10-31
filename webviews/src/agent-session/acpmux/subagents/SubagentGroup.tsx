@@ -6,12 +6,12 @@
 import { createContext, useContext, useState } from "react";
 import { usePageNow } from "../../../ui/pageClock";
 import { Icon } from "../icons/Icon";
-import { AgentMark } from "../../shared/AgentMark";
 import { usePaneLanguage, useT, type PaneLanguage, type Translate } from "../i18n";
 import type { AcpmuxRow } from "../model";
 import { formatDuration } from "../conversation/turns";
 import type { Subagent } from "./subagentFold";
-import { AgentTonesContext } from "./agentTones";
+import { agentTone, AgentTonesContext } from "./agentTones";
+import { AgentIdentity, isRepeatedAgentKind } from "./AgentIdentity";
 import { subagentProgress } from "./subagentProgress";
 import { waveProps } from "../../../ui/wave";
 
@@ -83,7 +83,7 @@ export function Avatar({ agent, wave }: { agent: Subagent; wave?: number }) {
       style={style}
       data-state={agent.state}
     >
-      <AgentMark agent={harness} size={14} fallback={<Icon name="agent.session" size={14} />} />
+      <AgentIdentity harness={harness} tone={agentTone(agent.id)} size={14} />
     </span>
   );
 }
@@ -168,7 +168,9 @@ export function SubagentListRow({ row }: { row: AcpmuxRow }) {
       <span className="cv-subagent__text">
         <span className="cv-subagent__name">
           {agent.name}
-          {agent.kind && agent.kind !== agent.name && <span className="cv-subagent__kind">{agent.kind}</span>}
+          {agent.kind && agent.kind !== agent.name && !isRepeatedAgentKind(agent.kind) && (
+            <span className="cv-subagent__kind">{agent.kind}</span>
+          )}
         </span>
         <span className="cv-subagent__state">{state}</span>
       </span>
