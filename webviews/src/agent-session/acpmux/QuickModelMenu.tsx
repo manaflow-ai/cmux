@@ -288,8 +288,8 @@ export function QuickModelMenu({
   // Fast mode for a tab other than the chat's (Leo 2026-10-31: "WHY THE FUCK IS THERE NO FUCKING
   // FAST MODE FOR FUCKIGN CODEX"): nothing runs there yet, so the row holds the choice and a model
   // picked from that tab lands with it. Off each time the menu opens; the chat's own tab keeps the
-  // session's option.
-  const [heldFast, setHeldFast] = useState(false);
+  // session's option. It holds the tab it was turned on for: only that tab's picks take it.
+  const [heldFast, setHeldFast] = useState<string | undefined>();
   const moreListId = useId();
   // Reset as the menu opens, in render: the composer re-renders while it is open (a streaming
   // reply), and an effect on the families would throw away the tab and the typed filter.
@@ -301,7 +301,7 @@ export function QuickModelMenu({
       setTab(families?.current ?? families?.list.find((family) => !family.starred)?.id);
       setQuery("");
       setMoreFor(undefined);
-      setHeldFast(false);
+      setHeldFast(undefined);
       setScrolled(false);
     }
   }
@@ -432,7 +432,12 @@ export function QuickModelMenu({
     onOpenChange(false);
     // Another tab's model lands with the Fast mode its tab's row holds.
     const row =
-      heldFast && families && picked.family !== families.current && picked.canFast && !picked.fast
+      heldFast !== undefined &&
+      families &&
+      picked.family === heldFast &&
+      picked.family !== families.current &&
+      picked.canFast &&
+      !picked.fast
         ? { ...picked, fast: true }
         : picked;
     const running = (!families || row.family === families.current) && row.id === current;
@@ -1074,8 +1079,8 @@ export function QuickModelMenu({
           <MenuSeparator />
           <MenuCheckboxItem
             className="acpmux-quick-item acpmux-quick-fast"
-            checked={tabFast ? heldFast : !!fast?.checked}
-            onCheckedChange={(on) => (tabFast ? setHeldFast(on) : fast?.onChange(on))}
+            checked={tabFast ? heldFast === tab : !!fast?.checked}
+            onCheckedChange={(on) => (tabFast ? setHeldFast(on ? tab : undefined) : fast?.onChange(on))}
           >
             <span className="acpmux-menu-label">{t("picker.fastMode")}</span>
             <span className="acpmux-quick-fast-toggle" aria-hidden="true">
