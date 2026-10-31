@@ -103,6 +103,24 @@ import Testing
         model.keyboardDragPinned()
         #expect(model.isInteracting)
     }
+
+    /// Find: a revealed match is read where it is; output does not move it away, and a
+    /// finger on the page wins.
+    @Test func findRevealsARowAndKeepsItWhileOutputAppends() {
+        var model = TerminalScrollModel()
+        let a = TerminalDocumentLayout(originRow: 0, endRow: 600)
+        model.reveal(row: 120)
+        #expect(model.state == .reading(.init(row: 120, delta: 0)))
+        let b = TerminalDocumentLayout(originRow: 0, endRow: 700)
+        #expect(model.target(layout: b, rowHeight: cell, topInset: 62, bottomOffsetY: bottom(b)) == 120 * cell)
+        #expect(model.target(layout: a, rowHeight: cell, topInset: 62, bottomOffsetY: bottom(a)) == 120 * cell)
+        // At the document's top, the page starts above row 0 (under the top bar's inset).
+        model.reveal(row: 0, delta: -62)
+        #expect(model.target(layout: a, rowHeight: cell, topInset: 62, bottomOffsetY: bottom(a)) == -62)
+        model.began()
+        model.reveal(row: 10)
+        #expect(model.isInteracting)
+    }
 }
 
 /// User report 2026-10-14 (real iPhone): "Jump to bottom only works when

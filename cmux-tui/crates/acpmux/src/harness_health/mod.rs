@@ -169,6 +169,7 @@ pub(crate) fn builtin_login(family: &str) -> Option<&'static str> {
         "gemini" => "gemini",
         "opencode" => "opencode auth login",
         "unii" => "unii login",
+        "hermes" => "hermes model",
         _ => return None,
     })
 }
@@ -600,9 +601,19 @@ fn local(s: Subject, home: &Path) -> HarnessHealth {
 
 #[cfg(test)]
 mod tests {
-    use super::{Auth, Channel, HarnessHealth, HealthService, Subject, auth_failure, codex_login_in_file};
+    use super::{
+        Auth, Channel, HarnessHealth, HealthService, Subject, auth_failure, codex_login_in_file,
+    };
     use serde_json::json;
     use std::collections::BTreeMap;
+
+    /// Hermes keeps its provider and model in ~/.hermes: `hermes model` picks
+    /// them (an API key or a provider sign-in), which is the sign-in a Chief on
+    /// Hermes needs.
+    #[test]
+    fn hermes_signs_in_with_hermes_model() {
+        assert_eq!(super::builtin_login("hermes"), Some("hermes model"));
+    }
 
     #[test]
     fn expired_login_probe_is_not_just_signed_out() {

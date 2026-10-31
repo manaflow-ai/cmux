@@ -206,8 +206,12 @@ export function ProjectChooser({
               if (key === ADD_PROJECT_KEY)
                 return (
                   <>
-                    <PlusIcon />
-                    <span>{t("project.new")}</span>
+                    <span className="acpmux-project-lead" aria-hidden="true">
+                      <PlusIcon />
+                    </span>
+                    <span className="acpmux-menu-text">
+                      <span className="acpmux-menu-label">{t("project.new")}</span>
+                    </span>
                   </>
                 );
               const row = rowsByKey.get(key);
@@ -216,10 +220,18 @@ export function ProjectChooser({
               const name = project ? project.label : row ? t("project.noProject") : t("project.usePath", { path: key });
               return (
                 <>
-                  {project ? <ProjectBadge project={project} /> : row ? <NoProjectIcon /> : icon}
+                  {project ? (
+                    <ProjectBadge project={project} />
+                  ) : (
+                    <span className="acpmux-project-lead" aria-hidden="true">
+                      {row ? <NoProjectIcon /> : icon}
+                    </span>
+                  )}
                   <span className="acpmux-menu-text">
                     <span className="acpmux-menu-label">{name}</span>
-                    {project && <span className="acpmux-menu-description" data-path={project.cwd} />}
+                    {project && !titledByPath(project) && (
+                      <span className="acpmux-menu-description" data-path={project.cwd} />
+                    )}
                   </span>
                   {project?.host && (
                     <span className="acpmux-project-host">
@@ -252,6 +264,13 @@ export function ProjectChooser({
       />
     </span>
   );
+}
+
+/// A folder the host names by its own path (a home folder has no project name): its title is
+/// already the path, so the row shows it once (Leo, ":( alignemnt").
+function titledByPath(project: Project) {
+  const trim = (path: string) => path.trim().replace(/(.)\/+$/, "$1");
+  return trim(project.label) === trim(project.cwd);
 }
 
 function GlobeIcon() {

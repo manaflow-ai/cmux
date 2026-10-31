@@ -103,8 +103,8 @@ test("every HostUnavailableLine in the pane is worded by hostLineText", () => {
   const uses = [...source.matchAll(/<HostUnavailableLine\b[\s\S]*?\/>/g)].map((match) => match[0]);
   expect(uses.length).toBeGreaterThan(0);
   for (const use of uses) {
-    expect(use).toMatch(/message=\{hostLine\.line\}/);
-    expect(use).toMatch(/detail=\{hostLine\.detail\}/);
+    expect(use).toMatch(/message=\{hostWords\.line\}/);
+    expect(use).toMatch(/detail=\{hostWords\.detail\}/);
   }
-  expect(source).toMatch(/const hostLine = hostLineText\(/);
+  expect(source).toMatch(/const hostWords = hostLineText\(/);
 });
