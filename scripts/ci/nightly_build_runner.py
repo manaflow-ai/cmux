@@ -27,9 +27,11 @@ A Linux job runs this right before the macOS job queues and prints its labels:
   (side_lane_placement.compatible_labels()), while an online runner carrying it
   is idle now (pr_runner_pool.live_owned_free(), the rule side lanes are placed
   with). When the runners cannot be read (no routing token, or its API budget
-  spent) it is the first watched label itself, so the build still queues on the
-  owned pool before Blacksmith (unread_owned_route()). Empty when no label is
-  one the rescue watches. A busy fleet is waited on only while every
+  spent) and the caller sets UNREAD_OWNED_FALLBACK=1 (nightly.yml's build pick,
+  only while vars.CI_PR_POOL_OWNED is on and the rescue watches the build), it is
+  the first watched label itself, so the build still queues on the owned pool
+  before Blacksmith (unread_owned_route()). Empty when no label is one the
+  rescue watches, or when unread without that opt-in. A busy fleet is waited on only while every
   Blacksmith macOS label is stalled (owned_queue_route()): then the first of those
   labels an online runner carries, else one any registered runner carries, since
   the rescue watches a job there and re-runs this picker once a label moves.
@@ -316,7 +318,10 @@ def main(env: Mapping[str, str] = os.environ,
             print(f"::warning title=nightly build runner::could not read the pool snapshot ({str(error)[:200]})")
     candidate = (env.get("CANDIDATE") or "").strip()
     blacksmith, blacksmith_why = blacksmith_route(candidate, snapshot, now, (env.get("EXCLUDE") or "").strip())
-    if not owned and runners is None:
+    if not owned and runners is None and (env.get("UNREAD_OWNED_FALLBACK") or "").strip() == "1":
+        # Only where the caller opts in (UNREAD_OWNED_FALLBACK=1): nightly.yml's build pick sets it while
+        # vars.CI_PR_POOL_OWNED is on, and the owned-pool rescue watches that build. Off (the kill switch), no
+        # owned label is offered; the train (nightly-next-train.yml) has no rescue, so it keeps Blacksmith.
         # Fleet first (Leo, 2026-10-30: Blacksmith is capped, paid overflow): runners the picker cannot read (its
         # token's API budget spent, or no routing token) are not a reason to send the build to Blacksmith macOS.
         # On 2026-10-31 run 41203691245's picker got a 403 rate limit on /actions/runners and queued the first tip
