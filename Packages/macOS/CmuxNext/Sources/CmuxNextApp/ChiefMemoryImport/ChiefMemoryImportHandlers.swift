@@ -32,6 +32,7 @@ enum ChiefMemoryImportHandlers {
             let named = invocation["source"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
             let interactive = !registry.isCapturingRefusal
             let window = CloudHandlers.window(context)
+            let detectArgs = Self.detectArguments(muxHome: muxHome(context), invocation: invocation)
             // task-owner: one detect, one dialog and one background import the person started; ends with the result toast
             registry.track(Task { @MainActor in
                 let runner = Runner(tool: tool, target: target, context: context, window: window)
@@ -40,7 +41,7 @@ enum ChiefMemoryImportHandlers {
                     return nil
                 }
                 guard interactive else { return ActionWorkFailure(ChiefMemoryImportStrings.nothingFound) }
-                let found = await runner.detect()
+                let found = await runner.detect(detectArgs)
                 runner.askWhichSources(found)
                 return nil
             })
@@ -68,9 +69,16 @@ enum ChiefMemoryImportHandlers {
     /// What the first-run panel offers, read off the main thread (none without the tool): run at launch unasked, so never ~/Downloads (LAUNCH-NO-TCC-PROMPTS).
     static func detectForOffer(muxHome: String) async -> [MemorySource] {
         guard let tool = bundledTool() else { return [] }
-        let output = await run(tool, MemoryImportCommand(target: .local(muxHome: muxHome)).detect(), timeout: .seconds(60))
+        let output = await run(tool, offerDetectArguments(muxHome: muxHome), timeout: .seconds(60))
         return MemorySource.parse(Data(output.stdout.utf8))
     }
+
+    /// The offer's detect: unasked, so never the export zips in ~/Downloads and ~/Desktop (LAUNCH-NO-TCC-PROMPTS).
+    static func offerDetectArguments(muxHome: String) -> [String] { MemoryImportCommand(target: .local(muxHome: muxHome)).detect() }
+
+    /// A run's detect: only the person's own (``ActionInvocation/isPersonsOwnRun``) lists the export zips in the
+    /// guarded ~/Downloads and ~/Desktop; automation names a zip instead (`source: zip:/path`) (LAUNCH-NO-TCC-PROMPTS).
+    static func detectArguments(muxHome: String, invocation: ActionInvocation) -> [String] { MemoryImportCommand(target: .local(muxHome: muxHome)).detect(exports: invocation.isPersonsOwnRun) }
 
     private static func muxHome(_ context: AppActionContext) -> String {
         HomeBrainHost.muxHome(tag: context.services.environment.tag).path
@@ -108,8 +116,7 @@ enum ChiefMemoryImportHandlers {
             }
         }
 
-        func detect() async -> [MemorySource] {
-            let arguments = MemoryImportCommand(target: .local(muxHome: ChiefMemoryImportHandlers.muxHome(context))).detect(exports: true)
+        func detect(_ arguments: [String]) async -> [MemorySource] {
             let output = await ChiefMemoryImportHandlers.run(tool, arguments, timeout: .seconds(60))
             return MemorySource.parse(Data(output.stdout.utf8))
         }
