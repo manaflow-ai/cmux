@@ -177,3 +177,20 @@
   margin-left: -6px;
   margin-right: 2px;
 }
+
+/* The shared icon set (icons.tsx `Icon`, `data-icon`): stroke glyphs on its 20px grid, Octicons
+   filled. The diff page styles them in its own sheet; a page without it (the markdown and code
+   editor pages) drew them with no stroke, so the chevrons and the close button were blank. */
+.find-pill__button svg[data-icon] {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentcolor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.find-pill__button svg[data-icon][data-icon-fill] {
+  fill: currentcolor;
+  stroke: none;
+}
