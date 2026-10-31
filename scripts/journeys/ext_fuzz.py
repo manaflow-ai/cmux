@@ -88,6 +88,11 @@ ACTIONS = {
     "close_pane": {"action": "closePane", "closes": "pane"},                      # no default key: the menu's route
     "close_workspace": {"key": "w", "mods": ["cmd", "shift"], "closes": "workspace"},  # Cmd-Shift-W
     "switch_workspace": {"special": True},                                        # Cmd-1 .. Cmd-4
+    # cmux-ad 10:48Z, TOP P0 TIP RED 1193 (STATUS 1202): a split, then a line typed AT ONCE (keys held while the pane is
+    # made), then a second split SPLIT_GAP later with its own line. Each line must run in the pane made for it,
+    # exactly once, and in no other pane (ext_smoke's smoke_new_terminals, the gate's own check). Normal mode only:
+    # --diagnostic waits out the creation hold before each line, so there it is weak.
+    "split_type": {"special": True, "creates": "pane", "count": 2, "inside": True, "alone": True},
     "resize_window": {"special": True},                                           # drag the window's corner
     "drag_divider": {"special": True},                                            # drag a split's divider
     "type_line": {"special": True},                                               # a line typed into the terminal
@@ -96,12 +101,12 @@ ACTIONS = {
     "close_all": {"special": True, "alone": True},                                # every workspace closed; leak check
 }
 # How often a plan picks each action: creates more often than closes, so the app keeps something to act on.
-WEIGHTS = {"new_column": 2, "new_tab": 3, "new_workspace": 2, "split_right": 3, "split_down": 2, "new_terminal": 4, "open_url": 1,
+WEIGHTS = {"new_column": 2, "split_type": 2, "new_tab": 3, "new_workspace": 2, "split_right": 3, "split_down": 2, "new_terminal": 4, "open_url": 1,
            "close_tab": 2, "close_pane": 1, "close_workspace": 1, "switch_workspace": 2, "resize_window": 2,
            "drag_divider": 2, "type_line": 3, "paste": 1, "relaunch": 0.3, "close_all": 1}
 # The action sets (journey option fuzz_set): `layout` (cmux-ad 06:42Z, fuzz-catalog row m, the first mode: the layout
 # invariants R3a and R3b under the actions that change the layout) and `full` (every action above).
-SETS = {"layout": {"new_column": 3, "split_right": 3, "split_down": 2, "new_terminal": 3, "close_pane": 1.5,
+SETS = {"layout": {"new_column": 3, "split_right": 3, "split_down": 2, "split_type": 3, "new_terminal": 3, "close_pane": 1.5,
                    "drag_divider": 2, "resize_window": 2, "relaunch": 0.3},
         "full": WEIGHTS}
 TIMINGS = {"now": 0.0, "pair": 0.06, "slow": 1.5}
@@ -116,6 +121,9 @@ CREATE_TIMEOUT = 20.0
 SETTLE = 3.0
 STALL_MS = 100.0
 HOLD_SECONDS = 2.5  # driver.CREATION_HOLD_SECONDS; repeated so fuzz.py can import this file without the driver
+# split_type: the second split this long after the first line's Return (cmux-ad 10:48Z: about 30 ms).
+SPLIT_GAP = 0.03
+SPLIT_LINES_TIMEOUT = 15.0
 # Actions after which the model cannot predict counts (exact create checks and R3b are off for that burst).
 DISTURB = {"close_tab", "close_pane", "close_workspace", "switch_workspace", "relaunch", "close_all"}
 # Actions that change pane sizes on purpose (R3b is off for that burst).
@@ -151,13 +159,18 @@ CORPUS = {
                                {"a": "new_column", "t": "slow"}, {"a": "new_column", "t": "slow"},
                                {"a": "split_right", "t": "slow"}, {"a": "split_down", "t": "slow"},
                                {"a": "new_column", "t": "pair"}, {"a": "new_column", "t": "slow"}],
+    # TIP RED 1193 (STATUS 1202, pa-d's red journey journeys/p0/tipred-1193-split-type-at-once.json): two fast Cmd-D,
+    # each with its line typed at once; both lines ran in the second new pane on feat 5097a275a876 (cmux18, key window).
+    "tipred-1193-split-type": [{"a": "new_workspace", "t": "slow"}, {"a": "new_terminal", "t": "slow"},
+                               {"a": "split_type", "t": "slow", "down": [False, False]},
+                               {"a": "split_type", "t": "slow", "down": [False, True]}],
     "lawrence-cmd-t-slow": [{"a": "new_workspace", "t": "slow"}, {"a": "new_terminal", "t": "slow"},
                             {"a": "new_tab", "t": "slow"}, {"a": "new_tab", "t": "pair"}, {"a": "new_tab", "t": "slow"}],
 }
 
 
 # The corpus entries each set plays (fuzz.py --corpus): the layout set's are the layout reports.
-CORPUS_SETS = {"layout": ("lawrence-cmd-d-twice", "lawrence-ctrl-backtick-twice", "lawrence-resize", "lawrence-column-widths"),
+CORPUS_SETS = {"layout": ("tipred-1193-split-type", "lawrence-cmd-d-twice", "lawrence-ctrl-backtick-twice", "lawrence-resize", "lawrence-column-widths"),
                "full": tuple(CORPUS)}
 
 
@@ -208,14 +221,20 @@ def plan(seed, count, weights=None, actions="full"):
             item["by"] = rng.choice((-1, 1)) * rng.randint(24, 200)
         elif name == "switch_workspace":
             item["n"] = rng.randint(1, 4)
+        elif name == "split_type":
+            item["down"] = [rng.random() < 0.35, rng.random() < 0.35]  # Cmd-D or Split Down, for each of the two
         out.append(item)
     return out
 
 
 def bursts(seq):
-    """The plan cut into bursts: actions that follow at once or as a pair, at most MAX_BURST, then a slow one."""
+    """The plan cut into bursts: actions that follow at once or as a pair, at most MAX_BURST, then a slow one; an
+    `alone` action (relaunch, close-all, split + type) is always a burst of its own."""
     out, cur = [], []
     for item in seq:
+        if cur and ACTIONS.get(item["a"], {}).get("alone"):
+            out.append(cur)  # an `alone` action is a burst of its own: it never joins the actions before it
+            cur = []
         cur.append(item)
         if item.get("t", "slow") == "slow" or len(cur) >= MAX_BURST or ACTIONS.get(item["a"], {}).get("alone"):
             out.append(cur)
@@ -265,7 +284,7 @@ def _rpc(j, method, params=None, timeout=10):
 def state(j):
     """The app's topology now, reduced to what the model predicts."""
     topo = j.topology()
-    out = {"workspaces": [], "tabs": [], "terminals": {}, "panes": {}, "browsers": 0, "focus": topo.get("focus") or {},
+    out = {"workspaces": [], "tabs": [], "terminals": {}, "panes": {}, "browsers": [], "focus": topo.get("focus") or {},
            "daemon_state": topo.get("daemon_state"), "columns": {}}
     for ws in topo.get("workspaces") or []:
         out["workspaces"].append(ws.get("id"))
@@ -282,7 +301,7 @@ def state(j):
                         out["terminals"][str(tab.get("terminal_key") or term)] = {"term": str(term), "ws": ws.get("id"),
                                                                                   "pane": pane.get("id"), "tab": tab.get("id")}
                     if tab.get("kind") == "browser" or (tab.get("url") and not term):
-                        out["browsers"] += 1
+                        out["browsers"].append(tab.get("id"))
     return out
 
 
@@ -313,6 +332,24 @@ def drawn(p):
 def refusals(j):
     report = _rpc(j, "debug.toast") or {}
     return list(report.get("refusals") or []) if isinstance(report, dict) else []
+
+
+def new_refusals(before, after):
+    """The refusal messages AFTER has that BEFORE did not (debug.toast keeps only the newest 100: once full, a new
+    message shifts the list instead of growing it, so a length compare would miss it)."""
+    before, after = list(before or []), list(after or [])
+    if len(after) > len(before) and after[:len(before)] == before:
+        return after[len(before):]
+    for k in range(len(before) + 1):  # the longest tail of BEFORE that AFTER starts with
+        tail = before[k:]
+        if after[:len(tail)] == tail:
+            return after[len(tail):]
+    return after
+
+
+# A refusal that answers a split ("Not enough room to split this column / pane"): only these make a split + type round
+# not judged; any other message (an error toast of the bug under test) never hides a red.
+SPLIT_REFUSAL = re.compile(r"split", re.I)
 
 
 def hang_records(j, after):
@@ -399,6 +436,10 @@ class Fuzz:
         self.leak_base = None
         self.speed, self.played, self.notes = [], [], []
         self.findings = {}  # signature -> {oracle, signature, detail, count, first_n, sequence}
+        # split + type at once: plays, plays whose keys took the hold path, reds, passes on the hold path (judged),
+        # passes with no held key (not judged: the hold path was not exercised).
+        self.split_stats = {"played": 0, "hold": 0, "red": 0, "pass_hold": 0, "pass_not_judged": 0, "refused": 0,
+                            "creation_hold": 0}
         # Size history per terminal (journey option fuzz_trace=1; on in replays): every change of the daemon's size
         # (`cmux terminal list`), of the app's grid / fit_grid / drawn grid (debug.surfaces) and every SIGWINCH the
         # shell saw (a trap prints `FZW rows cols`), each with its ms since the run began: whether a size reached
@@ -423,10 +464,12 @@ class Fuzz:
         return t, reply
 
     def type_text(self, text):
+        """Types TEXT and Return, one debug.key per key; returns each key's path (debug.key `handled_by`: "app" is the
+        router's hold, a key held for a terminal still being made and replayed there; "responder" a key that went
+        straight to the focused view), the same per-key record as ext_smoke's smoke_type_now."""
         self.wait_hold()
-        for ch in text:
-            self.j.key(ch, [])
-        self.j.key("return", [])
+        replies = [self.j.key(ch, []) for ch in text] + [self.j.key("return", [])]
+        return [str(r.get("handled_by")) if isinstance(r, dict) else "?" for r in replies]
 
     def answer_dialog(self):
         """A close that asks (a running process): its default, as Return does."""
@@ -466,6 +509,8 @@ class Fuzz:
             j.key("return", [])
         elif name == "switch_workspace":
             rec["at"], _ = self.press(str(item.get("n", 1)), ["cmd"])
+        elif name == "split_type":
+            rec.update(self.split_type(item))
         elif name == "resize_window":
             self.wait_hold()
             rec["at"] = D.now()
@@ -501,6 +546,124 @@ class Fuzz:
         if spec.get("closes"):
             rec["dialog"] = self.answer_dialog()
         return rec
+
+    def creation_hook(self, action, n=None, stand_in=None):
+        """The P0 1193 owner's DEBUG hook (#29301, `debug.creation.hold {n}` / `debug.creation.release {n?}`): its reply,
+        or None on a build without it (remembered for the run: the plain timing variant is used there)."""
+        if getattr(self, "has_creation_hook", None) is False:
+            return None
+        try:
+            params = {} if n is None else {"n": n}
+            if stand_in:
+                params["stand_in"] = stand_in
+            reply = self.j.app.rpc("debug.creation." + action, params, timeout=10)
+        except (D.StepError, OSError, ValueError) as error:
+            text = str(error).lower()
+            if "method_not_found" in text or "unknown method" in text or "not found" in text:
+                self.has_creation_hook = False
+                return None
+            raise
+        self.has_creation_hook = True
+        return reply if isinstance(reply, dict) else {}
+
+    def wait_new_view(self, split_pane, timeout=5.0):
+        """pa-d's smoke_wait_new_view (1ee7b743983): until AppKit's first responder of the key window is a terminal view
+        in another pane than SPLIT_PANE (debug.focus appkit first_responder "TerminalSurfaceView", classified
+        "content:<pane>"): the new pane's early view has the keyboard. Reads only; True when reached."""
+        if not split_pane:
+            return False  # pa-d's rule: without the split pane, the old pane's own terminal would pass at once
+        end = D.now() + timeout
+        while D.now() < end:
+            report = _rpc(self.j, "debug.focus") or {}
+            for w in report.get("windows") or [] if isinstance(report, dict) else []:
+                if not isinstance(w, dict):
+                    continue
+                kit = w.get("appkit") or {}
+                where = str(kit.get("classified") or "")
+                if w.get("is_key") and kit.get("first_responder") == "TerminalSurfaceView" and where.startswith("content:") \
+                        and where[len("content:"):] not in ("", split_pane):
+                    return True
+            time.sleep(0.075)
+        return False
+
+    def split_type(self, item):
+        """Two splits, each followed at once by its own line (see ACTIONS["split_type"]); returns the record with the
+        lines and the snapshot name the oracle reads.
+
+        On a build with the creation hold hook (#29301, STATUS 1428, pa-d's tipred-1193-stand-in journey): hold
+        {"n": [1], "stand_in": [2]} (creation 1's reply held, creation 2's stand-in kept out of the store, so its focus
+        cannot land: the memory-pressure state on purpose), first split, wait until the new pane's view is AppKit's
+        first responder, line 1 at once, second split, line 2 at once, release {}. Proven by the release reply: a second
+        creation started, creation 1 in `resumed`, `shown` == [2]; never assumed. On a build without the hook: the plain timing, where
+        the hold path is proven only by a key the router held (handled_by "app")."""
+        import ext_smoke  # beside this file
+        j = self.j
+        if not self.focused_terminal():
+            # Cmd-D on Home or on a page splits nothing a line can be typed in: nothing to judge (the layout set's
+            # ensure_target puts a workspace with a terminal first).
+            return {"at": D.now(), "skipped": "the focused tab is not a terminal"}
+        self.splits = getattr(self, "splits", 0) + 1
+        snap = f"fz-split-{self.splits}"
+        ext_smoke.step_smoke_snapshot(j, {"name": snap})
+        refused_before = refusals(j)
+        # The split pane as pa-d reads it (debug.surfaces' focused pane), else the topology's focus.
+        split_pane = next((p.get("pane") for p in surfaces(j) if p.get("focused")), None) or state(j)["focus"].get("pane")
+        hold = None if self.diagnostic else self.creation_hook("hold", [1], stand_in=[2])
+        lines, at, paths, release, reached = [], None, [], None, None
+        try:
+            for k, down in enumerate(item.get("down") or [False, False]):
+                if k:
+                    time.sleep(SPLIT_GAP)
+                t, _ = self.press("d", ["cmd", "shift"] if down else ["cmd"])
+                at = at or t
+                self.last_create = t
+                if k == 0 and hold is not None:
+                    reached = self.wait_new_view(split_pane)
+                line = f"st{j.nonce}-{self.splits}-{k + 1}"
+                # At once in normal mode (type_text waits out the creation hold only in --diagnostic).
+                paths.append(self.type_text(f"echo {line}"))
+                lines.append(line)
+        finally:
+            if hold is not None:
+                release = self.creation_hook("release")  # every held creation, and the hook disarmed, on any path
+        rec = {"at": at, "split_lines": lines, "split_snapshot": snap, "at_once": not self.diagnostic,
+               "split_paths": [{"line": ln, "held": p.count("app"), "paths": sorted(set(p))} for ln, p in zip(lines, paths)],
+               "refused_before": refused_before}
+        held = sum(p.count("app") for p in paths)
+        if hold is not None:
+            # The hook's own report (pa-d's _creation_proof with `resumed`): creation 1 waited for this release, and
+            # the second split started while it was held.
+            ints = lambda key: [int(x) for x in (release or {}).get(key) or [] if isinstance(x, (int, float))]
+            proven = int((release or {}).get("started") or 0) >= 2 and 1 in ints("resumed") and sorted(ints("shown")) == [2]
+            rec.update(variant="creation-hold", hold_path=proven, held_keys=held, creation_release=release,
+                       new_view_focused=reached)
+        else:
+            # The hold-path rule of pa-d's TIP RED 1193 journey (ext_smoke smoke_hold_path, 90e79d90d35; cmux-ad
+            # 11:05Z): a pass counts only when at least one key typed at once after a split was held by the router.
+            rec.update(variant="plain", hold_path=held > 0, held_keys=held)
+        return rec
+
+    def split_lines(self, rec):
+        """The split_type oracle: ext_smoke.cond_smoke_new_terminals (placement new_panes, the last line on the focused
+        terminal), polled until it holds or SPLIT_LINES_TIMEOUT."""
+        import ext_smoke
+        refused = [m for m in new_refusals(rec.get("refused_before"), refusals(self.j)) if SPLIT_REFUSAL.search(str(m))]
+        if refused:
+            # A split the app refused with a visible message ("Not enough room to split this column"): its line goes to
+            # the pane that has the keys, as it should. Not judged; the create oracle records the refusal.
+            rec["refused"] = refused[-2:]
+            return []
+        want = {"since": rec["split_snapshot"], "lines": rec["split_lines"], "focused": rec["split_lines"][-1],
+                "placement": "new_panes"}
+        end, detail = D.now() + SPLIT_LINES_TIMEOUT, {}
+        while True:
+            ok, detail = ext_smoke.cond_smoke_new_terminals(self.j, want, {})
+            if ok:
+                return []
+            if D.now() >= end:
+                return [("keys", f"split + type at once{'' if rec.get('at_once') else ' (diagnostic: after the hold)'}: "
+                                 f"{'; '.join(detail.get('problems') or [])} (holders {json.dumps(detail.get('holders'))[:300]})")]
+            time.sleep(0.25)
 
     def focused_terminal(self):
         st = state(self.j)
@@ -585,22 +748,27 @@ class Fuzz:
                 if on_ws is not True:
                     exact = False
                     continue
-                want["tabs"] += 1
+                n = int(ACTIONS[item["a"]].get("count", 1))
+                want["tabs"] += n
                 if kind == "pane":
-                    want["panes"] += 1
-                    want["terminals"] += 1
+                    want["panes"] += n
+                    want["terminals"] += n
                 sure = True
         if not exact and not sure:
             return none
         return want, exact
 
     def delta(self, before, after):
+        """What the burst made: the ids in AFTER that BEFORE did not have (workspaces, tabs, terminals, panes of the
+        shown workspace), never a net count. A close that lands late (after this burst's baseline, as on cmux20 at
+        11:3xZ: a close_pane, then New Column drew a new terminal while the net counts said 0) cannot hide a create."""
         ws = shown_ws(after)
-        return {"workspaces": len(after["workspaces"]) - len(before["workspaces"]),
-                "tabs": len(after["tabs"]) - len(before["tabs"]),
-                "terminals": len(after["terminals"]) - len(before["terminals"]),
-                "browsers": after["browsers"] - before["browsers"],
-                "panes": len(after["panes"].get(ws, [])) - len(before["panes"].get(ws, []))}
+        old_panes = {p for ps in before["panes"].values() for p in ps}
+        return {"workspaces": len(set(after["workspaces"]) - set(before["workspaces"])),
+                "tabs": len(set(after["tabs"]) - set(before["tabs"])),
+                "terminals": len(set(after["terminals"]) - set(before["terminals"])),
+                "browsers": len(set(after["browsers"]) - set(before["browsers"])),
+                "panes": len(set(after["panes"].get(ws, [])) - old_panes)}
 
     def trace_sizes(self, st=None):
         """One sample of every terminal's sizes into self.trace (only changes are kept)."""
@@ -613,6 +781,12 @@ class Fuzz:
         except D.StepError:
             pass
         st = st or state(self.j)
+        # The app's own invariant counters (debug.surfaces; R3a/R3b are counted there on builds with #29056): a change
+        # across an action tells a real size fault from a stale report field.
+        report = _rpc(self.j, "debug.surfaces") or {}
+        if isinstance(report, dict) and "invariant_violations" in report:
+            self._trace("app", "invariants", f"violations {report.get('invariant_violations')} checks "
+                                             f"{report.get('invariant_checks')}", ms)
         for p in surfaces(self.j, text=True):
             term = (st["terminals"].get(str(p.get("terminal_id") or "")) or {}).get("term")
             if not term:
@@ -639,7 +813,7 @@ class Fuzz:
         want, exact = self.predict(burst, before)
         if not any(want.values()):
             return [], None, exact
-        made = [r for r in recs if ACTIONS[r["a"]].get("creates")]
+        made = [r for r in recs if ACTIONS[r["a"]].get("creates") and not r.get("skipped")]
         t_end = D.now() + CREATE_TIMEOUT
         after, got = before, {}
         old = set(before["terminals"])
@@ -677,7 +851,7 @@ class Fuzz:
                 r["typeable_ms"] = self.new_tab_field(r["at"])
         problems = []
         if not held(got):
-            refused = refusals(self.j)[len(refused_before):]
+            refused = new_refusals(refused_before, refusals(self.j))
             if refused:
                 self.notes.append({"n": self.n, "refused": refused[-3:], "want": want, "got": got})
             else:
@@ -934,13 +1108,35 @@ class Fuzz:
                 gap = TIMINGS.get(item.get("t"), 0.0)
                 if gap:
                     time.sleep(gap)
-        problems, after, exact = self.creates(burst, before, recs, refused_before)
+        # A create whose action skipped itself (split_type on a page: no key pressed) predicts nothing.
+        judged = [i for i, r in zip(burst, recs) if not r.get("skipped")]
+        problems, after, exact = self.creates(judged, before, recs, refused_before) if judged else ([], None, True)
         for r in recs:
             if r.get("error") and r["a"] in ("relaunch",):
                 problems.append(("crash", f"relaunch failed: {r['error'][:200]}"))
         for r in recs:
             if r["a"] == "type_line":
                 problems += (r.get("probe") or {}).get("problems", [])
+            if r.get("split_lines") and any(p[0] == "create" for p in problems):
+                self.split_stats["played"] += 1  # the splits made no pane: a red on any path
+                self.split_stats["hold"] += 1 if r.get("hold_path") else 0
+                self.split_stats["red"] += 1
+            elif r.get("split_lines"):
+                found = self.split_lines(r)
+                problems += found
+                if r.get("refused"):
+                    self.split_stats["refused"] += 1
+                    continue
+                # n(hold)/n(rounds): a pass counts only on the hold path; a red counts on any path.
+                self.split_stats["played"] += 1
+                self.split_stats["creation_hold"] += 1 if r.get("variant") == "creation-hold" else 0
+                self.split_stats["hold"] += 1 if r.get("hold_path") else 0
+                if found:
+                    self.split_stats["red"] += 1
+                elif r.get("hold_path"):
+                    self.split_stats["pass_hold"] += 1
+                else:
+                    self.split_stats["pass_not_judged"] += 1
         made_terminal = any(ACTIONS[a].get("creates") in ("terminal", "pane") for a in names)
         if made_terminal and not any(p[0] == "create" for p in problems):
             self.arm_winch(None)
@@ -1060,7 +1256,7 @@ def step_fuzz_run(j, step):
     if failure and fz.shrink:
         prefix = failure["sequence"]
 
-        kept, kept_speed = dict(fz.findings), list(fz.speed)
+        kept, kept_speed, kept_split = dict(fz.findings), list(fz.speed), dict(fz.split_stats)
 
         def fails(cand):
             if not fz.left():
@@ -1071,11 +1267,13 @@ def step_fuzz_run(j, step):
                 return None
             return bool(got) and got["oracle"] == failure["oracle"]
         shrunk, tries = ddmin(prefix, fails, fz.left)
-        fz.findings, fz.speed = kept, kept_speed  # the shrink's replays repeat what the run saw: no new samples
+        # The shrink's replays repeat what the run saw: no new samples, findings or split + type counts.
+        fz.findings, fz.speed, fz.split_stats = kept, kept_speed, kept_split
     report = {"seed": fz.seed, "source": fz.source, "diagnostic": fz.diagnostic, "planned": len(fz.sequence),
               "played": played, "seconds": round(D.now() - started, 1), "failure": failure,
               "shrunk": shrunk, "shrink_tries": tries, "budget_out": budget_out, "speed": fz.speed,
               "findings": sorted(fz.findings.values(), key=lambda f: f["first_n"]), "notes": fz.notes[-200:],
+              "split_type": fz.split_stats,
               "size_trace": fz.trace, "leak_baseline": fz.leak_base, "log": fz.played[-400:],
               "sequence": getattr(fz, "effective", []) if failure is None else failure["sequence"]}
     (j.out / "fuzz.json").write_text(json.dumps(report, indent=1, default=str) + "\n")
@@ -1099,9 +1297,57 @@ def cond_fuzz_daemon_agrees(j, want, cache):
     fz = getattr(j, "fuzz", None)
     if fz is None:
         return False, {"error": "no fuzz_run before this check"}
-    found = fz.topology(state(j))
+    # Only the daemon-vs-app topology: the app's own desync monitor (debug.desync) is the RECORD oracle `desync`,
+    # already a finding of the run (fuzz_clean), never judged a second time here as a broken round.
+    found = [(o, d) for o, d in fz.topology(state(j)) if o not in RECORD]
     return not found, {"problems": [d for _, d in found]}
 
 
-STEPS = {"fuzz_run": step_fuzz_run}
+def step_fuzz_crash_reports(j, step):
+    """Reads the mini's crash reports of the last HOURS (default 12) under ~/Library/Logs/DiagnosticReports (the lease's
+    account, which runs every capture app) and writes diag-crashes.json beside result.json: per report its file, app
+    name, bundle id, version, the build's tag from the app path, the crash time, the exception, the crashing thread's
+    top FRAMES frames, and the fuzz's own leases of that mini. Only reads; nothing is changed or sent anywhere."""
+    import glob
+    import os
+    hours, frames = float(step.get("hours", 12)), int(step.get("frames", 16))
+    root = os.path.expanduser("~/Library/Logs/DiagnosticReports")
+    cutoff = time.time() - hours * 3600
+    out = []
+    for path in sorted(glob.glob(os.path.join(root, "**", "*.ips"), recursive=True)):
+        try:
+            if os.path.getmtime(path) < cutoff:
+                continue
+            text = open(path, errors="replace").read()
+        except OSError:
+            continue
+        head, _, body = text.partition("\n")
+        try:
+            meta = json.loads(head)
+        except ValueError:
+            meta = {}
+        try:
+            crash = json.loads(body)
+        except ValueError:
+            crash = {}
+        rec = {"file": os.path.basename(path), "app": meta.get("app_name") or meta.get("name"),
+               "bundle": meta.get("bundleID"), "version": meta.get("app_version"), "build": meta.get("build_version"),
+               "time": meta.get("timestamp"), "bug_type": meta.get("bug_type"),
+               "path": (crash.get("procPath") or "")[:300], "pid": crash.get("pid"),
+               "exception": crash.get("exception"), "termination": crash.get("termination"),
+               "launched": crash.get("procLaunch"), "crashed": crash.get("captureTime")}
+        threads = crash.get("threads") or []
+        images = crash.get("usedImages") or []
+        hit = next((t for t in threads if t.get("triggered")), None)
+        if hit is not None:
+            rec["thread"] = {"name": hit.get("name"), "queue": hit.get("queue"), "frames": [
+                {"image": (images[f.get("imageIndex")] or {}).get("name") if isinstance(f.get("imageIndex"), int)
+                 and f.get("imageIndex") < len(images) else None, "symbol": f.get("symbol"),
+                 "offset": f.get("imageOffset")} for f in (hit.get("frames") or [])[:frames]]}
+        out.append(rec)
+    (j.out / "diag-crashes.json").write_text(json.dumps(out, indent=1, default=str) + "\n")
+    return {"reports": len(out), "apps": sorted({str(r.get("app")) for r in out})}
+
+
+STEPS = {"fuzz_run": step_fuzz_run, "fuzz_crash_reports": step_fuzz_crash_reports}
 CONDITIONS = {"fuzz_clean": ("app", cond_fuzz_clean), "fuzz_daemon_agrees": ("daemon", cond_fuzz_daemon_agrees)}

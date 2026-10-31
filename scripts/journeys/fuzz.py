@@ -29,6 +29,7 @@ speed regression), NOT JUDGED (a round did not run), DIAGNOSTIC. Writes OUT/summ
 Exit 0 CLEAN, 1 RED, 75 NOT JUDGED or DIAGNOSTIC without a red, 2 usage. Fleet only: never on a person's Mac.
 """
 import argparse
+import calendar
 import importlib.util
 import json
 import os
@@ -122,6 +123,10 @@ def journey_problems(out, report):
         result = json.loads(path.read_text())
     except ValueError:
         return ["result.json does not parse"]
+    if result.get("status") == "not run" or (result.get("harness") or {}).get("pinned") is False:
+        # run.py judged the round not run (an unpinned harness, the lease deadline, a known gap): its steps are no
+        # evidence either way, so none of them makes the round broken (RED); it counts as not run.
+        return []
     problems = []
     for st in result.get("steps") or []:
         if st.get("ok") is not False or st.get("finally"):
@@ -151,6 +156,61 @@ def journey_row(out):
     return {"status": "not run", "reason": "no action-fuzz line"}
 
 
+def wait_go(opts, what):
+    """The mini scheduler's hand-off (--go-dir DIR --go-spec NAME, its mini-queue/rounds/ protocol): before a round
+    acquires, wait for DIR/NAME.go ({"spec", "host", "worker", "go", "until"}): the scheduler holds that mini free for
+    5 min, so the round never waits in a capture-host drain behind fleet steps. The go file is consumed; a go whose
+    `until` has passed is dropped (the scheduler writes a new one). Returns the mini to lease."""
+    d = Path(opts.go_dir)
+    d.mkdir(parents=True, exist_ok=True)
+    go = d / f"{opts.go_spec}.go"
+    print(f"fuzz: {what} waits for {go}", flush=True)
+    # The minis this run may lease: --whole-host's one mini (normal mode), else --host, else --hosts. A go for another
+    # mini is dropped, so the lease is always the mini the scheduler holds and the run may use.
+    allowed = (getattr(opts, "whole_host", None) or opts.host or opts.hosts).split()
+    while True:
+        while not go.exists():
+            time.sleep(5)
+        try:
+            data = json.loads(go.read_text() or "{}") or {}
+        except ValueError:
+            data = {}
+        try:
+            go.unlink()
+        except FileNotFoundError:
+            pass
+        host, until, stamp = data.get("host"), data.get("until"), data.get("go")
+        if stamp is not None and stamp == getattr(opts, "last_go", None):
+            # The same GO again (a copy the scheduler left, or a re-read): one GO is one lease, never two.
+            print(f"fuzz: dropped a go file that repeats the last GO ({stamp})", flush=True)
+            continue
+        expired = False
+        if isinstance(until, (int, float)):
+            expired = until < time.time()
+        elif isinstance(until, str):
+            try:
+                expired = calendar.timegm(time.strptime(until[:19], "%Y-%m-%dT%H:%M:%S")) < time.time()  # UTC
+            except ValueError:
+                expired = True  # an until that cannot be read is no hold: wait for the next go
+        if not host or host not in allowed or expired:
+            print(f"fuzz: dropped a go file ({data}): host not in {allowed} or past its until", flush=True)
+            continue
+        print(f"fuzz: {what} goes on {host} (scheduler hold until {until})", flush=True)
+        opts.last_go = stamp
+        if isinstance(until, str):
+            until = calendar.timegm(time.strptime(until[:19], "%Y-%m-%dT%H:%M:%S"))
+        return host, (float(until) if isinstance(until, (int, float)) else None)
+
+
+def signal_done(opts, what, host, status):
+    """After the round released its lease: DIR/NAME.done (the scheduler gives the mini back to its queue)."""
+    # "go": the GO this lease used, so the scheduler ends that GO's hold only (STATUS 1590): a .done written after the
+    # scheduler already wrote the next GO must not end the next one.
+    (Path(opts.go_dir) / f"{opts.go_spec}.done").write_text(json.dumps({"spec": opts.go_spec, "what": what, "host": host,
+                                                                        "status": status, "at": time.time(),
+                                                                        "go": getattr(opts, "last_go", None)}) + "\n")
+
+
 def replay_options(seq, opts):
     """The journey options of one replay of SEQ (no shrink in the app, the run's set, the size trace on)."""
     return {"fuzz_sequence": json.dumps(seq, separators=(",", ":")), "fuzz_shrink": "false", "fuzz_set": opts.set,
@@ -178,7 +238,18 @@ class Runner:
 
     def lease(self, build, out, options, host=None):
         """One run.py round: the fuzz journey on BUILD in an exclusive lease (on HOST when given); (exit code,
-        journey row, fuzz report, the mini it ran on)."""
+        journey row, fuzz report, the mini it ran on). With --go-dir every lease (rounds, ddmin tries, confirmations)
+        waits for the scheduler's go file and leases only the mini it names, then writes the done file."""
+        opts = self.opts
+        if opts.go_dir:
+            host, until = wait_go(opts, out.name)
+            try:
+                return self._lease(build, out, options, host, until)
+            finally:
+                signal_done(opts, out.name, host, None)
+        return self._lease(build, out, options, host)
+
+    def _lease(self, build, out, options, host=None, until=None):
         opts = self.opts
         env = {**os.environ,
                "CAPTURE_HOST_ACQUIRE_TIMEOUT_SECONDS": os.environ.get("CAPTURE_HOST_ACQUIRE_TIMEOUT_SECONDS", "600"),
@@ -186,7 +257,16 @@ class Runner:
                "CAPTURE_HOST_POOL": os.environ.get("CAPTURE_HOST_POOL", self.gate.OWNER_POOL),
                "JOURNEYS_EXCLUDE_HOSTS": " ".join(x for x in (os.environ.get("JOURNEYS_EXCLUDE_HOSTS", "cmux16"),
                                                                 "" if opts.allow_cmux17 else "cmux17") if x)}
+        # Normal mode leases only its --whole-host mini (wait_go drops a go for any other one); else the go host or
+        # the first side's mini of an ABBA pair, else --host, else an idle one of --hosts.
         hosts = opts.whole_host or host or opts.host or self.gate.idle_first(opts.hosts)
+        if until is not None:
+            # A go-gated round: the scheduler holds the mini until UNTIL, so the acquire waits only that window (counted
+            # from the go, not from when the round queued). Past it, the round is "not run" and waits for the next go,
+            # never a long drain on a mini the scheduler no longer holds.
+            window = int(max(30, until - time.time()))
+            env["CAPTURE_HOST_ACQUIRE_TIMEOUT_SECONDS"] = str(window)
+            env["CAPTURE_HOST_EXCLUSIVE_DRAIN_SECONDS"] = "0"
         env["CAPTURE_HOST_HOSTS"] = env["CAPTURE_HOST_SLOT_HOSTS"] = hosts
         argv = [sys.executable, opts.runner, "--build", build, "--journey", JOURNEY, "--exclusive", "--hosts", hosts,
                 "--out", str(out)]
@@ -234,6 +314,10 @@ def summarize(rounds, opts, started):
     new_findings = [f for f in findings.values() if not f["on_base"]]
     for f in fails:
         f["also_on_base"] = (f.get("failure") or {}).get("oracle") in base_fail_oracles
+    split = {k: sum(((r.get("split_type") or {}).get(k) or 0) for r in test) for k in
+             ("played", "hold", "red", "pass_hold", "pass_not_judged", "refused", "creation_hold")}
+    split_base = {k: sum(((r.get("split_type") or {}).get(k) or 0) for r in rounds if r["build"] == "base") for k in
+                  ("played", "hold", "red", "pass_hold", "pass_not_judged", "refused", "creation_hold")}
     speed = speed_table([dict(s, build=r["build"], seed=r["seed"]) for r in rounds for s in r.get("speed") or []])
     reds = [s for s in speed if s["red"]]
     fuzz_s = sum(r.get("seconds") or 0 for r in test)
@@ -257,6 +341,7 @@ def summarize(rounds, opts, started):
             "failures": [{k: r.get(k) for k in ("round", "seed", "host", "failure", "shrunk", "shrink_leases", "confirmed",
                                                 "repro", "corpus", "also_on_base")} for r in fails],
             "findings": sorted(findings.values(), key=lambda f: (f["on_base"], f["oracle"])),
+            "split_type": split, "split_type_base": split_base,
             "broken_rounds": [{k: r.get(k) for k in ("round", "seed", "host", "status", "reason", "journey_problems")} for r in broken],
             "base_failures": [{k: r.get(k) for k in ("round", "seed", "host", "failure", "shrunk", "corpus")} for r in base_fails],
             "speed": speed, "speed_reds": reds,
@@ -272,6 +357,12 @@ def text_of(summary):
     lines = [f"action fuzz ({s['set']}) of build {s['build']}" + (f" vs base {s['base']}" if s["base"] else "")
              + f": {s['verdict']} ({s['test_rounds']} rounds, {s['actions']} actions, {s['fuzz_seconds']} s of fuzz, "
              f"{s['not_run']} rounds not run; seeds {s['seeds'][:10]})"]
+    for name, sp in (("build", s.get("split_type") or {}), ("base", s.get("split_type_base") or {})):
+        if sp.get("played"):
+            lines.append(f"  split + type at once ({name}): n(hold)/n(rounds) = {sp['hold']}/{sp['played']}; red {sp['red']}, "
+                         f"pass on the hold path {sp['pass_hold']}, pass not judged (no key held) {sp['pass_not_judged']}; "
+                         f"creation-hold hook rounds {sp.get('creation_hold', 0)}, refused by the app {sp.get('refused', 0)}"
+                         + ("; HOLD PATH NOT PROVEN: no pass of this action is judged" if not sp["hold"] else ""))
     if s["weak_oracles"]:
         lines.append("DIAGNOSTIC (no key window on a slot): weak oracles: " + "; ".join(s["weak_oracles"]))
     for f in s["failures"]:
@@ -331,7 +422,14 @@ def main(argv=None):
     ap.add_argument("--whole-host", metavar="HOST",
                     help="normal mode: lease this whole mini (exclusive) and launch the app active, so its window is key "
                          "and keys are typed at once (needs CuaDriver's grants and its direct-capture Allow on HOST)")
-    ap.add_argument("--shrink-tries", type=int, default=10, help="ddmin tries per failure (one short lease each)")
+    ap.add_argument("--go-dir", help="the mini scheduler's hand-off folder (mini-queue/rounds): each round waits for "
+                                     "DIR/<--go-spec>.go ({\"host\": MINI, \"until\": ...}) before it acquires, and "
+                                     "writes DIR/<--go-spec>.done after the release")
+    ap.add_argument("--go-spec", default="fuzz", help="the spec name of the scheduler's go and done files")
+    ap.add_argument("--shrink-tries", type=int, default=None,
+                    help="ddmin tries per failure (one short lease each); default 10, and 0 for --replay (a replay is "
+                         "the confirmation of a repro; give a number to shrink it further, e.g. a 3-action repro that "
+                         "may need fewer)")
     ap.add_argument("--replay", help="a repro JSON (a sequence list, or a file with `shrunk`/`sequence`): one round")
     ap.add_argument("--plan", action="store_true", help="print the plan of --seed and exit (no fleet)")
     ap.add_argument("--out")
@@ -389,7 +487,8 @@ def main(argv=None):
                    "played": (report or {}).get("played"), "seconds": (report or {}).get("seconds"),
                    "failure": (report or {}).get("failure"), "shrunk": (report or {}).get("shrunk"),
                    "speed": (report or {}).get("speed") or [], "findings": (report or {}).get("findings") or [],
-                   "journey_problems": journey_problems(r_out, report), "corpus": label == "corpus",
+                   "journey_problems": journey_problems(r_out, report),
+                   "split_type": (report or {}).get("split_type"), "corpus": label == "corpus",
                    "exclusive": gate.exclusive_line(r_out), "pressure": gate.pressure(r_out, opts.hog_swap_gb) if opts.hog_swap_gb else None}
             rounds.append(rec)
             print(f"round {n} {side} ({label}, seed {rec['seed']}) on {used}: {rec['status']}"
@@ -419,7 +518,12 @@ def main(argv=None):
     # sequence is then confirmed (a try that failed with the same oracle, else one more lease) and written as a
     # regression journey. The same failure is shrunk once (by oracle and signature), not per round.
     repros, done_sigs, k = out / "repros", set(), 0
-    for r in [r for r in rounds if r["build"] == "test" and r.get("failure")]:
+    # A --replay plays a sequence that is already a repro: by default it is the confirmation only, not shrunk again
+    # (each ddmin try spends a lease). An explicit --shrink-tries N shrinks it too (a replayed 3-action R3b repro on
+    # cmux20 at 12:3xZ shrank to New Column alone).
+    if opts.shrink_tries is None:
+        opts.shrink_tries = 0 if opts.replay else 10
+    for r in [r for r in rounds if r["build"] == "test" and r.get("failure") and opts.shrink_tries > 0]:
         sig = ext_fuzz.signature(r["failure"]["oracle"], r["failure"]["detail"])
         report = fuzz_report(out / f"round-{r['round']:03d}-test") or {}
         seq = r.get("shrunk") or report.get("sequence") or []
@@ -467,6 +571,8 @@ def main(argv=None):
     if summary["verdict"] == "CLEAN":
         handoff = Path(opts.handoff)
         handoff.mkdir(parents=True, exist_ok=True)
+        sp = summary.get("split_type") or {}
+        summary["split_type_hold_proven"] = bool(sp.get("hold"))  # TIP RED 1193: a clean run says if it judged a hold
         (handoff / f"{opts.build}.clean").write_text(json.dumps({k: v for k, v in summary.items() if k != "rounds_detail"},
                                                                 indent=1, default=str) + "\n")
         print(f"wrote {handoff / (opts.build + '.clean')}")
