@@ -311,6 +311,7 @@ def step_real_key_probe(j, step):
     on-screen windows of every app (CuaDriver list_windows: e.g. a Look Up / dictionary panel of another process),
     and a full-display screenshot (CuaDriver get_desktop_state) saved as NAME.png in the journey's folder. Records
     only; never fails on what the key did (`expect` is reported, the journey's own expects judge)."""
+    import re
     name = step.get("name", "probe")
     require_front(j)
     last_before = j.app.rpc("debug.key", {"last": True}) or {}
@@ -324,7 +325,7 @@ def step_real_key_probe(j, step):
     bad, data, raw = _session(j).call("list_windows", {})
     windows = [{"app": w.get("app_name"), "pid": w.get("pid"), "title": w.get("title"), "layer": w.get("layer"),
                 "bounds": w.get("bounds")} for w in data.get("windows") or [] if w.get("is_on_screen", True)]
-    shot = j.out / f"{name}.png"
+    shot = j.out / f"diag-{re.sub(r'[^a-z]', '', name.lower())}.png"  # run.py fetches diag-<letters>.png
     bad2, data2, raw2 = _session(j).call("get_desktop_state", {"screenshot_out_file": str(shot)})
     others = sorted({w["app"] for w in windows if w.get("pid") != j.app.pid and w.get("app")})
     return {"keys": list(step.get("modifiers", [])) + [step["key"]], "key_path": "real_hid",
