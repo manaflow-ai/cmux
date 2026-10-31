@@ -59,9 +59,9 @@ struct AgentTabRemoteStartTests {
     /// Only an owner check's refusal becomes the teammate one, and only on a teammate's link; the
     /// owner check itself is never skipped (`host_unverified` stays for a machine of no known kind).
     @Test func onlyAnUnverifiedOwnerOnATeammatesLinkIsATeamRefusal() {
-        #expect(AgentRemoteStartRefusal.classified("agent_session.host_unverified", teammate: true) == "agent_session.team_vm_blocked")
-        #expect(AgentRemoteStartRefusal.classified("agent_session.host_unverified", teammate: false) == "agent_session.host_unverified")
-        #expect(AgentRemoteStartRefusal.classified("agent_session.timeout", teammate: true) == "agent_session.timeout")
+        #expect(AgentSessionAttachError.classified("agent_session.host_unverified", teammate: true) == "agent_session.team_vm_blocked")
+        #expect(AgentSessionAttachError.classified("agent_session.host_unverified", teammate: false) == "agent_session.host_unverified")
+        #expect(AgentSessionAttachError.classified("agent_session.timeout", teammate: true) == "agent_session.timeout")
         #expect(AgentRemoteStartRefusal.teamMachine(machine: "vm").userMessage.contains("teammate"))
     }
 
