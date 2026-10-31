@@ -60,16 +60,42 @@ impl Line {
     /// Decodes one line, or None when it is not a page, change or lag of the watch (the
     /// `initialize` answer, a malformed change, another method).
     pub fn parse(bytes: &[u8]) -> Option<Line> {
-        // Not decoded yet: the failing tests come first.
-        let _ = (bytes, Index::default(), Change::Removed { key: Box::default() });
-        let _: Option<(WireMessage, WirePage, WireParams, Option<u64>, Option<Chat>)> = None;
-        let _ = (
-            whole as fn(Number) -> Option<u64>,
-            non_empty as fn(Option<String>) -> Option<Box<str>>,
-            Text::default(),
-            Flag::default(),
-        );
-        None
+        let message: WireMessage = serde_json::from_slice(bytes).ok()?;
+        if let (Some(id), Some(page)) = (message.id.0, message.result) {
+            // The watch is request 2; every later list is 3 or more.
+            #[allow(clippy::cast_possible_truncation)]
+            let id = id as i64;
+            if id == 2 || id >= 3 {
+                let chats = page.chats.unwrap_or_default().into_iter().filter_map(Chat::from_wire);
+                return Some(Line::Page {
+                    index: Index::from_chats(chats),
+                    ready: page.ready.0.unwrap_or(false),
+                    enabled: page.enabled.0.unwrap_or(true),
+                    seq: whole(page.seq),
+                });
+            }
+            return None;
+        }
+        match message.method.0.as_deref() {
+            Some("_acpmux/chat_changed") => {
+                let params = message.params?;
+                let key: Box<str> = params.key.0.filter(|key| !key.is_empty())?.into();
+                let seq = whole(params.seq);
+                let change = match params.kind.0.as_deref() {
+                    Some("removed") => Change::Removed { key },
+                    Some("activity") => Change::Activity {
+                        key,
+                        attention: params.attention.0.map(Into::into),
+                        preview: params.preview.0.map(Into::into),
+                        parent: non_empty(params.parent.0),
+                    },
+                    _ => Change::Upserted { chat: Chat::from_wire(params.chat?)? },
+                };
+                Some(Line::Change { change, seq })
+            }
+            Some("_acpmux/chats_lagged") => Some(Line::Lagged),
+            _ => None,
+        }
     }
 }
 
