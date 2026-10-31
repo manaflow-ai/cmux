@@ -91,6 +91,13 @@ struct MobileSettingsView: View {
         #endif
         return NavigationStack {
             Form {
+                // A Free account that may buy in the App Store sees the
+                // Upgrade card first. Renders nothing for paid plans, web or
+                // team billing, and hosts without a billing model.
+                if authManager.isAuthenticated {
+                    MobileSettingsUpgradeSection()
+                }
+
                 MobileSettingsAccountSection(signOut: signOut)
 
                 // Plan and App Store subscription, for a signed-in account.

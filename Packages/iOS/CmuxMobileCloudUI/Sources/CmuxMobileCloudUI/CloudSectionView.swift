@@ -20,7 +20,11 @@ import SwiftUI
 public struct CloudSectionView: View {
     @State private var controller: CloudSessionController
     @Environment(\.cloudSystemVPNController) private var systemVPN
+    /// App Store billing; when present, Free accounts see the upgrade
+    /// banner and New Machine opens the paywall.
+    @Environment(BillingModel.self) private var billing: BillingModel?
     @State private var isCreateSheetPresented = false
+    @State private var paywall: BillingEntryPoint?
 
     /// Creates the section over a session controller.
     public init(controller: CloudSessionController) {
@@ -29,6 +33,7 @@ public struct CloudSectionView: View {
 
     public var body: some View {
         List {
+            upgradeSection
             tunnelSection
             machinesSection
             systemVPNSection
@@ -46,6 +51,48 @@ public struct CloudSectionView: View {
                 availableKinds: controller.availableMachineKinds,
                 limits: controller.machineLimits
             )
+        }
+        .billingPaywall($paywall, onDismiss: {
+            // A new plan changes the machine limits.
+            controller.refreshMachines()
+        })
+        .task { await billing?.loadIfNeeded() }
+    }
+
+    /// The upgrade banner for a Free account that may buy in the App Store,
+    /// above the machine list. Hidden for paid plans, web or team billing,
+    /// and builds that sell nothing.
+    @ViewBuilder
+    private var upgradeSection: some View {
+        if billing?.canOfferUpgrade == true {
+            Section {
+                MobileUpgradeCard(
+                    entryPoint: .cloudBanner,
+                    title: L10n.string("mobile.billing.upgrade.cloud.title", defaultValue: "Cloud VMs need a paid plan"),
+                    message: L10n.string(
+                        "mobile.billing.upgrade.cloud.message",
+                        defaultValue: "Pro includes up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM."
+                    ),
+                    open: { paywall = .cloudBanner }
+                )
+            }
+        }
+    }
+
+    /// New Machine for a Free account whose plan allows no machine opens the
+    /// paywall instead of a create sheet that can only fail.
+    private var newMachineNeedsPlan: Bool {
+        // Only on the server's word: before the limits load, the create
+        // sheet opens as before.
+        guard billing?.canOfferUpgrade == true, let limits = controller.machineLimits else { return false }
+        return limits.maxActiveMachines == 0
+    }
+
+    private func resume(_ machine: CloudMachine) async {
+        let resumed = await controller.resumeMachine(machine)
+        if !resumed, controller.lastMachineActionFailure?.failure.isPlanLimit == true,
+           billing?.canOfferPlanChange == true {
+            paywall = .limit
         }
     }
 
@@ -102,10 +149,13 @@ public struct CloudSectionView: View {
             Section { CloudFailureRow(failure: failure, retry: { controller.refreshMachines() }) }
         default:
             if machines.isEmpty {
-                Section {
-                    Text(L10n.string("mobile.cloud.empty.create", defaultValue: "No Cloud machines yet. Create one below."))
-                        .foregroundStyle(.secondary)
-                        .accessibilityIdentifier("CloudMachinesEmpty")
+                // A Free account's empty list is the upgrade banner above.
+                if billing?.canOfferUpgrade != true {
+                    Section {
+                        Text(L10n.string("mobile.cloud.empty.create", defaultValue: "No Cloud machines yet. Create one below."))
+                            .foregroundStyle(.secondary)
+                            .accessibilityIdentifier("CloudMachinesEmpty")
+                    }
                 }
             } else {
                 Section {
@@ -124,7 +174,7 @@ public struct CloudSectionView: View {
                                 : nil,
                             retryConnection: { controller.retryConnections() },
                             pause: { Task { await controller.pauseMachine(machine) } },
-                            resume: { Task { await controller.resumeMachine(machine) } },
+                            resume: { Task { await resume(machine) } },
                             restart: { Task { await controller.restartMachine(machine) } },
                             delete: { Task { await controller.deleteMachine(machine) } }
                         )
@@ -150,7 +200,11 @@ public struct CloudSectionView: View {
     private var createMachineSection: some View {
         Section {
             Button {
-                isCreateSheetPresented = true
+                if newMachineNeedsPlan {
+                    paywall = .cloudNewMachine
+                } else {
+                    isCreateSheetPresented = true
+                }
             } label: {
                 Label(
                     L10n.string("mobile.cloud.machines.new", defaultValue: "New cloud machine"),
@@ -186,7 +240,7 @@ struct CloudCreateMachineSheet: View {
     /// build never links to a web purchase page (App Review Guideline 3.1.1).
     @Environment(BillingModel.self) private var billing: BillingModel?
     @State private var selectedMemoryMb: Int
-    @State private var isPlansSheetPresented = false
+    @State private var paywall: BillingEntryPoint?
 
     init(
         controller: CloudSessionController,
@@ -225,7 +279,7 @@ struct CloudCreateMachineSheet: View {
                             } label: {
                                 Label(lockedSizeMenuTitle(memoryMb), systemImage: "lock.fill")
                             }
-                            .disabled(billing == nil)
+                            .disabled(billing?.canOfferPlanChange != true)
                             .accessibilityIdentifier("CloudCreateMachineLockedSize.\(memoryMb)")
                         }
                     } label: {
@@ -247,13 +301,14 @@ struct CloudCreateMachineSheet: View {
                                 .foregroundStyle(.secondary)
                                 .fixedSize(horizontal: false, vertical: true)
                             Spacer(minLength: 0)
-                            if billing != nil, let upgradeActionTitle {
+                            if billing?.canOfferPlanChange == true, let upgradeActionTitle {
                                 Button(upgradeActionTitle) {
                                     openPlans()
                                 }
                                 .controlSize(.small)
                                 .buttonStyle(.bordered)
                                 .font(.footnote.weight(.semibold))
+                                .billingUpgradeEntryViewed(.lockedMachineSize)
                                 .accessibilityIdentifier("CloudCreateMachineUpgrade")
                             }
                         }
@@ -295,7 +350,12 @@ struct CloudCreateMachineSheet: View {
                                 kind: machineKind,
                                 memoryMb: selectedMemoryMb
                             ))
-                            if created != nil { dismiss() }
+                            if created != nil {
+                                dismiss()
+                            } else if controller.lastCreateFailure?.isPlanLimit == true,
+                                      billing?.canOfferPlanChange == true {
+                                paywall = .limit
+                            }
                         }
                     } label: {
                         HStack {
@@ -350,13 +410,10 @@ struct CloudCreateMachineSheet: View {
             }
         }
         .presentationDetents([.medium, .large])
-        .sheet(isPresented: $isPlansSheetPresented, onDismiss: {
+        .billingPaywall($paywall, onDismiss: {
             // A new plan changes the size ladder and machine limits.
             controller.refreshMachines()
-        }) {
-            MobilePlansSheet(entryPoint: .cloudUpgrade)
-                .environment(billing)
-        }
+        })
     }
 
     private static let fallbackMemoryMb = 8192
@@ -533,11 +590,12 @@ struct CloudCreateMachineSheet: View {
         }
     }
 
-    /// Opens the in-app plans sheet. Plans are sold only in app (App Review
-    /// Guideline 3.1.1), so without a billing model this does nothing.
+    /// Opens the paywall. Plans are sold only in app (App Review Guideline
+    /// 3.1.1), so without a billing model, or for an account that cannot
+    /// buy, this does nothing.
     private func openPlans() {
-        guard billing != nil else { return }
-        isPlansSheetPresented = true
+        guard billing?.canOfferPlanChange == true else { return }
+        paywall = .lockedMachineSize
     }
 }
 
@@ -768,6 +826,13 @@ struct CloudFailureRow: View {
 
 /// Localized copy for each failure kind.
 extension CloudSessionFailure {
+    /// The Cloud service refused the action for a plan limit (HTTP 402):
+    /// no create credits, the active machine limit, or a paid-only resume.
+    var isPlanLimit: Bool {
+        if case .controlPlane(status: 402) = kind { return true }
+        return false
+    }
+
     var localizedMessage: String {
         switch kind {
         case .signedOut:
