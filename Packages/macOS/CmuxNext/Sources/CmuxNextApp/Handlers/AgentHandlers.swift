@@ -470,8 +470,8 @@ enum AgentHandlers {
         // an in-app caller that passes another place is refused, not ignored.
         let place = invocation["where"]?.stringValue ?? AgentPaneFileTarget.tab.rawValue
         guard let target = AgentPaneFileTarget(rawValue: place) else { throw ActionFailure(message: MiscHandlerStrings.invalidPlace(place)) }
-        // A tab is the file pages (diff-host S6, S7): any regular file shows there as text (never
-        // run), so the tab check for WebKit page types no longer applies.
+        // A tab is the file pages (diff-host S6, S7) or, for HTML and SVG, a browser tab that
+        // renders the page (u18051); Open as Text and Edit Source show its source.
         if target == .tab {
             guard path.hasPrefix("/") else { throw ActionFailure(message: MiscHandlerStrings.pathNotAbsolute(path)) }
             guard let url = AgentPaneFileOpen.resolve(path) else { throw ActionFailure(message: MiscHandlerStrings.fileNotFound(path)) }
