@@ -96,7 +96,9 @@ async fn run_updater(argv: &[String], channel: super::channel::Channel) -> (bool
     .unwrap_or_else(|e| Err(e.to_string()));
     match outcome {
         Ok((ok, text)) => {
-            (ok, text.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("").trim().to_owned())
+            let last =
+                crate::stderr::clean_stderr_lines(&text).into_iter().rev().find(|l| !l.is_empty());
+            (ok, last.unwrap_or_default())
         }
         Err(e) => (false, e),
     }

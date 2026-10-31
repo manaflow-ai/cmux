@@ -26,6 +26,11 @@
   --ui-popup-open: var(--cmux-motion-micro, 120ms);
   /* The close: a fade, in every motion setting (the native fadeOut token). */
   --ui-popup-close: var(--cmux-motion-quick, 80ms);
+  /* A dialog's grow-in: a critically damped spring's shape (the native `appear` spring), no overshoot. */
+  --ui-dialog-ease: cubic-bezier(0.2, 0.9, 0.3, 1);
+  /* The dialog's grow-in and its backdrop's fade-in take the standard step. A New Tab sets it to 0s
+     (newtab/noEntry.css), as it does --ui-popup-open. */
+  --ui-dialog-open: var(--cmux-motion-standard, 180ms);
 }
 
 /* appearance.borders none (data-borders on the root, applyAgentTheme) clears the rim in place, as it
@@ -58,16 +63,45 @@
   opacity: 0;
 }
 
-/* A dialog and its backdrop fade in and out (POLISH: no flash; the page darkened in one frame). */
-:where(.ui-dialog, .ui-backdrop) {
-  transition: opacity var(--ui-popup-open) ease-out;
+/* A dialog and its backdrop fade in and out (POLISH: no flash; the page darkened in one frame), as
+   the native dialog does (WindowOverlayHost+Present): the dialog grows in from 0.97 while it fades in
+   and shrinks toward 0.98 as it fades out, faster; the backdrop eases in on the standard step (the
+   scrim token), so the page darkens in one even step. The scale is the `scale` property, never
+   `transform`, so a dialog that places itself with a transform (the Home palette and forms:
+   translateX(-50%)) keeps its place. A sheet (ui/Sheet, also .ui-dialog) only fades. The backdrop's
+   close is no longer than the dialog's: Base UI unmounts both when the dialog's own transitions end,
+   and a longer backdrop fade was cut off part way. Reduce Motion (the system's, or the app's
+   data-cmux-motion="reduced") keeps only the fades; "off" ends every transition (WebTheme). */
+:where(.ui-dialog) {
+  transition:
+    opacity var(--ui-popup-open) ease-out,
+    scale var(--ui-dialog-open) var(--ui-dialog-ease);
+}
+:where(.ui-backdrop) {
+  transition: opacity var(--ui-dialog-open) ease-out;
 }
 :where(.ui-dialog, .ui-backdrop)[data-starting-style],
 :where(.ui-dialog, .ui-backdrop)[data-ending-style] {
   opacity: 0;
 }
+:where(.ui-dialog:not(.ui-sheet))[data-starting-style] {
+  scale: 0.97;
+}
+:where(.ui-dialog:not(.ui-sheet))[data-ending-style] {
+  scale: 0.98;
+}
 :where(.ui-dialog, .ui-backdrop)[data-ending-style] {
   transition-duration: var(--ui-popup-close);
+}
+:where(:root[data-cmux-motion="reduced"] .ui-dialog)[data-starting-style],
+:where(:root[data-cmux-motion="reduced"] .ui-dialog)[data-ending-style] {
+  scale: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  :where(.ui-dialog)[data-starting-style],
+  :where(.ui-dialog)[data-ending-style] {
+    scale: none;
+  }
 }
 
 /* Every popup is the liquid glass (.ui-glass, ui/glass/glass.css: Menu, Popover, ContextMenu,

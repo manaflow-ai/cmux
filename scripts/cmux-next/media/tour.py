@@ -81,6 +81,13 @@ MIN_OTHER_WINDOW = (40, 24)
 # All of a step's other-window shots share this many seconds.
 OTHER_WINDOWS_BUDGET = 20.0
 TOUR_KEYS = {"title", "steps", "settings"}
+# A directional focus right after a pane close (focus_after_close).
+DIRECTIONAL_FOCUS = {"focusLeft", "focusRight", "focusUp", "focusDown"}
+# Focus moves that open no pane, so they never undo a close (ActionCatalog+Focus.swift).
+FOCUS_MOVES = DIRECTIONAL_FOCUS | {
+    "focusPreviousPane", "focusNextPane", "focusPaneByNumber", "pane.focus", "column.focusLeft",
+    "column.focusRight", "focusHistoryBack", "focusHistoryForward", "focusHistoryLast"}
+PANE_CLOSES = {"closePane", "pane.closeOthers"}
 DEFAULT_WAIT = 1.5
 STEP_TIMEOUT = 20.0
 POSTCONDITION_TIMEOUT = 2.0
@@ -186,7 +193,42 @@ def load_tour(path: Path) -> dict[str, Any]:
             if (not isinstance(expect.get("fields"), dict) or not expect["fields"]
                     or not all(isinstance(field, str) and field for field in expect["fields"])):
                 raise TourError(f"{where}: `expect.fields` must be a non-empty object of field names")
+    focus_after_close(path, steps)
     return {"name": slug(path.stem), "title": data["title"].strip(), "steps": steps, "settings": data.get("settings")}
+
+
+def _action(step: dict[str, Any]) -> str | None:
+    """The action id a `cmux action run ID ...` step runs, else None."""
+    command = step.get("cmux") or []
+    return command[2] if len(command) >= 3 and command[:2] == ["action", "run"] else None
+
+
+def _keeps_panes(step: dict[str, Any]) -> bool:
+    """A step that opens no pane: a wait, a setting, a tunable, or a focus move."""
+    command, rpc = step.get("cmux"), step.get("rpc")
+    if command is None and rpc is None:
+        return True
+    if rpc is not None:
+        return command is None and rpc["method"] == "debug.tunables"
+    action = _action(step)
+    return command[0] == "settings" or action in FOCUS_MOVES
+
+
+def focus_after_close(path: Path, steps: list[dict[str, Any]]) -> None:
+    """A directional focus is refused when the last step that changed the panes closed one: the close
+    leaves the focus on a neighbour, and when it left one pane the move fails with "no pane left of
+    the focused pane", which fails the whole capture (#27839's main-pane tour)."""
+    for number, step in enumerate(steps, 1):
+        if _action(step) not in DIRECTIONAL_FOCUS:
+            continue
+        for earlier in reversed(steps[:number - 1]):
+            if _action(earlier) in PANE_CLOSES:
+                raise TourError(
+                    f"{path}: step {number} runs {_action(step)} after {_action(earlier)} with no pane opened "
+                    "between: the close already focused a neighbour, and with one pane left the move fails. "
+                    "Drop the step, or focus a pane by number (focusPaneByNumber)")
+            if not _keeps_panes(earlier):
+                break
 
 
 def command_line(argv: list[str]) -> str:

@@ -87,7 +87,8 @@ struct HomeTurnProgress: Equatable {
     /// The finished steps in one row: each kind with two or more steps by its fold label (the agent
     /// chat's words: "Ran 3 commands", "Read 2 files"), in the order the turn first did it; a single
     /// other step by its own line, several not at all; then "›",
-    /// since a click on the line lists every step. Nil before any step finished.
+    /// since a click on the line lists every step. Nil before any step finished, and when nothing
+    /// is left to name (only generic steps).
     static func summary(_ finished: [String]) -> String? {
         guard !finished.isEmpty else { return nil }
         var order: [Kind] = []
@@ -110,8 +111,9 @@ struct HomeTurnProgress: Equatable {
         if rest.count == 1, let only = rest.first {
             parts.append(only)
         }
-        // Several generic steps are never counted ("3 steps"): the chevron alone opens the list.
-        return parts.isEmpty ? "›" : parts.joined(separator: " · ") + " ›"
+        // Several generic steps are never counted ("3 steps") and draw no lone "›" (user 2026-10-30: "›" over
+        // "Running · 4s" was not one line): a click on the line still lists them.
+        return parts.isEmpty ? nil : parts.joined(separator: " · ") + " ›"
     }
 
     static func foldLabel(_ kind: Kind, _ count: Int) -> String? {

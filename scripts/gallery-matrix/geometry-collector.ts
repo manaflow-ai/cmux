@@ -4,6 +4,20 @@ import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { GeometryArtifact, GeometryElement } from "./geometry";
 
+/** Match a declared scrolled fixture before freezing it for screenshot/geometry pairing. */
+export async function prepareGeometryCapture(page: Page, scrollSelector?: string): Promise<void> {
+  if (scrollSelector) await page.evaluate((selector) => {
+    const targets = document.querySelectorAll(selector);
+    if (targets.length !== 1) throw new Error(`geometry scroll target must resolve once: ${selector}`);
+    const target = targets[0]!;
+    const maximum = Math.max(0, target.scrollHeight - target.clientHeight);
+    if (maximum > 0 && !["auto", "scroll"].includes(getComputedStyle(target).overflowY)) throw new Error(`geometry scroll target is not scrollable: ${selector}`);
+    target.scrollTop = target.scrollHeight;
+    if (Math.abs(target.scrollTop - maximum) > 1) throw new Error(`geometry scroll target did not reach its end: ${selector}`);
+  }, scrollSelector);
+  await page.evaluate(() => document.getAnimations().forEach((animation) => animation.pause()));
+}
+
 /** Selectors assign meaning in the audit config, never in runtime UI. */
 export type GeometrySelection = { group: string; selector: string; secondary?: boolean; containerSelector?: string; containerGroup?: string; part?: string; measurement?: "element" | "text-range" };
 const SELECTION_STRINGS = ["group", "selector", "containerSelector", "containerGroup", "part"] as const;

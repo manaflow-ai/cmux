@@ -67,6 +67,7 @@ extension PaletteModel {
             guard query.isEmpty else { return false }
             // A tree page goes up first; at its top Backspace pops it.
             if leaveLevel() { return true }
+            if removeLastToken() { return true }
             send(.backspaceOnEmpty)
         case .enterRow:
             _ = enterSelectedRow()
@@ -87,6 +88,9 @@ extension PaletteModel {
     /// page that owns the key (`PalettePageSpec.ownsCloseKey`) consumes it
     /// also without such a row. While a search is in flight it waits for
     /// that search, like Return.
+    /// Runs the Cmd-W that waited on a search, now that it delivered.
+    func closeIfPending() { if pendingClose { pendingClose = false; handle(.closeItem) } }
+
     func handleCloseItem() -> Bool {
         let owns = currentPageOwnsCloseKey
         guard owns || selectedItem?.closeCommand != nil else { return false }

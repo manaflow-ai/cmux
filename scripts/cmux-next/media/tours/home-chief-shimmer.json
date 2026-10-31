@@ -1,0 +1,14 @@
+{
+  "title": "Home chat: the Chief's status line is one shimmering line, no typing bubble (user 2026-10-30: \"make it just one line with shimmer text\")",
+  "frameInterval": 0.25,
+  "steps": [
+    {"title": "Launch", "wait": 2, "shot": false},
+    {"title": "The Home fixture conversation", "rpc": {"method": "debug.home_native_fixture.open", "params": {}}, "wait": 3, "shot": false},
+    {"title": "Dark", "rpc": {"method": "debug.appearance", "params": {"mode": "dark"}}, "wait": 1.5, "shot": false},
+    {"title": "Dark: Running, 4 s in", "rpc": {"method": "debug.home.drive", "params": {"action": "live", "steps": ["Running"], "elapsed": 4}}, "wait": 3},
+    {"title": "Dark: Read 2 files, then Starting agents", "rpc": {"method": "debug.home.drive", "params": {"action": "live", "steps": ["Reading a.md", "Reading b.md", "Starting agents"], "elapsed": 7}}, "wait": 3},
+    {"title": "Light", "rpc": {"method": "debug.appearance", "params": {"mode": "light"}}, "wait": 1.5, "shot": false},
+    {"title": "Light: Running, 4 s in", "rpc": {"method": "debug.home.drive", "params": {"action": "live", "steps": ["Running"], "elapsed": 4}}, "wait": 3},
+    {"title": "Back to the system appearance", "rpc": {"method": "debug.appearance", "params": {"mode": "system"}}, "wait": 1, "shot": false}
+  ]
+}

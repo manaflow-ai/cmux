@@ -175,6 +175,7 @@ public struct WorkspacesList: View {
                 Button("Cancel", role: .cancel) {}
                 Button("Set") { if let emoji = WorkspaceIcon.emoji(emojiText) { creator.setIcon(ws, emoji) } }
                     .disabled(WorkspaceIcon.emoji(emojiText) == nil)
+                    .keyboardShortcut(.defaultAction)
             } message: { _ in
                 Text("One emoji.")
             }
@@ -187,6 +188,7 @@ public struct WorkspacesList: View {
                 Button("Cancel", role: .cancel) {}
                 Button("Rename") { creator.rename(ws, to: renameText) }
                     .disabled(renameText.trimmingCharacters(in: .whitespaces).isEmpty)
+                    .keyboardShortcut(.defaultAction)
             }
     }
 
@@ -202,6 +204,7 @@ public struct WorkspacesList: View {
                 Button("Create") {
                     withAnimation(theme.motion.smooth.animation) { creator.moveToNewGroup(ws, name: groupNameText) }
                 }
+                    .keyboardShortcut(.defaultAction)
             }
             .alert("Rename Group", isPresented: isPresented($renamingGroup), presenting: renamingGroup) { (target: GroupTarget) in
                 TextField("Name", text: $groupNameText)
@@ -212,6 +215,7 @@ public struct WorkspacesList: View {
                 Button("Cancel", role: .cancel) {}
                 Button("Rename") { creator.renameGroup(target.group, on: target.macID, to: groupNameText) }
                     .disabled(groupNameText.trimmingCharacters(in: .whitespaces).isEmpty)
+                    .keyboardShortcut(.defaultAction)
             }
             .confirmationDialog(deleteGroupTitle, isPresented: isPresented($deletingGroup), titleVisibility: .visible,
                                 presenting: deletingGroup) { (target: GroupTarget) in
@@ -1642,6 +1646,7 @@ struct NewWorkspaceButton: View {
             Button("Cancel", role: .cancel) {}
             Button("Open") { openFolder() }
                 .disabled(WorkspaceFolderPath(folderText) == nil)
+                .keyboardShortcut(.defaultAction)
         } message: {
             Text(target.map { "The new workspace's terminal opens in this folder on \(displayName($0))." } ?? "")
         }

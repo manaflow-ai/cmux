@@ -56,6 +56,10 @@ pub struct ClaudePage {
 /// when the file cannot be read. It never reads more than [`PAGE_MAX_BYTES`] and a step.
 pub fn claude_page(file: &Path, end: Option<u64>, want: usize) -> ClaudePage {
     let Ok(mut f) = File::open(file) else { return ClaudePage::default() };
+    claude_page_open(&mut f, end, want)
+}
+
+fn claude_page_open(f: &mut File, end: Option<u64>, want: usize) -> ClaudePage {
     let len = f.metadata().map(|m| m.len()).unwrap_or(0);
     let end = end.map_or(len, |end| end.min(len));
     let want = want.max(1);
@@ -174,10 +178,27 @@ pub fn claude_page(file: &Path, end: Option<u64>, want: usize) -> ClaudePage {
 /// than a page) are paged past, reading at most [`SCAN_MAX_BYTES`] in all. `read` counts every
 /// page read.
 pub fn newest_claude_page(file: &Path, want: usize) -> ClaudePage {
-    let mut page = claude_page(file, None, want);
+    claude_page_with_turns(file, None, want)
+}
+
+/// The newest page of `file` ending at `end` (as [`claude_page`]) that holds turns, paging past
+/// pages that hold none as [`newest_claude_page`] does: the older history a chat pages in
+/// (`hub/native_history.rs`). Empty with `start` 0 once nothing older holds a turn.
+pub fn claude_page_with_turns(file: &Path, end: Option<u64>, want: usize) -> ClaudePage {
+    let Ok(mut file) = File::open(file) else { return ClaudePage::default() };
+    claude_page_with_turns_open(&mut file, end, want)
+}
+
+/// Reads all steps on one opened transcript, so rotation cannot switch files between pages.
+pub(crate) fn claude_page_with_turns_open(
+    file: &mut File,
+    end: Option<u64>,
+    want: usize,
+) -> ClaudePage {
+    let mut page = claude_page_open(file, end, want);
     let mut read = page.read;
     while page.turns.is_empty() && page.start > 0 && read < SCAN_MAX_BYTES {
-        page = claude_page(file, Some(page.start), want);
+        page = claude_page_open(file, Some(page.start), want);
         read += page.read;
     }
     page.read = read;
@@ -188,9 +209,14 @@ pub fn newest_claude_page(file: &Path, want: usize) -> ClaudePage {
 /// page that begins at a prompt, so the first turn followed has its prompt. None when no page
 /// does within [`SCAN_MAX_BYTES`]; then the caller reads as before.
 pub fn newest_prompt_start(file: &Path, want: usize) -> Option<u64> {
+    let mut file = File::open(file).ok()?;
+    newest_prompt_start_open(&mut file, want)
+}
+
+pub(crate) fn newest_prompt_start_open(file: &mut File, want: usize) -> Option<u64> {
     let (mut end, mut read) = (None, 0);
     loop {
-        let page = claude_page(file, end, want);
+        let page = claude_page_open(file, end, want);
         read += page.read;
         if page.turns.first().is_some_and(|t| !t.prompt.is_empty()) {
             return Some(page.start);

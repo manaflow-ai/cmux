@@ -75,7 +75,7 @@ struct AgentChatTabActions {
     func menuItems() -> [NSMenuItem] {
         guard let registry = registry() else { return [] }
         let menu = registry.makeContextMenu(for: .agentChat, target: ActionTargetRef(kind: .tab, id: tab()),
-                                            entries: ContextMenuCatalog.shared.entries(for: .agentChat, removing: hidden()))
+                                            entries: registry.contextMenuEntries(for: .agentChat, removing: hidden()))
         let items = menu.items
         menu.removeAllItems()
         return items
