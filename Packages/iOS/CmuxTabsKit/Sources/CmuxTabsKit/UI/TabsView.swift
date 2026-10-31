@@ -398,7 +398,7 @@ struct TabsScreen<Source: TabsDataSource>: View {
                 // the screen's centre, its card stands in (a web view that
                 // was just created draws nothing for about 300 ms).
                 if !source.isContentReady(tab.id) || (newTabZoomID == tab.id && phase != .page) {
-                    ScaledContent(pageSize: size) { source.card(for: tab).offset(y: -contentOffset) }
+                    ScaledContent(pageSize: size) { source.card(for: tab).offset(y: -contentOffset).environment(\.tabsKitCardPageSize, size) }
                         .allowsHitTesting(false)
                         // Safari's new start page sharpens as it grows.
                         .blur(radius: newTabZoomID == tab.id && newTabZoom.blurs && phase != .page
@@ -466,7 +466,7 @@ struct TabsScreen<Source: TabsDataSource>: View {
             if let neighbor {
                 Group {
                     if case .tab(let tab) = neighbor {
-                        ScaledContent(pageSize: size) { source.card(for: tab) }
+                        ScaledContent(pageSize: size) { source.card(for: tab).environment(\.tabsKitCardPageSize, size) }
                     } else {
                         theme.colors.pageBackground
                     }

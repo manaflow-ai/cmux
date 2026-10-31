@@ -179,6 +179,14 @@ extension TabsDataSource {
     public func clearNotice() {}
 }
 
+extension EnvironmentValues {
+    /// The page size a tab's card content is laid out at when the kit scales the full page into
+    /// it: set on the grid's cards and on the zoom's and swipe's cards. Nil where a card is laid
+    /// out at its own size (its long-press menu preview and its drag preview), so a card never
+    /// takes its own size for the page's.
+    @Entry public var tabsKitCardPageSize: CGSize? = nil
+}
+
 /// Where and how a tab's live page is shown.
 public struct TabsKitContentContext {
     /// The full screen size the content is laid out at.

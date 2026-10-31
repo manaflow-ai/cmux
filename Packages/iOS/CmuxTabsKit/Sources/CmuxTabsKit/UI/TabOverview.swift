@@ -74,7 +74,7 @@ struct TabCard<Content: View>: View {
             // live page on its card) draws it, and a hidden chat card kept
             // re-rendering every streamed token under the page.
             ZStack {
-                if !contentHidden { ScaledContent(pageSize: pageSize) { content } }
+                if !contentHidden { ScaledContent(pageSize: pageSize) { content.environment(\.tabsKitCardPageSize, pageSize) } }
             }
                 .frame(width: width, height: height)
                 .clipShape(.rect(cornerRadius: radius, style: .continuous))
