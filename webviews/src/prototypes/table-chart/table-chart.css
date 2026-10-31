@@ -263,7 +263,7 @@
   background: transparent;
   color: rgba(255, 255, 255, 0.55);
   font: inherit;
-  transition: color 150ms ease-out;
+  transition: color var(--cmux-motion-micro, 120ms) var(--cmux-ease-out, ease-out);
 }
 .proto-picker-item:hover {
   color: rgba(255, 255, 255, 0.85);
