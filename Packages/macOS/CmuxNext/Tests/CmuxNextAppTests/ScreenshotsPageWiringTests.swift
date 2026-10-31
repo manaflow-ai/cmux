@@ -89,12 +89,15 @@ private nonisolated struct NoWatch: FolderWatching {
         // Restored on screen at launch, or shown by an agent: the same call, and still nothing is read.
         page.setContentVisible(true)
         page.setFocused(true)
-        #expect(!page.model.isListing, "a shown page listed before the person clicked")
-        #expect(page.view.showsPrompt)
+        // Plain values in each expectation: a failure message must not reflect the view (its drop pasteboard).
+        let listedWhenShown = page.model.isListing, promptWhenShown = page.view.showsPrompt
+        #expect(!listedWhenShown, "a shown page listed before the person clicked")
+        #expect(promptWhenShown)
         // The person's click.
         page.view.showScreenshots()
-        #expect(page.model.isListing)
-        #expect(!page.view.showsPrompt)
+        let listedAfterClick = page.model.isListing, promptAfterClick = page.view.showsPrompt
+        #expect(listedAfterClick)
+        #expect(!promptAfterClick)
     }
 
     @Test func screenshotsOpenFromAScriptWithFocusSaysItOpenedInTheBackground() async throws {
