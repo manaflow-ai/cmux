@@ -475,7 +475,7 @@ pub(super) fn render(items: &[&Item]) -> (String, Value) {
     let blocker = |list: &[&Item]| list.iter().any(|i| i.class.urgent());
     let newest = |list: &[&Item]| list.iter().map(|i| i.at).max().unwrap_or(0);
     threads.sort_by_key(|(_, list)| (!blocker(list), std::cmp::Reverse(newest(list))));
-    let whole = items.iter().map(|i| i.text.trim().len()).sum::<usize>() <= WHOLE_BYTES;
+    let whole = items.iter().map(|i| i.text.len()).sum::<usize>() <= WHOLE_BYTES;
     let n = threads.len();
     let mut text = format!(
         "[inbox] New messages from other agents in {n} thread{}.",
@@ -499,7 +499,9 @@ pub(super) fn render(items: &[&Item]) -> (String, Value) {
         let tag = if blocker(list) { "[blocker] " } else { "" };
         let head = format!("{tag}{} new in {} from {}", list.len(), label(key), from.join(", "));
         let one_line = match list.as_slice() {
-            [only] if whole && !only.text.trim().contains('\n') => Some(only.text.trim()),
+            [only] if whole && !body(&only.text).is_empty() && !body(&only.text).contains('\n') => {
+                Some(body(&only.text))
+            }
             _ => None,
         };
         if let Some(line) = one_line {
@@ -512,7 +514,12 @@ pub(super) fn render(items: &[&Item]) -> (String, Value) {
                 }
                 // Several messages each name their sender first.
                 let lead = if list.len() > 1 { format!("{}: ", item.from) } else { String::new() };
-                for (row, line) in item.text.trim().lines().enumerate() {
+                // A message of no text still gets its quote line, so none goes missing.
+                let mut lines: Vec<&str> = body(&item.text).lines().collect();
+                if lines.is_empty() {
+                    lines.push("");
+                }
+                for (row, line) in lines.into_iter().enumerate() {
                     let lead = if row == 0 { lead.as_str() } else { "" };
                     let quoted = format!("  > {lead}{line}");
                     text.push('\n');
@@ -535,13 +542,19 @@ pub(super) fn render(items: &[&Item]) -> (String, Value) {
         if whole {
             let messages: Vec<Value> = list
                 .iter()
-                .map(|i| json!({"promptId": i.prompt_id, "from": i.from, "at": i.at, "text": i.text.trim()}))
+                .map(|i| json!({"promptId": i.prompt_id, "from": i.from, "at": i.at, "text": i.text}))
                 .collect();
             part.set("messages", json!(messages));
         }
         parts.push(part);
     }
     (text, json!(parts))
+}
+
+/// A message's text as the notice quotes it: without the blank lines around it, and with the first
+/// line's indent kept (an indented code block stays one).
+fn body(text: &str) -> &str {
+    text.trim_start_matches(['\n', '\r']).trim_end()
 }
 
 /// Whether `item` may wake the idle chat of `meta`.

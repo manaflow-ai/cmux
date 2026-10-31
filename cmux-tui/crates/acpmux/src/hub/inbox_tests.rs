@@ -193,6 +193,35 @@ fn a_long_notice_has_previews_and_says_how_to_read_a_thread_from_any_harness() {
 }
 
 #[test]
+fn a_whole_notice_keeps_every_message_as_it_was_sent() {
+    let items = [
+        item("a1", "pr:9", "lane-a", PromptClass::Result, 1, "   \n"),
+        item("b1", "pr:7", "lane-b", PromptClass::Result, 2, "\n    let x = 1;\n    x\n\n"),
+    ];
+    let refs: Vec<&Item> = items.iter().collect();
+    let (text, parts) = render(&refs);
+    let lines: Vec<&str> = text.lines().collect();
+    assert_eq!(
+        lines[1..],
+        [
+            "- 1 new in #7 from lane-b (thread pr:7):",
+            "  >     let x = 1;",
+            "  >     x",
+            "- 1 new in #9 from lane-a (thread pr:9):",
+            "  >",
+        ],
+        "a blank message keeps its line, an indented one its indent: {text}"
+    );
+    assert_eq!(parts[0]["messages"][0]["text"], "\n    let x = 1;\n    x\n\n");
+    assert_eq!(parts[1]["messages"][0]["text"], "   \n");
+    // The 4 KB counts the text as sent, blank lines and spaces too.
+    let padded = format!("ok{}", " ".repeat(WHOLE_BYTES));
+    let items = [item("c1", "pr:9", "lane-a", PromptClass::Result, 1, &padded)];
+    let refs: Vec<&Item> = items.iter().collect();
+    assert!(render(&refs).1[0].get("messages").is_none());
+}
+
+#[test]
 fn class_aliases_name_the_inbox_kinds() {
     assert_eq!(PromptClass::parse("blocker"), Some(PromptClass::Block));
     assert_eq!(PromptClass::parse("action"), Some(PromptClass::Result));

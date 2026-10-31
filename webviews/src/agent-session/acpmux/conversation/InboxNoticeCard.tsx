@@ -65,26 +65,33 @@ function InboxThreadLine({
     setMessageOpened(session, id, next);
     setOpen(next);
   };
-  // The notice's own copy, else what acpmux has once the line opens (its new messages, by id).
-  const [read, setRead] = useState<InboxMessage[] | undefined>(undefined);
-  const messages = thread.messages ?? read;
+  // The notice's own copy, else what acpmux has once the line opens (its new messages, by id). A
+  // read belongs to the messages it was for: a later notice for the thread (new ids) reads again.
+  const own = thread.messages?.length ? thread.messages : undefined;
+  const readFor = thread.promptIds.join("\u0000");
+  const [read, setRead] = useState<{ for: string; messages?: InboxMessage[] }>();
+  const fetched = read?.for === readFor ? read : undefined;
+  const messages = own ?? fetched?.messages;
   useEffect(() => {
-    if (!open || messages || !readThread) return;
+    if (!open || own || fetched || !readThread) return;
     let live = true;
     readThread(thread.threadId).then(
       (all) => {
         if (!live) return;
         const ids = new Set(thread.promptIds);
         const mine = all.filter((m) => m.promptId !== undefined && ids.has(m.promptId));
-        setRead(mine.length ? mine : all.slice(-thread.count));
+        const shown = mine.length ? mine : all.slice(-thread.count);
+        // Nothing read keeps the preview, and is not asked for again until new messages come.
+        setRead({ for: readFor, ...(shown.length > 0 && { messages: shown }) });
       },
-      // The preview stays: acpmux no longer holds the thread, or the chat is gone.
+      // The preview stays: acpmux no longer holds the thread, or the chat is gone. The next open
+      // asks again.
       () => undefined,
     );
     return () => {
       live = false;
     };
-  }, [open, messages, readThread, thread]);
+  }, [open, own, fetched, readFor, readThread, thread]);
   const name = newestSender(thread);
   const sender = useMemo<IncomingMessage>(
     () => ({ name, text: "", raw: "", ...(thread.fromSession && { sessionId: thread.fromSession }) }),
