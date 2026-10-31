@@ -18,7 +18,10 @@ export function usageLimitsOf(value: unknown): AcpmuxUsageLimits | undefined {
     const { id, usedPercent, resetsAt } = entry as Record<string, unknown>;
     if (typeof id !== "string" || !id.trim() || !finite(usedPercent)) continue;
     const limit: LimitWindow = { id, usedPercent: Math.min(100, Math.max(0, usedPercent)) };
-    if (finite(resetsAt) && resetsAt > 0) limit.resetsAt = resetsAt;
+    // A time JavaScript's Date cannot hold would throw when formatted; drop it like a missing one.
+    if (finite(resetsAt) && resetsAt > 0 && Number.isFinite(new Date(resetsAt * 1000).getTime())) {
+      limit.resetsAt = resetsAt;
+    }
     kept.push(limit);
   }
   return kept.length ? { windows: kept } : undefined;
