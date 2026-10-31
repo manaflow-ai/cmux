@@ -611,6 +611,7 @@ struct ShellView: View {
             if options.sidebarOpen { shell.sidebar.open() }
             #if DEBUG
             if let demo = options.demo { await DemoDriver(shell: shell).run(demo) }
+            await ListStressRig.runIfConfigured(shell: shell)
             await DebugLaunch.run(selectTab: { shell.tab = $0 })
             #endif
         }
