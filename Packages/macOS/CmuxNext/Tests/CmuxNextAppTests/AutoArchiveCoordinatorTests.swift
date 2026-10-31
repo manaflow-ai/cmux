@@ -84,6 +84,19 @@ import Testing
         #expect(document.sent.isEmpty && host.toasts.isEmpty && host.cards.isEmpty)
     }
 
+    /// Lawrence 18515/18517: the Tidy Up card popping up on its own was annoying. With no
+    /// `workspaces.autoArchive.style` set, a pass neither asks nor archives; Archive Idle Workspaces
+    /// still archives on request.
+    @Test func theDefaultStyleNeverPopsACardOrArchivesOnItsOwn() async throws {
+        host.policy = AutoArchivePolicy(styleName: nil, idleDays: nil)
+        coordinator.runPass()
+        await Task.yield()
+        await Task.yield()
+        #expect(host.cards.isEmpty, "no card on its own")
+        #expect(document.sent.isEmpty && host.toasts.isEmpty)
+        #expect(try coordinator.sweep() == 2, "Archive Idle Workspaces still works")
+    }
+
     @Test func suggestAsksFirstAndArchivesOnArchive() async throws {
         host.policy.style = .suggest
         coordinator.runPass()
