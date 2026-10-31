@@ -5,12 +5,11 @@
 // Details with Copy. Compare arms shows the three surfaces of the `turn-error-card` experiment.
 import { agentPaneEntry } from "../../../gallery/format";
 import { assistant, CATALOG, chat, summary, user } from "../../../gallery/fixtures/acpmux";
-import type { AcpmuxSnapshot } from "../model";
 import { turnErrorCard } from "./turnErrorCard.experiment";
 
 const prompt = "Run the sidebar tests and fix what fails";
 
-const failed = (error: string, errorCode?: string, fields: Partial<AcpmuxSnapshot> = {}) =>
+const failed = (error: string, errorCode?: string, fields: Parameters<typeof chat>[1] = {}) =>
   chat(
     [
       user(prompt, 6),
@@ -37,19 +36,14 @@ const cloudFailed = (error: string) => {
   return snapshot;
 };
 
-/// Claude Code's login as the harness catalog names it, so the chat has a login to run (Sign in again).
+/// The harnesses' logins as the catalog names them, so the chat has a login to run (Sign in again).
+const LOGINS: Record<string, string> = { claude: "claude /login", codex: "codex login" };
 const signedOutCatalog = CATALOG.map((entry) =>
-  entry.id === "claude" ? { ...entry, auth: { login: "claude /login" } } : entry,
+  LOGINS[entry.id] ? { ...entry, auth: { login: LOGINS[entry.id]! } } : entry,
 );
 const notLoggedIn = "Not logged in · Please run /login";
-const signedOut = (fields: Partial<AcpmuxSnapshot> = {}) =>
+const signedOut = (fields: Parameters<typeof chat>[1] = {}) =>
   failed(notLoggedIn, undefined, { catalog: signedOutCatalog, ...fields });
-/// The same failure in a chat this pane only watches (View Only): it cannot send, so no Continue or Retry.
-const signedOutViewOnly = () => {
-  const snapshot = signedOut();
-  if (snapshot.summary) snapshot.summary.watching = "claude";
-  return snapshot;
-};
 
 export default agentPaneEntry({
   id: "agent-pane.turn-error-card",
@@ -119,9 +113,9 @@ export default agentPaneEntry({
       note: "Claude Code's login expired mid-chat: Sign in again leads (filled) and runs the login, Continue follows for once it is done, then Switch model.",
       snapshot: signedOut(),
     },
-    "sign-in-view-only": {
-      note: "The same expired login in a View Only chat: Sign in again leads, Switch model after it, and no Continue or Retry, since this pane cannot send.",
-      snapshot: signedOutViewOnly(),
+    "sign-in-cannot-send": {
+      note: "The same expired login in a chat this pane cannot send to (a Codex chat seen over a remote connection): Sign in again leads, Switch model after it, and no Continue or Retry.",
+      snapshot: signedOut({ harness: "codex", model: "gpt-6-astra", origin: "remote" }),
     },
     unknown: {
       note: "An error nothing names still reads human; its words are under Details.",
