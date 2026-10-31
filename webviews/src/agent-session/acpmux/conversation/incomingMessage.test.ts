@@ -750,6 +750,46 @@ test("a card drops a signature naming its sender that a record still has", () =>
   expect(unsigned("[lane-b] MERGED", "lane-a")).toBe("[lane-b] MERGED");
 });
 
+test("lane report provenance becomes an incoming message with collapsed details", () => {
+  expect(
+    incomingPrompt("[builder] SHIP at abcdef123456 · no findings · turn 2, idle", {
+      _meta: {
+        provenance: {
+          kind: "lane_report",
+          from: "lane-7",
+          fromName: "builder",
+          details: { session: "gcp/builder", commits: ["abcdef1234567890", "fedcba6543210000"] },
+        },
+      },
+    }),
+  ).toEqual({
+    kind: "message",
+    message: {
+      name: "builder",
+      sessionId: "lane-7",
+      report: true,
+      details: { session: "gcp/builder", commits: ["abcdef1234567890", "fedcba6543210000"] },
+      text: "SHIP at abcdef123456 · no findings · turn 2, idle",
+      raw: "[builder] SHIP at abcdef123456 · no findings · turn 2, idle",
+    },
+  });
+});
+
+test("lane report without metadata remains a normal incoming message", () => {
+  expect(
+    incomingPrompt("[builder] turn 3 ended, idle", { _meta: { provenance: { kind: "lane_report", from: "builder" } } }),
+  ).toMatchObject({
+    kind: "message",
+    message: {
+      name: "builder",
+      sessionId: "builder",
+      report: true,
+      text: "[builder] turn 3 ended, idle",
+      raw: "[builder] turn 3 ended, idle",
+    },
+  });
+});
+
 test("hub lane reports retain their sender, report identity and structured details", () => {
   const text = "[review-7] SHIP at 123456789abc · no findings · turn 1, idle";
   const details = { sessionId: "lane-7", commits: ["123456789abc"] };
