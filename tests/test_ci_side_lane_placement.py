@@ -221,6 +221,49 @@ class Decide(unittest.TestCase):
         self.assertEqual(placement.healthy_role_label("", busy, incident, None), "")
         self.assertEqual(placement.healthy_role_label(GUI, None, incident, None), GUI)
 
+    def test_a_full_gui_label_stays_while_the_blacksmith_overflow_is_stalled_or_dead(self):
+        """Run 41163886431 (#28823, 2026-10-31): the gui label read full (37 queued on 10 busy runners), so
+        swift-test took `blacksmith-6vcpu-macos-26`, 91 queued on 10 slots with its oldest waiting 102 min,
+        and never started in 106 min. A busy owned queue moves; a stalled Blacksmith queue does not."""
+        Seen = placement.cascade.Seen
+        small = placement.cascade.SMALL
+        busy = [runner(f"mini-{host}-glaeda-4", busy=True, labels=(STD, GUI, SESSION)) for host in "abcdefghij"]
+        full = {GUI: True, SESSION: True}
+        stalled = Seen(waits={small: 102.0}, owned_queued={GUI: 37, SESSION: 5},
+                       owned_full=full, owned_full_known=full)
+        for label in (GUI, SESSION):
+            with self.subTest(label=label):
+                self.assertEqual(placement.healthy_role_label(label, busy, stalled, {small: 91}), label)
+        # Dead (nothing started on it for an hour) holds the label too, whatever the queue reading.
+        dead = Seen(waits={}, owned_queued={GUI: 37}, owned_full={GUI: True}, owned_full_known={GUI: True},
+                    dead=frozenset({small}))
+        self.assertEqual(placement.healthy_role_label(GUI, busy, dead, None), GUI)
+        # A deep (not full) gui queue stays too while the overflow is stalled.
+        deep = Seen(waits={small: 30.0}, owned_queued={GUI: 37})
+        self.assertEqual(placement.healthy_role_label(GUI, busy, deep, {small: 3}), GUI)
+        # A moving Blacksmith queue (oldest under the stall rule's 10 min) still takes a full label's jobs.
+        moving = Seen(waits={small: 2.0}, owned_queued={GUI: 37}, owned_full={GUI: True},
+                      owned_full_known={GUI: True})
+        self.assertEqual(placement.healthy_role_label(GUI, busy, moving, {small: 3}), "")
+        # A snapshot too old for the counts, or an unread Blacksmith queue, still shows the stall the snapshot
+        # saw (next_macos_cascade.late_waits()): the label stays. Run 41175923956 (2026-10-31): no snapshot
+        # under 15 min, so swift test took `blacksmith-6vcpu-macos-26` with its oldest job waiting 179 min.
+        stale = Seen(waits={small: 179.0}, owned_queued={GUI: 37}, owned_full={GUI: True},
+                     owned_full_known={GUI: True}, stale=True)
+        for waiting in ({small: 166}, None):
+            with self.subTest(waiting=waiting):
+                self.assertEqual(placement.healthy_role_label(GUI, busy, stale, waiting), GUI)
+        self.assertEqual(placement.healthy_role_label(GUI, busy, stalled, None), GUI)
+        # A late snapshot of a moving queue, or one that saw no queue there, vouches for no stall: today's overflow.
+        for waits in ({small: 2.0}, {}):
+            with self.subTest(waits=waits):
+                late = Seen(waits=waits, owned_queued={GUI: 37}, owned_full={GUI: True},
+                            owned_full_known={GUI: True}, stale=True)
+                self.assertEqual(placement.healthy_role_label(GUI, busy, late, None), "")
+        # No online runner carries the label: a stalled overflow never revives an offline queue.
+        offline = [runner("mini-a-glaeda-4", status="offline", labels=(STD, GUI))]
+        self.assertEqual(placement.healthy_role_label(GUI, offline, stalled, {small: 91}), "")
+
     def test_glaeda_full_health_forces_gui_overflow(self):
         busy = [runner(f"mini-{host}-glaeda-4", busy=True, labels=(STD, GUI)) for host in "abc"]
         seen = placement.cascade.Seen(waits={}, owned_queued={GUI: 1},
