@@ -79,7 +79,7 @@ public struct ClaudeTranscriptForkSeeder: Sendable {
         }
     }
 
-    private static func findSourceTranscript(
+    static func findSourceTranscript(
         sessionID: String,
         sourceWorkingDirectory: String?,
         projectsRoot: String,
@@ -121,7 +121,7 @@ public struct ClaudeTranscriptForkSeeder: Sendable {
         return nil
     }
 
-    private struct TranscriptLocation {
+    struct TranscriptLocation {
         let path: String
         let projectPath: String
         let relativePath: String

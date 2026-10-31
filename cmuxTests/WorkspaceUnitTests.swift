@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import CmuxCore
 import Darwin
 import AppKit
@@ -1248,6 +1249,177 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         XCTAssertNil(defaults.object(forKey: IntegrationsCatalogSection().kiroNotificationLevel.userDefaultsKey))
         XCTAssertEqual(defaults.integer(forKey: AutomationSettings.portBaseKey), 32100)
         XCTAssertEqual(defaults.integer(forKey: AutomationSettings.portRangeKey), 42)
+    }
+
+    func testSettingsFileStoreParsesNestedSessionPriority() throws {
+        let defaults = UserDefaults.standard
+        let keys = [
+            AutomationCatalogSection().sessionPriority.userDefaultsKey,
+            AutomationCatalogSection().sessionPriorityUrgentCount.userDefaultsKey,
+            AutomationCatalogSection().sessionPriorityMatrix.userDefaultsKey,
+        ]
+        let previousValues = keys.map { defaults.object(forKey: $0) }
+        let previousBackups = defaults.data(forKey: settingsFileBackupsDefaultsKey)
+        defer {
+            for (key, previous) in zip(keys, previousValues) {
+                if let previous {
+                    defaults.set(previous, forKey: key)
+                } else {
+                    defaults.removeObject(forKey: key)
+                }
+            }
+            if let previousBackups {
+                defaults.set(previousBackups, forKey: settingsFileBackupsDefaultsKey)
+            } else {
+                defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            }
+        }
+        keys.forEach { defaults.removeObject(forKey: $0) }
+        defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "automation": {
+                "sessionPriority": {
+                  "enabled": true,
+                  "urgentCount": 2,
+                  "matrix": { "slow": { "hard": { "effort": "high" } } }
+                }
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+
+        _ = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        XCTAssertEqual(defaults.object(forKey: keys[0]) as? Bool, true)
+        XCTAssertEqual(defaults.object(forKey: keys[1]) as? Int, 2)
+        let stored = try XCTUnwrap(defaults.string(forKey: keys[2]))
+        let matrix = SessionPriorityMatrix.fromStoredString(stored)
+        XCTAssertEqual(matrix.target(tier: .slow, difficulty: .hard).effort, .high)
+        XCTAssertEqual(matrix.target(tier: .urgent, difficulty: .normal).effort, .high)
+    }
+
+    func testSettingsFileStoreRejectsNegativeSessionPriorityUrgentCount() throws {
+        let defaults = UserDefaults.standard
+        let keys = [
+            AutomationCatalogSection().sessionPriority.userDefaultsKey,
+            AutomationCatalogSection().sessionPriorityUrgentCount.userDefaultsKey,
+            AutomationCatalogSection().sessionPriorityMatrix.userDefaultsKey,
+        ]
+        let previousValues = keys.map { defaults.object(forKey: $0) }
+        let previousBackups = defaults.data(forKey: settingsFileBackupsDefaultsKey)
+        defer {
+            for (key, previous) in zip(keys, previousValues) {
+                if let previous {
+                    defaults.set(previous, forKey: key)
+                } else {
+                    defaults.removeObject(forKey: key)
+                }
+            }
+            if let previousBackups {
+                defaults.set(previousBackups, forKey: settingsFileBackupsDefaultsKey)
+            } else {
+                defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            }
+        }
+        keys.forEach { defaults.removeObject(forKey: $0) }
+        defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "automation": {
+                "sessionPriority": {
+                  "enabled": true,
+                  "urgentCount": -1
+                }
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+
+        _ = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        XCTAssertEqual(defaults.object(forKey: keys[0]) as? Bool, true)
+        XCTAssertNil(defaults.object(forKey: keys[1]))
+        XCTAssertNil(defaults.object(forKey: keys[2]))
+    }
+
+    func testSettingsFileStoreSkipsNonObjectSessionPriorityMatrix() throws {
+        let defaults = UserDefaults.standard
+        let keys = [
+            AutomationCatalogSection().sessionPriority.userDefaultsKey,
+            AutomationCatalogSection().sessionPriorityUrgentCount.userDefaultsKey,
+            AutomationCatalogSection().sessionPriorityMatrix.userDefaultsKey,
+        ]
+        let previousValues = keys.map { defaults.object(forKey: $0) }
+        let previousBackups = defaults.data(forKey: settingsFileBackupsDefaultsKey)
+        defer {
+            for (key, previous) in zip(keys, previousValues) {
+                if let previous {
+                    defaults.set(previous, forKey: key)
+                } else {
+                    defaults.removeObject(forKey: key)
+                }
+            }
+            if let previousBackups {
+                defaults.set(previousBackups, forKey: settingsFileBackupsDefaultsKey)
+            } else {
+                defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            }
+        }
+        keys.forEach { defaults.removeObject(forKey: $0) }
+        defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+
+        for rawMatrix in [#""x""#, "5", "true", "null", "[]"] {
+            keys.forEach { defaults.removeObject(forKey: $0) }
+            let directoryURL = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+            try writeSettingsFile(
+                """
+                {
+                  "automation": {
+                    "sessionPriority": {
+                      "enabled": true,
+                      "matrix": \(rawMatrix)
+                    }
+                  }
+                }
+                """,
+                to: settingsFileURL
+            )
+
+            _ = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                startWatching: false
+            )
+
+            XCTAssertEqual(defaults.object(forKey: keys[0]) as? Bool, true, "matrix: \(rawMatrix)")
+            XCTAssertNil(defaults.object(forKey: keys[2]), "matrix: \(rawMatrix)")
+        }
     }
 
     func testSettingsFileStoreAppliesBrowserHiddenWebViewDiscardDelayAtMaximum() throws {

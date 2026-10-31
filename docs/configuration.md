@@ -443,6 +443,101 @@ Sends `continue` to a cmux-launched agent whose turn ended on a retryable upstre
 
 Default: `true`. Toggle it from **Settings > Automation > Auto-Resume Agents After Errors** or the command palette.
 
+## `automation.claudeAccountAutoSwitch`
+
+When a Claude Code session started by cmux stops because its account hit the usage limit, cmux moves that terminal to the next account in [`agents.claudeAccounts`](#agentsclaudeaccounts) and continues the same conversation there, as **Switch Claude Account** does.
+
+```json
+{
+  "automation": {
+    "claudeAccountAutoSwitch": true
+  }
+}
+```
+
+Default: `false`. Toggle it from **Settings > Automation > Switch Claude Account on Usage Limit** or the command palette.
+
+Behavior notes:
+
+- Only accounts from your user-level `~/.config/cmux/cmux.json` are used automatically, both to choose the next account and to resolve its config directory for the switch. A project's `.cmux/cmux.json` can't add an account to automatic switching, and a project entry that reuses one of your account names doesn't change where an automatic switch goes. An account whose config directory or `.claude.json` is missing is skipped (the default account's `.claude.json` is `~/.claude.json`).
+- Accounts are tried in `agents.claudeAccounts` order, starting after the current one. The default `~/.claude` account is first in that order unless you declare `~/.claude` yourself at another position. An account that has already trusted the terminal's folder is preferred.
+- The account that hit its limit is skipped until it resets: at the time its limit message gives, or for five hours when the message gives none. `cmux claude-account list` shows until when.
+- Each switch shows a **Claude account: <from> → <to> (auto)** row in the sidebar and posts a notification.
+- cmux types `continue` only into the resumed Claude's own empty prompt, while that Claude is the terminal's foreground process. It types nothing when the new account has not trusted the folder yet (the notification asks you to confirm folder trust first), and it gives up when the terminal gets input (typing, pasting, or clicking into it), Claude starts working or asks something, the session ends, or a minute passes; a follow-up notification says why. If the terminal refuses the typed `continue`, no follow-up is posted.
+- cmux does not switch, and notifies you instead, when the terminal got input after the limit (clicks into it count too), when Claude's input box holds a message you typed (the restart would discard it), when the stopped turn left background work running, when the limit could not be recorded, or when the terminal already went through every other account without finishing a turn. The input and draft checks run again right before the terminal restarts.
+- A switch restarts the terminal's shell, so jobs running in that shell's background end.
+- When every other account is at its limit, nothing changes and the terminal keeps its usage-limit status.
+- Remote, SSH, and cloud terminals are never switched.
+
+## `automation.sessionPriority`
+
+Gives each Claude Code pane the reasoning effort its workspace's priority asks for. You rank workspaces by moving them in the sidebar; cmux restarts a Claude pane with the matching effort between turns and resumes the same conversation.
+
+```json
+{
+  "automation": {
+    "sessionPriority": {
+      "enabled": true,
+      "urgentCount": 3,
+      "matrix": {
+        "urgent": {
+          "easy": { "effort": "medium" },
+          "normal": { "effort": "high" },
+          "hard": { "effort": "xhigh", "model": "opus" }
+        },
+        "slow": {
+          "easy": { "effort": "low" },
+          "normal": { "effort": "medium" },
+          "hard": { "effort": "medium" }
+        }
+      }
+    }
+  }
+}
+```
+
+- `enabled`: default `false`. Toggle it from **Settings > Automation > Prioritize Claude Sessions by Sidebar Order**.
+- `urgentCount`: default `3`. Per window, the top `urgentCount` workspaces that run Claude (pinned workspaces first) are **urgent**; every other Claude workspace is **slow**.
+- `matrix`: the effort (`low`, `medium`, `high`, `xhigh` or `max`) and optional `model` for each tier and difficulty. Empty (the default) uses the shipped matrix below. Cells you leave out keep the shipped defaults. A cell you write replaces that whole cell, so give both `effort` and `model` when you want both; a cell with only a `model` changes the model and leaves the effort alone. `{}` turns adjustment off for that cell.
+
+Shipped matrix (no model cells):
+
+| | easy | normal | hard |
+| --- | --- | --- | --- |
+| urgent | `medium` | `high` | `xhigh` |
+| slow | `low` | `medium` | `medium` |
+
+The example above also sets a model for urgent/hard. A model cell is opt-in and changes the model in the middle of the conversation, so leave it out unless you want that.
+
+Behavior notes:
+
+- Only moves you make count. Dragging a workspace, **Move to Top**, or the move shortcuts change its priority; cmux's own bumps (such as `app.reorderOnNotification`) never do. A move that leaves the list as it was, such as **Move to Top** on the workspace already at the top, gives it the priority of the place it shows at. With `app.reorderOnNotification` on, the list order can differ from the priority, so the tier icon in the row is authoritative. Your moves are recorded even while `enabled` is off, so turning it on uses the order you set.
+- **Difficulty**: each workspace has a difficulty. A manual choice (right-click > **Claude Difficulty**, the command palette, or `cmux session-priority difficulty`) wins; otherwise an automatic value is used when one exists, else `normal`. **Auto** returns to automatic.
+- **When it restarts**: when a Claude pane's running effort differs from its target, cmux restarts that pane only between turns: Claude is idle at an empty prompt, has no background work running (background Bash commands, Monitors, async agents), the pane got no input and Claude finished no turn in the last 10 seconds, it is not the pane you are typing in (the focused pane of the active cmux window; it waits until you look away), and it is not inside `tmux` or `screen`. It resumes the same conversation with `CLAUDE_CODE_EFFORT_LEVEL=<level>` on the resume command. Changes settle for 2 seconds before cmux decides, so moving a workspace away and back within 2 seconds restarts nothing. One restart runs at a time; a pane that is not ready is tried again after 30 seconds or at its next turn end.
+- **What a restart resets**: the restart starts a fresh shell in the pane, as an account switch does. Environment you set by hand before running `claude` (an activated virtualenv, exported variables), jobs in that shell's background, and Claude's session-only state (permissions you granted for the session, directories added with `/add-dir`) are not carried over.
+- **One attempt per conversation and target**: a target that does not take shows **not applied** in the sidebar row. cmux tries again only after the pane's target (from its tier, its difficulty or these settings) or its conversation changes; a settings change that leaves a pane's target as it was does not retry it.
+- **Why the environment variable**: cmux does not type `/effort`, because Claude Code saves it into your settings (`modelSettings`) and would change the defaults of your other sessions. In a pane cmux adjusted, the variable outranks `/effort`: an `/effort` you run there has no effect until Claude is resumed without it, for example by quitting Claude and running `claude --resume` yourself.
+- **Left alone**: a workspace is not adjusted when you mark it **Don't Adjust Claude Effort Here** (right-click, command palette, or `cmux session-priority manual on`), when Claude was launched with `--effort`, when Claude was launched with a `CLAUDE_CODE_EFFORT_LEVEL` you set (typed before `claude`, exported by your shell, or set in the workspace environment), or when you ran `/effort` or `/model` in it. cmux marks the level it sets itself with `CMUX_SESSION_PRIORITY_EFFORT`, so only that one counts as its own. It notices your `/effort` and `/model` on the screen and in the conversation's transcript, also after the result has scrolled away. The flag and `/effort` or `/model` are lifted by **Adjust Claude Effort Automatically**; the launch cases are not something cmux can lift.
+- **Turning it off** stops all typing and removes the sidebar rows. A restart already past its last check still finishes. Turning it off, **Don't Adjust Claude Effort Here** and a `{}` cell all leave a Claude at the last level cmux set, including when cmux restores it after a relaunch, until that Claude is started again without the variable.
+- **Sidebar row**: each Claude workspace shows one status line with its tier icon, difficulty, target and state. It sorts above the agent's own status line and program status (status priority 50), so it stays among the three lines a collapsed workspace row shows unless lines with a higher priority fill them, such as an agent waiting for input.
+- Remote, SSH, and cloud panes are never touched.
+- `cmux session-priority` shows each workspace's tier, difficulty, target and state, and sets difficulty and the manual flag.
+
+### Automatic difficulty
+
+With `automation.sessionPriority.enabled` on, cmux also rates how hard a Claude session's current task is, so the difficulty needs no manual setting. There is no separate toggle: turning session priority on also sends short excerpts of each busy Claude session to a small Claude model on that session's account.
+
+- **When it runs**: at the end of each Claude turn, from the same async `Stop` hook as [workspace auto-naming](workspace-auto-naming.md), after naming's own pass. A session gets at most one rating call every 3 minutes, counted from the end of the last one, whether it worked or not. This holds across Claude restarts (the ones cmux makes for a new effort, account switches, quitting and resuming): cmux keeps each session's rating times and last rating in `~/.cmuxterm/claude-difficulty-assessments.json` and drops a session's entry a day after its last rating. Each session has at most one rating call running; a pass that never finishes stops blocking its session after 45 seconds. Sessions are rated independently, so several busy sessions can make calls at the same time, on top of auto-naming's calls. Nested agents and sessions that are no longer the pane's current session are skipped.
+- **When it is skipped**: while the feature is off, the hook only checks the size of the conversation's transcript file, and nothing is read or sent. Nothing is rated while the workspace has a difficulty you set, while it is marked **Don't Adjust Claude Effort Here**, or while cmux has no effort target for it, for example because it leaves every Claude pane of the workspace alone (see **Left alone** above). A pane launched with `--effort` or with your own `CLAUDE_CODE_EFFORT_LEVEL` counts as left alone from its first turn, also after the feature is turned off and on again. A rating that arrives after the feature was turned off is dropped.
+- **What is sent**: the turn's last user message and its reply, each cut to 1,500 characters and marked as data to classify, not instructions. The reply is the one Claude Code passes to the `Stop` hook, and the user message is the last one in the conversation's transcript as it was when the hook started, before naming's call, so a prompt you send meanwhile is not taken for this turn's. That message must lie within the last 512 KB of the transcript as it was then: a turn is not rated when the records after its prompt (long tool output) or the prompt itself (a large pasted image) push it out, or when the transcript got shorter since. When Claude Code does not pass the reply, cmux waits for the reply to reach the conversation's transcript, which Claude Code writes just after the hook starts: it reads the transcript again every 200 ms for up to 5 seconds, and when no reply follows the user message by then, the turn is not rated. A reply from an earlier turn is never sent. `claude -p` runs in the project directory the hook runs in, so, like any Claude Code call, it also carries Claude Code's own system prompt, your user and project `CLAUDE.md` files, and environment and git context.
+- **Which model**: always Claude, even when `automation.autoNamingAgent` picks another agent for naming. cmux runs `claude -p` with `ANTHROPIC_SMALL_FAST_MODEL` when set, otherwise `haiku`, at effort `low`, with tools and MCP off and without saving a session, on the account of the Claude session that ended the turn. A call still running after 30 seconds is stopped.
+- **The answer**: only the first non-empty line of the reply counts, and it must be `easy`, `normal` or `hard`; case, quotes and punctuation around the word are ignored. Anything else, a failure or a timeout is ignored and the difficulty stays as it was.
+- **Damping**: a rating harder than the workspace's current automatic difficulty applies at once. An easier one applies only when the session's previous rating was the same, two in a row, so one short exchange cannot lower the effort on its own. A rating equal to the current automatic difficulty is not sent again. Before the first rating the workspace counts as `normal`: `normal` and `hard` apply at once, and `easy` waits for a second `easy`. A rating that changes the workspace's target restarts its Claude panes, as described in **When it restarts** above.
+- **Several panes**: one difficulty applies to the whole workspace. When it has several Claude panes, each session is rated and damped on its own, and the latest rating to reach cmux wins.
+- **Stopping it**: a difficulty you set (right-click > **Claude Difficulty**, the command palette, or `cmux session-priority difficulty easy|normal|hard`) and **Don't Adjust Claude Effort Here** stop it. `cmux session-priority difficulty auto` (or **Auto** in the menu) hands control back.
+- **Sidebar row**: an automatic difficulty shows as, for example, `Hard (auto)`.
+- **Cost**: each rating is one small call that counts against the usage of that Claude account.
+
 ## `agentMessages.enabled`
 
 The app-wide switch for `cmux agent message`. When `false`, sends fail with "Agent messages are turned off (agentMessages.enabled is false).", nothing is stored, and messages already queued are marked `failed` instead of being delivered. Turning it back on does not resend them.
@@ -561,3 +656,33 @@ Behavior notes:
 - Declarations fail closed. A missing detection entry, an empty `resumeArgvPrefix`, a blank `kinds` array, or a value of the wrong type makes that one declaration unusable — the session then resumes exactly as it did before, without the wrapper. The rest of the file still applies.
 - Removing a declaration is safe, and has the same effect: the capture keeps the recorded id, but nothing is re-supplied.
 - Hooks keep working for the wrapped agent. When the prefix replaces the agent executable, cmux puts its per-surface agent shim first on `PATH` for the restored process, so the wrapper's own `claude` lookup still finds the hook-injecting shim. A wrapper that ignores `PATH` (an absolute path to the real binary, for example) needs the global fallback instead: `cmux hooks setup --agent claude`.
+
+## `agents.claudeAccounts`
+
+Register several Claude Code accounts, each a separate config directory (`CLAUDE_CONFIG_DIR`), so a running Claude pane can be switched between them.
+
+```json
+{
+  "agents": {
+    "claudeAccounts": [
+      { "name": "work", "configDir": "~/.claude-work" },
+      { "name": "personal", "configDir": "~/.claude-personal" }
+    ]
+  }
+}
+```
+
+- `name`: what menus and the CLI show. Letters, numbers, dots, underscores, and hyphens, up to 64 characters. The sidebar label is derived from the config directory name, so name each account after its directory suffix (`~/.claude-work` → `work`) to keep the two consistent. `default` is reserved for `~/.claude`.
+- `configDir`: absolute path or a path starting with `~/`.
+
+Behavior notes:
+
+- The default `~/.claude` account is always available and never sets `CLAUDE_CONFIG_DIR`. It is listed first unless you declare `~/.claude` yourself, which gives it another name and the position you declared it at.
+- Entries with an invalid name or a `configDir` that is neither absolute nor `~/`-relative are ignored. Equivalent spellings of one directory (`~/.claude-work`, `/Users/me/.claude-work/`) are the same account; the first declaration of a directory wins.
+- A project-level `cmux.json` (or `.cmux/cmux.json`) overrides a user-level declaration with the same `name`. This applies to switching by hand only: [`automation.claudeAccountAutoSwitch`](#automationclaudeaccountautoswitch) uses the accounts in your user-level `cmux.json` alone.
+- Switch a Claude terminal from its context menu (Switch Claude Account), the command palette, or `cmux claude-account switch <name>`. `cmux claude-account list` prints the accounts cmux sees.
+- Log in to each account once before switching to it: run `CLAUDE_CONFIG_DIR=<configDir> claude` in any terminal and use `/login`. cmux never reads, copies or stores Claude credentials.
+- Folder trust and MCP settings live in each account's own `.claude.json`, so the first switch of a project to an account may show Claude's folder-trust prompt, and the account may have different MCP servers.
+- A switch restarts the whole terminal: the shell starts again on the new account and cmux types the resume command into it. The terminal keeps that account afterwards, including after cmux relaunches.
+
+Default: `[]`

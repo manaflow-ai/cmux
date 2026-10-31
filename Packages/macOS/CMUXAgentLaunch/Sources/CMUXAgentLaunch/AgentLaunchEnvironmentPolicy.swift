@@ -106,6 +106,7 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
         "CAMPFIRE_CODING_AGENT_DIR",
         "CAMPFIRE_CODING_AGENT_SESSION_DIR",
         "CAMPFIRE_RELAY_URL",
+        "CLAUDE_CODE_EFFORT_LEVEL",
         "CLAUDE_CONFIG_DIR",
         // Selects the directory holding Cursor's cli-config.json and approval policy.
         "CURSOR_CONFIG_DIR",
@@ -117,6 +118,7 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
         "CMUX_CUSTOM_CODEX_PATH",
         "CMUX_CUSTOM_ANTIGRAVITY_PATH",
         "CMUX_ROVODEV_SESSIONS_DIR",
+        "CMUX_SESSION_PRIORITY_EFFORT",
         "CODEX_HOME",
         "CODEBUDDY_BASE_URL",
         "CODEBUDDY_CONFIG_DIR",
@@ -171,6 +173,13 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
         "XDG_STATE_HOME",
     ]
 
+    /// Claude's effort and cmux's mark of the level it set (``ClaudeEffortLevel/environmentKey``
+    /// and ``ClaudeEffortLevel/sessionPriorityMarkerKey``). They replay only for Claude launches.
+    private static let claudeEffortEnvironmentKeys: Set<String> = [
+        "CLAUDE_CODE_EFFORT_LEVEL",
+        "CMUX_SESSION_PRIORITY_EFFORT",
+    ]
+
     private static let sortedSafeEnvironmentKeys = safeEnvironmentKeys.sorted()
 
     /// Every environment key ``selectedEnvironment(from:kind:)`` reads.
@@ -207,6 +216,11 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
         }
         if normalizedKind != "cursor" {
             result.removeValue(forKey: "CURSOR_CONFIG_DIR")
+        }
+        if !Self.isClaudeLaunch(normalizedKind) {
+            for key in Self.claudeEffortEnvironmentKeys {
+                result.removeValue(forKey: key)
+            }
         }
         if normalizedKind != "codex" {
             result.removeValue(forKey: "CMUX_CUSTOM_CODEX_PATH")
@@ -325,6 +339,8 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
     public func sanitizedValue(key: String, value: String?) -> String? {
         guard Self.safeEnvironmentKeys.contains(key) else { return nil }
         switch key {
+        case "CLAUDE_CODE_EFFORT_LEVEL", "CMUX_SESSION_PRIORITY_EFFORT":
+            return value.flatMap { ClaudeEffortLevel(rawValue: $0) != nil ? $0 : nil }
         case "CLAUDE_CONFIG_DIR":
             return value.map { ClaudeConfigDirectoryPath.preferredPath($0) }
         case "NODE_OPTIONS":
@@ -334,6 +350,13 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
         default:
             return value
         }
+    }
+
+    /// Whether `kind` (a hook kind or a launcher such as `claudeteams`) is a
+    /// Claude launch, by the same launcher mapping that decides capture trust.
+    private static func isClaudeLaunch(_ normalizedKind: String?) -> Bool {
+        guard let normalizedKind, !normalizedKind.isEmpty else { return false }
+        return AgentLaunchCaptureTrust.launcherDescribesKind(normalizedKind, kind: "claude")
     }
 
     /// Whether `kind` (a hook kind or a launcher such as `omo`) is an OpenCode
