@@ -17,7 +17,11 @@
 //! harness up. A harness another daemon started (adopted after a restart: every app update) has
 //! the servers its host's hello carries (`agent_host::HostServers`: what the daemon that started
 //! it read, and the ACP ones its sessions opened with). A host of an older build, or one started
-//! while idle hibernation was off, carries none: its harness ends only when nothing runs under it.
+//! while idle hibernation was off, carries none: its servers are then the ones acpmux's own MCP
+//! config of the session names (`agent_tools::mcp_config_path`) when the harness was started with
+//! that file (`--mcp-config` in its argv), since acpmux wrote it for that start and no person edits
+//! it (`LaunchServers::from_session_config`). Without either, it ends only when nothing runs under
+//! it.
 //!
 //! Only a child of the harness can be a server, and only when its argv is exactly the server's:
 //! its program (as configured, or what `PATH` runs for a name), or an interpreter running that
@@ -205,6 +209,37 @@ impl LaunchServers {
             path: host.path.clone(),
             cwd: host.cwd.clone(),
         }
+    }
+
+    /// For harness `pid` of session `session_id`, adopted from a host whose hello names no servers
+    /// (a host of an older build, or one started while idle hibernation was off): the servers of
+    /// acpmux's own MCP config of the session (`agent_tools::mcp_config_path`), when the harness
+    /// was started with that file (`--mcp-config FILE` in its argv). acpmux wrote it for that start
+    /// and nobody edits it, so it names what the harness was given; a server only a person's
+    /// config names still keeps the harness up. Without it every harness of an older host stayed
+    /// up for good behind acpmux's own `cmux mcp serve`. None when the harness has no such file
+    /// or its argv cannot be read within [`CENSUS_BUDGET`].
+    #[cfg(unix)]
+    pub(crate) async fn from_session_config(
+        session_id: &str,
+        pid: Option<u32>,
+        cwd: PathBuf,
+    ) -> Option<Self> {
+        let pid = pid?;
+        let file = crate::agent_tools::mcp_config_path(&crate::config::home(), session_id);
+        let read = tokio::task::spawn_blocking(move || {
+            let argv = crate::agent_host::tree::argv(pid)?;
+            let given = argv.windows(2).any(|pair| {
+                matches!(pair, [flag, value] if flag == "--mcp-config" && Path::new(value) == file)
+            });
+            if !given {
+                return None;
+            }
+            let json = read_json(&file)?;
+            let servers = resolved(from_json(json.get("mcpServers")), "", &cwd);
+            Some(Self::Known { servers, path: String::new(), cwd })
+        });
+        tokio::time::timeout(CENSUS_BUDGET, read).await.ok()?.ok()?
     }
 
     /// Reads, once and before the harness of `family` is started as `launch`, the MCP servers
@@ -477,10 +512,12 @@ fn runs_file(who: &crate::agent_host::tree::Identity, w: &str) -> bool {
 /// Whether `who` was started as `w` and runs that program moved aside. An app update moves the
 /// bundle a running server was started from (`/Applications/cmux NIGHTLY.app` goes to the
 /// updater's cache) and puts the new one at its path, so the kernel names the moved file, and
-/// the file now at `w` is another one. The path it was started as (`tree::Identity::started_as`,
-/// which the kernel recorded at exec; `exec -a` and `process.title` leave it) is still `w`, and
-/// the moved file kept its name. Before this, every MCP server older than an update kept its idle
-/// harness up for good.
+/// the file now at `w` is another one. The path it was exec'd as (`tree::Identity::started_as`,
+/// macOS: kept in the process's own memory, where `exec -a` and `process.title` do not change it)
+/// is still `w`, and the moved file kept its name. That is no less than `tree::exe` already takes
+/// when the running file was replaced, and the server's exact argv must match too. Before this,
+/// every MCP server older than an update kept its idle harness up for good. Linux has no exec
+/// path to read: a server whose file was moved (not replaced) there still keeps its harness up.
 #[cfg(unix)]
 fn moved_from(who: &crate::agent_host::tree::Identity, w: &Path) -> bool {
     who.started_as.as_deref() == Some(w) && w.file_name().is_some_and(|n| who.exe.ends_with(n))
