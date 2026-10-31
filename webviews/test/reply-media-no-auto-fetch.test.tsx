@@ -144,6 +144,54 @@ const srcs = (calls: Call[], method: string) =>
   calls.filter((call) => call.method === method).map((call) => String(call.params.src));
 
 describe("R5: no automatic fetch", () => {
+  test("an expired cached remote grant offers a new click, never an automatic fetch", async () => {
+    const url = "https://media.example.com/expired-grant.mp4";
+    const first = await render(url);
+    await first.act(async () => first.container.querySelector<HTMLButtonElement>(".cv-image-placeholder__load")!.click());
+    expect(srcs(first.calls, "media.load")).toEqual([url]);
+    await first.unmount();
+
+    const page = await render(url);
+    expect(page.container.querySelector("video")?.getAttribute("src")).toBe(MEDIA);
+    expect(srcs(page.calls, "media.load")).toEqual([]);
+    await page.act(async () => page.container.querySelector("video")!.dispatchEvent(new dom.window.Event("error")));
+    await page.settle();
+    expect(srcs(page.calls, "media.load")).toEqual([]);
+    expect(page.container.querySelector("video")).toBeNull();
+    const retry = page.container.querySelector<HTMLButtonElement>(".cv-image-placeholder__load");
+    expect(retry).not.toBeNull();
+    await page.act(async () => retry!.click());
+    expect(srcs(page.calls, "media.load")).toEqual([url]);
+    expect(page.container.querySelector("video")?.getAttribute("src")).toBe(MEDIA);
+    await page.unmount();
+  });
+
+  test("a local playback error can retry its host grant without remounting", async () => {
+    const page = await render("![clip](/tmp/project/clip.mp4)");
+    const before = srcs(page.calls, "media.load").length;
+    await page.act(async () => page.container.querySelector("video")!.dispatchEvent(new dom.window.Event("error")));
+    await page.settle();
+    expect(srcs(page.calls, "media.load")).toHaveLength(before);
+    const retry = page.container.querySelector<HTMLButtonElement>(".cv-image-placeholder__load");
+    expect(retry).not.toBeNull();
+    await page.act(async () => retry!.click());
+    expect(srcs(page.calls, "media.load")).toHaveLength(before + 1);
+    expect(page.container.querySelector("video")?.getAttribute("src")).toBe(MEDIA);
+    await page.unmount();
+  });
+
+  test("never suppresses a previously cached remote player and offers no retry", async () => {
+    const url = "https://media.example.com/now-disabled.mp4";
+    const first = await render(url);
+    await first.act(async () => first.container.querySelector<HTMLButtonElement>(".cv-image-placeholder__load")!.click());
+    await first.unmount();
+    const page = await render(url, "never");
+    expect(page.container.querySelector("video")).toBeNull();
+    expect(page.container.querySelector(".cv-image-placeholder__load")).toBeNull();
+    expect(srcs(page.calls, "media.load")).toEqual([]);
+    await page.unmount();
+  });
+
   test("a web image and a web video ask the host for nothing until Load is clicked", async () => {
     const page = await render(REPLY);
     expect(srcs(page.calls, "image.load")).not.toContain(WEB_IMAGE);
