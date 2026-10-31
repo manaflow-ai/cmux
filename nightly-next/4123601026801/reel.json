@@ -1,0 +1,119 @@
+{
+  "version": 1,
+  "build": "4123601026801",
+  "notes": "notes/4123601026801.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 29600,
+      "title": "base red: CmuxNextAppTests compile again on feat-cmux-next",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29376,
+      "title": "fuzz(restore): exec relaunch keeps the slot environment; state-path guard; evidence (follow-up to #29070)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29359,
+      "title": "fix(cmux-tui): three retry loops wait between failures (host accept, status expiry, holder relink)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29334,
+      "title": "fix(palette): Ctrl-` and other navigation chords work while the command palette is open",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29317,
+      "title": "test(ios): include localhost forwarding in browser capability expectations",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29279,
+      "title": "Agent chat: PR chips read (number plus a readable title), +N lists the rest, own line under the reply",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29586,
+      "title": "l10n ratchet: count base debt with the base's own omissions when a change edits them",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29262,
+      "title": "fix(cmux-next layout): only the pane AppKit gives a press to takes the focus",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26601,
+      "title": "acpmux: under MDM's off, end a durable host this build cannot speak to (#26337)",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29594,
+      "title": "fix(measure): orphan-process-scan.sh runs when fed on stdin",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29590,
+      "title": "base red: Takes back #29497: the remote-start refusal table, with its older-daemon codes, moves to CmuxNextDaemonService (app_lines +51)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29581,
+      "title": "test(cmux-tui): local_resize_order checks the drain's title where the drain records it (base red)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29228,
+      "title": "fix(bridge): a new attach's own grid counts as the daemon's, so the next resize is not held 30 frames",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29138,
+      "title": "acpmux: an idle harness behind a native wrapper (sr2 claude, sr codex) hibernates",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28831,
+      "title": "acpmux: every session list page and session info fits one message (ls never hits message.too_large)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28758,
+      "title": "cloud plan: VM-hours used is unknown (null), not a made-up 0",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26593,
+      "title": "acpmux: config replay records a bare full-access answer under MDM's off (Fixes #26340)",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29592,
+      "title": "base autofix: a namespace baseline move holds the namespace rewrites (fixes #29577)",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
