@@ -32,6 +32,13 @@ public final class HomeSidebarView: NSView, WindowControlsAvoiding {
     public var teammates: (String) -> [HomeContact] = { _ in [] }
     /// A teammate from the search section or a teammate row was chosen: start (or open) the DM.
     public var onStartTeammate: (HomeContact) -> Void = { _ in }
+    /// Messages whose text matches a query, newest first (the list's Messages search section,
+    /// after Teammates, as in Messages). Hits in a conversation the list does not show are left out.
+    public var searchMessages: @MainActor (String) async -> [HomeSearchHit] = { _ in [] }
+    /// A message from the Messages search section was chosen: open its conversation at it.
+    public var onOpenMessage: (HomeSearchHit) -> Void = { _ in }
+    /// The Messages section's hits for the query shown now, by their list id.
+    private var messageHits: [String: HomeSearchHit] = [:]
     public var onNewMessage: () -> Void = {}
     /// The x on the New Message draft row (shown while the pointer is over it, as in Messages)
     /// was clicked: the page discards the draft (`home.closeNewMessage`).
@@ -129,21 +136,17 @@ public final class HomeSidebarView: NSView, WindowControlsAvoiding {
             guard let self, teammate(for: id) == nil else { return [] }
             return menuItems(ConversationID(id))
         }
-        list.searchSection = { [weak self] query in
-            guard let self else { return nil }
-            let people = teammates(query)
-            guard !people.isEmpty else { return nil }
-            return CmuxSidebarSearchSection(title: HomeConversationStrings.teammatesSection, results: people.map {
-                CmuxSidebarSearchResult(id: $0.id.rawValue, title: $0.name, initials: Self.initials($0.name))
-            })
-        }
+        list.searchSections = { [weak self] query in self?.teammateSection(query) ?? [] }
+        list.laterSearchSections = { [weak self] query in await self?.messageSection(query) ?? [] }
         list.closeTitle = HomeConversationStrings.closeNewMessage
         list.onClose = { [weak self] id in
             guard let self, id == Self.draftRowID.rawValue else { return }
             onCloseDraft()
         }
         list.onSelectSearchResult = { [weak self] id in
-            guard let self, let person = teammates(list.searchQuery).first(where: { $0.id.rawValue == id }) else { return }
+            guard let self else { return }
+            if let hit = messageHits[id] { onOpenMessage(hit); return }
+            guard let person = teammates(list.searchQuery).first(where: { $0.id.rawValue == id }) else { return }
             onStartTeammate(person)
         }
         applyColors()
@@ -267,6 +270,55 @@ public final class HomeSidebarView: NSView, WindowControlsAvoiding {
     public static func menuItem(_ title: String, handler: @escaping () -> Void) -> NSMenuItem {
         CmuxSidebarMenuItem(title: title, handler: handler)
     }
+
+    /// The first search section under the matching conversations, at once: teammates with no DM yet.
+    private func teammateSection(_ query: String) -> [CmuxSidebarSearchSection] {
+        let people = teammates(query)
+        guard !people.isEmpty else { return [] }
+        return [CmuxSidebarSearchSection(title: HomeConversationStrings.teammatesSection, results: people.map {
+            CmuxSidebarSearchResult(id: $0.id.rawValue, title: $0.name, initials: Self.initials($0.name))
+        })]
+    }
+
+    /// The section after Teammates once the conversation owner answers: the messages whose text matches.
+    private func messageSection(_ query: String) async -> [CmuxSidebarSearchSection] {
+        let hits: [HomeSearchHit]
+        #if DEBUG || CMUX_BENCH_HOOKS
+        if let fixture = debugMessageHits {
+            let words = query.lowercased().split(separator: " ")
+            hits = fixture.filter { hit in words.allSatisfy { hit.message.plainText.lowercased().contains($0) } }
+        } else {
+            hits = await searchMessages(query)
+        }
+        #else
+        hits = await searchMessages(query)
+        #endif
+        guard !Task.isCancelled else { return [] }
+        let items = Dictionary((model.pinned + model.rows).map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        var shown: [String: HomeSearchHit] = [:]
+        var results: [CmuxSidebarSearchResult] = []
+        for hit in hits {
+            guard let item = items[hit.conversation] else { continue }
+            let id = Self.messageResultPrefix + hit.message.id.rawValue
+            guard shown.updateValue(hit, forKey: id) == nil else { continue }
+            results.append(Self.messageResult(hit, in: item, id: id))
+        }
+        messageHits = shown
+        return results.isEmpty ? [] : [CmuxSidebarSearchSection(title: HomeConversationStrings.messagesSection, results: results)]
+    }
+
+    /// A matching message as a search row: its conversation's name and avatar, the matched text
+    /// under it, and the message's time (Messages' message results).
+    static func messageResult(_ hit: HomeSearchHit, in item: HomeSidebarItem, id: String) -> CmuxSidebarSearchResult {
+        let entry = entry(item)
+        let snippet = hit.message.plainText.split(whereSeparator: \.isNewline).joined(separator: " ")
+        return CmuxSidebarSearchResult(id: id, title: item.title, subtitle: snippet,
+                                       initials: entry.people.first?.initials ?? initials(item.title),
+                                       avatar: entry.avatar, date: hit.message.createdAt == .distantPast ? nil : hit.message.createdAt)
+    }
+
+    /// Message search rows' list ids (never a teammate's id).
+    static let messageResultPrefix = "message:"
 
     /// The list id of a teammate's row (a person with no DM yet).
     public static func teammateRowID(_ contact: HomeContact) -> String { teammateRowPrefix + contact.id.rawValue }
@@ -425,11 +477,16 @@ public final class HomeSidebarView: NSView, WindowControlsAvoiding {
     }
 
     #if DEBUG || CMUX_BENCH_HOOKS
+    /// Screenshots (`debug.home.sidebar_fixture` `messages`): the message search answers from these
+    /// (a message holding every typed word matches) instead of the owner; nil asks the owner.
+    public var debugMessageHits: [HomeSearchHit]?
+
     /// Screenshots: true gives the search field the keyboard (it opens over an avatar-only list), false
     /// ends the search and takes the keyboard back.
-    public func debugSearch(_ open: Bool) {
+    public func debugSearch(_ open: Bool, query: String? = nil) {
         if open {
             window?.makeFirstResponder(list.searchField)
+            if let query { list.search(query) }
         } else {
             list.clearSearch()
             if list.searchField.isEditing { window?.makeFirstResponder(nil) }
@@ -439,13 +496,13 @@ public final class HomeSidebarView: NSView, WindowControlsAvoiding {
 
     /// Screenshots (`debug.home.sidebar_fixture`), each optional: the list's `width` (clamped as
     /// a divider drag is), selects the `select`-th row (0 first, below the pinned tiles), sets
-    /// the Unread toggle, opens or ends the search (`debugSearch`). The answer is a
+    /// the Unread toggle, opens or ends the search (`debugSearch`), types `query` into it. The answer is a
     /// `JSONSerialization` graph: the list's `width` and the `header` (each frame as [x, y, width,
     /// height], `compact`, `buttonsCovered`, and `chatCompose`, the chat's compose button in window
     /// points from the top-left or NSNull while hidden); nil when `select` names no row, and
     /// nothing changes then. `buttons` is the compose and Unread buttons' glyph state
     /// (`HomeHeaderButton.debugState`) as the call found it (`before`) and after its layout.
-    public func debugLook(width: Double?, select: Int?, unread: Bool?, search: Bool?) -> [String: Any]? {
+    public func debugLook(width: Double?, select: Int?, unread: Bool?, search: Bool?, query: String? = nil) -> [String: Any]? {
         if let select, !model.rows.indices.contains(select) { return nil }
         let before = [compose, unreadToggle].map(\.debugState)
         // The header as it stood before this call lays anything out, and the traffic lights it
@@ -462,7 +519,7 @@ public final class HomeSidebarView: NSView, WindowControlsAvoiding {
             self.select(model.rows[select].id)
         }
         if let unread { unreadOnly = unread }
-        if let search { debugSearch(search) }
+        if let search { debugSearch(search, query: query) } else if let query { debugSearch(true, query: query) }
         (split?.superview ?? self).layoutSubtreeIfNeeded()
         func frame(_ r: CGRect?) -> Any { r.map { [$0.minX, $0.minY, $0.width, $0.height].map(Double.init) } ?? NSNull() }
         let h = header

@@ -8,6 +8,8 @@ import Foundation
 enum HomeConversationStrings {
     /// The sidebar search section of teammates the user has no DM with yet.
     static var teammatesSection: String { String(localized: "home.list.teammates", defaultValue: "Teammates", bundle: .module) }
+    /// The sidebar search section of messages whose text matches (Messages' search).
+    static var messagesSection: String { String(localized: "home.list.searchMessages", defaultValue: "Messages", bundle: .module) }
     static var newMessage: String { String(localized: "home.list.newMessage", defaultValue: "New Message…", bundle: .module) }
     static var newChief: String { String(localized: "home.list.newChief", defaultValue: "New Chief…", bundle: .module) }
     static var invite: String { String(localized: "home.list.invite", defaultValue: "Invite to cmux-next…", bundle: .module) }

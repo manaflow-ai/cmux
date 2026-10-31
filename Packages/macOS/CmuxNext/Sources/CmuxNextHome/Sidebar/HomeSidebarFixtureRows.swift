@@ -15,11 +15,19 @@ public struct HomeSidebarFixtureRows: Sendable {
     public let now: Date
 
     /// - Parameters:
-    ///   - me: The signed-in person (or a debug stand-in).
+    ///   - me: The signed-in person; nil stands in a debug "Me".
     ///   - now: The newest row's time.
-    public init(me: Participant, now: Date) {
-        self.me = me
+    public init(me: Participant?, now: Date) {
+        self.me = me ?? Participant(id: ParticipantID("user_debug_me"), kind: .human, displayName: "Me")
         self.now = now
+    }
+
+    /// The first `count` fixture names as team members with no DM (`debug.home.sidebar_fixture`
+    /// `team`), the last name first.
+    public static func team(_ count: Int) -> [HomeContact] {
+        names.prefix(max(0, count)).reversed().enumerated().map { i, name in
+            HomeContact(id: ParticipantID("user_fixture_team_\(i)"), name: name, source: .team)
+        }
     }
 
     /// One DM per name, an hour apart.
@@ -37,6 +45,26 @@ public struct HomeSidebarFixtureRows: Sendable {
             summary("conv_fixture_chief_\(i)", chief.name, Participant(id: ParticipantID(chief.id), kind: .agent, displayName: chief.name, agentClass: .chief),
                     back: 60 * (i + 1))
         })
+    }
+
+    /// The list's message search fixture (`debug.home.sidebar_fixture` `messages` [{row, text}],
+    /// ``HomeSidebarView/debugMessageHits``): each text as a message in `rows[row]`, an hour apart,
+    /// newest first; an entry naming no row or no text is left out. A message containing every
+    /// typed word matches. No entries gives nil: the search goes back to the owner.
+    /// - Parameters:
+    ///   - entries: Each message's row index in `rows` and its text, as the request gave them.
+    ///   - rows: The fixture rows the list shows.
+    ///   - now: The newest message's time.
+    public static func messageHits(_ entries: [(row: Int?, text: String?)], in rows: [InboxRow], now: Date) -> [HomeSearchHit]? {
+        guard !entries.isEmpty else { return nil }
+        return entries.enumerated().compactMap { i, entry -> HomeSearchHit? in
+            guard let row = entry.row, rows.indices.contains(row), let text = entry.text else { return nil }
+            let conversation = rows[row].id // checked: indices.contains above
+            let message = Message(id: MessageID("msg_fixture_\(i)"), conversation: conversation, seq: Seq(i + 1),
+                                  clientMessageID: IdempotencyKey("msg_fixture_\(i)"), author: ParticipantID("user_fixture_\(row)"),
+                                  parts: [.text(text)], createdAt: now.addingTimeInterval(Double(-(i + 1) * 3600)))
+            return HomeSearchHit(conversation: conversation, message: message, highlights: [])
+        }
     }
 
     private func summary(_ id: String, _ title: String, _ other: Participant, back seconds: Int) -> ConversationSummary {

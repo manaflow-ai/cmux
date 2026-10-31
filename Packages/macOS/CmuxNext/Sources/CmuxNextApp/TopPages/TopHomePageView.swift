@@ -186,6 +186,8 @@ final class TopHomePageView: NSView {
                 self?.openWhenListed(id)
             }
         }
+        list.searchMessages = { query in (try? await home.homeStore.search(query, limit: 20)) ?? [] }
+        list.onOpenMessage = { [weak self] hit in self?.show(HomeDockSelection(conversation: hit.conversation.rawValue, message: hit.message.id.rawValue)) }
         list.onNewMessage = { [weak self] in self?.presentNewMessage() }
         list.onCloseDraft = { [weak self] in self?.performCloseNewMessage() }
         list.onOpenRequests = { [weak self] in self?.presentRequests() }
