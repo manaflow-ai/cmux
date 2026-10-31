@@ -158,20 +158,27 @@ pub fn deploy_script(app: &str, spec: &ServerSpec) -> String {
     let name = container_name(app);
     format!(
         r#"set -eu
-engine="$(command -v docker || command -v podman || true)"
-if [ -z "$engine" ]; then echo "cmux-deploy: this machine has neither docker nor podman" >&2; exit 20; fi
+# docker, else docker through passwordless sudo (a host whose operator keeps the docker group
+# closed), else podman.
+engine=""
+if command -v docker >/dev/null 2>&1; then
+  if docker info >/dev/null 2>&1; then engine="docker"
+  elif sudo -n docker info >/dev/null 2>&1; then engine="sudo -n docker"; fi
+fi
+if [ -z "$engine" ] && command -v podman >/dev/null 2>&1; then engine="podman"; fi
+if [ -z "$engine" ]; then echo "cmux-deploy: this machine has no docker or podman this user may run" >&2; exit 20; fi
 bind="$(tailscale ip -4 2>/dev/null | head -n 1 || true)"
 [ -n "$bind" ] || bind=127.0.0.1
-"$engine" rm -f {name} >/dev/null 2>&1 || true
-"$engine" run -d --restart unless-stopped --name {name} --label cmux.app={app} -p "$bind::{port}" {image} >/dev/null
-hostport="$("$engine" port {name} {port}/tcp | head -n 1 | sed 's/.*://')"
+$engine rm -f {name} >/dev/null 2>&1 || true
+$engine run -d --restart unless-stopped --name {name} --label cmux.app={app} -p "$bind::{port}" {image} >/dev/null
+hostport="$($engine port {name} {port}/tcp | head -n 1 | sed 's/.*://')"
 tries=0
 until curl -fsS -o /dev/null "http://127.0.0.1:$hostport{health}" 2>/dev/null || curl -fsS -o /dev/null "http://$bind:$hostport{health}" 2>/dev/null || wget -q -O /dev/null "http://$bind:$hostport{health}" 2>/dev/null; do
   tries=$((tries + 1))
   if [ "$tries" -ge {tries} ]; then
     echo "cmux-deploy: health check failed at {health}" >&2
-    "$engine" logs --tail 20 {name} >&2 2>&1 || true
-    "$engine" rm -f {name} >/dev/null 2>&1 || true
+    $engine logs --tail 20 {name} >&2 2>&1 || true
+    $engine rm -f {name} >/dev/null 2>&1 || true
     exit 21
   fi
   sleep 1
@@ -190,7 +197,7 @@ echo "cmux-deploy-url=http://$bind:$hostport/"
 /// Removes the app's container (best effort; absent is fine).
 pub fn stop_script(app: &str) -> String {
     format!(
-        "engine=\"$(command -v docker || command -v podman || true)\"\n[ -n \"$engine\" ] && \"$engine\" rm -f {} >/dev/null 2>&1; exit 0\n",
+        "for engine in docker \"sudo -n docker\" podman; do $engine rm -f {} >/dev/null 2>&1 && break; done; exit 0\n",
         container_name(app)
     )
 }
@@ -581,6 +588,10 @@ mod tests {
         assert!(script.contains("--name cmux-app-manaflow_ai.hello_deploy"), "{script}");
         assert!(script.contains("-p \"$bind::80\""), "never every interface: {script}");
         assert!(script.contains("tailscale ip -4"), "{script}");
+        assert!(
+            script.contains("sudo -n docker info"),
+            "a closed docker group falls back to sudo -n: {script}"
+        );
         assert_eq!(
             parse_url("noise\ncmux-deploy-url=http://100.64.0.9:49153/\n"),
             Some("http://100.64.0.9:49153/".into())
