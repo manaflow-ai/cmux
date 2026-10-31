@@ -3,6 +3,7 @@
 // each check, failing first, each linking its run. The App pushes it all with the header state.
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
+import { headerState } from "../src/agent-session/acpmux/header/headerState";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -67,7 +68,9 @@ test("the chip names the pull request's state and checks, and opens a list of ea
       { name: "ci/lint", state: "passed", url: "https://ci.example/2" },
     ],
   };
-  await act(async () => applyHostEvent({ kind: "headerState", value: { version: 1, pullRequest } }));
+  await act(async () =>
+    applyHostEvent({ kind: "headerState", value: { version: headerState().version + 1, pullRequest } }),
+  );
   try {
     const chip = host.querySelector<HTMLButtonElement>("button.acpmux-header-pr");
     expect(chip?.textContent).toBe("#7");
@@ -116,7 +119,9 @@ test("a failing check the base branch's tip fails too says so on its own row", a
       { name: "ci/lint", state: "passed" },
     ],
   };
-  await act(async () => applyHostEvent({ kind: "headerState", value: { version: 7, pullRequest } }));
+  await act(async () =>
+    applyHostEvent({ kind: "headerState", value: { version: headerState().version + 1, pullRequest } }),
+  );
   try {
     const chip = host.querySelector<HTMLButtonElement>("button.acpmux-header-pr");
     await act(async () => chip!.click());

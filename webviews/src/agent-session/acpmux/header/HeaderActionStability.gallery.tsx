@@ -1,49 +1,38 @@
 // l10n-allow-file: gallery fixture data, not shipped UI.
-import { useState } from "react";
 import { componentEntry } from "../../../gallery/format";
 import { PullRequestMerge, type Merging } from "./PullRequestMerge";
-import { WorktreeApply, type Applying } from "./WorktreeApply";
-import { WorktreeRemove, type Removing } from "./WorktreeRemove";
+import type { PullRequestOps } from "./pullRequestOps";
+import { WorktreeApply } from "./WorktreeApply";
+import { WorktreeRemove } from "./WorktreeRemove";
+import type { Applying, Removing, WorktreeOps } from "./worktreeOps";
 import "./header.css";
 
-const worktree = { branch: "fix-login", base: "main", mainRoot: "/Users/me/Projects/cmux" };
-const pullRequest = {
-  number: 19605,
-  url: "https://github.com/manaflow-ai/cmux/pull/19605",
-  title: "Fix login",
-  state: "open",
-  review: "approved",
-  mergeable: "mergeable",
-  checks: { state: "passing", passed: 3, total: 3 },
-  checkList: [],
-};
-
 function HeaderActionStability({ busy = false }: { busy?: boolean }) {
-  const [merging, setMerging] = useState<Merging>({ step: busy ? "merging" : "confirm" });
-  const [applying, setApplying] = useState<Applying>(busy ? { step: "applying", key: "gallery" } : { step: "idle" });
-  const [removing, setRemoving] = useState<Removing>(
-    busy ? { step: "removing", key: "gallery", discard: false } : { step: "idle" },
-  );
+  const merging: Merging = { step: busy ? "merging" : "confirm" };
+  const applying: Applying = busy ? { step: "applying", key: "gallery" } : { step: "idle" };
+  const removing: Removing = busy ? { step: "removing", key: "gallery", discard: false } : { step: "idle" };
+  const prOps: PullRequestOps = {
+    identity: "gallery-pr",
+    merging,
+    confirm: { label: busy ? "Merging" : "Confirm merge", enabled: !busy, run: () => undefined },
+    cancel: { label: "Cancel", enabled: !busy, run: () => undefined },
+    messages: [],
+    question: "Merge this pull request?",
+  };
+  const worktreeOps: WorktreeOps = {
+    identity: "gallery-worktree",
+    applying,
+    removing,
+    apply: { label: busy ? "Applying" : "Apply", enabled: !busy, run: () => undefined },
+    remove: { label: busy ? "Removing" : "Remove", enabled: !busy, run: () => undefined },
+    messages: [],
+    canRemove: true,
+  };
   return (
     <div style={{ width: 280, padding: 8 }}>
-      <PullRequestMerge
-        pullRequest={pullRequest}
-        merging={merging}
-        setMerging={setMerging}
-        merge={() => new Promise(() => undefined)}
-      />
-      <WorktreeApply
-        worktree={worktree}
-        applying={applying}
-        setApplying={setApplying}
-        apply={() => new Promise(() => undefined)}
-      />
-      <WorktreeRemove
-        worktree={worktree}
-        removing={removing}
-        setRemoving={setRemoving}
-        remove={() => new Promise(() => undefined)}
-      />
+      <PullRequestMerge ops={prOps} />
+      <WorktreeApply ops={worktreeOps} />
+      <WorktreeRemove ops={worktreeOps} />
     </div>
   );
 }

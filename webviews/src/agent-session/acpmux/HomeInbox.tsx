@@ -16,7 +16,7 @@ import { AgentMark } from "../shared/AgentMark";
 import { age } from "./HomeLists";
 import { type StringKey, useT } from "./i18n";
 import { NativeError } from "./nativeError";
-import { askText } from "./needsYou/NeedsYou";
+import { askText } from "./needsYou/ask";
 import type { NeedsYouAnswer, NeedsYouItem, NeedsYouKind } from "./needsYou/model";
 import { PermissionActionButton } from "./PermissionCard";
 import { type AcpmuxSessionEntry, projectLabel } from "./sessionList";

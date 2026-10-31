@@ -13,4 +13,6 @@ export const HEADER_SYMBOLS: Readonly<Record<string, string>> = {
   inbox: "tray",
   "status.info": "info.circle",
   "agent.session": "bubble.left.and.bubble.right",
+  "git.worktree": "arrow.triangle.branch",
+  "git.pullrequest": "arrow.triangle.pull",
 };
