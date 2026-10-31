@@ -97,7 +97,8 @@ test("the card shows status, space and phones with their transport, and follows 
   await act(async () =>
     page.provider.setHost({
       ...page.provider.host,
-      iphone: { ...state, allowed: false, account: null, space: null, phase: "off" },
+      // Off, the host sends no legacy phones; only local Phone Access rows would remain.
+      iphone: { ...state, allowed: false, account: null, space: null, phase: "off", phones: [] },
     }),
   );
   await settle();
