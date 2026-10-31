@@ -117,11 +117,6 @@ impl Lane {
             }
         }
     }
-
-    /// Never run the lane again; a run in progress finishes.
-    pub(crate) fn close(&self) {
-        self.0.status.store(CLOSED, Ordering::Release);
-    }
 }
 
 struct TimerEntry {
@@ -356,7 +351,7 @@ impl Executor {
 /// Run one queued lane, then settle its status from the result.
 fn run_lane(lane: Arc<LaneShared>) {
     if lane.status.compare_exchange(QUEUED, RUNNING, Ordering::AcqRel, Ordering::Acquire).is_err() {
-        return; // closed while queued
+        return; // not queued any more (closed after a panic or LaneNext::Close)
     }
     struct ClosedOnPanic<'a>(&'a LaneShared, bool);
     impl Drop for ClosedOnPanic<'_> {
@@ -411,7 +406,7 @@ fn run_lane(lane: Arc<LaneShared>) {
     }
 }
 
-/// The lane was kicked (or closed) while it ran.
+/// The lane was kicked while it ran.
 fn requeue_kicked(lane: Arc<LaneShared>, executor: &'static Executor) {
     if lane.status.compare_exchange(KICKED, QUEUED, Ordering::AcqRel, Ordering::Acquire).is_ok() {
         executor.push_ready(lane);
