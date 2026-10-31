@@ -321,6 +321,10 @@
     "nightly-next-launch-smoke.yml#smoke": "apple-gui",
     "nightly-next-train.yml#build": "apple-app-build",
     "nightly.yml#build-nightly-app": "apple-app-build",
+    "nightly.yml#decide": {
+      "class": "portable-checks",
+      "picker_followup": "the run's first job, so no picker can run before it: attempt 1 of a nightly-next push takes the owned nightly slot (vars.CI_NIGHTLY_NEXT_BUILD_RUNNER) and the owned-pool rescue moves it to the Blacksmith Linux set when no slot takes it"
+    },
     "nightly.yml#build-nightly-remote-daemon": "portable-checks",
     "nightly.yml#await-nightly-tree-marker": "portable-checks",
     "nightly.yml#build-nightly-ghostty-cli-helper": "apple-app-build",
