@@ -251,7 +251,7 @@ final class WorkspaceRowView: SidebarRowView {
         let tunables = observedTunables()
         let content = Content(
             ws: ws, group: row.group,
-            fontSize: SidebarStyle.titleFont.pointSize, iconSize: Metrics.smallIconSize,
+            fontSize: SidebarStyle.titleFont.pointSize, iconSize: SidebarStyle.leadingGlyphSide,
             agentMark: tunables.agentMark, presenceDots: tunables.presenceDots, rowBadge: badgeStyle ?? tunables.rowBadge, stackLimit: tunables.stackCap.limit,
             rowTitle: tunables.rowTitle, rowTitleSingleChat: tunables.rowTitleSingleChat,
             disclosure: row.tabDisclosure, row: row.content
