@@ -126,3 +126,6 @@ Packages/macOS/CmuxNext/machines-section-gallery/
 Packages/macOS/CmuxNext/machines-section-gallery.tar
 Packages/macOS/CmuxNext/usage-warning-gallery/
 Packages/macOS/CmuxNext/usage-warning-gallery.tar
+
+# Spotlight exclusion marker that scripts/measure/quiet-host.sh writes in a fleet checkout
+.metadata_never_index
