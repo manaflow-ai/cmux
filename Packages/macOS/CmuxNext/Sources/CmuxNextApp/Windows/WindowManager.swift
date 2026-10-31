@@ -503,11 +503,11 @@ final class WindowManager {
         await closeIncognitoWindowsForTermination()
         await recordSaver.flushSaves()
         stopSavingForTermination()
-        // Chromium stops later, as the last quit step (QuitCompletion).
+        // Chromium stops later, as the last quit step (QuitSteps).
     }
 
     /// Stops saving for the quit at once: also when ``prepareForTermination()``
-    /// passed its quit-step limit and still runs (`QuitDeadline.step`).
+    /// passed its quit-step limit and still runs (`QuitSaveSteps`).
     func stopSavingForTermination() {
         recordSaver.geometryTimer.cancel()
         isTerminating = true

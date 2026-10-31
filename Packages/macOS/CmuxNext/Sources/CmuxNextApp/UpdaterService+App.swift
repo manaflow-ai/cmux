@@ -24,13 +24,8 @@ extension UpdaterService {
             behind.start(willQuit: willQuit, declined: declined, inFront: inFront)
         }
         relaunchBlockers = { [weak self, weak services, activity = UpdateAgentActivity(environment: QuitAgents.environment(services))] in services.map { activity.applying(to: $0.machines.local.currentRelaunchBlockers(quietInput: self?.idleInstallQuiet)) } ?? .daemonUnavailable }
-        // The windows leave the screen when Sparkle commits to the relaunch
-        // (`updaterWillRelaunchApplication`, right before its installer
-        // finishes and quits the app), not at the click (S1). A click whose
-        // install never reaches the installer (Sparkle gives up after 7 s:
-        // "An error occurred while starting the installer") kept every window
-        // transparent for those seconds, and the app looked frozen
-        // (slow quit, 2026-10-20). A failed install brings them back.
+        // The windows leave the screen when Sparkle commits to the relaunch,
+        // not at the click (`UpdateWindowHandoff`); a failed install brings them back.
         let handoff = UpdateWindowHandoff(unsaved: services.quitUnsaved)
         willRelaunch = { [weak services] in
             services?.quit.origins.record(.explicit(.keep))

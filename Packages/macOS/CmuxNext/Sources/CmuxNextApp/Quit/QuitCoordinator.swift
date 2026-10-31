@@ -11,7 +11,7 @@ import os
 /// Runs a quit (user decision 2026-09-30). `applicationShouldTerminate`
 /// hands every quit here: it takes the origin (`QuitOriginTracker`), reads
 /// the local terminals for an interactive quit, decides (`QuitPolicy`),
-/// shows `QuitAlert` when asked to, then completes (`QuitCompletion`):
+/// shows `QuitAlert` when asked to, then completes (`QuitSteps`, CmuxNextControl):
 /// remember the choice, save and close windows, and for End end the local
 /// terminals and stop the local daemon. A failed end step shows
 /// `QuitFailureAlert` (Retry or Quit Anyway). Remote sessions are never ended.
@@ -35,6 +35,8 @@ final class QuitCoordinator {
     weak var watchdog: MainThreadWatchdog?
     /// Ends the process if the engine stop never returns (cx-ccjnn).
     let deadline = QuitDeadline(reason: "its quit deadline was armed (a keep quit decided, or an End quit's engines began to stop)")
+    /// Holds each quit step to its limit and marks its end in the launch marks.
+    let steps = QuitStepLimiter(mark: { DebugTimings.markLaunch($0) })
     #if DEBUG || CMUX_BENCH_HOOKS
     /// `debug.quit {wedge_engine_stop: true}`: the next quit's engine stop
     /// blocks the main thread for good, as a wedged CefShutdown did (cx-ccjnn).
@@ -45,7 +47,6 @@ final class QuitCoordinator {
     init(services: AppServices) {
         self.services = services
         unsaved = services.quitUnsaved
-        QuitDeadline.stepMark = { DebugTimings.markLaunch($0) }
     }
 
     /// Records the origin, then starts AppKit's termination. A second Cmd-Q
@@ -173,9 +174,9 @@ final class QuitCoordinator {
         await services.crashRecovery.quitBegan()
         DebugTimings.markLaunch("quit.marked")
         await services.cloud.prepareForTermination()
-        await QuitCompletion.run(choice, remember: remember, QuitSteps(
-            remember: { behavior in
-                _ = await QuitDeadline.step("remember", limit: .milliseconds(500)) {
+        await QuitSteps(
+            remember: { [steps] behavior in
+                _ = await steps.run("remember", limit: .milliseconds(500)) {
                     guard let settings = services.settings,
                           let descriptor = SettingsSchema.descriptor(for: QuitBehaviorSetting.configPath) else { return }
                     do { try await settings.setSetting(descriptor, to: .string(behavior.rawValue), by: .user) } catch {
@@ -184,49 +185,23 @@ final class QuitCoordinator {
                     }
                 }
             },
-            prepareWindows: {
-                // Each save step has a limit, in this order: a step that hangs
-                // (a page that never answers, a daemon that never replies)
-                // costs the quit at most its limit, never the whole quit.
-                // Remote-terminal tabs keep their last screen for the
-                // placeholder after relaunch (data-model.md 1.4).
-                await QuitDeadline.step("remote_snapshots", limit: .milliseconds(300)) {
-                    await services.remoteTerminals.saveSnapshots()
-                }
-                // Agent chats get their composer's chips, shell command and place back at the next
-                // launch (pages are asked at once, each within a second: the step's own bound).
-                await QuitDeadline.step("agent_composers", limit: .seconds(1)) {
-                    await services.agentTabs.relaunchWake.save(services.agentTabs.relaunchWakeStates())
-                }
-                // Agent panes on screen draw their last page at the next launch.
-                await QuitDeadline.step("agent_images", limit: .milliseconds(300)) {
-                    await services.agentTabs.launchImages.save(services.agentTabs.shownPageImages())
-                }
-                // And terminals their last frame.
-                await QuitDeadline.step("terminal_frames", limit: .milliseconds(500)) {
-                    await TerminalLaunchFrames.beside(services.environment.sidebarSnapshotFile?.url.deletingLastPathComponent())
-                        .save(services.cache.terminals.mapValues(\.session))
-                }
-                // Browser tabs reopen at their recorded page (before any
-                // session ends, while the daemon still answers).
-                await QuitDeadline.step("browser_records", limit: .milliseconds(500)) {
-                    await services.cache.browserTabs.flushRecords()
-                }
-                await QuitDeadline.step("windows", limit: .milliseconds(500)) {
-                    await services.windows.prepareForTermination()
-                }
-                // A windows step past its limit still runs: nothing saves from here.
-                services.windows.stopSavingForTermination()
-                await QuitDeadline.step("sidebar", limit: .milliseconds(500)) {
-                    await services.sidebarSnapshots.flush()
-                }
-                // Home's drafts, scroll places and unsent sends (its cache's last batch). A
-                // write past its limit still runs, and the engine stop awaits it again.
-                await QuitDeadline.step("home_cache", limit: .milliseconds(500)) {
-                    await services.home.flushCacheForQuit()
-                }
+            prepareWindows: { [steps] in
+                await QuitSaveSteps(
+                    remoteSnapshots: { await services.remoteTerminals.saveSnapshots() },
+                    agentComposers: { await services.agentTabs.relaunchWake.save(services.agentTabs.relaunchWakeStates()) },
+                    agentImages: { await services.agentTabs.launchImages.save(services.agentTabs.shownPageImages()) },
+                    terminalFrames: {
+                        await TerminalLaunchFrames.beside(services.environment.sidebarSnapshotFile?.url.deletingLastPathComponent())
+                            .save(services.cache.terminals.mapValues(\.session))
+                    },
+                    browserRecords: { await services.cache.browserTabs.flushRecords() },
+                    windows: { await services.windows.prepareForTermination() },
+                    stopSavingWindows: { services.windows.stopSavingForTermination() },
+                    sidebar: { await services.sidebarSnapshots.flush() },
+                    homeCache: { await services.home.flushCacheForQuit() }
+                ).run(steps)
             },
-            endLocalSessions: { await services.daemon.endSessionsAndStop($0) },
+            endLocalSessions: { await services.daemon.endSessionsAndStop(choice) },
             confirmFailures: { [weak self] failures in await self?.confirm(failures) ?? .quitAnyway },
             endLocalAgents: { [attempts = QuitAttempts()] in
                 // The Chief home's host ends with the sessions (home-state-ownership.md section 3),
@@ -262,7 +237,7 @@ final class QuitCoordinator {
                 await services.cache.cef.shutdown(timeout: QuitDeadline.engineCloseWait)
                 DebugTimings.markLaunch("quit.engines_stopped")
             }
-        ))
+        ).run(ends: choice.ends, remember: remember ? QuitPolicy.remembered(choice) : nil)
         DebugTimings.markLaunch("quit.replied")
         sender.reply(toApplicationShouldTerminate: true)
     }

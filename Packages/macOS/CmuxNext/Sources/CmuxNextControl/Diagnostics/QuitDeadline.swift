@@ -22,7 +22,7 @@ public nonisolated final class QuitDeadline: Sendable {
     /// A quit that keeps the sessions (every quit but End Sessions and End
     /// Everything) ends this long after it was decided, whatever any step
     /// does (slow quit, 2026-10-20). The save steps have their own limits
-    /// (`QuitDeadline.step`, about 4.6 s if every one of them hangs, a few hundred
+    /// (`QuitSaveSteps`, about 4.6 s if every one of them hangs, a few hundred
     /// ms in practice), then the engines' close wait (`engineCloseWait`) and
     /// CefShutdown; the deadline cuts whatever is still running.
     public static let keepQuitLimit: Duration = .seconds(4)
