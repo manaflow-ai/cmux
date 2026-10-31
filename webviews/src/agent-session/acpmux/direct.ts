@@ -2004,7 +2004,10 @@ export class AcpmuxDirectClient {
         this.selectedSessionId !== undefined &&
         !first.sessions.some((session) => session.sessionId === this.selectedSessionId);
       if (attachedRow)
-        this.sessions = [attachedRow, ...this.sessions.filter((session) => session.sessionId !== attachedRow.sessionId)];
+        this.sessions = [
+          attachedRow,
+          ...this.sessions.filter((session) => session.sessionId !== attachedRow.sessionId),
+        ];
       else if (first && !linkedLater) this.sessions = first.sessions;
       else {
         // A linked chat older than the first page, or a lagged watch restarted the list: read the
@@ -2837,7 +2840,10 @@ export class AcpmuxDirectClient {
     const listed = listRead.then(ignore, ignore);
     return Promise.race([
       listed,
-      early.sent.attaching.then((result) => attachedLocalRow(result, early.sessionId) ?? listed, () => listed),
+      early.sent.attaching.then(
+        (result) => attachedLocalRow(result, early.sessionId) ?? listed,
+        () => listed,
+      ),
     ]);
   }
 
