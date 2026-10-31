@@ -253,7 +253,7 @@ export type AcpmuxRow = {
   received?: AcpmuxOfferResult;
   /// A prompt that is not the person's: another agent's message, or harness bookkeeping
   /// (conversation/incomingMessage.ts).
-  incoming?: Extract<IncomingPrompt, { kind: "message" | "notice" | "hidden" }>;
+  incoming?: Extract<IncomingPrompt, { kind: "message" | "notice" | "inbox" | "hidden" }>;
   /// The prompt as the agent got it, when the row shows something else (an incoming message's
   /// body): what Retry sends again.
   resend?: string;
@@ -1142,7 +1142,10 @@ export const isLastFooter = (row: AcpmuxRow, next: AcpmuxRow | undefined) =>
     next.kind === PENDING_MESSAGES ||
     next.kind === LANE_NOTICE_BATCH ||
     ((next.kind === "user" || next.kind === QUEUED_MESSAGE) &&
-      (next.received !== undefined || next.incoming?.kind === "message" || next.incoming?.kind === "notice")));
+      (next.received !== undefined ||
+        next.incoming?.kind === "message" ||
+        next.incoming?.kind === "notice" ||
+        next.incoming?.kind === "inbox")));
 /// A completed turn followed by more of this chat's assistant. Incoming agents are user rows,
 /// so a user/agent speaker change keeps the full turn gap. Check only the next drawn row.
 export const isContinuationFooter = (row: AcpmuxRow, next: AcpmuxRow | undefined) =>
@@ -1537,6 +1540,26 @@ function measuredRowHeight(
     return finish(line + 2 + 4 + 16 + lines + (row.images?.length ? 128 : 0) + details);
   }
   if (row.incoming?.kind === "notice") return finish(2 + 26 + MESSAGE_GAP);
+  if (row.incoming?.kind === "inbox") {
+    // acpmux's inbox notice (conversation/InboxNoticeCard.tsx): a received line per thread, under
+    // the group's line when the group look holds two or more; an opened thread adds its panel as
+    // an opened message does, its text read from the notice (else its preview).
+    const { threads } = row.incoming.notice;
+    const line = 2 + 26 + 2;
+    const grouped = threads.length > 1 && inboxNoticeLook() === "group";
+    if (grouped && !messageOpened(sessionId, row.id)) return finish(line + MESSAGE_GAP);
+    const { lineHeight } = metrics();
+    if (receivedPrepared.size > 256) receivedPrepared.clear();
+    let height = (grouped ? line : 0) + (threads.length > 1 && inboxNoticeLook() === "card" ? 6 : 0);
+    for (const thread of threads) {
+      height += line;
+      if (!messageOpened(sessionId, inboxThreadKey(row.id, thread.threadId))) continue;
+      const text = thread.messages?.map((m) => m.text).join("\n\n") ?? thread.preview;
+      const inset = grouped ? 24 : 0;
+      height += 2 + 4 + 16 + (text ? textHeight(text, Math.max(80, width - 44 - inset), receivedPrepared) : lineHeight);
+    }
+    return finish(height + MESSAGE_GAP);
+  }
   // Bookkeeping alone: a turn's start that draws nothing (conversation/turns.ts).
   if (row.incoming?.kind === "hidden") return finish(0);
   // A finished step of only quiet thoughts draws nothing (conversation/ThoughtRow.tsx).
@@ -1791,6 +1814,8 @@ import { chiefEnvelope } from "./conversation/chiefEnvelope";
 import { chatColumn, type ChatColumn } from "./chatWidth";
 import { currentChatMetrics } from "./chatDisplay";
 import { messageOpened } from "./conversation/incomingOpened";
+import { inboxThreadKey } from "./conversation/inboxNotice";
+import { inboxNoticeLook } from "./conversation/inboxNoticeLook";
 
 /// The pane's fallback accessible name and problem-only header status. A handshake that is
 /// retrying (`connecting:`) says nothing here: the pane's retries are quiet, and a failure that

@@ -650,7 +650,7 @@ function shapeTurn(
   // has no prompt to send again; one where nothing ran is sent again with Retry (errorRecovery.ts).
   // A notice-started turn has no prompt to send again, so it goes on too; acpmux's own retry attempt
   // (a hidden prompt row) where nothing ran stays Retry.
-  const noticeStarted = user.incoming?.kind === "notice";
+  const noticeStarted = user.incoming?.kind === "notice" || user.incoming?.kind === "inbox";
   const continuable =
     offers && lastSummary < 0 && isFailed(summary) && (noticeStarted || body.some((row) => row.kind !== "user"));
   shaped.push({
@@ -662,9 +662,10 @@ function shapeTurn(
     ...(continuable && { continuable }),
     ...(answer && { answerId: answer.id }),
     // Retry sends the prompt as the agent got it: an incoming message with its sender. A
-    // notification is the harness's, not a prompt to send again (incomingMessage.ts).
+    // notification, or acpmux's inbox notice, is not a prompt to send again (incomingMessage.ts).
     ...(retryable &&
       user.incoming?.kind !== "notice" &&
+      user.incoming?.kind !== "inbox" &&
       (user.resend ?? user.text) && {
         prompt: user.resend ?? user.text,
         retryRowId: user.id,

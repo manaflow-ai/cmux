@@ -473,6 +473,9 @@ import { configureLiveLineBelow, useLiveLineBelow } from "./liveLineBelow";
 import { configureToolRunLook } from "./toolRunLook";
 import { configureSentLook } from "./conversation/SentMessageLine";
 import { configureMessageGroupLook } from "./conversation/messageGroupLook";
+import { configureInboxNoticeLook } from "./conversation/inboxNoticeLook";
+import { InboxNoticeCard } from "./conversation/InboxNoticeCard";
+import { mergeInboxNotices, type InboxMessage } from "./conversation/inboxNotice";
 import { configureNativeSidebarPreviewVariant, configureSidebarPreviewVariant } from "./sidebarPreview";
 import { cloudCredentialRecovery } from "./cloudCredentialRecovery";
 import { handoffTurns } from "./cloudHandoffTurn";
@@ -1137,6 +1140,21 @@ const MessageRow = memo(
     // Its images show with it, and its action row (age, Retry) at the line's end on hover;
     // a steer's read state does not: the message is the agent's to read.
     if (row.kind === "user" && row.incoming?.kind === "notice") return <IncomingNotice text={row.incoming.text} />;
+    // acpmux's inbox notice: its threads as received lines, never its text for the agent
+    // (conversation/InboxNoticeCard.tsx).
+    if (row.kind === "user" && row.incoming?.kind === "inbox")
+      return (
+        <div className="cv-incoming">
+          <InboxNoticeCard
+            rowId={row.id}
+            notice={row.incoming.notice}
+            messageAt={row.at}
+            onOpen={openSenderChat}
+            readThread={readInboxThread}
+            githubRepository={githubRepository}
+          />
+        </div>
+      );
     if (row.kind === "user" && row.incoming?.kind === "message")
       return (
         <div className="cv-incoming">
@@ -1606,6 +1624,8 @@ const PendingMessagesRow = memo(
   },
   (a, b) => a.row.id === b.row.id && a.row.version === b.row.version && a.githubRepository === b.githubRepository,
 );
+/// An inbox notice's thread the person opened (`chat.inbox.thread`): its messages, oldest first.
+const readInboxThread = (threadId: string) => callNative<InboxMessage[]>("chat.inbox.thread", { threadId });
 const LaneNoticeBatchRow = memo(function LaneNoticeBatchRow(props: RowProps) {
   return <LaneNoticeBatch row={props.row} renderMessage={(row) => <MessageRow {...props} row={row} />} />;
 });
@@ -6129,11 +6149,15 @@ function AcpmuxPane() {
   // messages (its `joined` names them, chatFind.ts findRowIndex).
   const findRows = useMemo(() => searchablePendingRows(sourceRows, queuedRows), [sourceRows, queuedRows]);
   const lastPending = useRef<AcpmuxRow | undefined>(undefined);
+  // acpmux's inbox notices next to each other draw as one (conversation/inboxNotice.ts): rows with
+  // none in a run come back as they are.
+  const lastInbox = useRef<readonly AcpmuxRow[] | undefined>(undefined);
   const transcriptRows = useMemo(() => {
     const steers = childRows ? NO_ROWS : (lastTurns.current?.turns.pending ?? NO_ROWS);
     const group = pendingMessagesRow(steers, queuedRows, lastPending.current);
     lastPending.current = group;
-    const rows = group ? [...turnRowsShown, group] : turnRowsShown;
+    const shown = (lastInbox.current = mergeInboxNotices(turnRowsShown, lastInbox.current));
+    const rows = group ? [...shown, group] : shown;
     return childRows ? rows : btwNotes.rows(rows, snapshot.sessionId, btwSnapshot);
   }, [childRows, turnRowsShown, queuedRows, btwNotes, btwSnapshot, snapshot.sessionId]);
   // Failed prompts in a row with one cause share one card (sendFailure.ts); a trust failure's card
@@ -8433,6 +8457,7 @@ function AcpmuxPane() {
         configureToolRunLook(theme.toolRunLook);
         configureSentLook(theme.sentLook);
         configureMessageGroupLook(theme.messageGroupLook);
+        configureInboxNoticeLook(theme.inboxNoticeLook);
         configureTurnActionsPlacement(theme.turnActionsPlacement);
         configureSubagentTray(theme.subagentTray);
         configureSubagentTrayPlacement(theme.subagentTrayPlacement);
@@ -9461,6 +9486,9 @@ function AcpmuxPane() {
             const [to, id, thread] = [str(sessionId), str(msgId), str(threadId)];
             await client.reply({ sessionId: to, msgId: id, threadId: thread }, String(text ?? ""));
           },
+          // An inbox notice's thread the person opened: its messages, read without marking them
+          // read (conversation/InboxNoticeCard.tsx).
+          "chat.inbox.thread": ({ threadId }) => client.inboxThread(String(threadId ?? "")),
           // Open a started offer or a sub-session: the app shows its tab or opens it beside this
           // chat (AgentPaneOfferOpen); a host without that opens it as a side chat; else here.
           "chat.offer.open": async ({ sessionId, sender }) => {

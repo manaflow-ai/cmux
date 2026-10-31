@@ -47,7 +47,8 @@
 //! agent started before the inbox has instead of `inbox_read`.
 //!
 //! The agent hears of its inbox as ONE notice (provenance `inbox_notice`), one line per thread
-//! with new messages (how many, from whom, the newest one's first line), blockers first, the way
+//! with new messages (how many, from whom, and the messages whole when they are short, else the
+//! newest one's first line, [`render`]), blockers first, the way
 //! Claude Code tells it of background work; it reads a thread whole with the `inbox_read` tool
 //! (`_acpmux/inbox_thread`), which marks it read, and answers with `inbox_reply`
 //! (`_acpmux/inbox_reply`), which lands in the sender's inbox under the same thread. One notice
@@ -109,6 +110,8 @@ pub const REFUSED_RETRY_MS: u64 = 30_000;
 pub const FLUSH_MS: u64 = 10 * 60 * 1000;
 /// A notice line shows this much of the newest message's first line, in characters.
 const PREVIEW_CHARS: usize = 120;
+/// A notice holds its messages whole when their text is this many bytes or less ([`render`]).
+const WHOLE_BYTES: usize = 4 * 1024;
 /// Messages a chat keeps in memory; the oldest read ones go first (the log keeps them all).
 const KEEP: usize = 500;
 /// The client a notice goes under.
@@ -472,7 +475,17 @@ fn preview(text: &str) -> String {
 }
 
 /// The notice of `items` (the new ones, in their order): one line per thread, blockers first,
-/// then the thread with the newest message first.
+/// then the thread with the newest message first. When their text is [`WHOLE_BYTES`] or less,
+/// the notice holds every message whole: a one-line message alone in its thread on its thread's
+/// line, the others quoted under it, oldest first. Otherwise each line has the newest one's
+/// preview, and the notice says how to read a thread whole: the `inbox_read` tool, or the shell
+/// for an agent that has no such tool (one started before the inbox, a harness without acpmux's
+/// MCP server). What the inbox is (no turn of its own, answer or leave it) is the tools' to say,
+/// not every notice's (Leo, 2026-10-31: "why is there so much additional text?").
+///
+/// The parts (the notice's provenance `threads`) are what the transcript draws: per thread its
+/// id, label, senders, new messages, whether it holds a blocker, the newest one's preview and its
+/// sender's session, and the messages whole when the notice holds them.
 pub(super) fn render(items: &[&Item]) -> (String, Value) {
     let mut threads: Vec<(&str, Vec<&Item>)> = Vec::new();
     for item in items {
@@ -484,13 +497,18 @@ pub(super) fn render(items: &[&Item]) -> (String, Value) {
     let blocker = |list: &[&Item]| list.iter().any(|i| i.class.urgent());
     let newest = |list: &[&Item]| list.iter().map(|i| i.at).max().unwrap_or(0);
     threads.sort_by_key(|(_, list)| (!blocker(list), std::cmp::Reverse(newest(list))));
+    let whole = items.iter().map(|i| i.text.len()).sum::<usize>() <= WHOLE_BYTES;
     let n = threads.len();
     let mut text = format!(
-        "[inbox] New messages from other agents in {n} thread{}. They need no turn of your own: \
-         read a thread whole with the inbox_read tool (its thread id), answer in it with \
-         inbox_reply, or leave it for later.",
+        "[inbox] New messages from other agents in {n} thread{}.",
         if n == 1 { "" } else { "s" }
     );
+    if !whole {
+        text.push_str(
+            " Read one whole with inbox_read (its thread id), or at a shell: \
+             acpmux session inbox \"$ACPMUX_SESSION_ID\" --thread ID --mark-read",
+        );
+    }
     let mut parts = Vec::new();
     for (key, list) in &threads {
         let last = list.iter().max_by_key(|i| i.at).copied();
@@ -501,17 +519,64 @@ pub(super) fn render(items: &[&Item]) -> (String, Value) {
             }
         }
         let tag = if blocker(list) { "[blocker] " } else { "" };
-        let line = last.map(|i| preview(&i.text)).unwrap_or_default();
-        text.push_str(&format!(
-            "\n- {tag}{} new in {} from {}: {line} (thread {key})",
-            list.len(),
-            label(key),
-            from.join(", ")
-        ));
+        let head = format!("{tag}{} new in {} from {}", list.len(), label(key), from.join(", "));
+        let one_line = match list.as_slice() {
+            [only] if whole && !body(&only.text).is_empty() && !body(&only.text).contains('\n') => {
+                Some(body(&only.text))
+            }
+            _ => None,
+        };
+        if let Some(line) = one_line {
+            text.push_str(&format!("\n- {head}: {line} (thread {key})"));
+        } else if whole {
+            text.push_str(&format!("\n- {head} (thread {key}):"));
+            for (at, item) in list.iter().enumerate() {
+                if at > 0 {
+                    text.push_str("\n  >");
+                }
+                // Several messages each name their sender first.
+                let lead = if list.len() > 1 { format!("{}: ", item.from) } else { String::new() };
+                // A message of no text still gets its quote line, so none goes missing.
+                let mut lines: Vec<&str> = body(&item.text).lines().collect();
+                if lines.is_empty() {
+                    lines.push("");
+                }
+                for (row, line) in lines.into_iter().enumerate() {
+                    let lead = if row == 0 { lead.as_str() } else { "" };
+                    let quoted = format!("  > {lead}{line}");
+                    text.push('\n');
+                    text.push_str(quoted.trim_end());
+                }
+            }
+        } else {
+            let line = last.map(|i| preview(&i.text)).unwrap_or_default();
+            text.push_str(&format!("\n- {head}: {line} (thread {key})"));
+        }
         let ids: Vec<&str> = list.iter().map(|i| i.prompt_id.as_str()).collect();
-        parts.push(json!({"threadId": key, "new": list.len(), "from": from, "promptIds": ids}));
+        let mut part = json!({
+            "threadId": key, "label": label(key), "new": list.len(), "from": from,
+            "promptIds": ids, "blocker": blocker(list),
+            "preview": last.map(|i| preview(&i.text)), "newestAt": newest(list),
+        });
+        if let Some(session) = last.and_then(|i| i.from_session.as_deref()) {
+            part.set("fromSession", json!(session));
+        }
+        if whole {
+            let messages: Vec<Value> = list
+                .iter()
+                .map(|i| json!({"promptId": i.prompt_id, "from": i.from, "at": i.at, "text": i.text}))
+                .collect();
+            part.set("messages", json!(messages));
+        }
+        parts.push(part);
     }
     (text, json!(parts))
+}
+
+/// A message's text as the notice quotes it: without the blank lines around it, and with the first
+/// line's indent kept (an indented code block stays one).
+fn body(text: &str) -> &str {
+    text.trim_start_matches(['\n', '\r']).trim_end()
 }
 
 /// Whether `item` may wake the idle chat of `meta`.
