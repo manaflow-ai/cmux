@@ -56,7 +56,9 @@ test("an unnamed sub-session gets a localized display name instead of its opaque
   const session = { name: "optchat-123456789", sessionId: "optchat-123456789" };
   expect(subsessionDisplayName(t, session)).toBe("Subagent");
   expect(subsessionDisplayName(t, { name: "claude/optchat-a1b2c3d4", sessionId: "session-123" })).toBe("Subagent");
-  expect(subsessionDisplayName(t, { name: "Review /optchat-logs", sessionId: "session-456" })).toBe("Review /optchat-logs");
+  expect(subsessionDisplayName(t, { name: "Review /optchat-logs", sessionId: "session-456" })).toBe(
+    "Review /optchat-logs",
+  );
   expect(subsessionDisplayName(t, { ...session, name: "Reviewer" })).toBe("Reviewer");
 });
 
