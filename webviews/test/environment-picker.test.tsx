@@ -442,6 +442,21 @@ test("a Cloud machine is never listed under This Mac, and This Mac keeps this Ma
   }
 });
 
+// #28842's review: a host older than `localMachineName`, with a tab on another machine's daemon. That daemon
+// reports the chat as local on its own host (`build-mini`), so the picker never takes a local chat's host
+// as This Mac's name: with no name from the host, the row reads "This Mac".
+test("with no name from the host, This Mac never takes a local chat's host", async () => {
+  await mount(true, {
+    summary: { sessionId: "", harness: "claude", host: "build-mini", hostKind: "local" },
+    sessions: [{ sessionId: "b", cwd: "/Users/dev/app", host: "build-mini", hostKind: "local", updatedAt: 0 }],
+    localName: undefined,
+  });
+  await openPicker();
+  const labels = machineRows().map((row) => row.querySelector(".acpmux-menu-label")?.textContent);
+  expect(labels[0]).toBe(t("composer.thisMac"));
+  expect(labels).not.toContain("build-mini");
+});
+
 test("This Mac's name is the host's own name, never the machine a chat runs on", async () => {
   const { thisMacName } = await import("../src/agent-session/acpmux/environments");
   expect(thisMacName("cosmic-gray")).toBe("cosmic-gray");
