@@ -1,7 +1,7 @@
 // The chat's summary card holds the last turn's diffs (cx-ncc.43). In Chromium on the gallery
 // stage, a turn that edited fourteen files:
-// - the card's Outputs section lists the turn's files, each with its own counts, five at first
-//   and every one after View all (Changes is the one totals row, hq#2569 item 4);
+// - the card's Outputs section lists the turn's files, each with its own counts, in the
+//   scrollable card (Changes is the one totals row, hq#2569 item 4);
 // - a file there opens the turn's diff at that file, and the card hides behind the diff review.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
@@ -62,8 +62,6 @@ await requireBrowserLane("sources-changes.test.ts", async () => {
     const section = page.locator(".acpmux-summary-card section", { has: page.locator(".acpmux-summary-file") });
     await section.waitFor();
     const files = section.locator(".acpmux-summary-file");
-    expect(await files.count()).toBe(5);
-    await section.locator(".acpmux-summary-more").click();
     expect(await files.count()).toBe(14);
     // Each row names its file and carries its own counts.
     const pick = files.filter({ hasText: "jitter/exponential.ts" });

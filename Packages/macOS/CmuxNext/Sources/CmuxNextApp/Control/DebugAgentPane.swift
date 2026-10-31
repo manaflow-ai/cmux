@@ -34,7 +34,8 @@ import WebKit
 /// action a click or key runs, so a no-activate window can be driven end to
 /// end): `chat_state`, `send_prompt` (`text`), `new_chat` (`harness`, `cwd`),
 /// `select_session` (`session`), `pick_folder` (`cwd`: the folder chip's pick), `answer_permission` (`option`, `allow`,
-/// `decision`), `open_changes` (the latest turn's changes view),
+/// `decision`), `open_changes` (the latest turn's changes view), `set_files` (`paths`, `selector` default
+/// `.acpmux-attach-input`: the composer's file input gets those files as a pick in Chromium's open panel),
 /// `models` (the harness's models), `set_model` (`model`, `effort`), `layout_watch` (`ms`, `tolerance`; layoutWatch.ts),
 /// `readiness` (page body, transcript and composer metrics), `engine` (`cef` or `webkit:<reason>`), `focus_composer`, `composer_focused`, `click` (`selector`
 /// or `text`: a native click on that element, DebugAgentPaneClick), `open_subagent` (`index`, from 1, and `focus`, default
@@ -203,9 +204,10 @@ enum DebugAgentPane {
         if action == "click" {
             return await DebugAgentPaneClick.click(params, pane: pane, view: view, services: services)
         }
-        if action == "hover" {
-            return await DebugAgentPaneClick.hover(params, pane: pane, view: view)
-        }
+        if action == "set_files" {
+            return .object(["pane": .string(pane), "error": await view.debugSetFiles(selector: params["selector"]?.stringValue ?? ".acpmux-attach-input", paths: params["paths"]?.arrayValue?.compactMap(\.stringValue) ?? []).map(JSONValue.string) ?? .null]) }
+        if action == "hover" { return await DebugAgentPaneClick.hover(params, pane: pane, view: view) }
+        if action == "pacer" { return .object(["pane": .string(pane), "pacer": JSONValue(foundation: view.debugPacerState) ?? .null]) }
         if action == "inspector" {
             return await toggleInspector(view, open: params["open"]?.boolValue, pane: pane)
         }
