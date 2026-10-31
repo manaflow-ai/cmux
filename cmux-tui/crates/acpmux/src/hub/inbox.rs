@@ -10,8 +10,20 @@
 //! pull request its first line names, else its sender. An image, an upload, a slash command, a
 //! sub-session family message and a Web one are no inbox items: each still runs as before. So
 //! far only a plain send from this host is ([`plain_send`]): a peer's or the mesh relay's forward,
-//! a team message, a correction under a supersede key, a steer-only send, and the prompts acpmux
-//! makes itself (lane reports, task cards, a paused pair's release) still queue.
+//! a team message, a correction under a supersede key, a steer-only send, a `cmux agent message`
+//! (the cmux daemon delivers and tracks it) and the prompts acpmux makes itself (lane reports,
+//! task cards, a paused pair's release) still queue.
+//!
+//! A chat's first work is no inbox item either ([`first_work`]): the first message another agent
+//! sends a chat that never ran a turn, with none running and nothing waiting (`lane-place
+//! --prompt-file`, `acpmux new` with a prompt), runs as that prompt, and its sender is the chat's
+//! delegator once its turn starts. The prompt holds the first work while it runs
+//! ([`FirstWork`]), so of two that come at once only one is it; a refused one lets go. No notice
+//! goes ahead of it while it holds the chat (`inbox_review`); a person's prompt may, and its
+//! sender is the delegator still: its provenance says it is the first work ([`FIRST_WORK`]), in
+//! the queue too, so across a restart as well, where it also keeps notices behind it. Messages
+//! after it, and any to a chat that ran a turn, go to the inbox. A lane's brief came to it as a
+//! notice of its brief (2026-10-30), so the lane read a thread where it should have read its task.
 //!
 //! A review box (`review_box.rs`: the `*-review-box` harness `lane-place new --review` starts, or
 //! a session with a `review.` tag) has no inbox ([`review_box`]), and another agent's message
@@ -24,6 +36,15 @@
 //! sends with Send now: that is the person's choice, not another agent's. A coordinator
 //! found notices steered into review turns (2026-10-30): "The reviewer then reads the thread
 //! instead of reviewing and ends with no SHIP/BLOCK verdict."
+//!
+//! A chat whose agent cannot read an inbox has none either ([`reads_inbox`]): one started with no
+//! cmux tools (`agent_tools::left_out`: a remote origin, `ACPMUX_AGENT_TOOLS=0`,
+//! `--strict-mcp-config`). Another agent's message queues for it as before the inbox, so its agent
+//! reads every word; a notice that goes to such an agent anyway (messages the inbox took before
+//! it respawned without the tools, or before a restart's first spawn) carries each one whole. Nothing here waits on Labs `meshRelay.teamMessaging`: an agent reads its inbox
+//! with `inbox_read`, in a shell with `acpmux session inbox`, and, while team messaging is off,
+//! with the team mailbox's `team_inbox` and `acpmux inbox` too (`inbox_team_page.rs`), which an
+//! agent started before the inbox has instead of `inbox_read`.
 //!
 //! The agent hears of its inbox as ONE notice (provenance `inbox_notice`), one line per thread
 //! with new messages (how many, from whom, the newest one's first line), blockers first, the way
@@ -77,6 +98,9 @@ use std::sync::atomic::Ordering;
 
 /// The provenance kind of a notice.
 pub const NOTICE_KIND: &str = "inbox_notice";
+/// On a chat's first work's provenance (module docs): set by acpmux only, as no client's
+/// provenance keeps a field it does not name (`prompt_provenance.rs`).
+pub const FIRST_WORK: &str = "firstWork";
 /// How long after the oldest waking message an idle chat is woken: a burst is one turn.
 pub const WAKE_DEBOUNCE_MS: u64 = 2_000;
 /// A notice the chat refused is tried again no sooner than this.
@@ -107,6 +131,8 @@ pub(super) struct Item {
     pub(super) report: bool,
     pub(super) at: u64,
     pub(super) text: String,
+    /// Machine-readable report context; kept out of the visible words.
+    pub(super) details: Option<Value>,
     /// A notice told the agent of it (or carries it now).
     pub(super) noticed: bool,
     /// The agent read it (`inbox_thread` with `markRead`).
@@ -130,6 +156,7 @@ impl Item {
             report: false,
             at: now_ms(),
             text: text.to_owned(),
+            details: None,
             noticed: true,
             read: false,
             answer: None,
@@ -166,6 +193,36 @@ pub struct Inbox {
     /// Woken when a notice is written or ends, or the chat closes: a withdraw waits on it for
     /// a notice that carries its message and is not written yet (`inbox_settled`).
     pub(super) settled: Arc<tokio::sync::Notify>,
+    /// The prompt that holds the chat's first work ([`FirstWork`]) while it runs: another agent's
+    /// message meanwhile is no first work.
+    pub(super) first: Option<String>,
+}
+
+/// How [`Hub::inbox_route`] routes a prompt.
+pub(super) enum Route {
+    /// Into the inbox: its sender and class.
+    Inbox(String, PromptClass),
+    /// The chat's first work, run as its prompt; the hold ends when this drops.
+    First(FirstWork),
+    /// As any prompt.
+    Plain,
+}
+
+/// A prompt's hold on its chat's first work ([`Inbox::first`]), let go when the prompt ends: a
+/// refused one leaves the next message free to be the first work.
+pub(super) struct FirstWork {
+    session: Weak<Session>,
+    prompt_id: String,
+}
+
+impl Drop for FirstWork {
+    fn drop(&mut self) {
+        let Some(session) = self.session.upgrade() else { return };
+        let mut inbox = session.inbox.lock().unwrap_or_else(|e| e.into_inner());
+        if inbox.first.as_deref() == Some(self.prompt_id.as_str()) {
+            inbox.first = None;
+        }
+    }
 }
 
 /// A notice whose task has not finished (`Inbox::carrying`).
@@ -196,8 +253,21 @@ pub(super) enum Unsend {
 /// a supersede key and a steer-only send keep the queue for now, as do the prompts acpmux makes
 /// itself (lane reports, task cards, a paused pair's release), which never set
 /// `PromptOptions::inbox`.
-pub(crate) fn plain_send(from_peer: bool, team: bool, supersede: bool, steer_only: bool) -> bool {
-    !from_peer && !team && !supersede && !steer_only
+///
+/// Nor a prompt whose caller gave its own provenance (`prompt_provenance::of`): a `cmux agent
+/// message` the cmux daemon's pump delivers (`agents_chat_send`, the app's reply in place). The
+/// cmux daemon keeps that message, its delivery receipt and its Stop hold, and the chat must show
+/// it as that agent message: the app's reply in place answers its `user_message`
+/// (`app_reply_fits`). In the inbox it became a notice, so a reply in place was refused, a send to
+/// a chat that cannot run said delivered, and a send to an idle chat ran no turn.
+pub(crate) fn plain_send(
+    from_peer: bool,
+    team: bool,
+    supersede: bool,
+    steer_only: bool,
+    given_provenance: bool,
+) -> bool {
+    !from_peer && !team && !supersede && !steer_only && !given_provenance
 }
 
 /// Whether a provenance is a plain message from another agent: none (a sender that named
@@ -235,6 +305,37 @@ pub(super) fn takes(
 /// message waits behind its running turn instead of steering in (`turns.rs`).
 pub(super) fn review_box(session: &Session) -> bool {
     crate::review_box::of_meta(&session.meta.lock().unwrap_or_else(|e| e.into_inner()))
+}
+
+/// Whether the chat's agent can read its inbox: it has cmux's tools (`inbox_read`), as its agent
+/// was launched (`hub/tools.rs`), or will be by this daemon. Not one of a remote origin, nor any
+/// while the daemon-wide switch turns the tools off (`agent_tools::SWITCH_ENV`).
+pub(super) fn reads_inbox(session: &Session) -> bool {
+    let switch = std::env::var_os(crate::agent_tools::SWITCH_ENV);
+    !session.meta.lock().unwrap_or_else(|e| e.into_inner()).remote_origin
+        && switch.is_none_or(|v| v != "0")
+        && session.launched_with_tools.load(Ordering::SeqCst) != 2
+}
+
+/// Takes the chat's first work for `prompt_id` when a message now would be it: the chat never ran
+/// a turn, none runs, nothing waits in its queue or its inbox, and no other prompt holds it. The
+/// hold is taken under the inbox's lock, so of two messages that come at once only one is the
+/// first work; the chat is read only once it is held, so a first work that ran and let go before
+/// this took it is seen as the turn it ran.
+fn first_work(session: &Arc<Session>, prompt_id: &str) -> Option<FirstWork> {
+    {
+        let mut inbox = session.inbox.lock().unwrap_or_else(|e| e.into_inner());
+        if !inbox.items.is_empty() || inbox.first.is_some() {
+            return None;
+        }
+        inbox.first = Some(prompt_id.to_owned());
+    }
+    let first = FirstWork { session: Arc::downgrade(session), prompt_id: prompt_id.to_owned() };
+    let idle = session.meta.lock().unwrap_or_else(|e| e.into_inner()).turn_count == 0
+        && session.turn().is_none()
+        && session.queue.lock().unwrap_or_else(|e| e.into_inner()).is_empty();
+    // Not idle: dropping `first` lets the hold go.
+    idle.then_some(first)
 }
 
 /// The refusal of a steer-only message from another agent to a review box's running turn.
@@ -331,9 +432,14 @@ fn label(key: &str) -> String {
     }
 }
 
+/// Whether a prompt's provenance marks it a chat's first work ([`FIRST_WORK`]).
+pub(super) fn is_first_work(provenance: Option<&Value>) -> bool {
+    provenance.and_then(|p| p.get(FIRST_WORK)).and_then(Value::as_bool) == Some(true)
+}
+
 /// The session a message came from, when its provenance names one (not a sender that only
 /// named itself).
-fn sender_session(provenance: Option<&Value>) -> Option<String> {
+pub(super) fn sender_session(provenance: Option<&Value>) -> Option<String> {
     let from = provenance?.get("from")?.as_str()?;
     if from == crate::prompt_provenance::NAMED_SENDER || from.is_empty() {
         return None;
@@ -429,6 +535,13 @@ fn prompt_waits(session: &Session) -> bool {
     session.queue.lock().unwrap_or_else(|e| e.into_inner()).iter().any(|q| !q.held)
 }
 
+/// Whether a chat's first work waits in its queue ([`FIRST_WORK`] on its provenance), as one a
+/// person's prompt went ahead of does, and one a restart rebuilt with no hold of its own.
+fn first_work_waits(session: &Session) -> bool {
+    let queue = session.queue.lock().unwrap_or_else(|e| e.into_inner());
+    queue.iter().any(|q| !q.held && is_first_work(q.run.provenance.as_ref()))
+}
+
 /// Whether a notice may not steer into the running turn now: a prompt waits, or the turn is
 /// past its cap (`turns.rs` checks it again at dispatch).
 pub(super) fn notice_held(session: &Session) -> bool {
@@ -462,7 +575,8 @@ impl Hub {
     #[allow(clippy::too_many_arguments)]
     pub(super) fn inbox_route(
         &self,
-        session: &Session,
+        session: &Arc<Session>,
+        prompt_id: &str,
         blocks: &[Value],
         control: Control,
         send_now: bool,
@@ -470,22 +584,31 @@ impl Hub {
         provenance: Option<&Value>,
         agent: Option<&str>,
         plain: bool,
-    ) -> Option<(String, PromptClass)> {
+    ) -> Route {
         // A chat closing or closed takes a message as it did before the inbox: none waits in
-        // the inbox of a chat that will not wake. A review box has no inbox (module docs).
+        // the inbox of a chat that will not wake. A review box has no inbox, nor a chat whose
+        // agent cannot read one (module docs).
         if !plain
             || !plain_kind(provenance)
             || super::queue::closing(session)
             || review_box(session)
+            || !reads_inbox(session)
         {
-            return None;
+            return Route::Plain;
         }
-        let agent = super::digest::agent_sender(provenance, agent)?;
+        let Some(agent) = super::digest::agent_sender(provenance, agent) else {
+            return Route::Plain;
+        };
         if !takes(true, send_now, control, blocks, provenance) {
-            return None;
+            return Route::Plain;
+        }
+        // A chat's first work runs as its prompt, not as a notice of it (module docs). Its sender
+        // is the delegator once its turn starts (`turns.rs`), not before: a refused one is not.
+        if let Some(first) = first_work(session, prompt_id) {
+            return Route::First(first);
         }
         let class = crate::prompt_class::of_message(class, true).unwrap_or(PromptClass::Result);
-        Some((agent, class))
+        Route::Inbox(agent, class)
     }
 
     /// `session/prompt` of another agent's message the inbox takes (`turns.rs`): logged, put in
@@ -558,6 +681,7 @@ impl Hub {
                             report: is_report(provenance),
                             at: now_ms(),
                             text: text.clone(),
+                            details: provenance.and_then(|p| p.get("details")).cloned(),
                             noticed: false,
                             read: false,
                             answer: Some(tx.clone()),
@@ -620,6 +744,92 @@ impl Hub {
         })
     }
 
+    /// Archive a lane result the parent already consumed through a wait or transcript read.
+    /// It is durable and available in its thread, but has no notice, queued turn or waiter.
+    pub(super) fn lane_report_delivered_read(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        lane: &str,
+        prompt_id: &str,
+        text: &str,
+        provenance: &Value,
+    ) {
+        let from = provenance.get("fromName").and_then(Value::as_str).unwrap_or(lane);
+        let thread = thread_key(None, from, text);
+        let at = now_ms();
+        let fresh = {
+            let mut inbox = session.inbox.lock().unwrap_or_else(|e| e.into_inner());
+            if inbox.items.iter().any(|i| i.prompt_id == prompt_id)
+                || inbox.trimmed.contains(prompt_id)
+            {
+                false
+            } else {
+                inbox.items.push(Item {
+                    prompt_id: prompt_id.to_owned(),
+                    notice: None,
+                    answered: None,
+                    thread: thread.clone(),
+                    from: from.to_owned(),
+                    from_session: Some(lane.to_owned()),
+                    class: PromptClass::Result,
+                    report: true,
+                    at,
+                    text: text.to_owned(),
+                    details: provenance.get("details").cloned(),
+                    noticed: true,
+                    read: true,
+                    answer: None,
+                });
+                trim(&mut inbox);
+                true
+            }
+        };
+        if !fresh {
+            return;
+        }
+        let mut opts = PromptOptions {
+            provenance: Some(provenance.clone()),
+            agent: Some(from.to_owned()),
+            message_id: Some(prompt_id.to_owned()),
+            ..PromptOptions::default()
+        };
+        let blocks = vec![json!({"type": "text", "text": text})];
+        // Rebuild the projection from the removed prompt's id. The queued acceptance path may
+        // already have written this message; using the canonical prompt id here lets the journal
+        // index deduplicate the read archive instead of creating a second projection when the
+        // transcript page races the queue removal.
+        let message =
+            super::message_events::message_context(self, session, &blocks, &opts, prompt_id);
+        super::message_events::embed_message_context(&mut opts, message.as_ref(), &session.id);
+        let msg = json!({
+            "promptId": prompt_id, "threadId": thread, "from": from, "fromSession": lane,
+            "class": "result", "kind": kind_of(PromptClass::Result), "client": "acpmux", "text": text,
+            "prompt": [{"type": "text", "text": text}], "report": true, "deliveredRead": true,
+        });
+        self.append(
+            session,
+            "mux",
+            "inbox",
+            crate::prompt_provenance::marked(msg, opts.provenance.as_ref()),
+        );
+        if let Some(message) = message.as_ref() {
+            super::message_events::record_message_context(self, &session.id, message);
+        }
+        // Existing readers can replay these marks without knowing the new deliveredRead flag.
+        self.append(
+            session,
+            "mux",
+            "inbox_read",
+            json!({"threadId": thread, "promptIds": [prompt_id]}),
+        );
+        self.append(
+            session,
+            "mux",
+            "inbox_noticed",
+            json!({"promptIds": [prompt_id], "noticePromptId": prompt_id}),
+        );
+    }
+
     /// The first message to a chat that never ran a turn names its delegator: its later actions
     /// wake the chat too.
     fn note_delegator(&self, session: &Arc<Session>, provenance: Option<&Value>) {
@@ -642,6 +852,8 @@ impl Hub {
         let meta = session.meta();
         let now = now_ms();
         // Read before the inbox's lock: the retry's own lock is never taken under it.
+        // Taken first: a continuation let go after `continuing` is read still wakes the timer.
+        let released = session.auto_resume.released();
         let continuing = self.continuation_pending(session);
         let next = {
             let mut inbox = session.inbox.lock().unwrap_or_else(|e| e.into_inner());
@@ -675,6 +887,13 @@ impl Hub {
                             } else {
                                 Next::Steer
                             }
+                        }
+                        // A first work holds the chat, or waits in its queue (a restart rebuilds
+                        // it with no hold), and has no turn yet: no notice goes ahead of it.
+                        // Looked at again after the debounce, until its turn takes the notice,
+                        // its hold is let go, or it leaves the queue.
+                        None if inbox.first.is_some() || first_work_waits(session) => {
+                            Next::WakeAt(now.saturating_add(WAKE_DEBOUNCE_MS))
                         }
                         None => {
                             // A waking message after the debounce; anything after the flush, so no
@@ -710,7 +929,7 @@ impl Hub {
                         timer.abort();
                     }
                 }
-                Next::WakeAt(at) => self.arm_locked(&mut inbox, session, at, now),
+                Next::WakeAt(at) => self.arm_locked(&mut inbox, session, at, now, released),
                 Next::Steer | Next::Wake => {}
             }
             next
@@ -728,7 +947,7 @@ impl Hub {
     /// and answers their waiting `session/prompt`s with how it went in.
     fn deliver_notice(self: &Arc<Self>, session: &Arc<Session>, steer: bool) {
         let notice_id = format!("inbox-notice-{}", uuid::Uuid::now_v7());
-        let (text, parts, ids) = {
+        let (text, whole, parts, ids) = {
             let mut inbox = session.inbox.lock().unwrap_or_else(|e| e.into_inner());
             if inbox.in_flight.is_some() {
                 return;
@@ -742,6 +961,7 @@ impl Hub {
             }
             let new: Vec<&Item> = inbox.items.iter().filter(|i| !i.noticed).collect();
             let (text, parts) = render(&new);
+            let whole = team_page::whole_notice(&new);
             let ids: Vec<String> = new.iter().map(|i| i.prompt_id.clone()).collect();
             let mut waiters = Vec::new();
             for item in inbox.items.iter_mut().filter(|i| !i.noticed) {
@@ -753,7 +973,7 @@ impl Hub {
             inbox.in_flight = Some((notice_id.clone(), ids.clone()));
             let carry = Carry { notice: notice_id.clone(), ids: ids.clone(), steer, waiters };
             inbox.carrying.push(carry);
-            (text, parts, ids)
+            (text, whole, parts, ids)
         };
         let provenance = json!({"kind": NOTICE_KIND, "noticeId": notice_id, "threads": parts});
         let opts = PromptOptions {
@@ -765,6 +985,8 @@ impl Hub {
         };
         let (hub, s) = (self.clone(), session.clone());
         tokio::spawn(async move {
+            // An agent that can open no thread gets each message whole (`inbox_team_page.rs`).
+            let text = if hub.notice_reader_has_tools(&s).await { text } else { whole };
             let blocks = vec![json!({"type": "text", "text": text})];
             let result = Box::pin(hub.run_prompt(&s, blocks, CLIENT, steer, opts)).await;
             // In once its prompt was written to the agent (`inbox_prompt_written`), as a steer
@@ -914,12 +1136,25 @@ impl Hub {
     }
 
     /// Arms the wake timer for `at`, aborting the one before (module docs), under the inbox's
-    /// lock `inbox` the caller holds.
-    fn arm_locked(self: &Arc<Self>, inbox: &mut Inbox, session: &Arc<Session>, at: u64, now: u64) {
+    /// lock `inbox` the caller holds. A continuation that may still fire puts a wake off
+    /// (`inbox_review`), so the timer also looks again as soon as one is let go, however it went
+    /// (`released`, `auto_resume.rs` `Pending`).
+    fn arm_locked(
+        self: &Arc<Self>,
+        inbox: &mut Inbox,
+        session: &Arc<Session>,
+        at: u64,
+        now: u64,
+        mut released: tokio::sync::watch::Receiver<u64>,
+    ) {
         let hub = Arc::downgrade(self);
         let weak: Weak<Session> = Arc::downgrade(session);
         let task = tokio::spawn(async move {
-            tokio::time::sleep(std::time::Duration::from_millis(at.saturating_sub(now))).await;
+            let wait = std::time::Duration::from_millis(at.saturating_sub(now));
+            tokio::select! {
+                () = tokio::time::sleep(wait) => {}
+                Ok(()) = released.changed() => {}
+            }
             let (Some(hub), Some(session)) = (hub.upgrade(), weak.upgrade()) else { return };
             hub.inbox_review(&session);
         });
@@ -936,6 +1171,10 @@ impl Hub {
         }
     }
 
+    /// The record kinds `restore_inbox` reads (a log load's, so `store/kind_index.rs` copies them).
+    pub(crate) const INBOX_KINDS: &[&str] =
+        &["inbox", "inbox_noticed", "inbox_answered", "inbox_read", "inbox_removed"];
+
     /// The inbox from the session's log (`restore_queue`): every message, read and noticed as
     /// the log says. Run again, it adds only what it does not hold.
     pub(super) fn restore_inbox(&self, session: &Arc<Session>) {
@@ -945,8 +1184,8 @@ impl Hub {
         let mut removed: std::collections::HashSet<String> = Default::default();
         let mut answered: std::collections::HashMap<String, super::queue::Answer> =
             Default::default();
-        let kinds = ["inbox", "inbox_noticed", "inbox_answered", "inbox_read", "inbox_removed"];
-        let scanned = self.store.scan_kinds(&session.id, &kinds, &mut |e: EventRecord| {
+        let kinds = Self::INBOX_KINDS;
+        let scanned = self.store.scan_kinds(&session.id, kinds, &mut |e: EventRecord| {
             let ids = || {
                 let ids = e.msg.get("promptIds").and_then(Value::as_array).cloned();
                 ids.unwrap_or_default().into_iter().filter_map(|v| v.as_str().map(str::to_owned))
@@ -971,8 +1210,10 @@ impl Hub {
                         report: e.msg.get("report") == Some(&Value::Bool(true)),
                         at: e.at,
                         text: field("text").to_owned(),
-                        noticed: false,
-                        read: false,
+                        details: crate::prompt_provenance::recorded(&e.msg)
+                            .and_then(|p| p.get("details").cloned()),
+                        noticed: e.msg.get("deliveredRead") == Some(&Value::Bool(true)),
+                        read: e.msg.get("deliveredRead") == Some(&Value::Bool(true)),
                         answer: None,
                     });
                 }
@@ -1012,8 +1253,8 @@ impl Hub {
             }
             item.notice = noticed.get(&item.prompt_id).cloned().filter(|n| !n.is_empty());
             item.answered = item.notice.as_ref().and_then(|n| answered.get(n).cloned());
-            item.noticed = noticed.contains_key(&item.prompt_id);
-            item.read = read.contains(&item.prompt_id);
+            item.noticed |= noticed.contains_key(&item.prompt_id);
+            item.read |= read.contains(&item.prompt_id);
             inbox.items.push(item);
         }
         trim(&mut inbox);
@@ -1178,7 +1419,7 @@ impl Hub {
                 messages.push(json!({
                     "promptId": item.prompt_id, "from": item.from, "fromSession": item.from_session,
                     "class": item.class, "kind": kind_of(item.class), "at": item.at,
-                    "text": item.text, "read": item.read,
+                    "text": item.text, "read": item.read, "details": item.details,
                 }));
                 if mark_read && !item.read {
                     item.read = true;
@@ -1289,6 +1530,9 @@ fn trim(inbox: &mut Inbox) {
         }
     }
 }
+
+#[path = "inbox_team_page.rs"]
+mod team_page;
 
 #[cfg(test)]
 #[path = "inbox_tests.rs"]

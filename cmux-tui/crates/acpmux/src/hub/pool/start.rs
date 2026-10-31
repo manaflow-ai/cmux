@@ -84,6 +84,12 @@ impl Hub {
         } else {
             (None, None)
         };
+        // A delivery may have changed the machine's secrets since the last
+        // login read: a prewarmed agent never starts on stale or revoked values.
+        anyhow::ensure!(
+            draft.remote_origin || crate::login_env::machine_env_fresh_before_spawn().await,
+            "machine environment changed; login env refresh failed"
+        );
         let cmd = crate::agent::harness_command(
             &draft.harness,
             profile,
@@ -136,7 +142,14 @@ impl Hub {
             crate::hub::LaunchServers::read(&launch, spec.draft.family.clone().unwrap_or_default())
                 .await;
         host_spec.orphan_exit = servers.orphan_exit(self.orphan_exit());
-        let record = agent_host::program_wait::spawn(&launcher, &host_spec).await?;
+        // The start itself has no time budget (`link::spawn`); the pool is its caller and gives
+        // up after its own `START_BUDGET`, as for its later stages. Giving up ends the host.
+        let record = tokio::time::timeout(
+            START_BUDGET,
+            agent_host::program_wait::spawn(&launcher, &host_spec),
+        )
+        .await
+        .unwrap_or_else(|_| Err(anyhow::anyhow!("no pooled agent host within {START_BUDGET:?}")))?;
         lock(&self.pool.starting).insert(session_id.clone(), record.clone());
         let started =
             self.start_pooled(session_id.clone(), name, record.clone(), spec, claude, off).await;

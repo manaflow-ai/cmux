@@ -67,7 +67,8 @@ pub struct LsArgs {
     /// Text view: also what the compact view hides (closed, reviewer, sub- and unnamed sessions).
     #[arg(long, short)]
     all: bool,
-    /// Text view: every column (AGENT, STATUS, STUCK and LAST, the last prompt).
+    /// Text view: every column (AGENT, STATUS, STUCK, the usage columns and LAST, the last
+    /// prompt); the daemon reads each chat's usage first.
     #[arg(long, short)]
     wide: bool,
 }
@@ -118,6 +119,15 @@ pub(super) async fn run(args: LsArgs, json_out: bool) -> Result<()> {
     let mut params = json!({});
     if with_tools {
         params.set("withTools", json!(true));
+    }
+    // Only a listing that shows usage has the daemon read it first (`hub/usage_view.rs`); the
+    // compact one shows the rows as they are. Every page asks; the daemon reads at most once
+    // in 5 s, so the pages after the first take the rows that read left.
+    let usage = wide
+        || json_out
+        || fields.as_ref().is_some_and(|f| f.iter().any(|f| f.starts_with("usageStats")));
+    if usage {
+        params.set("usage", json!(true));
     }
     if live {
         params.set("excludeStatus", json!(["closed"]));

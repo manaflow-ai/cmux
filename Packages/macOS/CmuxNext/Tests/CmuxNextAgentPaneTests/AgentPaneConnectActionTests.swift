@@ -56,6 +56,19 @@ struct AgentPaneConnectActionTests {
         #expect(ran == ["newCloudMachine"])
     }
 
+    /// The signed-out picker's Sign in for Cloud runs Sign In itself, on a gesture only: it never
+    /// goes through New Cloud Machine, which would create a machine once sign-in finished.
+    @Test func cloudSignInRunsSignInOnAGesture() async {
+        let model = AgentPaneModel(host: NoHost())
+        var ran: [String] = []
+        model.onRunAction = { id, args in ran.append(id); #expect(args.isEmpty); return true }
+        #expect(await model.respond(to: .runAction("palette.auth.signIn"))["ok"] as? Bool != true)
+        #expect(ran.isEmpty, "no gesture, no sign-in")
+        model.transport.gestures.record()
+        #expect(await model.respond(to: .runAction("palette.auth.signIn"))["ok"] as? Bool == true)
+        #expect(ran == ["palette.auth.signIn"])
+    }
+
     /// Connect Phone… opens the Mobile Pairing page, on the person's gesture only.
     @Test func connectPhoneOpensMobilePairingOnAGesture() async {
         let model = AgentPaneModel(host: NoHost())
@@ -80,6 +93,18 @@ struct AgentPaneConnectActionTests {
         model.transport.gestures.record()
         #expect(await model.respond(to: .runAction("cloudBringBack"))["ok"] as? Bool == true)
         #expect(ran == ["cloudMove", "cloudBringBack"])
+    }
+
+    /// The + menu's Search chats and Search pages open the command palette's chats and History
+    /// search pages without a gesture; an action outside the pane's table stays refused.
+    @Test func paletteSearchPagesRunWithoutAGesture() async {
+        let model = AgentPaneModel(host: NoHost())
+        var ran: [String] = []
+        model.onRunAction = { id, args in ran.append(id); #expect(args.isEmpty); return true }
+        #expect(await model.respond(to: .runAction("agentPane.searchChats"))["ok"] as? Bool == true)
+        #expect(await model.respond(to: .runAction("history.search"))["ok"] as? Bool == true)
+        #expect(await model.respond(to: .runAction("searchFiles"))["ok"] as? Bool != true)
+        #expect(ran == ["agentPane.searchChats", "history.search"])
     }
 
     /// An action the app did not run (turned off, or not available for this chat) is a failure, so

@@ -62,6 +62,7 @@ export function SummaryCard({
   workflows,
   workflowActionsFor,
   workflowCapacity,
+  onOpenInspector,
 }: {
   card: SummaryCardControl;
   rows: readonly AcpmuxRow[];
@@ -105,6 +106,8 @@ export function SummaryCard({
   workflows?: readonly WorkflowSummary[];
   workflowActionsFor?: (workflow: WorkflowSummary) => WorkflowActions;
   workflowCapacity?: WorkflowCapacitySignal;
+  /// Opens a complete Session Info section beside the chat.
+  onOpenInspector?: (section: "subagents" | "tasks") => void;
 }) {
   const t = useT();
   const [gallery, setGallery] = useState(false);
@@ -218,7 +221,10 @@ export function SummaryCard({
           panel.current = node;
           presence.props.ref(node);
         }}
-        className="acpmux-summary-card"
+        // The popover floats over the chat, so it is the shared glass (ui/glass/glass.css), never the
+        // solid popup surface (Leo 2026-10-30: "I don't like the non-glassness"). The inline column is
+        // part of the pane and keeps the page color.
+        className={card.column ? "acpmux-summary-card" : "ui-glass ui-glass-floats acpmux-summary-card"}
         inert={presence.leaving}
         // ui-allow: focusable from script only, the last place closing the Subagents tab can leave focus.
         tabIndex={-1}
@@ -320,6 +326,7 @@ export function SummaryCard({
                 autoOpen={agents.length > 0 ? subagents.autoOpen : undefined}
                 // The tab lists subagents only; a chat with only sub-sessions or started chats has none to show there.
                 onShowAll={agents.length > 0 ? () => setTab("subagents") : undefined}
+                onOpenInPane={onOpenInspector ? () => onOpenInspector("subagents") : undefined}
                 subsessions={subsessionRows}
                 sessions={children}
                 onOpenSession={sessions?.onOpen ?? subsessions?.onOpen}
@@ -341,6 +348,7 @@ export function SummaryCard({
               tools={tools}
               commands={commands}
               onStopCommand={background?.onStop}
+              onOpenTasksInPane={onOpenInspector ? () => onOpenInspector("tasks") : undefined}
               workflow={workflow}
               workflowActions={workflowActions}
               workflows={workflows}

@@ -4,12 +4,12 @@ import CmuxNextPages
 /// The agent page host's pieces that need no view state of their own: making the page and the
 /// events a new page subscriber gets. Kept off ``AgentPaneView``, whose type is at its size limit.
 enum AgentPanePageHost {
-    /// The page view for the bundled page in `root`, nil when the page host refuses that root.
-    static func makePage(root: URL, provider: AgentPageProvider, renderRate: AgentPaneRenderRate,
+    /// The page view for the bundled page in `root` (`testRoot`: a test's fixture), nil when the page host refuses that root.
+    static func makePage(root: URL, testRoot: Bool = false, provider: AgentPageProvider, renderRate: AgentPaneRenderRate,
                          chromium: (any PageChromiumHosting)?) -> PageWebView? {
         // The agent page's files live in this module's bundle, not the page host's.
         PageID.registerBundledRoot(root, for: PageDescriptor.agent.id)
-        let page = PageWebView(descriptor: .agent, root: root,
+        let page = PageWebView(descriptor: .agent, root: root, testRoot: testRoot,
                                routes: [PageRoute(prefix: AgentPageOps.namespace, provider: provider)],
                                documentAttributes: AgentPaneTunables.documentAttributes,
                                options: PageEngineOptions(fullFrameRate: renderRate != .capped,
@@ -25,11 +25,16 @@ enum AgentPanePageHost {
     /// edited-files card's and the composer's settings, and a non-empty customization.
     @MainActor static func currentEvents(_ view: AgentPaneView) -> [AgentPageEvent] {
         var events: [AgentPageEvent] = []
-        if let theme = AgentPageEvent.theme(view.themeTokens, surface: view.surfaceKind) { events.append(theme) }
+        // In the view's scope, as `applyTheme` pushes it: a reloaded chat in a workspace with its own
+        // picture stays clear over it, not opaque from the app's backdrop (#28867).
+        if let theme = view.performWithTheme({ AgentPageEvent.theme(view.themeTokens, surface: view.surfaceKind) }) {
+            events.append(theme)
+        }
         events.append(.shortcuts(view.shortcuts))
         events.append(.preview(view.previewFeatures))
         events.append(.sessionStatus(view.sessionStatus))
         events.append(AgentPaneSuggestedTasks.shared.event(for: view))
+        events.append(view.model.remoteControl?.event(for: view) ?? AgentPaneRemoteControl.event(nil))
         if let link = view.model.machineLink { events.append(link.event(for: view)) }
         events.append(.deviceChats(AgentPaneDeviceChat.shown(view.deviceChats, in: view)))
         events.append(view.recentlyClosed.event)

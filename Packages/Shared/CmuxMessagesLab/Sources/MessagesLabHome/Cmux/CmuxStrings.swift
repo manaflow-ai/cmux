@@ -134,11 +134,27 @@ enum CmuxStrings {
     }
 
     static var playVideo: String { String(localized: "home.video.play", defaultValue: "Play Video", table: "CmuxHome", bundle: .module) }
+    static var viewVideoLarger: String {
+        String(localized: "home.video.viewLarger", defaultValue: "View Larger", table: "CmuxHome", bundle: .module)
+    }
+    static var closeVideoViewer: String {
+        String(localized: "home.video.closeViewer", defaultValue: "Close Video", table: "CmuxHome", bundle: .module)
+    }
     static var pauseVideo: String { String(localized: "home.video.pause", defaultValue: "Pause Video", table: "CmuxHome", bundle: .module) }
     /// An attachment's Copy (the file and an image's pixels): Messages' own Copy title.
     static var copyAttachment: String { Strings.menuCopy }
     static var saveAttachmentAs: String {
         String(localized: "home.attachment.saveAs", defaultValue: "Save As…", table: "CmuxHome", bundle: .module)
+    }
+    /// An agent-message fold's link while folded: how many messages it holds ("Agent messages (6)").
+    static func showAgentMessages(_ count: Int) -> String {
+        String(format: String(localized: "home.agentMessages.show", defaultValue: "Agent messages (%lld)",
+                              table: "CmuxHome", bundle: .module), count)
+    }
+    /// The same link while its messages show in full.
+    static func hideAgentMessages(_ count: Int) -> String {
+        String(format: String(localized: "home.agentMessages.hide", defaultValue: "Hide agent messages (%lld)",
+                              table: "CmuxHome", bundle: .module), count)
     }
     /// A link's Open Link and Copy Link Address rows (a link in text, a link card, a link preview).
     static var openLink: String {

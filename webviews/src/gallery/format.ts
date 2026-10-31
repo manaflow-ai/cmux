@@ -31,6 +31,7 @@ import type { MockOptions } from "../pages/settings/mockProvider";
 import type {
   AccountsState,
   AgentsState,
+  CloudEnvironmentsState,
   DevicesState,
   HarnessesState,
   HostLists,
@@ -52,6 +53,8 @@ export type SettingsPageVariant = VariantBase & {
   options?: MockOptions;
   host?: Partial<HostLists>;
   accounts?: AccountsState;
+  /** Settings > Accounts > Cloud Environments fixture state. */
+  environments?: CloudEnvironmentsState;
   /** Settings > Agents over the mock's harness list (`manages: false`: an older acpmux). */
   agents?: Partial<AgentsState>;
   /** Settings > Agents > Harnesses; default the mock's four. */
@@ -227,6 +230,8 @@ export type MarkdownPageVariant = VariantBase & {
   themeCSS?: string;
   /** Other files links may name (and the empty state's recents). */
   files?: Record<string, string>;
+  /** Opens find (the `find` page command, Cmd-F) with this query once the document shows. */
+  find?: string;
 };
 
 /** One file of a diff fixture: the text before (absent for a new file) and after (absent when deleted). */
