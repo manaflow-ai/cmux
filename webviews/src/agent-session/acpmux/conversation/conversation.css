@@ -1944,6 +1944,13 @@ pre.cv-math-source {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* An opened call's line that is no shell's reads whole (ToolRow.tsx `is-whole-open`): its label
+   wraps instead of being cut at the row's edge. */
+.cv-tool.is-whole-open[aria-expanded="true"] > .cv-tool__text {
+  overflow: visible;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
 /* The rows' verb column (ToolVerb.tsx), as the Codex app lines its tool rows up (Leo 2026-10-29:
    "having stuff aligned is nice"): each verb ("Ran", "Read", "Edited") is a box as wide as the
    widest verb of its turn's rows, so every subject starts at one x. The widest is never measured:
