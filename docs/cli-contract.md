@@ -139,7 +139,7 @@ daemon inject, so no flags are needed.
 | `CMUX_BUNDLE_ID` | App bundle id; derives the app socket and daemon session. |
 | `CMUX_TAG` | Tagged dev build; derives `~/.local/state/cmux/cmux-debug-<tag>.sock`, session `cmux-app-<tag>` and, with the bundle id, the acpmux home `~/.acpmux/builds/<build key>`. |
 | `CMUX_TUI_SOCKET` | Daemon session socket. |
-| `CMUX_TUI_TERMINAL_ID` | The caller's terminal (`term_…`). `cmux notify` and `agent hook emit` default to it. `current` selectors do not use it. |
+| `CMUX_TUI_TERMINAL_ID` | The caller's terminal (`term_…`). `cmux notify` and `agent hook emit` default to it, and `current` selectors resolve to its tab, pane, screen and workspace. |
 | `ACPMUX_HOME` | acpmux state directory. Wins over the tag rule. |
 
 App socket order: `--app-socket`, then `CMUX_SOCKET_PATH`/`CMUX_BUNDLE_ID`/`CMUX_TAG`,
@@ -168,14 +168,24 @@ Every instance selector accepts:
 1. a public id: `ws_…`, `screen_…`, `pane_…`, `tab_…`, `term_…`, `browser_…`,
    `split_…`, `notification_…`, `agent_…`. Ids are persisted and survive app and
    daemon restarts;
-2. `current`;
+2. `caller` or `current`, the caller's own object, or `focused`, the one the
+   person looks at;
 3. an exact name. `name:<value>` forces name interpretation and is required for
    names equal to `current`, names shaped like ids, and names containing `_`.
 
-For a `current` or name selector, missing structural ancestors default to
-`current`, so `cmux pane current split --right` means the session's active
-workspace, screen and pane (what the user sees), not the caller's. To act on
-the caller's own terminal, pass `$CMUX_TUI_TERMINAL_ID`. An id selector needs no ancestors. Nested forms name the chain
+For a `caller`, `current` or name selector, missing structural ancestors
+default to `current` (for `focused`, to `focused`). `caller` and `current` are
+the caller's own place: from a cmux terminal (`$CMUX_TUI_TERMINAL_ID`) the CLI
+reads the tab, pane, screen and workspace that hold it; from an agent chat
+(`$CMUX_AGENT_SESSION`) or a Chief turn it asks the app that owns the daemon
+where the chat is. So `cmux pane current split --right` splits the caller's
+own pane even while the person looks at another workspace, and
+`cmux tab create terminal` from a terminal with no `--workspace`, `--screen` or
+`--pane` opens in the caller's pane. `caller` fails without a caller; `current`
+is then the session's active object, as it is outside cmux and with
+`--socket`, `--session` or `--machine`. `focused` is the app's focused
+workspace, screen and pane, and the daemon's active ones without an app that
+owns the daemon. An id selector needs no ancestors. Nested forms name the chain
 explicitly: `cmux workspace api screen current pane current split --down`.
 
 A selector id, or an id given to `--workspace`, `--screen`, `--pane`, `--tab`,

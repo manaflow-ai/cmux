@@ -170,6 +170,20 @@ pub(super) fn apply(
             }
             Resolve::Caller => {
                 caller_scopes(params, caller_route, || caller_path(reader, &route, socket))?;
+                focused_scopes(params, caller_route, socket);
+            }
+            Resolve::CallerPlace => {
+                if caller_route
+                    && let Ok(Some(path)) = caller_path(reader, &route, socket)
+                    && let Some(place) = ["workspace", "screen", "pane"]
+                        .map(|scope| path.get(scope).and_then(Value::as_str).map(str::to_owned))
+                        .into_iter()
+                        .collect::<Option<Vec<_>>>()
+                {
+                    for (scope, id) in ["workspace", "screen", "pane"].into_iter().zip(place) {
+                        params.insert(scope.into(), Value::String(id));
+                    }
+                }
             }
         }
     }
@@ -419,7 +433,9 @@ fn caller_scopes(
     // daemon's, so the id is still checked against the focused parents.
     let selectors: Vec<Option<String>> =
         CALLER_SCOPES.iter().map(|scope| value(params, scope)).collect();
-    let keyword = |selector: &str| selector == "caller" || selector == "current";
+    // `focused` is resolved after this (`focused_scopes`), so it does not
+    // stop a `current` above it from following the caller.
+    let keyword = |selector: &str| matches!(selector, "caller" | "current" | FOCUSED);
     let deepest_named = selectors
         .iter()
         .rposition(|selector| selector.as_deref().is_some_and(|selector| !keyword(selector)))
@@ -451,6 +467,49 @@ fn caller_scopes(
     Ok(())
 }
 
+/// Puts what the person looks at in place of `focused` selectors: the
+/// focus of the app that owns this daemon (`snapshot.get`), each level while
+/// the levels above it are the focused ones. Without that app, on another
+/// session or machine, or below another object, `focused` is the daemon's
+/// `current`, its active object.
+fn focused_scopes(params: &mut Map<String, Value>, caller_route: bool, socket: &SocketRoute<'_>) {
+    let focused =
+        |params: &Map<String, Value>, scope: &str| params.get(scope) == Some(&json!(FOCUSED));
+    if !CALLER_SCOPES.iter().any(|scope| focused(params, scope)) {
+        return;
+    }
+    #[cfg(unix)]
+    let focus = if caller_route { app_focus(socket) } else { None };
+    #[cfg(not(unix))]
+    let focus = {
+        let _ = (caller_route, socket);
+        None
+    };
+    super::caller_scope::apply(params, None, focus.as_ref());
+    // `caller_scope` places workspaces to tabs; a focused terminal is the
+    // focused tab's, which the daemon's `current` names.
+    for scope in CALLER_SCOPES {
+        if focused(params, scope) {
+            params.insert(scope.into(), json!("current"));
+        }
+    }
+}
+
+const FOCUSED: &str = "focused";
+
+/// The app's focus (`topology.focus` of `snapshot.get`: window, workspace,
+/// screen, pane and tab ids), or `None` when no app owns this daemon or it
+/// does not answer.
+#[cfg(unix)]
+fn app_focus(socket: &SocketRoute<'_>) -> Option<Value> {
+    let app = socket.app.as_ref()?;
+    let mut stream = super::app::connect(app).ok()?;
+    let snapshot = super::app::request(&mut stream, "snapshot.get", json!({}), APP_IDENTIFY_WAIT)
+        .ok()?
+        .ok()?;
+    snapshot.get("topology").and_then(|topology| topology.get("focus")).cloned()
+}
+
 /// Whether the request stays on this machine: another machine is never the
 /// caller's (`--machine`).
 fn this_machine(params: &Map<String, Value>) -> bool {
@@ -468,8 +527,9 @@ fn caller_path(
     socket: &SocketRoute<'_>,
 ) -> Result<Option<Map<String, Value>>, Failure> {
     let env = |key: &str| std::env::var(key).ok().filter(|value| !value.is_empty());
+    // An agent session, or a Chief turn the app places at the Home chat.
     #[cfg(unix)]
-    if env("CMUX_AGENT_SESSION").is_some()
+    if (env("CMUX_AGENT_SESSION").is_some() || env("CMUX_CALLER_HOME_CHAT").as_deref() == Some("1"))
         && let Some(path) = agent_caller_path(socket)?
     {
         return Ok(Some(path));

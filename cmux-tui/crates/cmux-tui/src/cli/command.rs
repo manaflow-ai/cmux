@@ -96,8 +96,12 @@ impl Selectors {
     ) -> Result<(), UsageError> {
         validate_selector(scope, prefix, value)?;
         if !matches!(Selector::parse(value), Ok(Selector::Id(_))) {
+            // `focused` is the object the person looks at, so its implied
+            // parents are the focused ones too, not the caller's
+            // (resolve.rs `focused_scopes`).
+            let parent = if value == "focused" { "focused" } else { "current" };
             for ancestor in structural_ancestors(scope) {
-                self.values.entry(ancestor).or_insert_with(|| "current".into());
+                self.values.entry(ancestor).or_insert_with(|| parent.into());
             }
         }
         self.values.insert(scope, value.to_string());
