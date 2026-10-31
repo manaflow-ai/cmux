@@ -96,6 +96,8 @@ public actor AgentSessionAttachClient {
         var children = false
         /// `agent-session-presence-v1`.
         var presence = false
+        /// `agent-session-folders-v1`.
+        var folders = false
     }
 
     /// A start that needs the app's person key in that machine's acpmux (cx-0w0jj): `instance`
@@ -303,6 +305,20 @@ public actor AgentSessionAttachClient {
     /// `agent-session-children` (`agent-session-children-v1`): the chats the attached tab's session
     /// started on the daemon's machine (`{sessions}`, acpmux summaries); the attachment then
     /// streams their changes too. A daemon without the verb lists none.
+    /// That machine's folders for a new chat (`agent-session-folders-v1`): its work folder
+    /// (`default`, nil when it has none) and the folders under it. A daemon without the verb
+    /// answers none (the app then asks the person for a folder).
+    public func folders() async throws -> (work: String?, folders: [String]) {
+        guard mode == .attach else { return (nil, []) }
+        _ = try await liveTransport()
+        guard served.folders else { return (nil, []) }
+        let data = try await call("agent-session-folders", [:])
+        let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
+        let absolute = { (path: String) in path.hasPrefix("/") }
+        let work = (object["default"] as? String).flatMap { absolute($0) ? $0 : nil }
+        return (work, (object["folders"] as? [String] ?? []).filter(absolute))
+    }
+
     public func children() async throws -> Data {
         _ = try await liveTransport()
         guard served.children else { return Data(#"{"sessions":[]}"#.utf8) }
@@ -478,7 +494,8 @@ public actor AgentSessionAttachClient {
                             model: identity.supports(DaemonCapability.agentSessionStartModel.rawValue),
                             trustVMKind: identity.supports(DaemonCapability.agentSessionTrustVMKind.rawValue),
                             children: identity.supports(DaemonCapability.agentSessionChildren.rawValue),
-                            presence: identity.supports(DaemonCapability.agentSessionPresence.rawValue))
+                            presence: identity.supports(DaemonCapability.agentSessionPresence.rawValue),
+                            folders: identity.supports(DaemonCapability.agentSessionFolders.rawValue))
             _ = try await DaemonConnection.perform(
                 // `agent-session-presence-v1` echoed: the daemon then streams presence (an app
                 // from before it would end its attachment on an event it does not know).

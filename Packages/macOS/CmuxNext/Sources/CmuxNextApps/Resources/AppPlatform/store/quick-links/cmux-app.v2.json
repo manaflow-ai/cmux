@@ -1,0 +1,52 @@
+{
+  "$schema": "https://cmux.dev/schemas/cmux-app/2.json",
+  "manifestVersion": 2,
+  "id": "manaflow-ai/quick-links",
+  "name": { "en": "Quick Links", "ja": "クイックリンク" },
+  "version": "1.0.0",
+  "description": {
+    "en": "A declarative app: your links as a sidebar section and a pane, drawn natively by cmux from a scene. Click a link to open it in a browser tab.",
+    "ja": "宣言的なアプリ: リンクをサイドバーのセクションとペインとして表示し、cmux がシーンからネイティブに描画します。リンクをクリックするとブラウザタブで開きます。"
+  },
+  "publisher": { "name": "cmux examples", "url": "https://cmux.com" },
+  "repository": "https://github.com/manaflow-ai/cmux",
+  "license": "MIT",
+  "icon": { "symbol": "link" },
+  "categories": ["sidebar", "productivity"],
+  "keywords": ["links", "bookmarks", "sidebar", "example"],
+  "engines": { "cmux": "^2.0" },
+  "runtime": { "main": "dist/main.js" },
+  "implements": {
+    "cmux.section/1": {
+      "export": "renderSection",
+      "title": { "en": "Quick Links", "ja": "クイックリンク" },
+      "symbol": "link",
+      "options": { "defaultRegion": "middle", "maxRows": 8 }
+    },
+    "cmux.pane/1": {
+      "export": "renderPane",
+      "title": { "en": "Quick Links", "ja": "クイックリンク" },
+      "symbol": "link"
+    }
+  },
+  "presentation": {
+    "sidebarItem": { "section": "top", "order": 150 },
+    "screen": "app",
+    "tab": true
+  },
+  "scopes": {
+    "actions:run": "Open a link in a browser tab when you click it."
+  },
+  "settings": {
+    "type": "object",
+    "properties": {
+      "links": {
+        "type": "string",
+        "title": "Links (one per line: Title | https://url)",
+        "default": "cmux | https://cmux.com\nGitHub | https://github.com/manaflow-ai/cmux\nexe.dev | https://exe.dev"
+      }
+    }
+  },
+  "activation": ["onInterface:cmux.section/1", "onInterface:cmux.pane/1"],
+  "files": ["dist/"]
+}

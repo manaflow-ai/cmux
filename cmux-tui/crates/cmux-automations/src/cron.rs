@@ -40,17 +40,17 @@ impl CronExpr {
             other => other,
         };
         let fields: Vec<&str> = expanded.split_whitespace().collect();
-        if fields.len() != 5 {
+        let &[minute, hour, day, month, weekday] = fields.as_slice() else {
             return Err(format!(
                 "cron \"{text}\" needs 5 fields (minute hour day month weekday), not {}",
                 fields.len()
             ));
-        }
-        let minutes = field(fields[0], 0, 59, &[], "minute")?;
-        let hours = field(fields[1], 0, 23, &[], "hour")?;
-        let days = field(fields[2], 1, 31, &[], "day")?;
-        let months = field(fields[3], 1, 12, &MONTHS, "month")?;
-        let mut weekdays = field(fields[4], 0, 7, &WEEKDAYS, "weekday")?;
+        };
+        let minutes = field(minute, 0, 59, &[], "minute")?;
+        let hours = field(hour, 0, 23, &[], "hour")?;
+        let days = field(day, 1, 31, &[], "day")?;
+        let months = field(month, 1, 12, &MONTHS, "month")?;
+        let mut weekdays = field(weekday, 0, 7, &WEEKDAYS, "weekday")?;
         if weekdays & (1 << 7) != 0 {
             weekdays = (weekdays | 1) & 0x7f;
         }
@@ -60,8 +60,8 @@ impl CronExpr {
             days: days as u32,
             months: months as u16,
             weekdays: weekdays as u8,
-            day_restricted: fields[2] != "*",
-            weekday_restricted: fields[4] != "*",
+            day_restricted: day != "*",
+            weekday_restricted: weekday != "*",
         })
     }
 
