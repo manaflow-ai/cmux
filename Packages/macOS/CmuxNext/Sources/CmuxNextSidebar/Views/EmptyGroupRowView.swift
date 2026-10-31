@@ -80,7 +80,6 @@ final class EmptyGroupRowView: SidebarRowView {
     override func updateLayer() {
         performWithTheme {
             label.setColor(offersAdd ? Palette.textSecondary : Palette.textTertiary)
-            addButton.tintOverride = offersAdd ? nil : Palette.textTertiary
             paintFill(offersAdd ? Palette.hoverFill : nil)
         }
     }

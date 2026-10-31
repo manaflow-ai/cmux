@@ -2,8 +2,8 @@
 
 - 2026-10-30: an open empty group shows a + (Lawrence msg 17912, "empty workspace needs plus button", a shot of an
   empty "Sleep alarm" group reading only "No workspaces · drag one here"). The empty row (0105692a41d, kept) adds a +
-  centered on the trailing column, under the header's chevron, at rest in tertiary ink (secondary while the row is
-  hovered); its text ends left of it. The group header's hover + now shows for an empty group too (b2ced020cee hid it
+  centered on the trailing column, under the header's chevron, at rest in the icon buttons' secondary ink (primary on
+  its own hover; tertiary was lost on the light sidebar); its text ends left of it. The group header's hover + now shows for an empty group too (b2ced020cee hid it
   so a click could not race the editor dropping a new empty group; `SidebarGroupFlow.performEditorItem` has since kept
   a group New Workspace in Group is about to fill). Both run New Workspace in Group, the action the editor, the ⋮ menu,
   the palette and the CLI share. Nothing else about groups changes. Regression: `SidebarEmptyGroupAddButtonTests`;
