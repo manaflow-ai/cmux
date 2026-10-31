@@ -372,4 +372,3 @@ test("a placed attachment counts as one place in the field's plain text and its 
   expect(markdown.slice(markdownOffset(markdown, caret - " here".length))).toBe(" here");
   expect(selectionStart).toBeLessThanOrEqual(value.length);
 });
-
