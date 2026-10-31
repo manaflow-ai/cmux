@@ -168,7 +168,7 @@ public final class HangEpisodeRecorder: Sendable {
     /// A hang started `elapsed` ago: opens its file. Returns at once (the toggle is read on
     /// the recorder's queue too, so a main thread holding the tunable store's lock never
     /// blocks the watchdog).
-    func begin(beat: UInt64, elapsed: Duration, main: [UInt], others: [ThreadSample]) {
+    func begin(beat: UInt64, elapsed: Duration, main: [UInt], others: [ThreadSample], load: HangLoad = HangLoad()) {
         let started = Date(timeIntervalSinceNow: -elapsed.fractionalMilliseconds / 1_000)
         queue.async { [self] in
             guard isEnabled() else { return }
@@ -189,7 +189,7 @@ public final class HangEpisodeRecorder: Sendable {
     }
 
     /// The hang of `beat` is still running at a checkpoint, or ended (`ongoing` false).
-    func update(beat: UInt64, duration: Duration, ongoing: Bool) {
+    func update(beat: UInt64, duration: Duration, ongoing: Bool, load: HangLoad? = nil) {
         queue.async { [self] in
             change(beat: beat) { episode in
                 episode.entry.duration = duration
