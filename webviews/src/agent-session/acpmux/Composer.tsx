@@ -605,6 +605,7 @@ export function Composer({
     videoReading,
     cancel,
     retry,
+    originalFailures,
     attachError,
     setAttachError,
     drop,
@@ -1930,6 +1931,7 @@ export function Composer({
           field.current?.focus();
         }}
         onRetryAttachment={retry}
+        originalFailures={originalFailures}
         onPasteFile={(file) => void attach([file], true, "paste")}
         fieldMenu={fieldMenu}
         onFieldMenuOpen={noteSelection}
