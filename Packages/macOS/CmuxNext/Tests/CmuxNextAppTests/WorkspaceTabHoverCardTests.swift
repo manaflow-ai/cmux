@@ -330,6 +330,8 @@ struct WorkspaceTabHoverCardTests {
         view.frame = NSRect(x: 0, y: 0, width: 320, height: 120)
         view.layoutSubtreeIfNeeded()
         let row = try #require(view.subviews.first?.subviews.compactMap { $0 as? NSScrollView }.first?.documentView?.subviews.first)
+        // One layout pass must give the row the list's width: a zero-width row takes no click.
+        #expect(row.frame.width > view.bounds.width / 2, "row frame \(row.frame) in a \(view.bounds.width) pt list")
         let point = row.convert(NSPoint(x: row.bounds.midX, y: row.bounds.midY), to: nil)
         let down = try #require(NSEvent.mouseEvent(with: .leftMouseDown, location: point, modifierFlags: [], timestamp: 1,
                                                    windowNumber: window.windowNumber, context: nil, eventNumber: 1,

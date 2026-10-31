@@ -107,7 +107,14 @@ final class WorkspaceTabHoverCardView: NSView, HoverCardInteractiveBody, HoverCa
 
     override func layout() {
         super.layout()
-        let width = scrollView.contentSize.width
+        // The scroll view spans this view's width (its stack is pinned to our edges), but the
+        // stack places it only after this pass: its frame here can still be the old (first pass:
+        // zero) one, which gave every row zero width, so no click or hit test reached a row.
+        let width = NSScrollView.contentSize(forFrameSize: NSSize(width: bounds.width, height: scrollView.frame.height),
+                                             horizontalScrollerClass: nil,
+                                             verticalScrollerClass: scrollView.hasVerticalScroller ? NSScroller.self : nil,
+                                             borderType: scrollView.borderType, controlSize: .regular,
+                                             scrollerStyle: scrollView.scrollerStyle).width
         document.frame = CGRect(x: 0, y: 0, width: width,
                                 height: max(0, CGFloat(visibleCount) * (rowHeight + Metrics.space1) - Metrics.space1))
         for index in 0..<visibleCount {
