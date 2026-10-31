@@ -139,9 +139,9 @@ await requireBrowserLane("thread-rail-fast-scroll-edges.test.ts", async () => {
         // The fling moved the list far, both ways (WebKit's headless wheel travels less than
         // Chromium's, so neither engine has to reach the list's ends).
         expect(moved.length).toBeGreaterThan(10);
-        expect(Math.max(...seen.map((frame) => frame.top)) - Math.min(...seen.map((frame) => frame.top))).toBeGreaterThan(
-          10_000,
-        );
+        expect(
+          Math.max(...seen.map((frame) => frame.top)) - Math.min(...seen.map((frame) => frame.top)),
+        ).toBeGreaterThan(10_000);
         const undrawn = seen.filter((frame) => frame.undrawn > 0);
         console.log(
           `${name}: ${seen.length} frames, ${moved.length} moved; ${undrawn.length} showed rows past the drawn ticks (most ${Math.max(0, ...seen.map((frame) => frame.undrawn))})`,
@@ -149,14 +149,12 @@ await requireBrowserLane("thread-rail-fast-scroll-edges.test.ts", async () => {
         // No frame shows a blank strip: a row past the drawn ticks shows its resting tick.
         const blank = seen.filter((frame) => frame.blank.length > 0);
         expect(
-          blank
-            .slice(0, 3)
-            .map((frame) => ({
-              top: frame.top,
-              height: frame.height,
-              blank: frame.blank.length,
-              first: frame.blank[0],
-            })),
+          blank.slice(0, 3).map((frame) => ({
+            top: frame.top,
+            height: frame.height,
+            blank: frame.blank.length,
+            first: frame.blank[0],
+          })),
         ).toEqual([]);
         // No row the fling brings into view replays the entrance (#26635): it would start at opacity 0.
         const faded = seen.filter((frame) => frame.faded.length > 0);
