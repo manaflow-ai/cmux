@@ -152,7 +152,7 @@ extension AgentTabStore {
         tabs.cloudMachines.wire(services)
         tabs.remoteControl = services.iphone.remoteControl
         // The composer strip's machine dot: the sidebar header's same link state; using a machine
-        // that is down runs its header's Reconnect.
+        // that is down runs its header's Reconnect, as `.page`: never a takeover (HQ #4877 G5).
         tabs.machineLink.state = { [weak tabs, weak services] view in
             guard let tabs, let services, let key = tabs.views.first(where: { $0.value === view })?.key,
                   let machine = tabs.remoteMachineID(of: key) else { return nil }
@@ -162,7 +162,7 @@ extension AgentTabStore {
             services.map { SidebarBridge.paneUse(machine, in: $0.machines) } ?? .stuck
         }
         tabs.machineLink.reconnect = { [weak tabs] machine in
-            _ = tabs?.actionRegistry?.perform("machine.reconnect", invocation: ActionInvocation(target: ActionTargetRef(kind: .machine, id: machine), origin: .user))
+            _ = tabs?.actionRegistry?.perform("machine.reconnect", invocation: ActionInvocation(target: ActionTargetRef(kind: .machine, id: machine), origin: .page))
         }
         // The composer chips and shell commands chat pages held at the last quit (every relaunch's quit).
         tabs.relaunchWake = services.relaunchWake
@@ -365,6 +365,14 @@ extension AgentTabStore {
             // it is sent, through any daemon (the legacy link's or the app link's own answer).
             let links = services.machines.session(daemon.machineID).map { CloudMachineLinks(appLink: $0.appLink, link: $0.link) }
             host.ownerLink = links?.ownerLink
+            // A start its older daemon refused updates the machine to this app's build and tries
+            // once more, only on the caller's own machine (the link's owner answer, read then).
+            if let cloudMachineID = host.cloudMachineID, let ownerLink = links?.ownerLink {
+                host.updateMachine = { [weak services] in
+                    guard await ownerLink() != nil, let services else { return false }
+                    return await CloudMachineUpdates.updateNow(cloudMachineID, services: services)
+                }
+            }
             host.ownerCloud = RemoteAcpmuxWire.ownerCloud(links?.ownerLink, served: daemon.supports(RemoteAcpmuxWire.ownerCloudCapability))
             if started {
                 // The tab may still be provisional here: each handshake reads its store surface.
