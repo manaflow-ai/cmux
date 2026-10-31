@@ -33,12 +33,13 @@ leo-workspace `tools/reach --install`). On a machine without it, name them:
 `--hosts "cmux17 cmux18 cmux19 cmux21 cmux22 cmux23 cmux24"` (sets `CAPTURE_HOST_SLOT_HOSTS`).
 `JOURNEYS_EXCLUDE_HOSTS` (default `cmux16`) are never leased.
 
-Output, in `artifacts/journeys/<job12>-<UTC time>/` (or `--out`):
+Output, in `artifacts/journeys/<job12>-<run id>/` (or `--out`, which must be a new folder):
 
 - `results.jsonl`: one line per journey: `id`, `priority`, `status` (`pass`, `fail` or
   `not run`), `reason`, `evidence` (each check with its result, its time from the mark and
   what it saw), `clip`, `checks` (the frames the checks read), `build_job`, `commit`, `tag`,
-  `host`, `path`, `nonce`, `run_at`;
+  `host`, `path`, `nonce`, `run_at`, `run_id`, `run_started_at`, `harness`;
+- `run.json`: the run id (`<UTC time>-<8 hex>`), its start time and the harness checkout;
 - `<id>/result.json`: the full record (every step and its reply, every check's detail);
 - `<id>/check-NN.png`: each frame a `frame_text` check read (full size);
 - `<id>/clip.mp4` (with ffmpeg) or `<id>/clip.png` (an animated PNG, about a frame a second;
@@ -46,6 +47,35 @@ Output, in `artifacts/journeys/<job12>-<UTC time>/` (or `--out`):
 
 Exit 0 when every selected journey passed, 1 when one failed, 75 when none failed but one did
 not run.
+
+### One run, one folder; only its own results (STATUS 1362)
+
+On 2026-10-31 an R3 round whose relaunch failed reported the `result.json` an older round had
+left in its reused folder. So:
+
+- Each run writes a new folder. An `--out` folder that holds an earlier run's files makes every
+  journey `not run`; the earlier `results.jsonl` is kept as `results.jsonl.earlier-<run id>`.
+- The driver writes the run id and run start into each `result.json`. `run.py` takes no
+  `result.json` without both (`not run`, reason `stale or foreign result: ...`).
+- A lease whose launch (or a capture-host wrapper's relaunch) or set-up fails before the driver
+  starts is `not run` with that reason; `run.py` reads no result then.
+
+### Run fleet rounds from a pinned checkout
+
+`run.py` packs the harness (`driver.py`, `ext_*.py`, the journey specs, `smoke_hog.py`) from
+disk at each lease. Run fleet rounds only from a pinned, reviewed checkout, never from the
+worktree you edit in:
+
+```bash
+git worktree add --detach ../journeys-run REVIEWED_SHA   # move it only to a reviewed sha
+cd ../journeys-run && python3 scripts/journeys/run.py --build JOB ...
+```
+
+`run.py` reads `git status` of `scripts/journeys`, `scripts/cmux-next/build_names.py` and
+`scripts/ci/pr_media_ocr.swift` at the start and at each lease. A result from uncommitted
+harness files, or from a checkout whose commit moved during the run, is `not run`
+(`harness: unpinned (...)`); its own status stays in `result.json`'s `harness` record
+(`commit`, `dirty`, `detached`, `pinned`). That record names the harness commit of every result.
 
 ## How it runs (what it reuses)
 
