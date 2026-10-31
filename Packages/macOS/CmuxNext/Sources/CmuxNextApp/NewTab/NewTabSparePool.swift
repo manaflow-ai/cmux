@@ -66,7 +66,7 @@ final class NewTabSparePool {
 
     private unowned let services: AppServices
     private var slot = NewTabSpareSlot<AgentPaneView>()
-    private let parking = NewTabSpareParking()
+    private let parking = PageOffscreenParking()
     /// The main window the spare parks in (the key one, or the last key one).
     private(set) weak var target: NSWindow?
     private let warmTimer = DemandTimer(owner: "NewTabSparePool.warm")
@@ -226,7 +226,7 @@ final class NewTabSparePool {
     private func fitParked() {
         guard let content = parking.superview else { return }
         let size = targetPaneSize ?? content.bounds.size
-        guard parking.frame != NewTabSpareParking.frame(in: content.bounds, size: size) else { return }
+        guard parking.frame != PageOffscreenParking.frame(in: content.bounds, size: size) else { return }
         BenchSpans.measure("pool.fit") { parking.fit(to: size) }
         snapshotParked()
     }
@@ -236,7 +236,7 @@ final class NewTabSparePool {
     func paneLayoutDidChange(in window: NSWindow?) {
         guard let window, window === target, let content = parking.superview else { return }
         let size = targetPaneSize ?? content.bounds.size
-        guard parking.frame != NewTabSpareParking.frame(in: content.bounds, size: size) else { return }
+        guard parking.frame != PageOffscreenParking.frame(in: content.bounds, size: size) else { return }
         fitTimer.schedule(after: Self.fitSettle) { @MainActor [weak self] in self?.fitParked() }
     }
 
@@ -420,39 +420,4 @@ final class NewTabSparePool {
             if level != .normal { self?.dropAll() }
         }
     }
-}
-
-/// Where the spare waits: in the target window (WebKit renders only views in
-/// a window and not hidden), fully transparent (to AppKit only: a Chromium spare's child window
-/// ignores alpha and keeps drawing, off screen, so Cmd-T adopts a page that already painted), never hit by the mouse, and
-/// out of the accessibility tree. Adopting the spare reparents it into a pane.
-final class NewTabSpareParking: NSView, PageChromiumOffscreenParking {
-    /// The size of the pane content the spare will fill (nil: the window content's), far
-    /// outside the window content. A web view's tracking areas ignore alpha and hit testing:
-    /// parked over the content, the spare's cards hovered and set the cursor under the tab in
-    /// front of it.
-    static func frame(in bounds: NSRect, size: NSSize?) -> NSRect {
-        NSRect(origin: NSPoint(x: bounds.minX - 100_000, y: bounds.minY - 100_000), size: size ?? bounds.size)
-    }
-
-    /// Sizes the parking view and the spare in it to `size` and lays them out now.
-    func fit(to size: NSSize) {
-        guard let superview else { return }
-        frame = Self.frame(in: superview.bounds, size: size)
-        for view in subviews where view.frame != bounds { view.frame = bounds }
-        layoutSubtreeIfNeeded()
-    }
-
-    override init(frame: NSRect) {
-        super.init(frame: frame)
-        alphaValue = 0
-        setAccessibilityElement(false)
-        setAccessibilityHidden(true)
-    }
-
-    required init?(coder: NSCoder) { nil }
-
-    override func hitTest(_ point: NSPoint) -> NSView? { nil }
-    override var acceptsFirstResponder: Bool { false }
-    override func accessibilityChildren() -> [Any]? { [] }
 }
