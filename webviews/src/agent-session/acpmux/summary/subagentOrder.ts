@@ -43,6 +43,8 @@ export function orderedSubagents<T extends AgentLineage>(
   append(children.get(null) ?? [], 0);
   // A parent cycle has no top-level member. Promote its highest-priority survivor and
   // show the other members underneath it; otherwise that work disappears from the inspector.
-  for (const node of [...nodes].sort(compare)) if (!seen.has(node.agent.id)) append([node], 0);
+  for (const node of [...nodes].sort(compare)) {
+    if (!seen.has(node.agent.id)) append([node], 0);
+  }
   return out;
 }
