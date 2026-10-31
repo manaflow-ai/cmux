@@ -19,6 +19,26 @@ private let scriptSource = """
 
 @MainActor
 struct AppWebPaneTests {
+    @Test func aPaneResolvesItsCurrentWebRootWhenServing() throws {
+        let app = try TempApp()
+        let first = app.root.appendingPathComponent("first")
+        let second = app.root.appendingPathComponent("second")
+        try FileManager.default.moveItem(at: app.web, to: first)
+        try FileManager.default.createDirectory(at: second, withIntermediateDirectories: true)
+        try "two".write(to: second.appendingPathComponent("index.html"), atomically: true, encoding: .utf8)
+        try FileManager.default.createSymbolicLink(at: app.web, withDestinationURL: first)
+        let pane = try #require(AppWebPane(manifest: app.manifest, bundle: app.root))
+        try FileManager.default.removeItem(at: app.web)
+        try FileManager.default.createSymbolicLink(at: app.web, withDestinationURL: second)
+        let current = try #require(pane.file(for: pane.entryURL))
+        #expect(try String(contentsOf: current, encoding: .utf8) == "two",
+                "serving resolves the current root instead of retaining an old symlink target")
+        let outside = try TempApp()
+        try FileManager.default.removeItem(at: app.web)
+        try FileManager.default.createSymbolicLink(at: app.web, withDestinationURL: outside.web)
+        #expect(pane.file(for: pane.entryURL) == nil, "a replaced root cannot escape its package")
+    }
+
     @Test(.timeLimit(.minutes(1))) func aPaneCallsTheSupervisorUnderItsOwnApp() async throws {
         let app = try TempApp()
         let calls = FakeCalls()
