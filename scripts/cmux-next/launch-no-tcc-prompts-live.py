@@ -23,7 +23,8 @@ AUTHREQ_RESULT). A check with `preflight=no` after a reset is a prompt the perso
      until the person shows the terminal. It also leaves an agent chat in `--folder` (acpmux, a
      stand-in agent that lists its folder when it starts, like a real agent) with a turn running
      and a prompt queued: the relaunch's acpmux must not start that agent until the person opens
-     the chat (cmux-tui/crates/acpmux/src/hub/protected_hold.rs).
+     the chat (cmux-tui/crates/acpmux/src/hub/protected_hold.rs). Run the job with nx-remote
+     --allow-agents (else acpmux refuses the stand-in too); only the stand-in is probed.
 
 Fails (exit 1) when a phase logs a non-preflight check of the app (any service), or macOS
 registers a notification client of the app or its helpers (usernoted's app table, when readable:
@@ -158,6 +159,10 @@ def screenshot(phase, n):
 
 def launch():
     env = {"HOME": HOME, "CMUX_NEXT_SOCKET_MODE": "automation", "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1200,800"}
+    if not opts.no_agent_chat:
+        # The agent chat needs agent launches (nx-remote --allow-agents, which drops its deny), and
+        # only the stand-in harness is probed: no real agent starts with the host's credentials.
+        env["ACPMUX_PROBE_HARNESSES"] = "tcc-lister"
     args = ["open", "-n", "-a", APP]
     for k, v in env.items():
         args += ["--env", f"{k}={v}"]
