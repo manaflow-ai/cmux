@@ -14,15 +14,6 @@ enum SidebarContextMenus {
                      trailing: [NSMenuItem] = [], workspaceMachineID: String? = nil) -> NSMenu? {
         let registry = services.registry
         switch target {
-        case .tab(let workspace, let tab):
-            // The tab's own menu, as on its strip; the row is not selected by the right-click.
-            let owner = services.machines.daemon(forWorkspace: workspace.rawValue)
-            let model = owner.flatMap { services.locateTab(tab.rawValue, onMachine: $0.machineID)?.0 }
-            let menu = PaneController.tabMenu(tab.rawValue, tab: model, keepsTab: TabPromotion.staysPut(tab: tab.rawValue, in: services.workspace(id: workspace.rawValue)),
-                                              sameKind: NewTabKind.of(tab.rawValue, tab: model, services: services), registry: registry,
-                                              machineID: owner?.machineID)
-            menu.themeRows(in: scope)
-            return menu
         case .workspaces(let ids):
             // A connecting SSH machine's row (cx-gaq9) has its machine's menu: Reconnect, Disconnect, Forget.
             if ids.count == 1, let machine = ids.first.flatMap(SSHConnectingRows.machine(of:)) {

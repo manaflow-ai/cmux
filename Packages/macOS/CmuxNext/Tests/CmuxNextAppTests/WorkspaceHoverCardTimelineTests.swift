@@ -94,6 +94,7 @@ import Testing
         let view = WorkspaceHoverCardView()
         let card = WorkspaceHoverCardContent.make(Self.workspace(), machine: nil, now: Self.now, options: WorkspaceHoverCardOptions(), timeline: Self.history(40))
         view.configure(card, now: Self.now)
+        view.detailsToggle.performClick(nil)
         view.layoutSubtreeIfNeeded()
         let lines = view.lines
         #expect(lines.contains { $0.hasSuffix("Prompt 1") }, "lines: \(lines)")
