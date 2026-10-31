@@ -68,8 +68,8 @@ struct AgentPaneSavedCoverRevealTests {
         _ = await view.model.respond(to: AgentPaneRequest(body: ["method": "pane.painted"]))
 
         #expect(view.model.hasPainted)
-        #expect(view.pageContent.alphaValue == 1)
         if chromium {
+            #expect(view.pageContent.alphaValue == 1)
             #expect(view.loadingView.leftFading == false,
                     "a child-window page already draws: fading its native parent cannot hide the OLD transcript")
             #expect(saved.superview == nil, "the saved transcript remained beneath the live Chromium frame")
@@ -81,6 +81,7 @@ struct AgentPaneSavedCoverRevealTests {
             }
         }
         #expect(await revealed(view))
+        #expect(view.pageContent.alphaValue == 1)
         #expect(saved.superview == nil)
         #expect(reveals == 1)
         // A duplicate paint acknowledgement cannot start another reveal.
