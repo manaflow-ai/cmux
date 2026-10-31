@@ -89,6 +89,13 @@ const composer = (variant: string, text = placeholder, entry = "agent-pane.compo
 };
 const running = composer("grid-running");
 running.textIncludes = { selector: placeholder, text: "↵ steer · ⌘↵ queue" };
+// The capture fixture's prompt shows no placeholder (MarkdownField hides it whenever the field holds
+// markdown), so its text lines are a design absence; the empty prompt's text line is measured in
+// composer.box/claude-auto and grid-running. The box's controls and radius are still measured here.
+const attachScreenshot = composer("attach-screenshot", placeholder, "agent-pane.composer");
+attachScreenshot.absent = {
+  [placeholder]: "the capture fixture's prompt shows no placeholder; claude-auto and grid-running measure the text line",
+};
 
 const stackToken: Record<string, string> = {
   "stack.strip": "strip",
@@ -164,7 +171,7 @@ export const gridScenes: GridScene[] = [
   composer("claude-auto"),
   running,
   composer("grid-draft", ".acpmux-md p"),
-  composer("attach-screenshot", placeholder, "agent-pane.composer"),
+  attachScreenshot,
   scene("composer.foot", "agent-pane.composer-row", "claude-auto", ".acpmux-composer-foot", [
     from("edge: gap", ":scope", "top", point(".acpmux-composer-box", "bottom"), token("gap-foot")),
     value("row height", ":scope", "height", token("composer-quiet-row-height")),
