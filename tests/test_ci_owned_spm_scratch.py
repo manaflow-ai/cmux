@@ -422,6 +422,62 @@ class Scratch(unittest.TestCase):
         self.assertEqual(os.readlink(source / f".a.swift.mirror-{os.getpid()}"), str(victim))
         self.assertEqual([p.name for p in source.iterdir() if ".mirror" in p.name and not p.is_symlink()], [])
 
+    def test_a_package_under_a_linked_directory_is_never_linked(self):
+        # A tracked Packages/Linked -> outside: its packages' .build lives outside the tree, never replaced.
+        self.checkout()
+        outside = Path(self.tmp.name) / "outside-pkgs"
+        (outside / "C/.build").mkdir(parents=True)
+        (outside / "C/Package.swift").write_text("// swift-tools-version:5.9\n")
+        (outside / "C/.build/keep").write_text("outside build\n")
+        os.symlink(str(outside), self.workspace / "Packages/Linked")
+        git(self.workspace, "add", "-A")
+        git(self.workspace, "commit", "-qm", "linked packages")
+        source = self.lease()
+        self.assertEqual((outside / "C/.build/keep").read_text(), "outside build\n")
+        self.assertFalse((outside / "C/.build").is_symlink())
+        self.assertNotIn(source / "Packages/Linked/C", scratch.packages(source))
+        self.assertEqual(scratch.link(self.workspace, self.store, RUNNER, fingerprint="xcode-a"),
+                         ["Packages/Shared/A", "Packages/macOS/B"])
+        self.assertFalse((outside / "C/.build").is_symlink())
+
+    def test_a_root_entry_that_is_a_link_is_never_built_in(self):
+        self.checkout()
+        outside = Path(self.tmp.name) / "outside-root"
+        outside.mkdir()
+        self.scratch.mkdir()
+        os.symlink(str(outside), self.scratch / "root-0")
+        source = self.lease()
+        self.assertEqual(list(outside.iterdir()), [])
+        self.assertTrue(source.is_relative_to(self.scratch))
+        self.assertFalse(any(part.is_symlink() for part in [source, *source.parents] if part.is_relative_to(self.scratch)))
+
+    def test_a_package_that_cannot_be_linked_fails_the_lease(self):
+        self.checkout()
+        real = scratch.Path.symlink_to
+
+        def refuse(self_, target, target_is_directory=False):
+            if self_.name == ".build" and "macOS" in str(self_):
+                raise PermissionError(13, "denied")
+            return real(self_, target, target_is_directory)
+        with unittest.mock.patch.object(scratch.Path, "symlink_to", refuse):
+            with self.assertRaises(OSError):
+                self.lease()
+
+    def test_a_directory_the_cleanup_walk_cannot_read_fails_the_mirror(self):
+        # os.walk skips a directory it cannot list unless told otherwise: its stale files would stay in the root.
+        self.checkout()
+        self.lease()
+        scratch.release_holders()
+        real_walk = os.walk
+
+        def walk_that_cannot_read(top, topdown=True, onerror=None, followlinks=False):
+            if onerror is not None:
+                onerror(PermissionError(13, "Permission denied", str(Path(top) / "stale")))
+            return real_walk(top, topdown, onerror, followlinks)
+        with unittest.mock.patch.object(scratch.os, "walk", walk_that_cannot_read):
+            with self.assertRaises(OSError):
+                self.lease()
+
     def test_a_directory_replaced_by_a_link(self):
         self.checkout()
         source = self.lease()
