@@ -170,6 +170,9 @@ jobs:
 
   screenshots:
     needs: [resolve-ref, runner]
+    # The App Store Connect key (ASC_API_*) lives in the `release` environment
+    # (main and v* tags), like every other signing secret.
+    environment: release
     # Same lane as the iOS simulator tests: screenshots run inside the Simulator,
     # not as a foregrounded Mac app, so the Blacksmith foreground limitation does
     # not apply.
