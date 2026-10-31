@@ -1,0 +1,149 @@
+{
+  "version": 1,
+  "build": "4125030115701",
+  "notes": "notes/4125030115701.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 29609,
+      "title": "ghostty-next: a scroll region scroll breaks the soft wrap across its edges (VT fuzz finding E2)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29473,
+      "title": "measure(bench-startup): report and wait for processes that outlive the app's quit; the bench's own launch clock",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29274,
+      "title": "journeys(fuzz): red journey for the desync findings G1, W1, W4 after Cmd-N",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29135,
+      "title": "measure(bench-ab): interleaved A/B driver, A/A self-test and bootstrap intervals for the fleet benches",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29118,
+      "title": "fix(bench): typing-frame and sidebar-churn benches launch without the removed settle=",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28828,
+      "title": "New Tab quick actions fit narrow panes (carries #27353) (carry #28185)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28751,
+      "title": "acpmux inbox notice: received lines in the transcript, less text for the agent",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27924,
+      "title": "acpmux: recover turns after limits and gateway outages",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29737,
+      "title": "base red: Takes back #29676: subagent-pane scoping moves to AgentSubagentPanes, the title-menu move checks to AgentPaneMoveTarget (app_lines)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29759,
+      "title": "test(next): keep chat loading covers free of skeletons",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29760,
+      "title": "fix(next): keep New Tab prerendered composer warm",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29741,
+      "title": "fix(transcript): remove grouped call and sending row spinners",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29681,
+      "title": "cmux NEXT: slow and widen the running-row shimmer",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29742,
+      "title": "Sidebar: keep unopened agent-started chats out of Priority",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29731,
+      "title": "fix(ci): excuse deterministic Chromium currency base reds",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29678,
+      "title": "ci(nightly-next): watch and retry stale legacy feed",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29720,
+      "title": "fix(webviews): localize session paging failures",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29641,
+      "title": "Session Info: Compact session is a real button that works while a turn runs",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29665,
+      "title": "fix(agent-pane): select from blank composer context",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25682,
+      "title": "NEXT Cloud: keep ACP trajectories outside the VM",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29734,
+      "title": "fix(acpmux): warn instead of refusing sessions below the disk floor",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29669,
+      "title": "Cloud: automatically start new chats on the selected Cloud default (carry #29109)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29682,
+      "title": "fix(next): carry chat tool opens into the existing right column",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
