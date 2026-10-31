@@ -73,6 +73,9 @@ test("no surface over the chat fills with the page color, which is clear in a tr
     for (const rule of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
       const selector = rule[1].trim();
       if (selector.includes('data-placement="push"') || selector.includes("data-placement=push")) continue;
+      // The wide-pane Summary (`data-placement=inline`) is a column beside the chat as well; only its
+      // narrow-pane popover lies over the chat (summary/SummaryCard.tsx).
+      if (/\.acpmux-summary-card\[data-placement="?inline"?\]/.test(selector)) continue;
       const named = selector.match(/\.[a-z][\w-]*/g)?.map((name) => name.slice(1)) ?? [];
       if (!named.some((name) => surfaces.has(name))) continue;
       // Only the surface's own fill: a descendant (a row, a tab) lies on the surface, not over the chat.
