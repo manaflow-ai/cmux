@@ -37,4 +37,5 @@ Packages/macOS/CmuxNext CmuxNextDesignTests.PopupGrowMotionTests
 Packages/macOS/CmuxNext CmuxNextDesignTests.TabHoverCardAttachTests
 Packages/macOS/CmuxNext CmuxNextDesignTests.WindowKeyFamilyTrackerTests
 Packages/macOS/CmuxNext CmuxNextDesignTests.WindowScreenshotTests
+Packages/macOS/CmuxNext CmuxNextMobileHostTests.PhoneAdmissionCaptureTests
 Packages/macOS/CmuxPhonePush CmuxPhonePushTests.PhonePushSharedStateTests
