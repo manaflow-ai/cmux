@@ -295,7 +295,9 @@ targets:
           UIColorName: LaunchBackground
           UIImageName: LaunchMark
           UIImageRespectsSafeAreaInsets: false
-        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+        # Portrait, but a shared Mac screen turns with the phone (CmuxMobileAppDelegate,
+        # ScreenSharingOrientation): the delegate allows landscape only there.
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
   # Notification Content Extension: the long-press view of every cmux
