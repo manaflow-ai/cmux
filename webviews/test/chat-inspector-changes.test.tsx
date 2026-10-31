@@ -122,10 +122,19 @@ test("each state is the glyph's shape and the row's color, and no row says Merge
 });
 
 test("abbreviates huge comment counts before trailing checks", async () => {
-  root.render(<ChangesSection pullRequests={[open]} statuses={{ [open.url]: { comments: Number.MAX_SAFE_INTEGER } }} />);
-  await flush();
-  const comments = document.querySelector(".acpmux-chat-inspector-pr__comments");
+  const container = installDom();
+  const open = pr("manaflow-ai/cmuxterm-hq", 2681);
+  await render(container, [open], {
+    [open.url]: { comments: Number.MAX_SAFE_INTEGER, checks: "failing", failing: 3 },
+  });
+  const line = container.querySelector(".acpmux-chat-inspector-pr__line")!;
+  const comments = line.querySelector(".acpmux-chat-inspector-pr__comments");
   expect(comments?.textContent).toBe("9QComments: 9007199254740991");
+  // The abbreviated count still sits before the trailing failing checks.
+  expect([...line.children].map((child) => child.className).slice(-2)).toEqual([
+    "acpmux-chat-inspector-pr__comments",
+    "acpmux-chat-inspector-pr__checks",
+  ]);
 });
 
 test("the title leads, then repo #N, the line counts, the comments, and the failing checks or a green dot", async () => {
