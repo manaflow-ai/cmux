@@ -157,6 +157,30 @@ struct PhoneAdmissionStoreTests {
         #expect(!store.trusts(rekeyed))
     }
 
+    /// An approval queued with enqueueChange and a removal made right after it, on the same
+    /// turn, end removed: the approval is saved first, so it cannot restore revoked trust.
+    @Test func removalRightAfterAQueuedApprovalWins() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let seal = MobileHostMemoryPairingSeal()
+        let store = MobileHostPairedStore(seal: seal)
+        store.select(userID: "one")
+        await store.attach(directory: directory)
+        let saved = AsyncStream<Bool>.makeStream()
+        store.enqueueChange(for: "one", generation: store.generation, { $0.approve(Self.phone, at: Date()) }) { result in
+            if case .success = result { saved.continuation.yield(true) } else { saved.continuation.yield(false) }
+        }
+        store.forget(id: Self.phone.phoneDeviceID, transport: .iroh)
+        var events = saved.stream.makeAsyncIterator()
+        _ = await events.next()
+        await store.reload()
+        #expect(!store.trusts(Self.phone))
+        let restored = MobileHostPairedStore(seal: seal)
+        restored.select(userID: "one")
+        await restored.attach(directory: directory)
+        #expect(!restored.trusts(Self.phone))
+    }
+
     @Test func aValidUnsealedJsonFileIsNotTrustedAfterRelaunch() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }

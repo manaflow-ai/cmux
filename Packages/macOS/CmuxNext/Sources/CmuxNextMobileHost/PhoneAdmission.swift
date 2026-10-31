@@ -89,7 +89,7 @@ final class PhoneAdmission {
     func decide(_ phone: MobileHostPairRequest) async -> Bool {
         guard phone.transport == .iroh, let user = phones.current?.userID else { return false }
         let selectedAccountGeneration = phones.generation
-        let selectedAdmissionGeneration = admissionGenerations[phone.phoneDeviceID] ?? 0
+        let selectedAdmissionGeneration = admissionGeneration(phone.phoneDeviceID)
         if phones.trusts(phone) { return true }
         if let at = denied[phone.phoneDeviceID], at.duration(to: now()) < .seconds(600), generation == selectedAccountGeneration { return false }
         let question: Question
@@ -106,7 +106,7 @@ final class PhoneAdmission {
             let id = UUID()
             let task = Task { [self, waiter] in
                 let answer = await waiter.wait { await self.ask(phone, account) }
-                guard !Task.isCancelled, admissionGenerations[phone.phoneDeviceID] == selectedAdmissionGeneration,
+                guard !Task.isCancelled, admissionGeneration(phone.phoneDeviceID) == selectedAdmissionGeneration,
                       phones.generation == selectedAccountGeneration, phones.current?.userID == user else { return false }
                 switch answer {
                 case .unavailable: return false
@@ -115,7 +115,7 @@ final class PhoneAdmission {
                 }
                 do {
                     try await phones.change(for: user, generation: selectedAccountGeneration) { $0.approve(phone, at: Date()) }
-                    return admissionGenerations[phone.phoneDeviceID] == selectedAdmissionGeneration &&
+                    return admissionGeneration(phone.phoneDeviceID) == selectedAdmissionGeneration &&
                         phones.generation == selectedAccountGeneration && phones.trusts(phone)
                 } catch { return false }
             }
@@ -132,8 +132,13 @@ final class PhoneAdmission {
             questions[phone.phoneDeviceID] = nil
             if questions.isEmpty { quiet() }
         }
-        return allowed && admissionGenerations[phone.phoneDeviceID] == selectedAdmissionGeneration &&
+        return allowed && admissionGeneration(phone.phoneDeviceID) == selectedAdmissionGeneration &&
             phones.generation == selectedAccountGeneration && phones.trusts(phone)
+    }
+
+    /// A phone's admission token; zero until its first removal (a first-time phone has no entry).
+    private func admissionGeneration(_ phoneDeviceID: String) -> UInt64 {
+        admissionGenerations[phoneDeviceID] ?? 0
     }
 
     /// Removes a phone's pending question before the store forget is queued. The

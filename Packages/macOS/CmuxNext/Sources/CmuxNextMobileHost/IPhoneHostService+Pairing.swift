@@ -241,10 +241,12 @@ extension IPhoneHostService {
     /// (``MobileHostPairedDevicesFile/save(_:)``).
     private func savePaired(_ edit: @escaping @Sendable (inout MobileHostPairedDevices) -> Void) {
         guard let user = account?.userID else { return }
-        let generation = pairedStore.generation
-        Task { [pairedStore] in
-            do { try await pairedStore.change(for: user, generation: generation, edit) }
-            catch { Self.logger.error("paired phones not saved: \(String(describing: error), privacy: .public)") }
+        // Queued now, not from a task: a revokePhone right after this must be saved after it.
+        let logger = Self.logger
+        pairedStore.enqueueChange(for: user, generation: pairedStore.generation, edit) { result in
+            if case .failure(let error) = result {
+                logger.error("paired phones not saved: \(String(describing: error), privacy: .public)")
+            }
         }
     }
 
