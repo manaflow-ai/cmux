@@ -74,14 +74,18 @@ export default agentPaneEntry({
   experiment: {
     definition: trayHeadLook,
     script: [
-      { name: "the folded header", run: async (ctx) => void (await ctx.waitFor(() => head(ctx))) },
+      { name: "the folded header", run: async (ctx) => {
+        await ctx.waitFor(() => head(ctx));
+      } },
       { name: "open the tray", run: open },
     ],
   },
   variants: {
     folded: {
       note: "Between turns, folded: the header's mark, its counts, the elapsed time right after them as quiet meta, and the chevron in the lines' trailing column.",
-      play: async (ctx) => void (await ctx.waitFor(() => head(ctx))),
+      play: async (ctx) => {
+        await ctx.waitFor(() => head(ctx));
+      },
       snapshot: betweenTurns,
     },
     open: {
