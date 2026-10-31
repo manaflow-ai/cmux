@@ -21,7 +21,7 @@ final class OnboardingService {
     let defaultApps: any DefaultAppRegistering
     let importStore: ImportedDataStore
     /// The one tool window (set up in `init`).
-    private let presenter = OnboardingWindowPresenter()
+    private let presenter: OnboardingWindowPresenter
     var controller: OnboardingWindowController? { presenter.controller }
     /// The browser-data import offer on the first browser tab of a launch.
     private(set) lazy var browserImportOffer = BrowserImportOfferService(services: services)
@@ -69,6 +69,7 @@ final class OnboardingService {
 
     init(services: AppServices) {
         self.services = services
+        presenter = OnboardingWindowPresenter(activeLook: services.activeLook)
         let environment = ProcessInfo.processInfo.environment
         // Test launches never change the Mac's real default browser.
         defaultApps = environment[RecordingDefaultApps.environmentKey] == "1" ? RecordingDefaultApps() : SystemDefaultApps()

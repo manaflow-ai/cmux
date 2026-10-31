@@ -75,7 +75,7 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
                     }
                     .accessibilityIdentifier("settings.devices")
                 } header: {
-                    Text("Connection").cmuxMobileTextColumn()
+                    Text("Connection")
                 }
                 Section {
                     NavigationLink(value: SettingsRoute.chiefCalls) {
@@ -97,7 +97,7 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
                         SettingsLabel("Haptic feedback", symbol: "iphone.radiowaves.left.and.right")
                     }
                 } header: {
-                    Text("Appearance").cmuxMobileTextColumn()
+                    Text("Appearance")
                 }
                 .id("appearance")
                 Section {
@@ -109,16 +109,16 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
                         SettingsLabel("Require Face ID", symbol: "faceid")
                     }
                 } header: {
-                    Text("Privacy & notifications").cmuxMobileTextColumn()
+                    Text("Privacy & notifications")
                 } footer: {
-                    Text("Require Face ID or passcode to open cmux on this device.").cmuxMobileTextColumn()
+                    Text("Require Face ID or passcode to open cmux on this device.")
                 }
                 Section {
                     NavigationLink(value: SettingsRoute.transport) {
                         SettingsLabel("Transport", symbol: "antenna.radiowaves.left.and.right", value: transportValue)
                     }
                 } header: {
-                    Text("Advanced").cmuxMobileTextColumn()
+                    Text("Advanced")
                 }
                 #if DEBUG
                 DeveloperSection(auth: auth, store: store)
@@ -132,7 +132,7 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
                         SettingsLabel("Acknowledgements", symbol: "info.circle")
                     }
                 } header: {
-                    Text("About").cmuxMobileTextColumn()
+                    Text("About")
                 }
                 Section {
                     Button(role: .destructive) {
@@ -539,13 +539,12 @@ private struct DeveloperSection: View {
                 }
             }
         } header: {
-            Text("Developer").cmuxMobileTextColumn()
+            Text("Developer")
         } footer: {
             VStack(alignment: .leading, spacing: 8) {
                 Text(mock.forced ? "Set by the launch environment." : "Sample user, teams and Macs for checking layout. Applies at next launch.")
                 Text("Dev test account: enter 42 as the email.")
             }
-            .cmuxMobileTextColumn()
         }
     }
 }
