@@ -524,6 +524,7 @@
         "CmuxNextDaemon",
         "CmuxNextIcons",
         "CmuxNextLayout",
+        "CmuxNextRemote",
         "CmuxNextSidebar",
         "CmuxNextTabs"
       ],
