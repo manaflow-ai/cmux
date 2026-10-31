@@ -160,6 +160,11 @@ class EchoedStepScripts(unittest.TestCase):
         self.assertEqual(reds.read(own).failed, {"x()"})
         # A crash a step prints inside its own group is a crash.
         self.assertTrue(reds.read(log("##[group]Run the suite", ABORT, "##[endgroup]")).crashes)
+        # A step's own group whose output quotes `env:` or `shell:` before a failure is output, not an echo.
+        for quoted in ("env:", "shell: /bin/bash -e {0}", "with:"):
+            with self.subTest(quoted=quoted):
+                group = log("##[group]Run the suite", quoted, "  HOME: /x", failed("x()"), "##[endgroup]")
+                self.assertEqual(reds.read(group).failed, {"x()"})
         # An echo the log cut before its `##[endgroup]` is no echo: everything after it is read.
         self.assertEqual(reds.read(log("##[group]Run x", "shell: /bin/bash -e {0}", failed("x()"))).failed,
                          {"x()"})

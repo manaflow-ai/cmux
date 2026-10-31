@@ -68,10 +68,12 @@ XCODEBUILD_FAILED = re.compile(r"^\s+(\S+\.\S+\(.*\))$")
 # action), then its `shell:` line and its `with:` / `env:` blocks, then `##[endgroup]`. That is the step's source,
 # not its output: a script that prints, greps or filters test names, or has an `echo "::error::..."` branch, puts
 # them in every run's log, green or red (2026-10-30: cmux#28145 excused because base run 41138142557 echoed the
-# kit step's script). A group is an echo only when it closes before any other group opens and has a `shell:`,
-# `with:` or `env:` line; a step's own `::group::Run ...` with neither is output and stays.
+# kit step's script). A group is an echo only when it closes before any other group opens and ends in the runner's
+# settings block: from its first `shell:`, `with:` or `env:` line to its `##[endgroup]`, every line is one of those or
+# an indented value under them. A step's own `::group::Run ...` output does not end that way, so it is read.
 ECHO_START = re.compile(r"^(?:﻿)?##\[group\]Run ")
 ECHO_SETTINGS = re.compile(r"^(?:shell: \S.*|with:|env:)$")
+ECHO_VALUE = re.compile(r"^  \S")
 GROUP_EDGE = re.compile(r"^##\[(?:group|endgroup)\]")
 # A line that says the job ran tests at all.
 RAN = re.compile(r"[◇✔✘] (?:Test|Suite) |Test Case '-\[|Test Suite '|^test \S+ \.\.\. |^running \d+ tests?$|"
@@ -205,8 +207,10 @@ def echoed(lines: list[str]) -> set[int]:
     while at < len(lines):
         if ECHO_START.match(lines[at]):
             end = next((n for n in range(at + 1, len(lines)) if GROUP_EDGE.match(lines[n])), None)
-            if (end is not None and lines[end].startswith("##[endgroup]")
-                    and any(ECHO_SETTINGS.match(lines[n]) for n in range(at + 1, end))):
+            first = None if end is None else next(
+                (n for n in range(at + 1, end) if ECHO_SETTINGS.match(lines[n])), None)
+            if (first is not None and lines[end].startswith("##[endgroup]")
+                    and all(ECHO_SETTINGS.match(lines[n]) or ECHO_VALUE.match(lines[n]) for n in range(first, end))):
                 found.update(range(at, end + 1))
                 at = end + 1
                 continue
