@@ -12,9 +12,6 @@ import CmuxNextCompat
 /// build, so the link is opened as this build's `link.open` (the one shared path) and never goes
 /// to another app through the system: the plain `cmux` scheme belongs to the Release app.
 enum CmuxAppLinks {
-    /// The scheme the Chief writes.
-    static let chiefScheme = "cmux"
-
     /// Runs `link.open` on `url` when ``link(for:linkScheme:chiefHost:)`` accepts it; false
     /// (nothing runs) for any other URL.
     @MainActor
@@ -60,33 +57,11 @@ enum CmuxAppLinks {
         return true
     }
 
-    /// The action a settings link runs: `cmux://settings/background` (Chief's first-launch welcome
-    /// offers it) is Change Background…, the same action as the command palette, the context menus and
-    /// `cmux settings change-background`. Nil for any other URL.
-    static func settingsAction(for url: URL, linkScheme: String) -> ActionID? {
-        guard let scheme = url.scheme?.lowercased(), scheme == chiefScheme || scheme == linkScheme.lowercased(),
-              url.host?.lowercased() == "settings" else { return nil }
-        switch url.path.lowercased() {
-        case "/background": return "appearance.changeBackground"
-        default: return nil
-        }
-    }
+    /// The action a settings link runs (``DeepLink/settingsAction(for:linkScheme:)``).
+    static func settingsAction(for url: URL, linkScheme: String) -> ActionID? { DeepLink.settingsAction(for: url, linkScheme: linkScheme) }
 
-    /// The link `url` opens in this app, in the `cmux` scheme or `linkScheme` (this build's): a
-    /// workspace, pane, tab, chat session or outside agent session; a Chief subagent's chat only for this app's own
-    /// Chief home (`chiefHost`, `chief:<home id>`) and on this machine. Nil for anything else (an
-    /// unknown scheme or host, a malformed id, a legacy UUID link, another Chief's subagent).
+    /// The link `url` opens in this app (``DeepLink/appLink(for:linkScheme:chiefHost:)``).
     static func link(for url: URL, linkScheme: String, chiefHost: String?) -> DeepLink? {
-        // A cloud group's https form (`https://cloud-api.cmux.dev/g/grp_…`) opens here too.
-        guard let link = DeepLink.parse(url, scheme: chiefScheme) ?? DeepLink.parse(url, scheme: linkScheme)
-            ?? DeepLink.parseGroupWeb(url) else { return nil }
-        switch link.target {
-        case .workspace, .pane, .tab, .session, .agent, .group:
-            return link
-        case .chiefSession(let home, _):
-            return link.machine == nil && chiefHost == "chief:" + home ? link : nil
-        case .legacyWorkspace, .legacyPane, .legacySurface:
-            return nil
-        }
+        DeepLink.appLink(for: url, linkScheme: linkScheme, chiefHost: chiefHost)
     }
 }

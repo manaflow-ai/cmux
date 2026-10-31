@@ -298,13 +298,10 @@ final class HomeHostView: NSView {
             }) {
                 guard let kind else { continue }
                 guard let self else { return }
-                if kind == .welcome, !service.isCloudConversation(id), let connection = service.chief.connection {
-                    let owner = HomeChiefWelcomeOwner(conversation: id, source: service.homeSource, connection: connection)
-                    let welcome = ChiefWelcome(conversation: id.rawValue, owner: owner, showsTyping: Motion.home.animatesLoops)
-                    service.chiefWelcome.play(welcome) { intro.markShown(.welcome, for: id) }
-                    return
-                }
                 // A cloud Chief (no local import) or an owner not connected yet keeps the first-run intro.
+                if kind == .welcome, service.chiefWelcome.play(in: id, source: service.homeSource,
+                                                               connection: service.isCloudConversation(id) ? nil : service.chief.connection,
+                                                               intro: intro) { return }
                 self.transcript.welcomesInChat = false
                 intro.markShown(kind, for: id)
                 self.transcript.showFirstRunIntro(kind)
