@@ -18925,7 +18925,7 @@
       },
       "help" : {
         "key" : "settings.appearance.theme.help",
-        "text" : "Colors for cmux and its terminals. A space, workspace or terminal theme overrides it."
+        "text" : "Colors for terminals. cmux uses them too while App Theme is Match Terminal Theme. A space, workspace or terminal theme overrides it."
       },
       "kept_on_reset_all" : true,
       "key" : "appearance.theme",
@@ -18953,7 +18953,7 @@
       "section" : "appearance",
       "summary" : {
         "key" : "settings.appearance.theme.summary",
-        "text" : "Colors for cmux and its terminals"
+        "text" : "Colors for terminals, and cmux unless App Theme is set"
       },
       "surfaces" : {
         "cli" : {
@@ -19066,7 +19066,7 @@
       },
       "help" : {
         "key" : "settings.appearance.appTheme.help",
-        "text" : "Colors for cmux's own pages. Every bundled theme works here, and each color meets WCAG AA contrast."
+        "text" : "Colors for the window, sidebar, tabs and cmux's pages. Terminals keep the Terminal Theme. Every color meets WCAG AA contrast."
       },
       "kept_on_reset_all" : true,
       "key" : "appearance.appTheme",
@@ -19093,7 +19093,7 @@
       "section" : "appearance",
       "summary" : {
         "key" : "settings.appearance.appTheme.summary",
-        "text" : "Colors for cmux's own pages"
+        "text" : "Colors for the window, sidebar, tabs and pages"
       },
       "surfaces" : {
         "cli" : {

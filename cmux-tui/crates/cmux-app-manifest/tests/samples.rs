@@ -42,8 +42,15 @@ mod apps {
                 continue;
             };
             let main = std::fs::read_to_string(dir.join(main)).expect("main");
-            let implements = manifest["implements"].as_object().expect("implements");
-            assert!(!implements.is_empty(), "{} implements nothing", dir.display());
+            // A command-only app (the standup example) implements no interface: its catalog ops are
+            // what it offers, so it needs one.
+            let empty = serde_json::Map::new();
+            let implements = manifest["implements"].as_object().unwrap_or(&empty);
+            assert!(
+                !implements.is_empty() || manifest.get("catalog").is_some(),
+                "{} implements nothing and has no catalog",
+                dir.display()
+            );
             for (interface, implementation) in implements {
                 assert!(KNOWN_INTERFACES.contains(&interface.as_str()));
                 let export = implementation["export"]
