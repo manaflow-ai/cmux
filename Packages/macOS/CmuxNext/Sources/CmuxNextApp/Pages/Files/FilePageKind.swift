@@ -64,6 +64,13 @@ nonisolated enum FilePageStrings {
         String(localized: "filePages.noFilePage", defaultValue: "No file page has the keyboard.", table: "FilePages", bundle: .module)
     }
 
+    /// An image, PDF or media file of another machine: this Mac previews only its own files.
+    static func remotePreview(_ name: String) -> String {
+        String(format: String(localized: "filePages.remote.preview",
+                              defaultValue: "“%@” is on another machine. cmux opens text files from there.",
+                              table: "FilePages", bundle: .module), name)
+    }
+
     static var notAFile: String {
         String(localized: "filePages.notAFile", defaultValue: "That file cannot be opened.", table: "FilePages", bundle: .module)
     }

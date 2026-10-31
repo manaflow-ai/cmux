@@ -61,7 +61,11 @@ export function EditorPage({ store, status, find, strings, editorRef, emptyState
   if (state.phase === "disconnected" || state.phase === "failed") {
     return (
       <div className="ed-page ed-page-message" role="alert">
-        <p>{t(state.phase === "disconnected" ? L.disconnected : L.failed)}</p>
+        <p>
+          {state.phase === "failed" && state.failure
+            ? state.failure
+            : t(state.phase === "disconnected" ? L.disconnected : L.failed)}
+        </p>
         <button type="button" className="ed-button" onClick={() => void store.start()}>
           {t(L.retry)}
         </button>
@@ -123,6 +127,7 @@ export function EditorPage({ store, status, find, strings, editorRef, emptyState
         <div className="ed-note">{t(READ_ONLY_NOTE[state.readOnlyReason])}</div>
       ) : null}
       {large && state.phase === "ready" ? <div className="ed-note">{t(L.largeNotice)}</div> : null}
+      {state.unavailable && state.phase === "ready" ? <output className="ed-note">{state.unavailable}</output> : null}
       <div className="ed-frame">
         <div className="ed-host" ref={editorRef} />
         {find ? <EditorFindBar find={find} strings={strings} /> : null}

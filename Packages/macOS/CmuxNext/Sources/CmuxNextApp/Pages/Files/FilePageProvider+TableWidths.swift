@@ -17,7 +17,7 @@ extension FilePageProvider {
     /// `cmux.markdown.setTableWidths {path, value}`: answers where the value landed.
     func setTableWidths(_ params: JSONValue) async throws -> JSONValue {
         let url = try path(params["path"])
-        guard let file, Self.canonical(url) == file else { throw PageError.invalidParams("path is not this page's file") }
+        guard let file, canonical(url) == file else { throw PageError.invalidParams("path is not this page's file") }
         let data: Data?
         switch params["value"] {
         case .null?, nil:

@@ -616,13 +616,14 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             swiftSettings: uiSwiftSettings
         ),
         // Daemon service (moved out of CmuxNextApp): one machine's cmux-tui daemon
-        // connection and its command funnels, the frame batcher, and the Refusals and
-        // Cloud strings it shows. No AppServices; the App sets `DaemonService.launchMark`.
+        // connection and its command funnels, the frame batcher, the Refusals and
+        // Cloud strings it shows, and a machine's files for a file page (RemoteFilePageFiles,
+        // over CmuxNextFiles' FilePageFiles). No AppServices; the App sets `DaemonService.launchMark`.
         .target(
             name: "CmuxNextDaemonService",
             dependencies: [
                 "CmuxNextActions", "CmuxNextAgentPane", "CmuxNextApps", "CmuxNextBridge", "CmuxNextCloud", "CmuxNextCompat", "CmuxNextControl",
-                "CmuxNextDaemon", "CmuxNextLayout", "CmuxNextWakeups",
+                "CmuxNextDaemon", "CmuxNextFiles", "CmuxNextLayout", "CmuxNextWakeups",
                 .product(name: "CmuxUpdater", package: "CmuxUpdater"),
             ],
             resources: [
@@ -682,10 +683,13 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         // React pages (plans/cmux-next/react-pages.md): one WKWebView host, one cmux-page://<id>/
         // origin per page, the cmuxPage bridge and the page router. Pages ship as one self-contained
-        // index.html each under Resources/pages (scripts/cmux-next/build-pages-web.sh).
+        // index.html each under Resources/pages (scripts/cmux-next/build-pages-web.sh). Also this
+        // Mac's files for the file pages (LocalFilePageFiles, FileChangeWatch; CmuxNextFiles' types).
         .target(
             name: "CmuxNextPages",
-            dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextErrorJournal", "CmuxNextSettings", "CmuxNextWakeups"],
+            dependencies: [
+                "CmuxNextCompat", "CmuxNextDesign", "CmuxNextErrorJournal", "CmuxNextFiles", "CmuxNextSettings", "CmuxNextWakeups",
+            ],
             resources: [.copy("Resources/pages"), .process("Localizable.xcstrings")],
             swiftSettings: uiSwiftSettings
         ),
