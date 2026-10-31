@@ -64,7 +64,7 @@ struct UnopenedCloudMachinesTests {
         let services = Self.services()
         defer { Self.closeWindows(services) }
         let session = Self.machine(services, id: "vm-agent", workspaces: ["ws-ephemeral", "ws-image-default"])
-        try #require(session.daemon.store.workspace(id: "ws-ephemeral")).applyState(ephemeral: true)
+        try #require(session.daemon.store.workspace(id: "ws-ephemeral")).applyState(ephemeral: true, status: nil, screenGroups: nil)
 
         services.windows.reconcileMembership()
 
@@ -124,7 +124,7 @@ struct UnopenedCloudMachinesTests {
         let services = Self.services()
         defer { Self.closeWindows(services) }
         let session = Self.machine(services, id: "vm-eph", workspaces: ["ws-eph"])
-        try #require(session.daemon.store.workspace(id: "ws-eph")).applyState(ephemeral: true)
+        try #require(session.daemon.store.workspace(id: "ws-eph")).applyState(ephemeral: true, status: nil, screenGroups: nil)
         services.windows.reconcileMembership()
 
         services.windows.reveal(workspaceID: "ws-eph")
@@ -155,7 +155,7 @@ struct UnopenedCloudMachinesTests {
         defer { Self.closeWindows(services) }
         Self.machine(services, id: "vm-normal", workspaces: ["ws-normal"])
         let session = Self.machine(services, id: "vm-eph2", workspaces: ["ws-eph2"])
-        try #require(session.daemon.store.workspace(id: "ws-eph2")).applyState(ephemeral: true)
+        try #require(session.daemon.store.workspace(id: "ws-eph2")).applyState(ephemeral: true, status: nil, screenGroups: nil)
         services.windows.reconcileMembership()
         let normal = try #require(services.windows.reveal(workspaceID: "ws-normal")?.state)
 
@@ -172,7 +172,7 @@ struct UnopenedCloudMachinesTests {
         let services = Self.services()
         defer { Self.closeWindows(services) }
         let session = Self.machine(services, id: "vm-mixed", workspaces: ["ws-mixed-eph", "ws-mixed-normal"])
-        try #require(session.daemon.store.workspace(id: "ws-mixed-eph")).applyState(ephemeral: true)
+        try #require(session.daemon.store.workspace(id: "ws-mixed-eph")).applyState(ephemeral: true, status: nil, screenGroups: nil)
         services.windows.reconcileMembership()
 
         services.windows.reveal(workspaceID: "ws-mixed-eph")
@@ -189,7 +189,7 @@ struct UnopenedCloudMachinesTests {
         let services = Self.services()
         defer { Self.closeWindows(services) }
         let session = Self.machine(services, id: "vm-inc", workspaces: ["ws-inc-eph"])
-        try #require(session.daemon.store.workspace(id: "ws-inc-eph")).applyState(ephemeral: true)
+        try #require(session.daemon.store.workspace(id: "ws-inc-eph")).applyState(ephemeral: true, status: nil, screenGroups: nil)
         Self.machine(services, id: "vm-plain", workspaces: ["ws-plain"])
         services.windows.reconcileMembership()
         let incognito = try #require(services.windows.reveal(workspaceID: "ws-inc-eph")?.state)
@@ -207,7 +207,7 @@ struct UnopenedCloudMachinesTests {
         let services = Self.services()
         defer { Self.closeWindows(services) }
         let session = Self.machine(services, id: "vm-batch", workspaces: ["ws-batch-normal", "ws-batch-eph"])
-        try #require(session.daemon.store.workspace(id: "ws-batch-eph")).applyState(ephemeral: true)
+        try #require(session.daemon.store.workspace(id: "ws-batch-eph")).applyState(ephemeral: true, status: nil, screenGroups: nil)
         services.windows.reconcileMembership()
 
         services.windows.openWindow(workspaces: ["ws-batch-normal", "ws-batch-eph"])
