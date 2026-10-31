@@ -63,8 +63,12 @@ import Testing
         let page = AutomationsPage(local: { Self.localJSON }, cloud: { throw Offline() })
         await page.reload(now: Self.now)
         #expect(page.rows.count == 3)
-        #expect(page.problems[.cloud] != nil)
+        #expect(page.problems[.cloud] == "unreachable")
         #expect(page.problems[.thisMac] == nil)
+        #expect(AutomationStrings().problem(.cloud, code: "automation.signed_out").contains("Sign in"))
+        let signedOut = AutomationsPage(local: { Self.localJSON }, cloud: { throw AutomationsPageHost.SourceError(code: "automation.signed_out", message: "") })
+        await signedOut.reload(now: Self.now)
+        #expect(signedOut.problems[.cloud] == "automation.signed_out")
     }
 
     @Test func selectionFollowsTheRows() async {
