@@ -8,6 +8,7 @@ import copy
 import json
 import os
 import re
+import subprocess
 import sys
 import tempfile
 from dataclasses import dataclass
@@ -39,8 +40,8 @@ DEBT_KINDS = ("needs_review", "identical", "other")
 # scripts/cmux-next/check-l10n.sh counts as present): 269 more in one hour on 2026-10-21. Growth
 # of that kind is reported, not failed; copied English and malformed entries never grow.
 DEBT_ENFORCED = ("identical", "other")
-# What decides a catalog's debt besides the catalog: base debt is only counted with the
-# base's own rules when the pull request leaves these unchanged.
+# What decides a catalog's debt besides the catalog. The base tree's own copies count the
+# base's debt, so a change to any of them can't move debt between the base and the change.
 RULE_FILES = ("localization_catalog.py", "localization-allowed-omissions.json", "localization-plurals.json")
 
 
@@ -484,15 +485,20 @@ def follow_moves(current: dict[str, dict[str, int]], previous: dict[str, dict[st
     return followed, moves
 
 
-def debt_findings(root: Path, locales, omissions: dict, counts: dict) -> list[tuple[str, str]]:
-    """(catalog, error) for every parity error in the catalogs under root."""
-    findings = []
-    for path in discover(root):
-        catalog = catalog_name(path, root)
-        for entry in catalog_entries(path.read_text(encoding="utf-8")):
-            for locale in locales:
-                findings.extend((catalog, error) for error in check_entry(entry, locale, omissions, counts))
-    return findings
+def base_debt_by_its_own_checker(base_root: Path) -> dict[str, dict[str, int]] | None:
+    """The base tree's debt as the base's own checker and rules count it; None if they can't."""
+    checker = base_root / "scripts" / "localization_catalog.py"
+    if not checker.is_file():
+        return None
+    with tempfile.TemporaryDirectory() as scratch:
+        counts = Path(scratch) / "debt.json"
+        try:
+            result = subprocess.run([sys.executable, "-I", str(checker), "check", "--root", str(base_root),
+                                     "--baseline", str(counts), "--write-baseline"],
+                                    capture_output=True, text=True)
+            return load_debt_baseline(counts) if result.returncode == 0 else None
+        except (OSError, ValueError):
+            return None
 
 
 def debt_json(catalogs: dict[str, dict[str, int]]) -> str:
@@ -681,11 +687,13 @@ def main() -> int:
         # A pull request runs on its merge with the base, so debt the base added past its own
         # baseline is in every pull request's count; only the push that added it fails.
         base_baseline = load_debt_baseline(args.base_baseline) or {}
-        changed = [name for name in RULE_FILES if not (args.base_root / "scripts" / name).is_file()
-                   or (args.base_root / "scripts" / name).read_bytes() != (ROOT / "scripts" / name).read_bytes()]
-        if changed:
-            print(f"note: this change changes {', '.join(changed)}, so debt the base has is not excused")
-        base_debt = {} if changed else debt_counts(debt_findings(args.base_root, locales, omissions, counts))
+        # Counted by the base's own checker and rules: an omission the change adds can't shrink
+        # it, strings a rule the change tightens newly flags stay the change's, and a changed
+        # checker can't count it its own way.
+        base_debt = base_debt_by_its_own_checker(args.base_root)
+        if base_debt is None:
+            print("note: the base's own checker could not count its debt, so debt the base has is not excused")
+            base_debt = {}
         for line in debt_raises(base_debt, base_baseline, DEBT_ENFORCED):
             print(f"warning: the base is already over its baseline, not this change: {line}")
         allowed = {catalog: {kind: baseline.get(catalog, {}).get(kind, 0)
