@@ -62,6 +62,35 @@ import Testing
         list.cancelDrag()
     }
 
+    /// Review on #27875 at e456a9a8: a drag of the one row out of the sidebar (onto a pane, to merge the workspace or
+    /// place it beside) hands off its workspace, as a drag of the member row did; a group payload would cancel there.
+    @Test func aDragOfTheOneRowOutOfTheSidebarHandsOffItsWorkspace() throws {
+        let (sidebar, window) = Self.sidebar()
+        defer { Self.close(sidebar, window) }
+        window.orderFrontRegardless()
+        let list = sidebar.list
+        var offered: SidebarDragHandoff?
+        sidebar.onDragHandoff = { offer in
+            offered = offer
+            return true
+        }
+        let one = try #require(list.displayed.row(for: .workspace(Self.coord)))
+        let start = NSPoint(x: 80, y: one.y + one.height / 2)
+        func event(_ type: NSEvent.EventType, _ point: NSPoint) throws -> NSEvent {
+            try #require(NSEvent.mouseEvent(with: type, location: list.convert(point, to: nil), modifierFlags: [],
+                                            timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                                            context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
+        }
+        list.mouseDown(with: try event(.leftMouseDown, start))
+        for dy: CGFloat in [-4, -12] { list.mouseDragged(with: try event(.leftMouseDragged, NSPoint(x: start.x, y: start.y + dy))) }
+        #expect(list.drag?.payload == .group(Self.group), "in the sidebar the one row drags its group")
+        list.mouseDragged(with: try event(.leftMouseDragged, NSPoint(x: 600, y: start.y)))
+        let offer = try #require(offered, "the drag out of the sidebar was not handed off")
+        #expect(offer.payload == .workspaces([Self.coord]), "the drag out of the sidebar carried \(offer.payload), not its workspace")
+        #expect(offer.workspaceIDs == [Self.coord])
+        if list.drag != nil { list.cancelDrag() }
+    }
+
     /// A held drag whose drop goes into the group (the middle band of the one row) lights the one row, as it lit the
     /// header: the drop opens no gap, so the fill is its only mark.
     @Test func aDropIntoTheGroupLightsItsOneRow() throws {
