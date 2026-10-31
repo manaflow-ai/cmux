@@ -2,10 +2,11 @@ import AppKit
 import CmuxNextDaemon
 @testable import CmuxNextAgentPane
 @testable import CmuxNextApp
+import CmuxNextTestSupport
 import Testing
 
 /// A late chats.page answer invalidates the first cover after the spare has gone to sleep.
-@MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
+@MainActor @Suite(.closesItsWindows, .serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
 struct NewTabSpareVisibilityTests {
     @Test func aParkedSpareWakesForItsReplacementCoverAndSleepsAgain() async throws {
         try await PasswordManagerRouteTests.withApp { services, _ in

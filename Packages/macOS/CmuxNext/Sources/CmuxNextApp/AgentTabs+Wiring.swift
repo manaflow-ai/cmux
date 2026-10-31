@@ -149,6 +149,7 @@ extension AgentTabStore {
         tabs.pageChats.environments = state.map { SavedEnvironments(url: $0.appending(path: "environments.json")) }
         // The environment picker's Cloud machines: the account's, with Open and Resume (`cloudMachine.*`).
         tabs.cloudMachines.wire(services)
+        tabs.remoteControl = services.iphone.remoteControl
         // The composer strip's machine dot: the sidebar header's same link state; using a machine
         // that is down runs its header's Reconnect.
         tabs.machineLink.state = { [weak tabs, weak services] view in
@@ -162,7 +163,6 @@ extension AgentTabStore {
         tabs.machineLink.reconnect = { [weak tabs] machine in
             _ = tabs?.actionRegistry?.perform("machine.reconnect", invocation: ActionInvocation(target: ActionTargetRef(kind: .machine, id: machine), origin: .user))
         }
-        Self.wireRemoteControl(services)
         // The composer chips and shell commands chat pages held at the last quit (every relaunch's quit).
         tabs.relaunchWake = services.relaunchWake
         // The Chief home's acpmux: the Chief host's subagent tabs attach there.
