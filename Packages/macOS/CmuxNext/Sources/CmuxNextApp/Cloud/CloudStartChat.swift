@@ -7,8 +7,8 @@ import Foundation
 
 /// A new chat's first send with Cloud picked as where it runs (`cloud.startChat`,
 /// ``AgentPaneCloudStart``; leo-workspace design/cloud-work-mode.md): the chat goes to Cloud with no
-/// machine, size or environment prompt. It takes a Cloud machine the way Move to Cloud does (one
-/// that is connected, else any, else a new one sized for the chat by ``CloudChatPick``), copies
+/// machine, size or environment prompt. It takes a free Cloud machine of this person's, else a new
+/// one for chats sized for the chat by ``CloudChatPick`` (``machine(for:invocation:pick:)``), copies
 /// the chat's folder there with Move to Cloud's sync, and opens a new chat on that machine in the
 /// copied folder whose first prompt is the person's (a seeded prompt, sent once with the Send's
 /// gesture, as onboarding's first task). This Mac's tab, which never started a chat, then closes.
@@ -60,6 +60,13 @@ struct CloudStartChat {
         return services.cloud.isSignedIn ? nil : "not_signed_in"
     }
 
+    /// Whether `folder` is what the send may copy: for a folder the page named, exactly the upload
+    /// root the pane checked against its roots; the tab's own folder (no `cwd`) as Move to Cloud copies it.
+    nonisolated static func uploads(_ folder: CloudMoveFolder, as start: AgentPaneCloudStart) -> Bool {
+        guard start.cwd != nil else { return true }
+        return start.uploadRoot == folder.root
+    }
+
     /// Whether `path` is an existing folder, read off the main thread.
     @concurrent nonisolated private static func isFolder(_ path: String) async -> Bool {
         var isFolder: ObjCBool = false
@@ -88,12 +95,16 @@ struct CloudStartChat {
         guard let chat = start.cwd ?? tab.cwd, await Self.isFolder(chat),
               let folder = CloudMoveFolder(chat: chat) else { throw CloudMove.Failure(message: CloudMoveStrings.noFolder) }
         guard !folder.isTooBroad else { throw CloudMove.Failure(message: CloudMoveStrings.homeFolder) }
+        // A folder the page named is copied only as the pane checked it: its upload root, in the
+        // pane's roots (``AgentPaneHandOff``). A `.git` found above it since then is refused.
+        guard Self.uploads(folder, as: start) else { throw CloudMove.Failure(message: CloudMoveStrings.noFolder) }
         guard let binary = services.cloud.move.cli else { throw ActionFailure(message: CloudStrings.noClient) }
         let move = CloudMove(services: services)
         let invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab.id), origin: .user)
         let folderName = URL(fileURLWithPath: chat).lastPathComponent
         report(Step(name: "machine", folder: folderName))
-        let machine = try await move.machine(invocation) { await CloudChatPick(services: services).read(folder: chat, tab: tab) }
+        // This person's free machine (or one for chats), else a new one; a retry stays on its first try's (+Machine).
+        let machine = try await self.machine(for: start, invocation: invocation) { await CloudChatPick(services: services).read(folder: chat, tab: tab) }
         let name = machine.machine.title, again = CloudMoveRetries.Retry.move(machineID: machine.machineID)
         guard let socket = await machine.daemon.connection?.endpoint?.socketPath else {
             throw CloudMove.Failure(message: CloudMoveStrings.notConnected(name))
@@ -101,11 +112,20 @@ struct CloudStartChat {
         let cli = CloudMoveCLI(binary: binary, timeout: services.cloud.move.timeout)
         let size = Self.sizeText(machine.machine.size)
         report(Step(name: "folder", folder: folderName, machine: name, size: size))
-        let remote = try await move.sync(folder, to: socket, machine: name, cli: cli, retry: again, place: start.remotePlace)
+        // A retry whose copy finished opens its chat (by its tab key) without copying again: a
+        // second push would overwrite what the chat already changed there.
+        let destinations = services.cloud.startChatDestinations
+        let remoteChat: String
+        if let copied = destinations.copiedChat(for: start.key, on: machine.machineID) {
+            remoteChat = copied
+        } else {
+            remoteChat = try await move.sync(folder, to: socket, machine: name, cli: cli, retry: again, place: start.remotePlace).chat
+            destinations.recordCopy(remoteChat, for: start.key, on: machine.machineID)
+        }
         let context = AppActionContext(services: services)
         let anchor = try await CloudHandlers.terminalAnchor(on: machine, context)
         report(Step(name: "opening", folder: folderName, machine: name, size: size))
-        let seed = start.seed(cwd: remote.chat)
+        let seed = start.seed(cwd: remoteChat)
         let pending = try services.agentTabs.open(in: anchor.pane.handle, of: machine.daemon, seed: AgentPaneSeedSource(seed),
                                                  idempotencyKey: start.tabKey)
         let opened = try await pending.value()

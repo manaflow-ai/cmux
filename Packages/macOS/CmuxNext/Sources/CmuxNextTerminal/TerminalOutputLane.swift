@@ -15,8 +15,9 @@ import os
 /// session's event loop while more than `highWater` bytes wait to be parsed,
 /// so backpressure reaches the attachment instead of piling up here, and
 /// ``drained()`` waits for the backlog without blocking the main thread.
-/// ``close()`` fences the lane before `ghostty_surface_free`; queued work is
-/// skipped from then on, so the fence waits for at most one chunk.
+/// ``close(then:)`` hands the surface's teardown to the lane and never waits:
+/// queued work is skipped from then on, and the lane frees the surface on the
+/// main thread once the chunk in flight returns.
 nonisolated final class TerminalOutputLane: @unchecked Sendable {
     let highWater: Int
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "terminal")
@@ -177,18 +178,27 @@ nonisolated final class TerminalOutputLane: @unchecked Sendable {
         }
     }
 
-    /// Skips queued work, waits for the chunk in flight, then drops the
-    /// surface so nothing else touches it. Call on the main actor
-    /// immediately before `ghostty_surface_free`.
-    func close() {
+    /// Closes the lane without waiting for it, then runs `teardown` (which frees the surface) on
+    /// the main thread after the chunk in flight returns. Call on the main actor when the
+    /// surface's view goes away.
+    ///
+    /// The main thread must not wait for the lane here: the chunk in flight can be inside
+    /// Ghostty's parse of a flood of titles or bells, blocked on the 64-slot app mailbox
+    /// (`surfaceMessageWriter` pushes with `.forever`) that only the main thread's
+    /// `ghostty_app_tick` empties. Queued output and ``perform(_:)`` work is skipped from now on:
+    /// the closed pane has no view for its titles and bells. The lane's last block drops the
+    /// surface, so nothing on the lane touches it after `teardown` frees it.
+    func close(then teardown: TerminalSurfaceTeardown) {
         closing.store(true, ordering: .relaxed)
         let waiters = backlog.withLock { backlog -> [CheckedContinuation<Void, Never>] in
             defer { backlog.waiters = [] }
             return backlog.waiters
         }
         waiters.forEach { $0.resume() }
-        // concurrency-allow: bounded fence before ghostty_surface_free; queued chunks are skipped once `closing` is set, so this waits for at most the one chunk being parsed.
-        queue.sync { surface = nil }
+        queue.async { [self] in
+            surface = nil
+            MainDelivery().run { teardown.run() }
+        }
     }
 
     private func parsed(_ count: Int) {

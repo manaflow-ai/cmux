@@ -128,4 +128,16 @@ enum AgentPaneHandshakeReply {
         model.acpmuxRestartOffered = nil
         return AgentPaneReply.success(["stopped": await model.host.restartAcpmux(owner: owner)])
     }
+
+    /// `acpmux.restartStuck`: the waiting line's "Restart agent service", while the page's
+    /// handshake waits for this app's acpmux. The person decides; the app never restarts a daemon
+    /// that is only slow on its own (rule R5). Page script cannot make a gesture, and the host
+    /// stops a daemon only while a lookup waits on it. Answers `{stopped}`; the page then asks for
+    /// a handshake again, which starts a new daemon.
+    static func restartStuckAcpmux(in model: AgentPaneModel) async -> [String: Any] {
+        guard model.transport.gestures.consume() else {
+            return AgentPaneReply.failure(code: "acpmux.gesture_required", message: AgentPaneModel.shellGestureMessage)
+        }
+        return AgentPaneReply.success(["stopped": await model.host.restartStuckAcpmux(sessionId: model.sessionId)])
+    }
 }
