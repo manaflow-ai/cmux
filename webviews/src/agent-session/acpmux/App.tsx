@@ -129,6 +129,7 @@ import {
   scrollOrigin,
   writeAnchorScrollTop,
 } from "./conversation/scrollCoordinates";
+import { createFollowGlide, followRoom } from "./conversation/followGlide";
 import { setBookmarkTransport } from "./threadMinimap/bookmarks";
 import { composerDraft, DRAFT_SETTLE_MS, notifyDraftActionsChanged, settleDraftWithin } from "./composerDraft";
 import { paneContext } from "./paneContext";
@@ -2516,6 +2517,9 @@ export function VirtualTranscript({
   /// not the reader's scroll, and nothing snaps it to the end before it arrives.
   const jumpTarget = useRef<number | undefined>(undefined);
   const wheelGlide = useRef<ReturnType<typeof installWheelGlide>>(undefined);
+  /// Eases the followed view's steps with a streaming reply on the compositor (followGlide.ts).
+  const followGlide = useRef<ReturnType<typeof createFollowGlide>>(undefined);
+  followGlide.current ??= createFollowGlide();
   // The last transcript box on this page until this one is measured (before its first paint, below).
   const [height, setHeight] = useState(() => lastTranscriptBox.height);
   // The native pane's width, distinct from the transcript scroller's width when Push always reserves
@@ -2529,6 +2533,7 @@ export function VirtualTranscript({
   const stopJump = useCallback(() => {
     // Find, reveal and an asynchronous send own their new placement, even without a jump in flight.
     wheelGlide.current?.stop();
+    followGlide.current?.stop();
     jumpTarget.current = undefined;
     // A footnote also owns the shared runner and must end on session/send/Find transitions.
     if (ref.current) stopScroll(ref.current);
@@ -3616,6 +3621,24 @@ export function VirtualTranscript({
         followDeferred.current = !jumping && userScrollIntent(node).isHeld() && !followRequest.current?.();
         const settled = jumping ? clamped : (!followDeferred.current && settleFollowBottom(node, latest)) || clamped;
         if (settled) followTrace.set(latest);
+        // The rise this pass took, eased on screen (followGlide.ts): the same rows, the reply's
+        // new line landing in the room the live line keeps under it. The view was here, at the same
+        // size, the pass before. Anything else (a row that came or went, a resize, a fall) moves at
+        // once, as before.
+        // In layout coordinates: the sub-pixel origin a settle keeps (scrollCoordinates.ts) moves the
+        // rows on screen too, so a rise that only re-rounds the physical offset is no rise.
+        const box = previousViewport.current;
+        const rose = layoutScrollTop(node) - (scrolledTo.current.top - previousOrigin);
+        if (
+          !jumping &&
+          rose > 0.5 &&
+          box.height === height &&
+          box.width === width &&
+          box.dockSpace === dockSpace &&
+          rows.length === oldRows.length &&
+          rows.at(-2)?.id === oldRows.at(-2)?.id
+        )
+          followGlide.current?.rise(thread.current, rose, followRoom(rows, layout));
       } else if (top > 0 || rows[0]?.id !== oldRows[0]?.id) {
         // Keep the row at the top of the viewport where it is as rows above it change height.
         // Rows that arrived or left (a new reply segment below, older history above) move indexes,
@@ -4290,6 +4313,8 @@ export function VirtualTranscript({
       else if (touch) touchY = touch.clientY;
       readerAt.current = performance.now();
       followTrace.input();
+      // The reader takes the view: a follow step still easing lands where it lays out.
+      followGlide.current?.stop();
       // Release the follow intent synchronously when a reader starts moving up. The browser can
       // deliver the input before its scroll event; a streamed snapshot in that gap must not pin
       // the view back to the bottom. Capture the event so nested rows cannot commit first.
