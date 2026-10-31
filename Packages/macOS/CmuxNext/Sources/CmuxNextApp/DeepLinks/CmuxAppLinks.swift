@@ -21,6 +21,9 @@ enum CmuxAppLinks {
     @discardableResult
     static func open(_ url: URL, services: AppServices) -> Bool {
         if url.isFileURL { return openPath(url, services: services) }
+        if let action = settingsAction(for: url, linkScheme: services.linkScheme) {
+            return services.registry.perform(action, invocation: ActionInvocation(origin: .user))
+        }
         guard let link = link(for: url, linkScheme: services.linkScheme, chiefHost: services.agentTabs.chiefHost),
               let text = link.url(scheme: services.linkScheme)?.absoluteString else { return false }
         return services.registry.perform("link.open", invocation: ActionInvocation(arguments: ["url": .string(text)], origin: .user))
@@ -57,8 +60,17 @@ enum CmuxAppLinks {
         return true
     }
 
-    /// The action a settings link runs (red step: none yet).
-    static func settingsAction(for url: URL, linkScheme: String) -> ActionID? { nil }
+    /// The action a settings link runs: `cmux://settings/background` (Chief's first-launch welcome
+    /// offers it) is Change Background…, the same action as the command palette, the context menus and
+    /// `cmux settings change-background`. Nil for any other URL.
+    static func settingsAction(for url: URL, linkScheme: String) -> ActionID? {
+        guard let scheme = url.scheme?.lowercased(), scheme == chiefScheme || scheme == linkScheme.lowercased(),
+              url.host?.lowercased() == "settings" else { return nil }
+        switch url.path.lowercased() {
+        case "/background": return "appearance.changeBackground"
+        default: return nil
+        }
+    }
 
     /// The link `url` opens in this app, in the `cmux` scheme or `linkScheme` (this build's): a
     /// workspace, pane, tab, chat session or outside agent session; a Chief subagent's chat only for this app's own

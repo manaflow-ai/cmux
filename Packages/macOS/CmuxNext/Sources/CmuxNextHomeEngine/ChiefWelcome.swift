@@ -79,15 +79,26 @@ public nonisolated struct ChiefWelcome: Sendable {
     /// - Returns: How long the dots show before ``deliver(now:)``; nil when Chief does not type
     ///   first (then deliver at once).
     public func start() async -> Duration? {
-        // Red step: nothing plays yet.
-        nil
+        guard showsTyping else { return nil }
+        await owner.showChiefTyping(true)
+        return Self.typingPause
     }
 
     /// Stores the messages, then takes the dots away (also when the import fails).
     /// - Parameter now: The messages' time.
     /// - Throws: The owner's import error; then nothing was stored.
-    public func deliver(now: Date = Date()) async throws {}
+    public func deliver(now: Date = Date()) async throws {
+        do {
+            try await owner.importWelcome(request(now: now))
+        } catch {
+            await owner.showChiefTyping(false)
+            throw error
+        }
+        await owner.showChiefTyping(false)
+    }
 
     /// The welcome will not be delivered (its view went away first): the dots go away.
-    public func abandon() async {}
+    public func abandon() async {
+        await owner.showChiefTyping(false)
+    }
 }
