@@ -3,8 +3,9 @@
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::{Arc, LazyLock};
 
-use cmux_worktree_care::inventory::{self, Facts, Repo};
+use cmux_worktree_care::inventory::{self, Facts, FinishedMemo, Repo};
 use cmux_worktree_care::pass::{self, Options};
 use cmux_worktree_care::policy::{Action, Pressure, Settings};
 use cmux_worktree_care::procs::{Open, Uses};
@@ -68,10 +69,19 @@ fn repository(name: &str) -> (PathBuf, PathBuf) {
     (base, main)
 }
 
+/// This test process's finished answers, shared by its scans as the
+/// library's own memo is. Their merge-tree lock is in this process's own
+/// folder: with the library's in-memory memo it is the host-wide lock in
+/// `Store::default_dir()`, and while another test's merge-tree or the
+/// person's cleanup daemon held it, a squash check was "busy, unknown" and a
+/// finished branch read as unfinished.
+static FINISHED: LazyLock<Arc<FinishedMemo>> =
+    LazyLock::new(|| Arc::new(FinishedMemo::load(scratch("finished").join("finished.json"))));
+
 fn scan(main: &Path) -> Repo {
     let common =
         PathBuf::from(git(main, &["rev-parse", "--path-format=absolute", "--git-common-dir"]));
-    inventory::scan(&common, &[]).unwrap()
+    inventory::scan_with_memo(&common, &[], Arc::clone(&FINISHED)).unwrap()
 }
 
 fn facts_of<'a>(repo: &'a Repo, path: &Path) -> (&'a inventory::Worktree, &'a Facts) {
