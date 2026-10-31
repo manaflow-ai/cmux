@@ -67,7 +67,6 @@ import Testing
         root.layer?.backgroundColor = scope.perform { Palette.windowBackground.withAlphaComponent(1) }.cgColor
         let model = SidebarModel(sections: sections())
         model.expanded = density == .expanded
-        model.showWorkspaceTabs = true
         let list = SidebarListView(model: model)
         list.frame = NSRect(x: 0, y: 0, width: width, height: height)
         root.addSubview(list)
