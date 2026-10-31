@@ -990,7 +990,9 @@
               "browser.omnibar.glassTintStrength",
               "browser.omnibar.cornerRadius",
               "browser.omnibar.shadow",
-              "browser.omnibar.backgroundOpacity"
+              "browser.omnibar.backgroundOpacity",
+              "browser.omnibar.height",
+              "browser.omnibar.fontSize"
             ],
             "title" : {
               "key" : "settings.group.addressBar",
@@ -1939,7 +1941,7 @@
         ],
         "id" : "look",
         "title" : {
-          "key" : "settings.sidebarSection.look",
+          "key" : "settings.sidebarSection.lookAndFeel",
           "text" : "Look and Feel"
         }
       },
@@ -24689,7 +24691,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : 1.1,
+      "default" : 1,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.densityMotion",
@@ -24716,7 +24718,7 @@
       "range" : {
         "max" : 1.5,
         "min" : 0.85,
-        "placeholder" : 1.1,
+        "placeholder" : 1,
         "step" : 0.05,
         "unit" : "fraction"
       },
@@ -74525,6 +74527,318 @@
       "title" : {
         "key" : "settings.browser.omnibar.backgroundOpacity",
         "text" : "Address Bar Opacity"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "density",
+        20,
+        56,
+        38
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.matchDensity",
+            "text" : "Match Density"
+          },
+          "value" : "density"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "density",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.addressBar",
+        "text" : "Address Bar"
+      },
+      "help" : {
+        "key" : "settings.browser.omnibar.height.help",
+        "text" : "Match Density follows the density. The bar always grows to fit its text."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.omnibar.height",
+      "keywords" : [
+        "height",
+        "size",
+        "tall",
+        "density",
+        "address bar",
+        "omnibox",
+        "url"
+      ],
+      "kind" : "choice_or_number",
+      "page_hidden" : false,
+      "path" : [
+        "browser",
+        "omnibar",
+        "height"
+      ],
+      "range" : {
+        "max" : 56,
+        "min" : 20,
+        "placeholder" : 28,
+        "step" : 1,
+        "unit" : "points"
+      },
+      "refuses" : [
+        "__not_a_choice__",
+        true,
+        -16,
+        92,
+        "1"
+      ],
+      "section" : "browser",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:browser.omnibar.height"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.browser.omnibar.height",
+        "text" : "Address Bar Height"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "density",
+        10,
+        24,
+        17
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.matchDensity",
+            "text" : "Match Density"
+          },
+          "value" : "density"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "density",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.addressBar",
+        "text" : "Address Bar"
+      },
+      "help" : {
+        "key" : "settings.browser.omnibar.fontSize.help",
+        "text" : "The size of the address and the suggestions. Match Density follows the density."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.omnibar.fontSize",
+      "keywords" : [
+        "font",
+        "text",
+        "size",
+        "url",
+        "density",
+        "address bar",
+        "omnibox"
+      ],
+      "kind" : "choice_or_number",
+      "page_hidden" : false,
+      "path" : [
+        "browser",
+        "omnibar",
+        "fontSize"
+      ],
+      "range" : {
+        "max" : 24,
+        "min" : 10,
+        "placeholder" : 14,
+        "step" : 1,
+        "unit" : "points"
+      },
+      "refuses" : [
+        "__not_a_choice__",
+        true,
+        -4,
+        38,
+        "1"
+      ],
+      "section" : "browser",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:browser.omnibar.fontSize"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.browser.omnibar.fontSize",
+        "text" : "Address Bar Text Size"
       },
       "validation" : "portable"
     },
