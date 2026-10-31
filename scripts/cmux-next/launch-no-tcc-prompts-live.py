@@ -20,7 +20,10 @@ AUTHREQ_RESULT). A check with `preflight=no` after a reset is a prompt the perso
   2. `restore`: before it quits, the first phase opens a terminal in `--folder` (default
      ~/Downloads, the folder of the 2026-10-30 report). That is the person's own action, so a
      prompt there is allowed. The relaunch restores that terminal: nothing may read the folder
-     until the person shows the terminal.
+     until the person shows the terminal. It also leaves an agent chat in `--folder` (acpmux, a
+     stand-in agent that lists its folder when it starts, like a real agent) with a turn running
+     and a prompt queued: the relaunch's acpmux must not start that agent until the person opens
+     the chat (cmux-tui/crates/acpmux/src/hub/protected_hold.rs).
 
 Fails (exit 1) when a phase logs a non-preflight check of the app (any service), or macOS
 registers a notification client of the app or its helpers (usernoted's app table, when readable:
@@ -45,6 +48,7 @@ parser.add_argument("--out", default=os.environ.get("NX_ARTIFACTS") or tempfile.
 parser.add_argument("--seconds", type=float, default=45)
 parser.add_argument("--phases", default="first,restore")
 parser.add_argument("--folder", default="~/Downloads")
+parser.add_argument("--no-agent-chat", action="store_true", help="restore phase: no acpmux chat in --folder")
 opts = parser.parse_args()
 os.makedirs(opts.out, exist_ok=True)
 APP = os.path.abspath(opts.app.rstrip("/"))
@@ -220,6 +224,111 @@ def open_terminal_in_folder():
     time.sleep(3)  # the shell starts in the folder (the person's own action: a prompt here is fine)
 
 
+FAKE_AGENT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../cmux-tui/crates/acpmux/tests/fake_agent.py")
+ACPMUX_CONFIG = []  # (path, original text or None): put back at the end
+
+
+def acpmux_socket_of(home):
+    """acpmux `config::socket_path()`: `<home>/acpmux.sock`, or `/tmp/acpmux-<uid>/<fnv1a64>.sock`."""
+    preferred = os.path.join(home, "acpmux.sock")
+    if len(preferred.encode()) < 96:
+        return preferred
+    h = 0xcbf29ce484222325
+    for byte in home.encode():
+        h = ((h ^ byte) * 0x100000001b3) & 0xFFFFFFFFFFFFFFFF
+    return f"/tmp/acpmux-{os.getuid()}/{h:016x}.sock"
+
+
+class Acpmux:
+    """JSON-RPC lines to the tag's acpmux; notifications are dropped."""
+
+    def __init__(self, path):
+        self.conn = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self.conn.settimeout(30)
+        self.conn.connect(path)
+        self.next, self.buf = 0, b""
+        self.request("initialize", {"protocolVersion": 1, "clientInfo": {"name": "launch-no-tcc"}})
+
+    def post(self, method, params):
+        self.next += 1
+        self.conn.sendall((json.dumps({"jsonrpc": "2.0", "id": self.next, "method": method, "params": params}) + "\n").encode())
+        return self.next
+
+    def until(self, predicate, seconds=30):
+        deadline = time.monotonic() + seconds
+        while time.monotonic() < deadline:
+            while b"\n" in self.buf:
+                line, self.buf = self.buf.split(b"\n", 1)
+                try:
+                    message = json.loads(line)
+                except ValueError:
+                    continue
+                if predicate(message):
+                    return message
+            self.conn.settimeout(max(0.1, deadline - time.monotonic()))
+            try:
+                chunk = self.conn.recv(1 << 20)
+            except socket.timeout:
+                break
+            if not chunk:
+                break
+            self.buf += chunk
+        return None
+
+    def request(self, method, params):
+        rid = self.post(method, params)
+        return self.until(lambda m: m.get("id") == rid and ("result" in m or "error" in m)) or {"error": "no answer"}
+
+
+def leave_agent_chat_in_folder():
+    """A chat in FOLDER whose turn runs and whose next prompt waits, as the app quits. Its stand-in
+    agent lists its folder first thing, as Claude Code, Codex, Kimi or Gemini CLI do."""
+    home = build_names.of_app(APP, HOME)["acpmux_home"]
+    if not wait_until(lambda: os.path.exists(acpmux_socket_of(home)), 30):
+        check(False, f"agent chat: the tag's acpmux answers ({home})")
+        return
+    path = os.path.join(home, "config.json")
+    try:
+        with open(path) as f:
+            original = f.read()
+    except FileNotFoundError:
+        original = None
+    ACPMUX_CONFIG.append((path, original))
+    config = json.loads(original) if original else {}
+    lister = f'/bin/ls -la "$PWD" > /dev/null 2>&1; exec python3 {json.dumps(os.path.abspath(FAKE_AGENT))}'
+    config.setdefault("harnesses", {})["tcc-lister"] = {"argv": ["/bin/sh", "-c", lister]}
+    with open(path + ".tcc", "w") as f:
+        f.write(json.dumps(config, indent=2))
+    os.replace(path + ".tcc", path)
+    client = Acpmux(acpmux_socket_of(home))
+    client.request("_acpmux/reload_config", {})
+    created = client.request("session/new", {"cwd": FOLDER, "mcpServers": [], "_meta": {"acpmux": {"harness": "tcc-lister"}}})
+    session = (created.get("result") or {}).get("sessionId")
+    check(bool(session), f"agent chat: made in {FOLDER} ({json.dumps(created)[:200]})")
+    if not session:
+        return
+    text = lambda t: [{"type": "text", "text": t}]
+    client.post("session/prompt", {"sessionId": session, "prompt": text("until-cancel"), "_meta": {"acpmux": {"promptId": "tcc-run"}}})
+    running = client.until(lambda m: (m.get("params") or {}).get("update", {}).get("content", {}).get("text") == "running")
+    check(running is not None, "agent chat: its turn runs")
+    client.post("session/prompt", {"sessionId": session, "prompt": text("queued"), "_meta": {"acpmux": {"promptId": "tcc-queued"}}})
+    accepted = client.until(lambda m: m.get("method") == "_acpmux/prompt_accepted")
+    check(accepted is not None and (accepted.get("params") or {}).get("queued") is True, "agent chat: a prompt waits behind it")
+    print("agent chat", session, "in", FOLDER, flush=True)
+
+
+def put_back_acpmux_config():
+    for path, original in ACPMUX_CONFIG:
+        if original is None:
+            if os.path.exists(path):
+                os.remove(path)
+        else:
+            with open(path + ".tcc", "w") as f:
+                f.write(original)
+            os.replace(path + ".tcc", path)
+    ACPMUX_CONFIG.clear()
+
+
 teardown = TagTeardown(APP)
 teardown.install()
 try:
@@ -228,6 +337,8 @@ try:
         run_phase(phase, teardown)
         if phase == "first" and "restore" in phases[i + 1:]:
             open_terminal_in_folder()
+            if not opts.no_agent_chat:
+                leave_agent_chat_in_folder()
         quit_app()
         # A relaunch after a restart: the terminal daemons end too, so the relaunch restores the
         # terminal (a new shell in its folder) instead of finding its shell still running.
@@ -235,5 +346,6 @@ try:
 finally:
     quit_app()
     teardown.end()
+    put_back_acpmux_config()
 print(json.dumps({"bundle": BUNDLE, "failures": failures, "out": opts.out}), flush=True)
 sys.exit(1 if failures else 0)
