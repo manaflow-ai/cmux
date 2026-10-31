@@ -12,11 +12,14 @@ use std::sync::Arc;
 #[cfg(target_os = "linux")]
 use std::time::Duration;
 
+#[cfg(target_os = "linux")]
 use serde::{Deserialize, Serialize};
+#[cfg(target_os = "linux")]
 use zeroize::Zeroize;
 #[cfg(target_os = "linux")]
 use zeroize::Zeroizing;
 
+#[cfg(target_os = "linux")]
 use crate::{
     Mux, ProviderWorkspaceAuthority, ProviderWorkspaceAuthorityStatus,
     ProviderWorkspaceAuthorityUpdateError,
@@ -38,6 +41,7 @@ impl Drop for SensitiveBytes {
     }
 }
 
+#[cfg(target_os = "linux")]
 #[derive(Deserialize)]
 #[serde(tag = "operation", rename_all = "snake_case")]
 enum Request {
@@ -53,6 +57,7 @@ enum Request {
     },
 }
 
+#[cfg(target_os = "linux")]
 impl Drop for Request {
     fn drop(&mut self) {
         if let Self::InstallOrRotate { authority: Some(authority), .. } = self {
@@ -61,6 +66,7 @@ impl Drop for Request {
     }
 }
 
+#[cfg(target_os = "linux")]
 #[derive(Serialize, Deserialize)]
 struct Response {
     protocol: u32,
@@ -71,12 +77,14 @@ struct Response {
     error: Option<ResponseError>,
 }
 
+#[cfg(target_os = "linux")]
 #[derive(Serialize, Deserialize)]
 struct ResponseError {
     code: String,
     message: String,
 }
 
+#[cfg(target_os = "linux")]
 impl Response {
     fn success(status: ProviderWorkspaceAuthorityStatus) -> Self {
         Self { protocol: PROTOCOL_VERSION, ok: true, status: Some(status), error: None }
@@ -92,6 +100,7 @@ impl Response {
     }
 }
 
+#[cfg(target_os = "linux")]
 fn update_error_code(error: ProviderWorkspaceAuthorityUpdateError) -> &'static str {
     match error {
         ProviderWorkspaceAuthorityUpdateError::Unmanaged => "unmanaged",
@@ -104,6 +113,7 @@ fn update_error_code(error: ProviderWorkspaceAuthorityUpdateError) -> &'static s
     }
 }
 
+#[cfg(target_os = "linux")]
 fn handle_request(mux: &Mux, peer_uid: u32, bytes: &[u8]) -> Response {
     if peer_uid != 0 {
         return Response::error("access_denied", "provider management requires root");
@@ -354,15 +364,13 @@ fn response_status(response: Response) -> Result<ProviderWorkspaceAuthorityStatu
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     #[cfg(target_os = "linux")]
     #[test]
     fn linux_peer_credentials_report_the_kernel_uid() {
         use std::os::unix::net::UnixStream;
 
         let (client, server) = UnixStream::pair().unwrap();
-        assert_eq!(peer_uid(&server).unwrap(), unsafe { libc::geteuid() });
+        assert_eq!(super::peer_uid(&server).unwrap(), unsafe { libc::geteuid() });
         drop(client);
     }
 }
