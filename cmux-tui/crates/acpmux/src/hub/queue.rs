@@ -526,7 +526,13 @@ impl Hub {
             // Every prompt waiting but this one: those in the queue, and those about to join it
             // or waiting for the turn lock, which `Session::queued` counts already.
             let others = session.queued.load(Ordering::SeqCst).saturating_sub(1);
-            super::queue_admission::room(&queue, others, size, replaces, limits)?;
+            // The messages an inbox digest took wait with it, out of the queue, until its turn
+            // takes them over (`digest.rs` `take_joined`); read under the queue's lock, where
+            // a digest takes them (`inbox_digest.rs`).
+            let digests = session.inbox_digests.lock().unwrap_or_else(|e| e.into_inner());
+            let taken = digests.values().map(|d| d.taken_bytes()).sum::<u64>();
+            drop(digests);
+            super::queue_admission::room(&queue, others, taken, size, replaces, limits)?;
         }
         // The sender's prompts under its key leave under the lock that puts this one in
         // (`supersede.rs`), with the ledger pinned first as `remove_queued_because` pins it.

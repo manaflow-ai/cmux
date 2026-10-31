@@ -41,7 +41,17 @@ fn bytes_follow_the_json_size() {
 fn prompts_waiting_for_the_turn_lock_count_against_the_limit() {
     let limits = QueueLimits { prompts: Some(2), bytes: None };
     // None in the queue yet, but two wait for the turn lock.
-    let error = room(&[], 2, 1, |_| false, limits).expect_err("room past the limit");
+    let error = room(&[], 2, 0, 1, |_| false, limits).expect_err("room past the limit");
     assert_eq!(error.data.unwrap()["reason"], "queue.full");
-    room(&[], 1, 1, |_| false, limits).unwrap();
+    room(&[], 1, 0, 1, |_| false, limits).unwrap();
+}
+
+#[test]
+fn what_waiting_digests_took_counts_against_the_byte_limit() {
+    let limits = QueueLimits { prompts: None, bytes: Some(100) };
+    let error = room(&[], 0, 90, 11, |_| false, limits).expect_err("room past the limit");
+    let data = error.data.unwrap();
+    assert_eq!(data["reason"], "queue.bytes");
+    assert_eq!(data["queuedBytes"], 90);
+    room(&[], 0, 90, 10, |_| false, limits).unwrap();
 }

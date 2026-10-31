@@ -462,6 +462,14 @@ pub(super) struct DigestTurn {
     taken: StdMutex<Vec<QueuedPrompt>>,
 }
 
+impl DigestTurn {
+    /// What the queue entries it took hold (`queue_admission.rs`).
+    pub(super) fn taken_bytes(&self) -> u64 {
+        let taken = self.taken.lock().unwrap_or_else(|e| e.into_inner());
+        taken.iter().map(|q| super::queue_admission::run_bytes(&q.run)).sum()
+    }
+}
+
 impl Default for DigestTurn {
     fn default() -> Self {
         Self { answer: tokio::sync::watch::channel(None).0, taken: StdMutex::new(Vec::new()) }

@@ -2,7 +2,7 @@
 //! that would wait past `queueMaxPrompts` or `queueMaxBytes` is refused with `queue.full` or
 //! `queue.bytes` before anything is written, and the prompts already waiting still run.
 
-use super::{TestClient, new_session, prompt, setup_queue};
+use super::{TestClient, connect, new_session, prompt, setup_queue};
 use acpmux::config::PermissionPolicy;
 use acpmux::rpc::{Message, method};
 use serde_json::{Value, json};
@@ -136,4 +136,44 @@ async fn a_full_queue_still_takes_a_prompt_that_replaces_a_queued_one() {
     stop(&mut c, &id).await;
     reply(&mut c, running).await.unwrap();
     reply(&mut c, second).await.unwrap();
+}
+
+/// The messages an inbox digest took leave the queue but wait with it, so they still count
+/// against the byte limit, after the person edits the digest's text too.
+#[tokio::test]
+async fn the_messages_a_digest_took_still_count_against_the_byte_limit() {
+    let (hub, mut c) = setup_queue(PermissionPolicy::ApproveAll).await;
+    hub.config.write().await.queue_max_bytes = Some(96 << 10);
+    let mut agents = connect(&hub).await;
+    let id = new_session(&mut c, "digest").await;
+
+    let running = c.send(method::SESSION_PROMPT, prompt(&id, "until-cancel", Some("p-run"))).await;
+    c.wait_for(method::MUX_PROMPT_ACCEPTED, |p| p["promptId"] == "p-run").await;
+    let report = "r".repeat(30 << 10);
+    let mut sent = Vec::new();
+    for (pid, from) in [("p-a", "lane-a"), ("p-b", "lane-b")] {
+        let msg = json!({"sessionId": id, "prompt": [{"type": "text", "text": report}],
+                         "_meta": {"acpmux": {"promptId": pid, "fromAgent": from}}});
+        sent.push(agents.send(method::SESSION_PROMPT, msg).await);
+        agents.wait_for(method::MUX_PROMPT_ACCEPTED, |p| p["promptId"] == pid).await;
+    }
+    let made = c.request("_acpmux/inbox_digest", json!({"sessionId": id})).await.unwrap();
+    assert_eq!(made["delivery"], "queued", "{made}");
+    let digest = made["promptId"].as_str().unwrap().to_owned();
+    let edit = json!({"sessionId": id, "promptId": digest, "op": "update", "text": "short"});
+    c.request(method::MUX_QUEUE_EDIT, edit).await.unwrap();
+
+    // The digest's text is short now; the 60 KiB it took still wait.
+    let over =
+        c.send(method::SESSION_PROMPT, prompt(&id, &"x".repeat(40 << 10), Some("p-over"))).await;
+    let error = reply(&mut c, over).await.expect_err("the digest's messages were not counted");
+    assert_eq!(error["data"]["reason"], "queue.bytes", "{error}");
+    assert!(error["data"]["queuedBytes"].as_u64().unwrap() >= 60 << 10, "{error}");
+    let small = c.send(method::SESSION_PROMPT, prompt(&id, "small", Some("p-small"))).await;
+    let acc = c.wait_for(method::MUX_PROMPT_ACCEPTED, |p| p["promptId"] == "p-small").await;
+    assert_eq!(acc["queued"], true, "{acc}");
+
+    stop(&mut c, &id).await;
+    reply(&mut c, running).await.unwrap();
+    reply(&mut c, small).await.unwrap();
 }

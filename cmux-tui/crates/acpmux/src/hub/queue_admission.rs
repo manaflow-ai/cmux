@@ -10,13 +10,19 @@
 //! slot). The prompts a supersede key replaces leave as it comes in, so they do not count against
 //! it. Not checked: the prompts a restart rebuilds, a failed turn or a Stop holds, or an edit
 //! changes, which were admitted already, and an inbox digest (`inbox_digest.rs`), which joins
-//! queued messages into one and so never adds a prompt: it holds the messages it took, which are
-//! charged with it, and its own text, at most a few hundred characters for each of them, which
-//! may pass the byte limit by that much (the next new prompt then finds the queue full).
+//! queued messages into one and so never adds a prompt. The messages it took leave the queue but
+//! wait with it (`DigestTurn::taken`) until its turn takes them over, and are charged from there
+//! (`Session::inbox_digests`), so a steer that falls back to the queue or an edit keeps them
+//! charged. Its own text is not checked: it may pass the byte limit by that much, which is at most
+//! [`DIGEST_MAX_BYTES`](super::DIGEST_MAX_BYTES) of whole message texts plus, for each message it
+//! took, its heading line and the first 400 characters of a text cut short. The next new prompt
+//! then finds the queue full, so no prompt is admitted on top of it, and each message goes into
+//! one digest (a digest that fails puts its messages back and its text goes). Refusing the digest
+//! instead would leave the queue as full, one turn per message.
 //!
 //! Each prompt's size is measured once, where its run is made (`PromptRun::size`), so the check
-//! adds up at most `queueMaxPrompts` numbers under the lock. A digest is charged with the messages
-//! it holds. A prompt the queue accepted already that goes back in (a Send now or a steer whose
+//! adds up at most `queueMaxPrompts` numbers under the lock, and one for each message a waiting
+//! digest took. A prompt the queue accepted already that goes back in (a Send now or a steer whose
 //! turn ended first, `PromptOptions::admitted`) is never refused for room.
 
 use super::queue::{PromptRun, QueuedPrompt, Slot};
@@ -47,11 +53,12 @@ impl QueueLimits {
 
 /// Refused unless `queue` has room for one more prompt of `size` bytes, not counting the prompts
 /// it `replaces`. `others` is every other prompt waiting (`Session::queued`), the queue's and those
-/// waiting for the turn lock, whose content the queue does not hold yet. Called with the queue
-/// locked.
+/// waiting for the turn lock, whose content the queue does not hold yet; `taken` is what the
+/// messages waiting digests took hold. Called with the queue locked.
 pub(super) fn room(
     queue: &[QueuedPrompt],
     others: u64,
+    taken: u64,
     size: u64,
     replaces: impl Fn(&QueuedPrompt) -> bool,
     limits: QueueLimits,
@@ -72,7 +79,7 @@ pub(super) fn room(
         ));
     }
     let Some(max) = limits.bytes else { return Ok(()) };
-    let held: u64 = staying().map(|q| run_bytes(&q.run)).sum();
+    let held = staying().map(|q| run_bytes(&q.run)).sum::<u64>().saturating_add(taken);
     if held.saturating_add(size) > max {
         return Err(full(
             "queue.bytes",
