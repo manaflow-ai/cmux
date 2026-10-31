@@ -30,7 +30,8 @@ struct SubagentMainPaneRoutingTests {
             return placed
         }
         tabs.locate = { _ in nil }
-        tabs.paneWidth = { _ in width }
+        // Nothing on the chat's right yet: the column RightColumnPlacement reads has only the chat's width.
+        tabs.rightColumn = { _ in .init(sourceWidth: width) }
         let model = AgentPaneModel(host: NoHost(), sessionId: nil)
         tabs.wireHeader(model, key: chat)
         return (model, asked, tabs)

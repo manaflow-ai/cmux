@@ -155,6 +155,9 @@ jobs:
       - name: API Worker tests (workerd)
         working-directory: backend/apps/api
         run: bun run test
+      - name: API guest program tests (Node, local python3)
+        working-directory: backend/apps/api
+        run: bun run test:node
       - name: Self-hosted chat server (cloud owners on the local runtime, Tailscale admission)
         working-directory: backend/apps/home-server
         run: bun run test

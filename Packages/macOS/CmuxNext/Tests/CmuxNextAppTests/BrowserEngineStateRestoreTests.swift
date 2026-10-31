@@ -6,13 +6,14 @@ import CmuxNextBrowserHistory
 import Foundation
 import Network
 import Testing
+import CmuxNextTestSupport
 
 /// cx-p0im9 and hq#1925 bug 2: a person loads a page, follows two links, scrolls the last page down, quits and
 /// reopens cmux. The page comes back with its real back list (`history.length` 3, Back to the
 /// page before), at the scroll position it had, and loads once. Runs real WebKit pages against
 /// a local web server, with the app's history writer and its relaunch start; the daemon's
 /// stored history is the value the first page's writer sent.
-@MainActor @Suite(.serialized, .timeLimit(.minutes(2))) struct BrowserEngineStateRestoreTests {
+@MainActor @Suite(.closesItsWindows, .serialized, .timeLimit(.minutes(2))) struct BrowserEngineStateRestoreTests {
     @Test func aRelaunchedPageKeepsItsBackListAndScrollAndLoadsOnce() async throws {
         let server = try await PageServer.start()
         defer { server.stop() }

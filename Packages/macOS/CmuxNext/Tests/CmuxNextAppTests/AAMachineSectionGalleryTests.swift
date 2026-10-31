@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 @testable import CmuxNextServer
+import CmuxNextTestSupport
 import CmuxTheme
 import Foundation
 import Testing
@@ -9,10 +10,10 @@ import Testing
 /// ask-2663fecb03), dark and light, with this Mac and the sample machines
 /// (``MachineSectionRow/fixtures``). `CMUX_TEST_REQUIRE_GUI=1`; writes PNGs under
 /// `machines-section-gallery/` and `machines-section-gallery.tar` for `cmux-ci run --artifact`.
-@MainActor @Suite(.serialized) struct AAMachineSectionGalleryTests {
+@MainActor @Suite(.closesItsWindows, .serialized) struct AAMachineSectionGalleryTests {
     static func render(_ style: MachineSectionStyle, appearance: NSAppearance.Name) throws -> CGImage {
         _ = NSApplication.shared
-        let width: CGFloat = 280, height: CGFloat = 340
+        let width: CGFloat = 280, height: CGFloat = 400
         let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: width, height: height), styleMask: [.borderless],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
