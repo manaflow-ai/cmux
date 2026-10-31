@@ -78,6 +78,15 @@ await requireBrowserLane("summary-scroll-steady.test.ts", async () => {
     await pane?.close();
   });
 
+  /// Waits for the finite animations (an opening card's slide); a running turn's spinner never ends.
+  const settle = (page: Page) =>
+    page.evaluate(async () => {
+      const finite = document
+        .getAnimations()
+        .filter((animation) => animation.effect?.getComputedTiming().endTime !== Infinity);
+      await Promise.all(finite.map((animation) => animation.finished.catch(() => undefined)));
+    });
+
   /// Watches `selector` (the card) and the header's summary toggle across 100 frames of wheel scrolling
   /// up then down; returns what changed in them.
   const scrollAndWatch = (page: Page, selector: string) =>
@@ -163,9 +172,7 @@ await requireBrowserLane("summary-scroll-steady.test.ts", async () => {
       try {
         const card = page.locator("aside.acpmux-summary-card[data-placement=inline]");
         await card.waitFor({ timeout: 10_000 });
-        await page.evaluate(async () => {
-          await Promise.all(document.getAnimations().map((animation) => animation.finished.catch(() => undefined)));
-        });
+        await settle(page);
         const seen = await scrollAndWatch(page, "aside.acpmux-summary-card[data-placement=inline]");
         console.log(`${name} inline summary while scrolling: ${JSON.stringify(seen)}`);
         expect({ changes: seen.changes, boxes: seen.boxes.length, opacities: seen.opacities, replaced: seen.replaced })
@@ -182,9 +189,7 @@ await requireBrowserLane("summary-scroll-steady.test.ts", async () => {
         await page.locator(".acpmux-summary-button").click();
         const selector = "aside.acpmux-summary-card[data-placement=popover]";
         await page.locator(`${selector}[data-presence=shown]`).waitFor({ timeout: 10_000 });
-        await page.evaluate(async () => {
-          await Promise.all(document.getAnimations().map((animation) => animation.finished.catch(() => undefined)));
-        });
+        await settle(page);
         const seen = await scrollAndWatch(page, selector);
         console.log(`${name} summary popover while scrolling: ${JSON.stringify(seen)}`);
         expect({ changes: seen.changes, boxes: seen.boxes.length, opacities: seen.opacities, replaced: seen.replaced })
@@ -208,9 +213,7 @@ await requireBrowserLane("summary-scroll-steady.test.ts", async () => {
         const selector = "aside.acpmux-chat-inspector";
         if ((await page.locator(selector).count()) === 0) await toggle.click({ force: true });
         await page.locator(`${selector}[data-presence=shown]`).waitFor({ timeout: 10_000 });
-        await page.evaluate(async () => {
-          await Promise.all(document.getAnimations().map((animation) => animation.finished.catch(() => undefined)));
-        });
+        await settle(page);
         const seen = await scrollAndWatch(page, selector);
         console.log(`${name} Session Info while scrolling: ${JSON.stringify(seen)}`);
         expect({ changes: seen.changes, boxes: seen.boxes.length, opacities: seen.opacities, replaced: seen.replaced })
