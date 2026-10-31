@@ -184,6 +184,9 @@ impl Hub {
             tracing::warn!("agent hosts did not end within {SHUTDOWN_GRACE:?}");
         }
         self.settle_ends(&sessions, end_agents, &keep, ends_by).await;
+        for s in &sessions {
+            let _ = self.store_deferred(s);
+        }
         self.flush();
         hosted.len() + unreached
     }

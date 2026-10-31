@@ -420,29 +420,32 @@ struct ThreadPreview: Hashable {
         }
         return max(0, reach(r) - reach(r0))
     }
-    /// cmux: the quote's height for `lines` lines: 23.5 pt for one, 11 pt more per line (Messages: 34.5 pt for two; both
-    /// end in half circles).
+    /// cmux: the quote's height for `lines` lines: 23.5 pt for one, 11 pt more per line (Messages: 34.5 pt for two). Every
+    /// line count keeps the one-line quote's corners (`outline`).
     static func textHeight(lines: Int) -> CGFloat {
         textOneLineHeight + textLinePitch * CGFloat(max(0, lines - 1))
     }
     /// cmux: the first baseline under the quote's top (Messages: 16 pt).
     func textFirstBaseline() -> CGFloat { ThreadPreview.textFirstBaselineY }
-    /// cmux: the quote's outline in `box`: a text quote is a pill with the bubbles' tail at `tailScale` on its root's side
+    /// cmux: the quote's outline in `box`: a text quote is a rounded box with the one-line pill's corners and the bubbles' tail at `tailScale` on its root's side
     /// (Messages draws a quote with its own small tail); a card or thumbnail is its bubble shape without a tail, except a
     /// group's card quote, which has the tail too (Messages, 2026-10-29 group reference).
     func outline(in box: CGRect) -> UIBezierPath {
         let cardTail = cmuxGroup && !isText && !isThumbnail
         guard isText || cardTail else { return BubblePath.balloon(frame: box, row: shapeRow) }
-        let body = cardTail ? BubblePath.balloon(frame: box, row: shapeRow) : BubblePath.make(body: box, outgoing: outgoing, tail: false, circularEnds: true)
-        let t = BubblePath.tailPath(outgoing: outgoing)
-        // cmux (user 2026-10-29, "when multiline the bottom right thing doesnt look drawn well"): the tail is fitted to a
-        // one-line quote's end; a taller quote's half-circle end is wider, so its curve at the tail's join (2 pt above the
-        // bottom) lies further in. Move the tail in by that difference so it joins the curve as on one line. A card's
-        // corner is the bubbles' 15 pt one.
+        // cmux (user 2026-10-30, "bottom right thing still looks bad (multiline stuff)"): a text quote's corners are the
+        // one-line quote's half-circle radius at every line count, so a taller quote runs straight between its corners as a
+        // Messages bubble does and its tail joins the same corner it was fitted to. (A taller quote used to end in one
+        // larger half circle; the small tail met that curve at another angle and hooked out of it, 1df1022 only moved it.)
         let oneLine = ThreadPreview.textOneLineHeight / 2
-        let r = cardTail ? 15 : min(box.width, box.height) / 2
-        let inset = ThreadPreview.tailInset(endRadius: r,
-                                            oneLineRadius: cardTail ? oneLine : r - ThreadPreview.textLinePitch * CGFloat(max(0, textLines.count - 1)) / 2)
+        let corner = min(box.width, box.height - ThreadPreview.textLinePitch * CGFloat(max(0, textLines.count - 1))) / 2
+        let body = cardTail
+            ? BubblePath.balloon(frame: box, row: shapeRow)
+            : UIBezierPath(cgPath: CGPath(roundedRect: box, cornerWidth: max(0, corner), cornerHeight: max(0, corner), transform: nil))
+        let t = BubblePath.tailPath(outgoing: outgoing)
+        // A group card's corner is the bubbles' 15 pt one: move the tail in so it joins that curve as it joins the
+        // one-line text quote's end it was fitted to.
+        let inset = cardTail ? ThreadPreview.tailInset(endRadius: 15, oneLineRadius: oneLine) : 0
         var xf = outgoing
             ? CGAffineTransform(translationX: box.maxX - inset, y: box.maxY).scaledBy(x: ThreadPreview.tailScale, y: ThreadPreview.tailScale)
             : CGAffineTransform(translationX: box.minX + inset, y: box.maxY).scaledBy(x: -ThreadPreview.tailScale, y: ThreadPreview.tailScale)
@@ -997,6 +1000,8 @@ enum RowBuilder {
     /// min), more than 15 min on macOS 26 (the original
     /// recording, macOS 26: "Today 12:06 PM" over "hello world" 21 min after the message above) (cx-3cb row-gap).
     static var separatorGap: TimeInterval { ComposeMetrics.macOS26 ? 15 * 60 : 60 * 60 }
+    /// cmux: the typing row's gap under a bubble: its bubble top 8 pt under the bubble above (a new group's gap).
+    static var typingGapUnderBubble: CGFloat { 8 - (RowDraw.typingBubble.minY - RowDraw.margin) }
 
     /// `previousRow`: the kind of the row just above `range` (gaps depend on it).
     /// `width`: layout width (captured on main). `exact`: message indices to
@@ -1255,7 +1260,16 @@ enum RowBuilder {
             rows.append(RowSpec(key: "notice", kind: .notice(notice), gap: 8, height: HomeNoticeRows.height(notice)))
         }
         if !threadMode, span.upperBound == messages.count, s.atNewest, typists {
-            rows.append(RowSpec(key: "typing", kind: .typing, gap: 0, height: 35))
+            // cmux: right under a bubble the typing bubble keeps a separate message's gap, 8 pt body to body (the
+            // new-group gap above), so it does not touch the bubble above or its tail; it sat 4.3 pt under it (user,
+            // 2026-10-30, "more space in between typing bubble and the latest message"). Under the status line,
+            // a receipt or a label row it stays as it was.
+            var gap: CGFloat = 0
+            switch rows.last?.kind ?? previousRow {
+            case .part, .unsent: gap = Self.typingGapUnderBubble
+            default: break
+            }
+            rows.append(RowSpec(key: "typing", kind: .typing, gap: gap, height: 35))
         }
         rows = rows.map { var r = $0; r.width = width; return r } // no index writes
         return rows

@@ -151,8 +151,8 @@ pub(super) fn descriptors(tools: &[Value]) -> Vec<Value> {
              - pane_neighbor_get {{pane: \"current\", direction: \"right\"}} answers {{pane: \
              {{id, ...}}}} for the pane on the person's right, or {{pane: null}}; \
              terminal_process_get {{terminal}} names the program running in a terminal.\n\
-             - To run a command for the person: tab_create_terminal {{name}} opens a shell \
-             on the person's right (a tab in the column right of this chat, or a new column \
+             - To run a command for the person: tab_create_terminal {{name}}, with no pane \
+             (pane: \"current\" is this chat's own pane), opens a shell on the person's right (a tab in the column right of this chat, or a new column \
              when there is none), then terminal_input_write {{terminal: value.terminal_id, \
              text: \"cmd\\n\"}} runs it there and the tab stays open with its output. Use this \
              for 'open a terminal', 'run X on my right', 'next to my logs'. With shell (or \

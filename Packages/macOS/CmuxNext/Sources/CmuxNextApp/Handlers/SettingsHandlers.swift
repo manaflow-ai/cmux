@@ -20,6 +20,11 @@ enum SettingsHandlers {
             ?? CmuxConfigSnapshot.previewFeaturesPath.joined(separator: ".")
         registry.bind("palette.openCmuxSettingsFile", run: { _ in try openCmuxConfig(context) })
         registry.bind("palette.openGhosttySettings", run: { _ in try openGhosttyConfig(context) })
+        // Showing the Settings tab is local and immediate: the effect is done on this turn.
+        registry.bindEffect("settings.customizeMenus", requires: nil, effect: { invocation in
+            try context.services.settingsWindow.show(section: nil, focus: invocation.allowsViewChange, route: "#/settings/menus")
+            return .done
+        })
         // R92: Settings > Terminal shows the Ghostty config diagnostics.
         registry.bind("ghostty.showDiagnostics", run: { invocation in
             try context.services.settingsWindow.show(section: .terminal, focus: invocation.allowsViewChange)

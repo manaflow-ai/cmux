@@ -57,6 +57,8 @@
      model.ts (fallbackRowHeight, chromeHeight) estimates rows with the same numbers. */
   --cv-meta-gap: var(--ds-space-1, 4px); /* a message to its meta row */
   --cv-meta-row: 24px; /* the meta row's line */
+  --cv-message-line: 26px; /* another agent's message line, and the head of the group of those that wait */
+  --cv-message-subhead: 22px; /* a sender's head inside that group */
   --cv-message-gap: var(--ds-space-2, 8px); /* a message (or its meta row) to the next row in its turn */
   --cv-live-gap: 10px; /* over the running turn's live line, inside its row: 16px under a reply */
   --cv-turn-gap: var(--ds-space-4, 16px); /* a speaker change or the end of the transcript */
@@ -706,12 +708,14 @@
 @media (prefers-reduced-motion: no-preference) and (hover: hover) and (pointer: fine) {
   .cv-user__actions,
   .cv-received-actions,
+  .cv-received__hover,
   .cv-reply-actions,
   .acpmux-turnSummary .cv-turn-actions {
     transition: opacity var(--cv-actions-out) var(--cv-actions-ease);
   }
   .cv-user:hover .cv-user__actions,
   .cv-received:hover .cv-received-actions,
+  .cv-received > .cv-disclosure__line:hover .cv-received__hover,
   .acpmux-assistant:hover .cv-reply-actions,
   .acpmux-turnSummary[data-turn-revealed] .cv-turn-actions,
   .acpmux-turnSummary:hover .cv-turn-actions {
@@ -721,6 +725,7 @@
 @media (prefers-reduced-motion: no-preference) {
   .cv-user__actions:focus-within,
   .cv-received-actions:focus-within,
+  .cv-received__hover:focus-within,
   .cv-reply-actions:focus-within,
   .acpmux-turnSummary:focus-visible .cv-turn-actions,
   .acpmux-turnSummary .cv-turn-actions:focus-within {
@@ -2340,6 +2345,9 @@ pre.cv-math-source {
 }
 .cv-step-thought__body {
   display: block;
+  margin: 0;
+  padding-left: 0;
+  border-left: 0;
   line-height: 20px;
 }
 .cv-step.is-thought::after {
@@ -2640,30 +2648,108 @@ pre.cv-math-source {
 .cv-disclosure.cv-received {
   margin: 2px 0;
 }
+/* One row, the same whether a message is delivered or waits, closed or open (Leo, 2026-10-29: "this
+   ui is all quite inconsistent"): one plate under the whole line on hover, its name, preview,
+   chevron and actions in it; the preview takes the line's room, so every line's chevron ends at the
+   same place; the actions show only on hover or focus, over the preview's tail, never moving it. */
 .cv-received > .cv-disclosure__line {
+  position: relative;
   height: var(--cv-disclosure-line-height);
   min-height: 0;
   color: var(--cv-activity-text);
+  padding-inline: var(--ds-space-1);
+  border-radius: 6px;
   white-space: nowrap;
   user-select: none;
+}
+/* Pointing at the sender's name lights only the name (its own pill below), never the whole line. */
+.cv-received > .cv-disclosure__line:hover:not(:has(.cv-received__from--open:hover)),
+.cv-received > .cv-disclosure__line:focus-within,
+.cv-received > .cv-disclosure__line:has([aria-haspopup="menu"]:is([aria-expanded="true"], [data-popup-open])) {
+  background: color-mix(in srgb, var(--cv-text) 6%, transparent);
 }
 .cv-received .cv-disclosure__toggle {
   height: 26px;
   box-sizing: border-box;
   padding-block: 0;
+  padding-inline: 0;
+}
+.cv-received .cv-disclosure__toggle:is(:hover, :focus-visible) {
+  background: none;
 }
 .cv-received .cv-disclosure__label {
   display: flex;
+  flex: 1 1 auto;
   align-items: baseline;
   gap: calc(var(--ds-space-1) + 2px);
   font-weight: 400;
 }
-.cv-received__from {
+.cv-received__hover {
+  position: absolute;
+  inset-block: 0;
+  /* Before the chevron (12px) and the line's inset. */
+  inset-inline-end: calc(var(--ds-space-1) + 12px + var(--ds-space-1));
+  display: inline-flex;
+  align-items: center;
+  padding-inline-start: var(--ds-space-2);
+  background: linear-gradient(
+    to right,
+    transparent,
+    color-mix(in srgb, var(--cv-text) 6%, var(--acpmux-base, var(--cv-bg))) var(--ds-space-2)
+  );
+  opacity: 0;
+  pointer-events: none;
+}
+.cv-received > .cv-disclosure__line:hover .cv-received__hover,
+.cv-received__hover:focus-within,
+.cv-received__hover:has([aria-haspopup="menu"]:is([aria-expanded="true"], [data-popup-open])) {
+  opacity: 1;
+  pointer-events: auto;
+}
+.cv-received__hover > .cv-received-actions {
+  margin-inline-start: 0;
+}
+/* The sender at the line's start (IncomingMessageCard.tsx SenderName): its harness mark, then its
+   name, which opens its chat. The name's hover highlight is its own, never the row's. */
+.cv-received__sender {
+  display: inline-flex;
   flex: none;
+  align-items: center;
   max-width: 45%;
+  min-width: 0;
+  height: var(--cv-message-line);
+  gap: var(--ds-space-1);
+  padding-inline-start: var(--ds-space-1);
+}
+.cv-received__mark {
+  display: inline-flex;
+  flex: none;
+  width: 16px;
+  justify-content: center;
+  color: var(--cv-text-muted);
+}
+.cv-received__from {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
   color: var(--cv-activity-text);
+}
+.cv-received__from--open {
+  all: unset;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--cv-text);
+  margin-inline: calc(-1 * var(--ds-space-1));
+  padding: calc(var(--ds-space-1) / 2) var(--ds-space-1);
+  border-radius: 5px;
+  cursor: pointer;
+}
+.cv-received__from--open:hover,
+.cv-received__from--open:focus-visible {
+  background: color-mix(in srgb, var(--cv-text) 8%, transparent);
 }
 .cv-received__preview {
   flex: 0 1 auto;
@@ -2672,13 +2758,7 @@ pre.cv-math-source {
   text-overflow: ellipsis;
   color: var(--cv-text-dim);
 }
-/* Opened: who it is from, then the whole message, wrapped, never cut. */
-.cv-received__from-line {
-  color: var(--cv-text-muted);
-  font-size: var(--text-detail);
-  line-height: 18px;
-  letter-spacing: var(--text-detail--letter-spacing);
-}
+/* Opened: the whole message, wrapped, never cut. */
 .cv-received__text {
   margin-top: 4px;
   color: var(--cv-activity-text);
@@ -4523,8 +4603,8 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
 .cv-received__reply:focus-visible {
   color: var(--cv-text);
 }
-/* Over the first of the messages queued behind the turn (QueuedMessageCard.tsx): their one quiet
-   "Read after this turn", 18px (model.ts estimates it), in from the icon column. */
+/* Over the first of the messages queued behind the turn (QueuedMessageCard.tsx): a Stop-held
+   message's quiet lead note. Its 18px line is included in model.ts's pending-group estimate. */
 .cv-received__queued-head {
   padding-inline-start: 4px;
   color: var(--cv-text-dim);
@@ -4532,29 +4612,6 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
   line-height: 18px;
   white-space: nowrap;
   letter-spacing: var(--text-caption--letter-spacing);
-}
-/* Another agent's message the agent has not read yet (QueuedMessageCard.tsx): a steer's quiet tag
-   at the line's end ("Read after this step"), revealed on hover, focus or its action menu opening.
-   No spinner, no dot, no movement: it fades in and out with the line's hover row (above). */
-.cv-received__queued {
-  flex: none;
-  padding: 0 calc(var(--ds-space-1) + 2px);
-  border-radius: 5px;
-  color: var(--cv-text-dim);
-  background: color-mix(in srgb, var(--agent-text, var(--cv-text)) 6%, transparent);
-  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) color-mix(in srgb, var(--cv-text) 10%, transparent);
-  font-size: var(--text-caption);
-  line-height: 18px;
-  white-space: nowrap;
-  letter-spacing: var(--text-caption--letter-spacing);
-}
-.cv-received .cv-received__queued {
-  opacity: 0;
-}
-.cv-received:hover .cv-received__queued,
-.cv-received:focus-within .cv-received__queued,
-.cv-received:has(.cv-received-actions [aria-haspopup="menu"][aria-expanded="true"]) .cv-received__queued {
-  opacity: 1;
 }
 /* The running turn's line while the chat waits on the person (waitingOn.ts): full text color, so it
    reads as a call to act, not the muted "Thinking" it replaces. It holds still: no mark, no clock. */
