@@ -9,7 +9,7 @@ import Testing
 @MainActor @Suite(.serialized) struct MachineLinkStateTests {
     private static let all: [SidebarMachine.Status] = [
         .connected, .connecting, .reconnecting, .offline, .updateAvailable, .updateRequired, .installRequired, .installing,
-        .authFailed, .unreachable, .failed, .paused, .pausedIdle,
+        .authFailed, .unreachable, .failed, .disconnected, .paused, .pausedIdle,
     ]
 
     @Test func everyStatusHasOneWord() {
@@ -17,7 +17,7 @@ import Testing
             .connected: .connected, .updateAvailable: .connected,
             .connecting: .connecting, .reconnecting: .connecting, .installing: .connecting,
             .offline: .offline, .unreachable: .offline, .authFailed: .offline, .failed: .offline, .updateRequired: .offline,
-            .paused: .paused, .pausedIdle: .paused, .installRequired: .attention,
+            .paused: .paused, .pausedIdle: .paused, .installRequired: .attention, .disconnected: .attention,
         ]
         for status in Self.all { #expect(status.linkState == expected[status], "\(status)") }
     }
@@ -25,7 +25,7 @@ import Testing
     /// Only a link that dropped or never came up reconnects on use; sign-in and updates wait for a person.
     @Test func onlyADroppedLinkReconnectsOnUse() {
         let reconnects = Set(Self.all.filter(MachineLinkState.reconnectsOnUse))
-        #expect(reconnects == [.offline, .unreachable, .failed])
+        #expect(reconnects == [.offline, .unreachable, .failed, .disconnected])
     }
 
     private static func header(_ status: SidebarMachine.Status, kind: SidebarMachine.Kind = .ssh) -> SectionHeaderRowView {
@@ -47,6 +47,7 @@ import Testing
         #expect(Self.header(.offline).statusTone == .danger)
         #expect(Self.header(.unreachable).statusTone == .danger)
         #expect(Self.header(.paused, kind: .cloud).statusTone == .quiet)
+        #expect(Self.header(.disconnected, kind: .cloud).statusTone == .attention)
         #expect(Self.header(.connected, kind: .local).statusTone == nil, "This Mac draws no dot while connected")
     }
 }

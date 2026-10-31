@@ -484,6 +484,7 @@
           {
             "key" : "settings.group.sidebar",
             "rows" : [
+              "sidebar.showWorkspaceTabs",
               "workspaces.newPlacement",
               "sidebar.groupByComputer",
               "workspaces.autoName",
@@ -494,7 +495,6 @@
               "sidebar.topBandMaxShare",
               "sidebar.bottomBandMaxShare",
               "sidebar.pinnedBandsScroll",
-              "sidebar.showWorkspaceTabs",
               "sidebar.sessionTree",
               "sidebar.showProjects",
               "sidebar.groupBy",
@@ -1389,6 +1389,29 @@
         "title" : {
           "key" : "settings.section.keyboard",
           "text" : "Keyboard"
+        },
+        "trail" : [
+
+        ]
+      },
+      {
+        "actions" : [
+
+        ],
+        "aliases" : [
+
+        ],
+        "groups" : [
+
+        ],
+        "id" : "menus",
+        "lead" : [
+          "contextMenus"
+        ],
+        "symbol" : "contextualmenu.and.cursorarrow",
+        "title" : {
+          "key" : "settings.category.menus",
+          "text" : "Menus"
         },
         "trail" : [
 
@@ -40478,6 +40501,91 @@
       ],
       "section" : "appearance",
       "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:agentPane.display.rail.side"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
       "title" : {
         "key" : "settings.agentPane.display.rail.side",
         "text" : "Prompt Rail Side"
@@ -48583,7 +48691,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : true,
+      "default" : false,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.sidebar",
@@ -48598,7 +48706,16 @@
       "keywords" : [
         "sidebar",
         "workspace",
-        "tabs"
+        "workspaces",
+        "tabs",
+        "panes",
+        "under",
+        "beneath",
+        "nested",
+        "expand",
+        "list",
+        "tree",
+        "disclosure"
       ],
       "kind" : "toggle",
       "page_hidden" : false,
@@ -88150,6 +88267,138 @@
       "title" : {
         "key" : "settings.deviceHub.url",
         "text" : "Device Hub Address"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.category.menus",
+        "text" : "Menus"
+      },
+      "help" : {
+        "key" : "settings.contextMenus.showCustomizeItem.help",
+        "text" : "Adds Customize Menu… to the end of every right-click menu."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "contextMenus.showCustomizeItem",
+      "keywords" : [
+        "context menu",
+        "right click",
+        "customize",
+        "menu"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : true,
+      "path" : [
+        "contextMenus",
+        "showCustomizeItem"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:contextMenus.showCustomizeItem"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.contextMenus.showCustomizeItem",
+        "text" : "Show Customize Menu…"
       },
       "validation" : "portable"
     },
