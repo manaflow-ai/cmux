@@ -4,6 +4,7 @@
 // model and agents, and "Up next"; a finished one as "Workflow · Finished · 7 agents", its phases
 // N/N, each opening into its agents. The data is a workflow's events fed through the real fold.
 import { afterEach, expect, test } from "bun:test";
+import { pageClocks } from "../src/ui/pageClock";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -303,21 +304,15 @@ test("a running workflow keeps its elapsed clock live before agent records arriv
     saved.set(key, scope[key]);
     scope[key] = value;
   }
-  const realSetInterval = globalThis.setInterval;
-  const timers: number[] = [];
-  globalThis.setInterval = ((...args: Parameters<typeof setInterval>) => {
-    timers.push(Number(args[1]));
-    return timers.length as unknown as ReturnType<typeof setInterval>;
-  }) as unknown as typeof setInterval;
-  try {
-    const workflow = summaries("running")[0]!;
-    const container = dom.window.document.getElementById("root")!;
-    root = createRoot(container);
-    await act(async () => root!.render(<WorkflowTasks workflows={[{ ...workflow, agents: [], phases: [] }]} />));
-    expect(timers).toContain(1000);
-  } finally {
-    globalThis.setInterval = realSetInterval;
-  }
+  const workflow = summaries("running")[0]!;
+  const container = dom.window.document.getElementById("root")!;
+  root = createRoot(container);
+  await act(async () => root!.render(<WorkflowTasks workflows={[{ ...workflow, agents: [], phases: [] }]} />));
+  expect(pageClocks(dom.window.document).items.some((clock) => clock.name === "elapsed" && clock.running)).toBe(true);
+  await act(async () =>
+    root!.render(<WorkflowTasks workflows={[{ ...workflow, state: "completed", agents: [], phases: [] }]} />),
+  );
+  expect(pageClocks(dom.window.document).running).toBe(0);
 });
 
 test("with running and finished workflows, each group says how many it holds", () => {
