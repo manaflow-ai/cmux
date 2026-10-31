@@ -1281,9 +1281,20 @@ impl Hub {
         }
     }
 
-    /// Runs `sessions`' restored prompts not started yet (each once: its `resume` mark).
+    /// Runs `sessions`' restored prompts not started yet (each once: its `resume` mark). A chat
+    /// in a privacy-protected folder that no client shows waits for the person instead
+    /// (`protected_hold.rs`).
     pub(super) fn resume_restored(self: &Arc<Self>, sessions: &[Arc<Session>]) {
+        self.resume_restored_as(sessions, false);
+    }
+
+    /// `resume_restored`; `asked`: the person asked for these chats now, so a protected folder
+    /// holds nothing (`release_protected_hold`).
+    pub(super) fn resume_restored_as(self: &Arc<Self>, sessions: &[Arc<Session>], asked: bool) {
         for session in sessions {
+            if !asked && self.hold_in_protected_folder(session) {
+                continue;
+            }
             self.restore_auto_resume(session);
             // What the restored inbox holds new goes in as it may (`inbox.rs`).
             {
