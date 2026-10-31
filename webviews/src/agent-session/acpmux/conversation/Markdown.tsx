@@ -678,9 +678,9 @@ function scrollNote(note: HTMLElement | null) {
     if (inner.scrollHeight <= inner.clientHeight) continue;
     const overflow = inner.ownerDocument.defaultView?.getComputedStyle(inner).overflowY;
     if (overflow !== "auto" && overflow !== "scroll") continue;
-    inner.scrollTop = Math.max(0, Math.min(inner.scrollHeight - inner.clientHeight, inner.scrollTop + nearest(note, inner)));
+    inner.scrollTop = revealedTop(note, inner);
   }
-  const target = () => Math.max(0, Math.min(node.scrollHeight - node.clientHeight, node.scrollTop + nearest(note, node)));
+  const target = () => revealedTop(note, node);
   animateScroll(
     node,
     target,
@@ -690,6 +690,12 @@ function scrollNote(note: HTMLElement | null) {
     undefined,
     { explicit: true },
   );
+}
+
+/// Where `scroller` shows `note` by scrollIntoView's "nearest" rule, inside its scroll range.
+function revealedTop(note: HTMLElement, scroller: HTMLElement): number {
+  const end = scroller.scrollHeight - scroller.clientHeight;
+  return Math.max(0, Math.min(end, scroller.scrollTop + nearest(note, scroller)));
 }
 
 /// How far `scroller` must move to show `note`, by scrollIntoView's "nearest" rule.
