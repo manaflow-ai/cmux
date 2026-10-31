@@ -954,6 +954,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_runner_label_policy.py
 
+      - name: Validate no new job takes one Linux runner size
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_linux_single_size.py
+
       - name: Validate the INTERNAL iOS builder decisions
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ios_internal_builder.py
