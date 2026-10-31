@@ -1310,7 +1310,8 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_check_objc_selectors_step.py"
-lane = "linux-guard"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Pins the argument allowlist of the fleet step wrapper scripts/cmux-next/check-objc-selectors.sh (#27406); run python3 tests/test_check_objc_selectors_step.py yourself after changing the wrapper or check-objc-selectors.py (about 25 s, bash and python3, no build)."
 
 [[test]]
 path = "tests/test_crash_ratchet_compare.py"
@@ -1495,6 +1496,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_test_reds.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cargo_test_verdict.py"
 lane = "linux-guard"
 
 [[test]]
@@ -2259,6 +2264,10 @@ path = "tests/test_ci_runs_on_fallback.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_warm_sources.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_workflow_file_size.py"
 lane = "linux-guard"
 
@@ -2283,3 +2292,8 @@ reason = "Run by hand before changing the Cloud capture provision scripts; no ne
 [[test]]
 path = "tests/test_cmux_next_kill_switches.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_devbox_bubblewrap.py"
+lane = "manual"
+reason = "Run by hand (cmux-ci) before changing the devbox bubblewrap recipe: it builds the Dockerfile's devtools and bubblewrap layers in Docker and runs an unprivileged sandbox; no new CI tests (CLAUDE.md, Verification)."

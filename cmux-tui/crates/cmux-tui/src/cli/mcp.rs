@@ -481,6 +481,29 @@ fn typed_key(call: &v2_tools::CallPlan) -> Option<(Option<String>, String)> {
     Some((call.session.clone(), terminal.to_owned()))
 }
 
+/// A history answer's rows as one `text` of lines (`{start, next, text}`): each unstyled
+/// row is one run, so the row's text is its runs joined.
+fn history_text(mut value: Value) -> Value {
+    let Some(rows) = value.get("rows").and_then(Value::as_array) else { return value };
+    let text = rows
+        .iter()
+        .map(|row| {
+            row.get("runs")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(|run| run.get("text").and_then(Value::as_str))
+                .collect::<String>()
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    if let Some(object) = value.as_object_mut() {
+        object.remove("rows");
+        object.insert("text".into(), json!(text));
+    }
+    value
+}
+
 /// The stdio JSON-RPC server: one request per line, answered in order.
 pub(super) struct Server<B> {
     backend: B,
@@ -1090,6 +1113,14 @@ impl<B: Backend> Server<B> {
             return tool_error(envelope(error, "not_run", None));
         }
         let page = call.page;
+        // History an agent reads is plain lines: `styled` (colors and attributes per run)
+        // defaults to true in the daemon, and a 300-line read was 88k characters
+        // (tests/tool-evals r13a). Asked for `styled`, the rows come as the daemon sends them.
+        let plain_history =
+            tool.wire == "terminal.history.read" && !arguments.contains_key("styled");
+        if plain_history && let Some(params) = call.plan.params.as_object_mut() {
+            params.insert("styled".into(), json!(false));
+        }
         let typed = self.wait_past_typed(tool, &mut call);
         let wrote = (tool.wire == "terminal.input.write")
             .then(|| {
@@ -1114,6 +1145,7 @@ impl<B: Backend> Server<B> {
                 }
                 success(value, tool.mutation)
             }
+            Ok(value) if plain_history => success(history_text(value), tool.mutation),
             Ok(value) => success(
                 match page {
                     Some(page) => v2_tools::paginate(value, page),
