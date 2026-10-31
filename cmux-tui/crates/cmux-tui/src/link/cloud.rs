@@ -120,6 +120,34 @@ impl ConnectInfoSource for RelaySource {
     }
 }
 
+/// Cloud authority may come from the app-owned relay for the legacy link or
+/// from the explicitly inherited broker used by the Native link. The Native
+/// child never opens a path or receives an install credential itself.
+pub(super) enum CloudSource {
+    Relay(RelaySource),
+    Broker(super::cloud_broker::BrokerSource),
+}
+
+impl ConnectInfoSource for CloudSource {
+    async fn fetch(&self, host: &str) -> Result<ConnectInfo, ConnectInfoError> {
+        match self {
+            Self::Relay(source) => source.fetch(host).await,
+            Self::Broker(source) => source.fetch(host).await,
+        }
+    }
+
+    async fn mint_token(
+        &self,
+        host: &str,
+        services: &[Service],
+    ) -> Result<LinkTokenGrant, ConnectInfoError> {
+        match self {
+            Self::Relay(source) => source.mint_token(host, services).await,
+            Self::Broker(source) => source.mint_token(host, services).await,
+        }
+    }
+}
+
 fn relay_unavailable() -> ConnectInfoError {
     ConnectInfoError::Unavailable("the cmux credential relay is not available yet".into())
 }
