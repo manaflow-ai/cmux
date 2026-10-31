@@ -2335,3 +2335,8 @@ lane = "linux-guard"
 path = "tests/test_cmux_next_instant_bench_warm_arm.py"
 lane = "manual"
 reason = "Unit test of a fleet bench's arm logic (no app): its owner runs it with python3 -I before a change to instant-new-surfaces-bench.py; no CI job runs it (CLAUDE.md: no new CI tests)."
+
+[[test]]
+path = "tests/test_cef_cache_key_checkout_independent.py"
+lane = "manual"
+reason = "Shell-script unit test (no app, no network): run it with python3 -I before a change to merge-cef-universal.sh, build-cef-shim.sh or embed-cef.sh; no CI job runs it (CLAUDE.md: no new CI tests)."

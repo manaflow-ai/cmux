@@ -604,6 +604,8 @@ export type QueuedImage = {
   mimeType: string;
   /** Its file name, when the client gave one. */
   name: (string | null);
+  /** The app it came from (`{name, bundleId?, site?}`), as the prompt's display metadata named it. Absent otherwise. */
+  source?: unknown;
 } & Record<string, unknown>;
 
 /** A prompt waiting for the running turn to end. */

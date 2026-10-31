@@ -279,7 +279,7 @@ pub(crate) fn new_surface_with_resource_identity(
     let capture_options = BrowserCaptureOptions::from_options(opts);
     let capture_scale = capture_scale_for(pixel_w, pixel_h, capture_options);
     let capture_pixels = scaled_pixels(pixel_w, pixel_h, capture_scale);
-    let (command_tx, command_rx) = sync_channel(BROWSER_COMMAND_QUEUE_CAPACITY);
+    let (command_tx, command_rx) = BrowserCommandTx::channel(BROWSER_COMMAND_QUEUE_CAPACITY);
     let command_order = Arc::new(Mutex::new(BrowserCommandOrder::default()));
     let latest_nav = Arc::new(Mutex::new(None));
     let latest_authority = Arc::new(Mutex::new(None));

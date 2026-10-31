@@ -33,6 +33,16 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
     /// A Cloud machine's link owner answer (``CloudMachineLinks/ownerLink``), read at each trust call
     /// and never kept. Nil for a machine that is not a Cloud machine.
     var ownerLink: AgentSessionAttachClient.OwnerLink?
+    /// Brings the machine's daemon to this app's build now and answers whether an update turn ran
+    /// (``DaemonUpdatePolicy/updateNow(_:)``); nil where the app cannot. A start that the machine's
+    /// older daemon refused (``olderDaemonRefusals``) runs it, then tries once more: a fresh Cloud
+    /// machine boots its image's cmux-tui, which may predate what this app's start needs (a team VM
+    /// that takes its creator's chat, cmux#29107), and the app's automatic update runs in the
+    /// background, so a first chat right after the machine came up would otherwise reach the old
+    /// daemon (Leo: "whenever i start a chat it should be able to send me to cloud automatically").
+    var updateMachine: (@Sendable () async -> Bool)?
+    /// The chat runs on the person's own Cloud VM (``RemoteAcpmuxWire/ownerCloud(_:served:)``).
+    var ownerCloud: RemoteAcpmuxWire.OwnerCloud?
 
     /// The keyed restart of the machine's acpmux (an SSH machine, or a paired server on the ssh
     /// route); nil where the app has no exec channel of its own (cx-0q7o).
@@ -72,23 +82,24 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
         if let session {
             route = AgentPaneRemoteRoute(machine: machine, hostID: hostID, approvals: approvals) { [surface, session, endpoint, reconnect] in
                 let client = AgentSessionAttachClient(surface: surface, mode: mode, reconnect: reconnect, endpoint: endpoint)
-                return RemoteAcpmuxWire(client: AgentTabRemoteClient(client: client, mode: mode), session: session, host: hostID, linksAlias: linksHost, trust: mode == .attach && servesTrust ? ask : nil)
+                return RemoteAcpmuxWire(client: AgentTabRemoteClient(client: client, mode: mode), session: session, host: hostID, linksAlias: linksHost, trust: mode == .attach && servesTrust ? ask : nil, ownerCloud: mode == .attach ? ownerCloud : nil)
             }
         } else if let start, mode == .attach {
             // A new chat: nothing runs on that machine until the page's first send (cx-k21v). The
             // page shows the New Tab page or an empty chat; its `session/new` starts the chat.
             route = AgentPaneRemoteRoute(machine: machine, hostID: hostID, approvals: approvals) { [endpoint, reconnect] in
-                RemoteAcpmuxWire(start: { [approvals = approvals, servesKeyedReason] cwd, harness, model in
+                RemoteAcpmuxWire(start: { [approvals = approvals, servesKeyedReason, updateMachine] cwd, harness, model in
                     let started: AgentTabRemoteStart.Started
                     do {
                         started = try await Self.keyedStart(cwd, harness, model, approvals: approvals,
-                                                            servesKeyedReason: servesKeyedReason, proceed: Self.proceedAlways, start: start)
+                                                            servesKeyedReason: servesKeyedReason, updateMachine: updateMachine,
+                                                            proceed: Self.proceedAlways, start: start)
                     } catch let refusal as AgentRemoteStartRefusal {
                         throw AgentSessionRemoteError(code: refusal.code, message: servesTrust ? refusal.userMessage : refusal.withoutTrust.userMessage, folder: refusal.folder)
                     }
                     let client = AgentSessionAttachClient(surface: started.surface, reconnect: reconnect, endpoint: endpoint)
                     return (AgentTabRemoteClient(client: client, mode: .attach), started.session)
-                }, host: hostID, linksAlias: linksHost, trust: servesTrust ? ask : nil)
+                }, host: hostID, linksAlias: linksHost, trust: servesTrust ? ask : nil, ownerCloud: ownerCloud)
             }
         } else {
             throw AgentRemoteStartRefusal.startUnsupported(machine: machine)
@@ -114,8 +125,16 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
     /// try): its throw stops the start there, and what it threw is what this throws.
     func startNow(cwd: String?, harness: String, model: String? = nil, proceed: @escaping @Sendable () async throws -> Void) async throws -> AgentTabRemoteStart.Started {
         guard let start else { throw AgentRemoteStartRefusal.startUnsupported(machine: machine) }
-        return try await Self.keyedStart(cwd, harness, model, approvals: approvals, servesKeyedReason: servesKeyedReason, proceed: proceed, start: start)
+        return try await Self.keyedStart(cwd, harness, model, approvals: approvals, servesKeyedReason: servesKeyedReason,
+                                         updateMachine: updateMachine, proceed: proceed, start: start)
     }
+
+    /// The refusals of a start that an older daemon on the machine gives where its current build
+    /// would start the chat: a team VM's (`team_vm_blocked`, before cmux#29107) and an owner check
+    /// that daemon cannot take (`host_unverified`, a daemon without the caller's `vm_kind` word).
+    /// ``updateMachine`` runs only while the link's owner answer says the machine is the caller's,
+    /// so a teammate's machine is never retried (the app refuses that start before it is sent).
+    static let olderDaemonRefusals: Set<String> = [AgentSessionAttachError.teamMachine, "agent_session.host_unverified"]
 
     /// The chat's Allow needs this app's key on that machine's agent daemon (cx-oa6ah): an idle
     /// daemon gets it before the start; a busy one waits for the person's restart click on the
@@ -124,12 +143,20 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
     /// restart; after the restart (or without one) the chat starts as it is.
     private static func keyedStart(
         _ cwd: String?, _ harness: String?, _ model: String?, approvals: AgentPaneRemoteApprovals?, servesKeyedReason: Bool,
+        updateMachine: (@Sendable () async -> Bool)? = nil,
         proceed: @escaping @Sendable () async throws -> Void,
         start unchecked: @escaping @Sendable (String?, String?, String?, AgentSessionAttachClient.PersonKey?) async throws -> AgentTabRemoteStart.Started
     ) async throws -> AgentTabRemoteStart.Started {
         let start = { @Sendable (cwd: String?, harness: String?, model: String?, key: AgentSessionAttachClient.PersonKey?) in
             try await proceed()
-            return try await unchecked(cwd, harness, model, key)
+            do {
+                return try await unchecked(cwd, harness, model, key)
+            } catch let refusal as AgentRemoteStartRefusal where olderDaemonRefusals.contains(refusal.code) {
+                // The machine's daemon may be older than this app's: update it now, then once more.
+                guard let updateMachine, await updateMachine() else { throw refusal }
+                try await proceed()
+                return try await unchecked(cwd, harness, model, key)
+            }
         }
         guard let approvals, let prepare = approvals.prepare else { return try await start(cwd, harness, model, nil) }
         guard servesKeyedReason else {
@@ -151,79 +178,6 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
                 _ = await prepare(.daemonSaidSafe)
             }
             return try await start(cwd, harness, model, nil)
-        }
-    }
-}
-
-/// ``AgentSessionAttachClient`` as the pane's ``AgentSessionRemoteClient``.
-nonisolated struct AgentTabRemoteClient: AgentSessionRemoteClient {
-    let client: AgentSessionAttachClient
-    let mode: AgentSessionAttachClient.Mode
-
-    var isReadOnly: Bool { mode == .observe }
-
-    func attach(_ page: AgentSessionPage, events handler: @escaping @Sendable (AgentSessionRemoteEvent) -> Void) async throws -> Data {
-        try await mapped {
-            try await client.attach(afterSeq: page.afterSeq, beforeSeq: page.beforeSeq, limit: page.limit, kinds: page.kinds) { event, line in
-                handler(Self.event(event, line))
-            }
-        }
-    }
-
-    func events(_ page: AgentSessionPage) async throws -> Data {
-        try await mapped { try await client.events(afterSeq: page.afterSeq, beforeSeq: page.beforeSeq, limit: page.limit, kinds: page.kinds) }
-    }
-
-    func prompt(id: String, text: String) async throws -> Data {
-        try await mapped { try await client.prompt(id: id, text: text) }
-    }
-
-    func cancel() async throws { _ = try await mapped { try await client.cancel(); return Data() } }
-
-    func permission(id: String, option: String, answers: Data?, annotations: Data?, decisionNonce: String?,
-                    personDecision: String?) async throws {
-        _ = try await mapped {
-            try await client.permission(id: id, option: option, answers: answers, annotations: annotations,
-                                        decisionNonce: decisionNonce, personDecision: personDecision)
-            return Data()
-        }
-    }
-
-    func detach() async { await client.detach() }
-
-    func children() async throws -> Data { try await mapped { try await client.children() } }
-
-    func media(path: String) async throws -> Data { try await mapped { try await client.media(path: path) } }
-
-    func typing(_ on: Bool) async throws { _ = try await mapped { try await client.typing(on); return Data() } }
-
-    func view(_ visible: Bool) async throws { _ = try await mapped { try await client.view(visible); return Data() } }
-
-    func close() async { await client.close() }
-
-    /// A daemon push as the pane's event: the record or request object, or the close reason.
-    static func event(_ name: String, _ line: Data) -> AgentSessionRemoteEvent {
-        let object = (try? JSONSerialization.jsonObject(with: line)) as? [String: Any] ?? [:]
-        let member = { (key: String) -> Data in
-            guard let value = object[key], JSONSerialization.isValidJSONObject(value),
-                  let data = try? JSONSerialization.data(withJSONObject: value) else { return Data("{}".utf8) }
-            return data
-        }
-        switch name {
-        case "agent-session-record": return .record(member("record"))
-        case "agent-session-permission": return .permission(member("request"))
-        case "agent-session-changed": return .changed(member("change"))
-        case "agent-session-presence": return .presence(member("presence"))
-        default: return .closed(object["reason"] as? String ?? "closed")
-        }
-    }
-
-    /// The daemon's refusal as the pane's error (its `agent_session.*` code reaches the page).
-    func mapped(_ work: () async throws -> Data) async throws -> Data {
-        do {
-            return try await work()
-        } catch let error as AgentSessionAttachError {
-            throw AgentSessionRemoteError(code: error.code, message: error.message)
         }
     }
 }
