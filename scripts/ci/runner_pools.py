@@ -36,6 +36,10 @@ watch job, every 10 minutes, with the token the overflow switch already uses) it
 - writes RUNNER_POOLS only when something changed. A value that does not match the schema
   (parse_value()) is replaced from the declared defaults, never crashed on.
 
+LINUX_RUNNER predates RUNNER_POOLS and most Linux runs-on still read it (`vars.LINUX_RUNNER || ...`),
+so each pass also writes the linux pool's live member to it (MIRRORS, mirror_writes()) unless the
+overflow switch's record is set, and --check fails while it names a label outside the pool.
+
 Moving jobs already queued on a dead member is not done here: GitHub binds a job's label when it
 creates the job, and the queue janitor's dead-label re-dispatch (cmux#27114) re-runs those jobs,
 which then read the pool's new member.
@@ -47,7 +51,8 @@ Blacksmith macOS), never through a pool, and signing jobs move through the signi
 that must run GitHub-hosted (npm and PyPI provenance accept only GitHub's OIDC) says
 `"hosted": true` with its reason; no other pool may name a GitHub-hosted label.
 
---check validates a RUNNER_POOLS value: every pool set, each to one of its own members.
+--check validates a RUNNER_POOLS value (every pool set, each to one of its own members) and the
+MIRRORS variables (each a member of its pool while the overflow record is unset).
 """
 
 from __future__ import annotations
@@ -71,6 +76,15 @@ RUNNERS = ROOT / ".github" / "runners.json"
 VARIABLE = "RUNNER_POOLS"
 # Written by the overflow switch every probe run (cloud_overflow_switch.HEALTH_VARIABLE, label_health()).
 HEALTH_VARIABLE = "CI_CLOUD_LABEL_HEALTH"
+# Variables older than RUNNER_POOLS that runs-on still read (`vars.LINUX_RUNNER || '<label>'`, about 250
+# jobs over main and feat-cmux-next), each with the pool it follows. Nothing kept them live: on
+# 2026-10-31 LINUX_RUNNER still held blacksmith-4vcpu-ubuntu-2404, a size outside the runner set that
+# had stopped starting jobs, while RUNNER_POOLS.linux was blacksmith-32vcpu-ubuntu-2404; about 520
+# jobs sat queued on it, the oldest for over an hour. Each pass now writes the pool's live member to
+# them too (mirror_writes()), and --check fails while one names a label outside its pool.
+MIRRORS = {"LINUX_RUNNER": "linux"}
+# While the overflow switch's record is set, the switch owns those variables (cloud_overflow_switch.py).
+OVERFLOW_RECORD = "CI_CLOUD_OVERFLOW_SAVED"
 DEAD_KEY = "_dead"
 UPDATED_KEY = "_updated"
 # A dead mark lasts this long unless seen again. The probe runs every 10 minutes and the janitor
@@ -188,6 +202,43 @@ def value_problems(value: Mapping[str, Any], pools: Mapping[str, Mapping[str, An
     return found
 
 
+def mirror_writes(value: Mapping[str, Any], live: Mapping[str, str | None], *,
+                  record: str | None) -> list[tuple[str, str]]:
+    """(variable, label) for each MIRRORS variable that does not hold its pool's live member.
+
+    Nothing while the overflow switch's record is set: the switch moved those variables and puts them
+    back. A variable is moved only when it is unset or holds a Blacksmith label; any other value is a
+    deliberate choice, left alone here and named by --check (mirror_problems()).
+    """
+    if (record or "").strip():
+        return []
+    writes = []
+    for name, pool in MIRRORS.items():
+        want = value.get(pool)
+        current = (live.get(name) or "").strip()
+        if not isinstance(want, str) or not want or current == want:
+            continue
+        if current and not EPHEMERAL.match(current):
+            continue
+        writes.append((name, want))
+    return writes
+
+
+def mirror_problems(live: Mapping[str, str | None], pools: Mapping[str, Mapping[str, Any]], *,
+                    record: str | None) -> list[str]:
+    """Why a MIRRORS variable misroutes its jobs: it names no member of its pool (overflow off)."""
+    if (record or "").strip():
+        return []
+    found = []
+    for name, pool in MIRRORS.items():
+        current = (live.get(name) or "").strip()
+        allowed = members(pools[pool]) if pool in pools else []
+        if current not in allowed:
+            found.append(f"{name}={current or 'unset'} is not a member of pools.{pool} ({', '.join(allowed)}): "
+                         f"every `vars.{name} || ...` runs-on waits on it; runner_pools.py writes the live member")
+    return found
+
+
 def _labels(joined: object) -> set[str]:
     """A label set as the janitor writes it: joined with "," (dead_labels) or "+" (fleet keys)."""
     if not isinstance(joined, str):
@@ -220,6 +271,8 @@ def label_evidence(health: Mapping[str, Any] | None, snapshot: Mapping[str, Any]
     elif generated is not None and not (dt.timedelta(minutes=-1) <= now - generated <= SNAPSHOT_MAX_AGE):
         notes.append(f"the janitor snapshot is from {iso(generated)}, outside the last {SNAPSHOT_MAX_AGE}; "
                      "no snapshot evidence")
+    elif generated is not None and pr_runner_pool.snapshot_truncated(snapshot):
+        notes.append(f"{pr_runner_pool.snapshot_truncated(snapshot)}; no snapshot evidence")
     elif generated is not None:
         age = max(0.0, (now - generated).total_seconds() / 60)
         for label, load in (snapshot.get("pools") or {}).items():
@@ -335,7 +388,9 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         return 1
     current, dropped = parse_value(env.get(VARIABLE), pools)
     if args.check:
-        found = dropped + value_problems(current, pools)
+        mirrored = {name: env.get(name) for name in MIRRORS}
+        found = dropped + value_problems(current, pools) + mirror_problems(
+            mirrored, pools, record=env.get(OVERFLOW_RECORD))
         for problem in found:
             print(f"::error title=Runner pools::{problem}")
         return 1 if found else 0
@@ -364,19 +419,49 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         with open(summary, "a", encoding="utf-8") as handle:
             handle.write("### Runner pools\n\n" + ("\n".join(f"- {line}" for line in lines) or "- no change")
                          + "\n\n```json\n" + json.dumps(value, indent=2, sort_keys=True) + "\n```\n")
+    writes: list[tuple[str, str]] = []
     if render(value) == (env.get(VARIABLE) or "").strip():
         print(f"{VARIABLE} unchanged")
+    else:
+        writes.append((VARIABLE, render(value)))
+    # The mirrored variables and the switch's record, read live: the switch step just before this one
+    # may have moved them, so the job-start values could undo its failover.
+    live, record, readable = _live(switch, env)
+    if readable:
+        writes += mirror_writes(value, live, record=record)
+    if not writes:
         return 0
     if args.dry_run:
-        print(f"{VARIABLE} would be {render(value)} (dry run)")
+        for name, raw in writes:
+            print(f"{name} would be {raw} (dry run)")
         return 0
     if switch is None:
-        print(f"::error title=Runner pools::no switch token (GLAEDA_ROUTE_APP_ID); {VARIABLE} stays "
-              f"{env.get(VARIABLE) or 'unset'}; it should be {render(value)}")
+        for name, raw in writes:
+            print(f"::error title=Runner pools::no switch token (GLAEDA_ROUTE_APP_ID); {name} stays "
+                  f"{env.get(name) or 'unset'}; it should be {raw}")
         return 1
-    switch.set_variable(VARIABLE, render(value))
-    print(f"{VARIABLE} = {render(value)}")
+    for name, raw in writes:
+        switch.set_variable(name, raw)
+        print(f"{name} = {raw}")
     return 0
+
+
+def _live(switch: Any, env: Mapping[str, str]) -> tuple[dict[str, str | None], str | None, bool]:
+    """(MIRRORS values, the overflow record, whether they were read) through the API, else the job's env."""
+    names = (*MIRRORS, OVERFLOW_RECORD)
+    if switch is not None and hasattr(switch, "get_variable"):
+        try:
+            got = {name: switch.get_variable(name) for name in names}
+        except Exception as error:  # noqa: BLE001 - an unread variable is never overwritten on a guess
+            print(f"::warning title=Runner pools::could not read {', '.join(names)} ({error}); not moving them")
+            return {}, None, False
+    else:
+        # A step that does not hand them in has not read them: unset is not the same as unknown.
+        if any(name not in env for name in names):
+            return {}, None, False
+        got = {name: env.get(name) for name in names}
+    record = got.pop(OVERFLOW_RECORD)
+    return got, record, True
 
 
 if __name__ == "__main__":

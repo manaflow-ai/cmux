@@ -3516,6 +3516,15 @@
     "download": "下載 Mac 版 NIGHTLY",
     "warning": "每夜建置可能包含錯誤或不完整的功能。如果遇到問題，請在 <githubLink>GitHub</githubLink> 或 <discordLink>Discord 的 #nightly-bugs</discordLink> 上回報，並切換回穩定版。"
   },
+  "next": {
+    "title": "cmux NEXT NIGHTLY",
+    "subtitle": "下一代 cmux 應用程式的預覽版本",
+    "metaTitle": "cmux NEXT NIGHTLY — 預覽版本",
+    "metaDescription": "下載 cmux NEXT NIGHTLY，下一代 cmux 應用程式的預覽版，從最新提交自動建置。與 cmux 並行執行，擁有獨立的自動更新。",
+    "description": "cmux NEXT NIGHTLY 是下一版 cmux 的預覽版，從最新提交自動建置。它擁有獨立的 Bundle ID，因此可以與 cmux 及 cmux NIGHTLY 並行執行，互不衝突。需要搭載 Apple 晶片的 Mac。",
+    "download": "下載 Mac 版 NEXT NIGHTLY",
+    "warning": "NEXT NIGHTLY 版本可能包含錯誤或未完成的功能。如果遇到問題，請在 <githubLink>GitHub</githubLink> 或 <discordLink>Discord 的 #nightly-bugs</discordLink> 回報，並切換回穩定版。"
+  },
   "languageSwitcher": {
     "label": "語言"
   },

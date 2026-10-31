@@ -2063,6 +2063,44 @@ class RootRunners(unittest.TestCase):
                            "--wait-owned", "--blacksmith-labels", mac26], env={"GITHUB_REPOSITORY": "manaflow-ai/cmux"})
         self.assertEqual(output.getvalue().strip(), mac26)
 
+    def test_owned_classes_keep_the_pick_off_other_owned_classes(self):
+        """cmux-next-dev-daily.yml's verify and tip-dmg-build: std only; a free light pool is no room for them."""
+        picker = e2e_pool.simple_pool_picker
+        mac26 = picker.BLACKSMITH[1]
+        std, light = "glaeda-std-xcode-26.6", "glaeda-light-xcode-26.6"
+        state = picker.State(
+            jobs=2, owned_enabled=True, wait_on_owned=True,
+            owned=(picker.Pool(std, 42, 42, 3, free=0), picker.Pool(light, 2, 0, 0, free=2)),
+            blacksmith=(picker.Pool(picker.BLACKSMITH[0], 5, 5, 3), picker.Pool(mac26, 10, 0, 4, stalled=True)))
+
+        def label(current, *extra):
+            with unittest.mock.patch.object(picker, "observe", return_value=current), \
+                 unittest.mock.patch("sys.stdout", io.StringIO()) as output:
+                e2e_pool.main(["--requested", "auto", "--owned", "1", "--pr-xcode-app", PR_XCODE, "--jobs", "2",
+                               "--wait-owned", "--blacksmith-labels", mac26, *extra],
+                              env={"GITHUB_REPOSITORY": "manaflow-ai/cmux"})
+            return output.getvalue().strip()
+        # Unrestricted, the free light pool takes both jobs.
+        self.assertEqual(label(state), light)
+        # std only: the busy std pool is waited on, never the light one.
+        self.assertEqual(label(state, "--owned-classes", "std"), std)
+        # With Blacksmith room on the jobs' own label, std-only takes Blacksmith over the free light pool.
+        room = dataclasses.replace(state, blacksmith=(state.blacksmith[0], picker.Pool(mac26, 10, 2, 0)))
+        self.assertEqual(label(room, "--owned-classes", "std"), mac26)
+        # A free std pool is still taken first.
+        free_std = dataclasses.replace(state, owned=(picker.Pool(std, 42, 30, 0, free=12), state.owned[1]))
+        self.assertEqual(label(free_std, "--owned-classes", "std"), std)
+        self.assertEqual(picker.owned_class(light), "light")
+        self.assertEqual(picker.owned_class("glaeda-root-std-xcode-26.6"), "std")
+        self.assertEqual(picker.owned_class(mac26), "")
+
+    def test_owned_classes_refuses_an_unknown_class(self):
+        with unittest.mock.patch("sys.stderr", io.StringIO()) as err, self.assertRaises(SystemExit) as done:
+            e2e_pool.main(["--requested", "auto", "--owned-classes", "standard"],
+                          env={"GITHUB_REPOSITORY": "manaflow-ai/cmux"})
+        self.assertEqual(done.exception.code, 2)
+        self.assertIn("not an owned class: standard", err.getvalue())
+
     def test_ui_auto_route_skips_simple_picker_and_uses_gui_label(self):
         """A media tour's auto pick must reach the UI-aware E2E picker."""
         with unittest.mock.patch.object(
@@ -3898,8 +3936,9 @@ class IrohReleaseGateWiring(unittest.TestCase):
     def test_simulator_e2e_stays_on_blacksmith(self):
         job = self.jobs["simulator-e2e"]
         self.assertEqual(job["needs"], "resolve-ref")
+        # Production Stack credentials: a literal label, never MACOS_RUNNER_15 (test_ci_fork_runner_routing.py).
         self.assertEqual(job["runs-on"], "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || "
-                                         f"{self.BLACKSMITH} }}}}")
+                                         "'blacksmith-6vcpu-macos-15' }}")
 
 
 class IOSWiring(unittest.TestCase):
@@ -3953,6 +3992,56 @@ class IOSWiring(unittest.TestCase):
         options = self.workflow("test-ios.yml")[True]["workflow_dispatch"]["inputs"]["runner"]["options"]
         self.assertEqual(options, ["auto", "blacksmith-6vcpu-macos-26", "owned"])
 
+    def test_the_simulator_build_holds_no_secret_and_the_seed_preflight_runs_beside_it(self):
+        # ios-simulator-build runs on ios_runner_pool.py's pick: an owned simulator
+        # Mac, or whatever MACOS_RUNNER_TESTS names. It must hold no secret there.
+        # The one step that named CI_CACHE_R2_* was the seed_cache preflight; it
+        # moves to ios-simulator-cache-seed on a literal ephemeral label (#27622).
+        # The restore reads the public URL and the save step never had the keys
+        # (on R2 it warns and saves nothing), so both stay exactly as they were.
+        jobs = self.workflow("test-ios.yml")["jobs"]
+        build = jobs["ios-simulator-build"]
+        self.assertIsNone(re.search(r"\bsecrets\b", json.dumps(build), re.IGNORECASE))
+        self.assertNotIn("environment", build)
+        steps = {step.get("name"): step for step in build["steps"]}
+        self.assertNotIn("Seed iOS caches from main", steps)
+        key = ("ios-spm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.xcode-version') }}-"
+               "${{ hashFiles('ios/cmux.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}")
+        backend = "${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}"
+        seeding = "inputs.seed_cache && github.ref == 'refs/heads/main'"
+        restore = steps["Restore iOS SwiftPM cache"]
+        self.assertEqual(restore["uses"], "./.github/actions/cache-restore")
+        self.assertEqual(restore["if"], "${{ steps.owned-state.outputs.packages != 'true' }}")
+        self.assertEqual((restore["with"]["key"], restore["with"]["backend"]), (key, backend))
+        self.assertNotIn("env", restore)
+        save = steps["Save iOS SwiftPM cache"]
+        self.assertEqual(save["uses"], "./.github/actions/cache-save")
+        self.assertEqual(save["if"], "${{ " + seeding + " }}")
+        self.assertEqual((save["with"]["key"], save["with"]["backend"]), (key, backend))
+        self.assertEqual(save["with"]["path"], ".ci-ios-source-packages")
+        self.assertNotIn("env", save)
+        self.assertEqual(set(build["outputs"]), {"artifact_id", "artifact_digest", "archive_sha256", "archive_bytes",
+                                                 "compile_seconds", "package_seconds", "upload_seconds"})
+
+        seed = jobs["ios-simulator-cache-seed"]
+        self.assertEqual(seed["runs-on"],
+                         "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}")
+        self.assertEqual(seed["environment"], "${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}")
+        self.assertEqual(seed["needs"], ["ios-simulator-build"])
+        # As the step ran: only after a successful build, only on a main seed_cache run.
+        self.assertEqual(seed["if"], "${{ !cancelled() && needs.ios-simulator-build.result == 'success' && "
+                                     + seeding + " }}")
+        self.assertEqual(seed["permissions"], {"contents": "read"})
+        self.assertEqual([step.get("name") for step in seed["steps"]], ["Seed iOS caches from main"])
+        preflight = seed["steps"][0]
+        for name, secret in (("AWS_ACCESS_KEY_ID", "secrets.CI_CACHE_R2_ACCESS_KEY_ID"),
+                             ("AWS_SECRET_ACCESS_KEY", "secrets.CI_CACHE_R2_SECRET_ACCESS_KEY"),
+                             ("CI_CACHE_R2_ENDPOINT", "secrets.CI_CACHE_R2_ACCOUNT_ID")):
+            self.assertIn(secret, preflight["env"][name])
+        self.assertIn("R2 cache seeding requested but CI_CACHE_R2 credentials are unavailable", preflight["run"])
+        # The aggregate gate sees a failed preflight, as it saw the build job fail.
+        self.assertIn("ios-simulator-cache-seed", jobs["ios-tests"]["needs"])
+
     def test_screenshots_take_the_runner_jobs_pool_without_actions_read(self):
         workflow = self.workflow("ios-screenshots.yml")
         jobs = workflow["jobs"]
@@ -3972,6 +4061,42 @@ class IOSWiring(unittest.TestCase):
         capture = next(step for step in screenshots["steps"] if step.get("name") == "Capture screenshots")
         self.assertEqual(capture["env"]["SNAPSHOT_DERIVED_DATA_PATH"],
                          "${{ runner.temp }}/cmux-ios-snapshot-derived-data")
+
+    def test_screenshots_capture_holds_no_secret_and_a_literal_job_uploads(self):
+        # The capture runs on ios_runner_pool.py's pick, an owned simulator Mac
+        # when CI_IOS_OWNED is 1, a reused machine. So it holds no secret and
+        # enters no environment; the App Store Connect key is only in the short
+        # upload job on a literal ephemeral label, which takes the screenshots
+        # from this run's artifact.
+        jobs = self.workflow("ios-screenshots.yml")["jobs"]
+        capture = jobs["screenshots"]
+        self.assertNotIn("environment", capture)
+        self.assertNotRegex(yaml.safe_dump(capture, width=100000), r"(?i)\$\{\{[^}]*\bsecrets\b|ASC_API|appstoreconnect")
+        uploaded = next(step for step in capture["steps"] if step.get("name") == "Upload screenshots artifact")
+        self.assertEqual(uploaded["with"]["name"], "ios-appstore-screenshots")
+        self.assertEqual(uploaded["with"]["path"], "ios/fastlane/screenshots")
+
+        upload = jobs["app-store-upload"]
+        self.assertEqual(upload["runs-on"], "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || "
+                                            "'blacksmith-6vcpu-macos-26' }}")
+        self.assertIn("screenshots", upload["needs"])
+        self.assertEqual(upload["if"], "${{ github.event_name == 'workflow_dispatch' && inputs.upload }}")
+        self.assertEqual(upload["environment"], "release")
+        steps = upload["steps"]
+        names = [step.get("name") for step in steps]
+        self.assertEqual(names[0], "Guard trusted upload ref")
+        self.assertLess(names.index("Select Xcode"), names.index("Upload screenshots to App Store Connect"))
+        download = next(step for step in steps if step.get("name") == "Download screenshots artifact")
+        self.assertTrue(download["uses"].startswith("actions/download-artifact@"), download)
+        self.assertEqual(download["with"], {"name": "ios-appstore-screenshots", "path": "ios/fastlane/screenshots"})
+        self.assertLess(names.index("Download screenshots artifact"),
+                        names.index("Upload screenshots to App Store Connect"))
+        key = next(step for step in steps if step.get("name") == "Materialize App Store Connect API key")
+        self.assertIn('KEY_DIR="$RUNNER_TEMP/', key["run"])
+        self.assertNotIn("$HOME", key["run"])
+        deliver = next(step for step in steps if step.get("name") == "Upload screenshots to App Store Connect")
+        self.assertEqual(deliver["run"].strip(), "fastlane upload_screenshots")
+        self.assertEqual(deliver["working-directory"], "ios")
 
     def test_a_persistent_pick_publishes_the_rescue_marker(self):
         for name in ("test-ios.yml", "ios-screenshots.yml"):
@@ -3996,8 +4121,9 @@ class IOSWiring(unittest.TestCase):
                            "vars.CI_PR_POOL_OWNED"):
                 self.assertNotIn(routed, text, f"{name} must not route to an owned Mac")
         validate = self.workflow("ios-streamed-validate.yml")["jobs"]["validate"]
+        # It holds CLAUDE_CODE_OAUTH_TOKEN: a literal label, never MACOS_RUNNER_IOS.
         self.assertEqual(validate["runs-on"], "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || "
-                                              "vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26' }}")
+                                              "'blacksmith-6vcpu-macos-26' }}")
 
     def test_home_secrets_are_removed_however_the_job_ends(self):
         # A reused runner keeps $HOME: every job that writes a secret file there
@@ -4180,3 +4306,46 @@ class LiveIdleRunners(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class TruncatedSnapshotTests(unittest.TestCase):
+    """A janitor sweep that listed part of the queue (queue_janitor.listing_state()) is no view of it:
+    on 2026-10-30 a sweep listed 300 of 1,138 queued runs, and its pools read the rest as nothing queued."""
+
+    def test_a_truncated_snapshot_is_a_problem_and_a_complete_one_is_not(self):
+        fresh = backlog()
+        self.assertEqual(pool.snapshot_problem(fresh, NOW), "")  # written before the key existed
+        self.assertEqual(pool.snapshot_problem(dict(fresh, truncated=False, listed=9, total=9), NOW), "")
+        for value in (True, 1, "yes", None):
+            with self.subTest(truncated=value):
+                problem = pool.snapshot_problem(dict(fresh, truncated=value, listed=300, total=1138), NOW)
+                self.assertIn("truncated", problem)
+        self.assertIn("300 of 1138", pool.snapshot_truncated(dict(fresh, truncated=True, listed=300, total=1138)))
+
+    def test_decide_keeps_the_default_on_a_truncated_snapshot(self):
+        # An empty large pool would take the run (test_placed_runs_and_a_narrower_pick_for_e2e); truncated, it
+        # may hold the demand the sweep never listed, so the default keeps its say.
+        snap = backlog(small=0, large=0, old=0)
+        snap["pools"][LARGE]["running"] = 0
+        args = dict(now=NOW, xcode_pins=PINS)
+        self.assertEqual(pool.decide(snap, pool.Settings(), **args).runner, LARGE)
+        choice = pool.decide(dict(snap, truncated=True, listed=300, total=1138), pool.Settings(), **args)
+        self.assertEqual(choice.runner, "")
+        self.assertIn("truncated", choice.reason)
+
+    def test_the_e2e_and_ios_load_reads_a_truncated_snapshot_as_none(self):
+        class Client:
+            def __init__(self, snapshot):
+                self.snap = snapshot
+
+            def snapshot(self, *, now):
+                return self.snap
+
+            def runs_since(self, workflow, since, **filters):
+                return []
+
+            def pull_request_runs_since(self, since, *, exclude_run_id):
+                return 0
+
+        self.assertIsNotNone(e2e_pool.measure_load(Client(backlog()), now=NOW, exclude_run_id=None))
+        self.assertIsNone(e2e_pool.measure_load(Client(dict(backlog(), truncated=True)), now=NOW, exclude_run_id=None))

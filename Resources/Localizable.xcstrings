@@ -671652,6 +671652,2006 @@
           }
         }
       }
+    },
+    "cli.hooks.error.globalRequiresKiro": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--global is only supported for Kiro. Usage: cmux hooks setup kiro --global"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الخيار --global مدعوم لـ Kiro فقط. الاستخدام: cmux hooks setup kiro --global"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--global je podržan samo za Kiro. Upotreba: cmux hooks setup kiro --global"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--global understøttes kun for Kiro. Brug: cmux hooks setup kiro --global"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--global wird nur für Kiro unterstützt. Verwendung: cmux hooks setup kiro --global"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--global solo se admite para Kiro. Uso: cmux hooks setup kiro --global"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--global n’est pris en charge que pour Kiro. Utilisation : cmux hooks setup kiro --global"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--global è supportato solo per Kiro. Uso: cmux hooks setup kiro --global"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--global は Kiro でのみサポートされています。使い方: cmux hooks setup kiro --global"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--global គាំទ្រតែសម្រាប់ Kiro ប៉ុណ្ណោះ។ របៀបប្រើ៖ cmux hooks setup kiro --global"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--global은 Kiro에서만 지원됩니다. 사용법: cmux hooks setup kiro --global"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--global støttes bare for Kiro. Bruk: cmux hooks setup kiro --global"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--global jest obsługiwane tylko dla Kiro. Użycie: cmux hooks setup kiro --global"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--global só é compatível com o Kiro. Uso: cmux hooks setup kiro --global"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--global поддерживается только для Kiro. Использование: cmux hooks setup kiro --global"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--global รองรับเฉพาะ Kiro เท่านั้น วิธีใช้: cmux hooks setup kiro --global"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--global yalnızca Kiro için desteklenir. Kullanım: cmux hooks setup kiro --global"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--global підтримується лише для Kiro. Використання: cmux hooks setup kiro --global"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--global 仅支持 Kiro。用法：cmux hooks setup kiro --global"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--global 僅支援 Kiro。用法：cmux hooks setup kiro --global"
+          }
+        }
+      }
+    },
+    "cli.hooks.kiro.global.aborted": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aborted."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم الإلغاء."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prekinuto."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afbrudt."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abgebrochen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abortado."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Annulé."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Interrotto."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "中止しました。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បានបោះបង់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "중단되었습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avbrutt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przerwano."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancelado."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Прервано."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ยกเลิกแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "İptal edildi."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перервано."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已中止。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已中止。"
+          }
+        }
+      }
+    },
+    "cli.hooks.kiro.global.alreadyUpToDate": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ global hooks already up to date at %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "خطافات %@ العامة محدثة بالفعل في %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Globalni %@ hookovi su već ažurni u %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Globale %@-hooks er allerede opdaterede i %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Globale %@-Hooks unter %@ sind bereits aktuell"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los hooks globales de %@ ya están actualizados en %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les hooks globaux de %@ sont déjà à jour dans %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gli hook globali di %@ sono già aggiornati in %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ のグローバルフックは %@ ですでに最新です"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "hooks សកលរបស់ %@ ទាន់សម័យរួចហើយនៅ %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 전역 훅이 %@에서 이미 최신 상태입니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Globale %@-hooks er allerede oppdatert i %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Globalne hooki %@ są już aktualne w %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Os hooks globais do %@ já estão atualizados em %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Глобальные хуки %@ уже актуальны в %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "hooks ส่วนกลางของ %@ เป็นเวอร์ชันล่าสุดแล้วที่ %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ genel hook'ları %@ konumunda zaten güncel"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Глобальні хуки %@ уже актуальні в %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 全局 hooks 在 %@ 已是最新"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 全域勾點在 %@ 已是最新"
+          }
+        }
+      }
+    },
+    "cli.hooks.kiro.global.bothInstalledNote": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Note: the cmux agent config and the Kiro CLI V3 global hooks are both installed. Kiro CLI V3 merges hooks from every scope, so a `--agent cmux` session on V3 can report each session start, prompt and stop twice. On V3, start Kiro without `--agent cmux`, or remove the global file with `cmux hooks uninstall kiro --global`."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ملاحظة: إعداد وكيل cmux والخطافات العامة لـ Kiro CLI V3 مثبّتان كلاهما. يدمج Kiro CLI V3 الخطافات من جميع النطاقات، لذا قد تُبلغ جلسة `--agent cmux` في V3 عن كل بدء جلسة وكل مطالبة وكل توقف مرتين. في V3، ابدأ Kiro بدون `--agent cmux`، أو أزل الملف العام باستخدام `cmux hooks uninstall kiro --global`."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Napomena: instalirani su i cmux konfiguracija agenta i globalni Kiro CLI V3 hookovi. Kiro CLI V3 spaja hookove iz svih opsega, pa `--agent cmux` sesija na V3 može dvaput prijaviti svaki početak sesije, prompt i zaustavljanje. Na V3 pokrenite Kiro bez `--agent cmux` ili uklonite globalnu datoteku pomoću `cmux hooks uninstall kiro --global`."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bemærk: både cmux-agentkonfigurationen og de globale Kiro CLI V3-hooks er installeret. Kiro CLI V3 fletter hooks fra alle scopes, så en `--agent cmux`-session på V3 kan rapportere hver sessionsstart, prompt og stop to gange. På V3 skal du starte Kiro uden `--agent cmux` eller fjerne den globale fil med `cmux hooks uninstall kiro --global`."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hinweis: Die cmux-Agent-Konfiguration und die globalen Hooks für Kiro CLI V3 sind beide installiert. Kiro CLI V3 führt Hooks aus allen Bereichen zusammen, daher kann eine Sitzung mit `--agent cmux` unter V3 jeden Sitzungsstart, jeden Prompt und jeden Stopp doppelt melden. Starten Sie Kiro unter V3 ohne `--agent cmux`, oder entfernen Sie die globale Datei mit `cmux hooks uninstall kiro --global`."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nota: la configuración del agente de cmux y los hooks globales de Kiro CLI V3 están instalados a la vez. Kiro CLI V3 combina los hooks de todos los ámbitos, por lo que una sesión con `--agent cmux` en V3 puede notificar dos veces cada inicio de sesión, prompt y parada. En V3, inicie Kiro sin `--agent cmux`, o elimine el archivo global con `cmux hooks uninstall kiro --global`."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remarque : la configuration de l’agent cmux et les hooks globaux de Kiro CLI V3 sont tous deux installés. Kiro CLI V3 fusionne les hooks de toutes les portées, si bien qu’une session `--agent cmux` sous V3 peut signaler deux fois chaque démarrage de session, prompt et arrêt. Sous V3, démarrez Kiro sans `--agent cmux`, ou supprimez le fichier global avec `cmux hooks uninstall kiro --global`."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nota: sono installati sia la configurazione dell’agente cmux sia gli hook globali di Kiro CLI V3. Kiro CLI V3 unisce gli hook di tutti gli ambiti, quindi una sessione `--agent cmux` su V3 può segnalare due volte ogni avvio di sessione, prompt e arresto. Su V3, avvia Kiro senza `--agent cmux` oppure rimuovi il file globale con `cmux hooks uninstall kiro --global`."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "注意: cmux エージェント設定と Kiro CLI V3 のグローバルフックの両方がインストールされています。Kiro CLI V3 はすべてのスコープのフックをマージするため、V3 の `--agent cmux` セッションではセッション開始、プロンプト、停止がそれぞれ 2 回報告されることがあります。V3 では `--agent cmux` なしで Kiro を起動するか、`cmux hooks uninstall kiro --global` でグローバルファイルを削除してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចំណាំ៖ ការកំណត់ agent cmux និង hooks សកលរបស់ Kiro CLI V3 ត្រូវបានដំឡើងទាំងពីរ។ Kiro CLI V3 បញ្ចូល hooks ពីគ្រប់វិសាលភាព ដូច្នេះវគ្គ `--agent cmux` លើ V3 អាចរាយការណ៍ការចាប់ផ្តើមវគ្គ prompt និងការបញ្ឈប់នីមួយៗពីរដង។ នៅលើ V3 សូមចាប់ផ្តើម Kiro ដោយគ្មាន `--agent cmux` ឬលុបឯកសារសកលដោយ `cmux hooks uninstall kiro --global`។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "참고: cmux 에이전트 설정과 Kiro CLI V3 전역 훅이 모두 설치되어 있습니다. Kiro CLI V3는 모든 범위의 훅을 병합하므로 V3의 `--agent cmux` 세션이 세션 시작, 프롬프트, 중지를 각각 두 번 보고할 수 있습니다. V3에서는 `--agent cmux` 없이 Kiro를 시작하거나 `cmux hooks uninstall kiro --global`로 전역 파일을 제거하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Merk: både cmux-agentkonfigurasjonen og de globale Kiro CLI V3-hookene er installert. Kiro CLI V3 slår sammen hooks fra alle omfang, så en `--agent cmux`-økt på V3 kan rapportere hver øktstart, ledetekst og stopp to ganger. På V3 starter du Kiro uten `--agent cmux`, eller fjerner den globale filen med `cmux hooks uninstall kiro --global`."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uwaga: zainstalowano zarówno konfigurację agenta cmux, jak i globalne hooki Kiro CLI V3. Kiro CLI V3 łączy hooki ze wszystkich zakresów, więc sesja `--agent cmux` w V3 może dwukrotnie zgłaszać każde rozpoczęcie sesji, prompt i zatrzymanie. W V3 uruchamiaj Kiro bez `--agent cmux` albo usuń plik globalny poleceniem `cmux hooks uninstall kiro --global`."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Observação: a configuração do agente cmux e os hooks globais do Kiro CLI V3 estão instalados. O Kiro CLI V3 mescla hooks de todos os escopos, então uma sessão `--agent cmux` no V3 pode relatar duas vezes cada início de sessão, prompt e parada. No V3, inicie o Kiro sem `--agent cmux` ou remova o arquivo global com `cmux hooks uninstall kiro --global`."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Примечание: установлены и конфигурация агента cmux, и глобальные хуки Kiro CLI V3. Kiro CLI V3 объединяет хуки из всех областей, поэтому сеанс `--agent cmux` в V3 может дважды сообщать о каждом начале сеанса, запросе и остановке. В V3 запускайте Kiro без `--agent cmux` или удалите глобальный файл командой `cmux hooks uninstall kiro --global`."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หมายเหตุ: มีการติดตั้งทั้งการกำหนดค่า agent ของ cmux และ hooks ส่วนกลางของ Kiro CLI V3 Kiro CLI V3 รวม hooks จากทุกขอบเขต เซสชัน `--agent cmux` บน V3 จึงอาจรายงานการเริ่มเซสชัน พรอมต์ และการหยุดแต่ละครั้งซ้ำสองครั้ง บน V3 ให้เริ่ม Kiro โดยไม่ใช้ `--agent cmux` หรือลบไฟล์ส่วนกลางด้วย `cmux hooks uninstall kiro --global`"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not: hem cmux ajan yapılandırması hem de Kiro CLI V3 genel hook'ları kurulu. Kiro CLI V3 tüm kapsamlardaki hook'ları birleştirir; bu yüzden V3 üzerindeki bir `--agent cmux` oturumu her oturum başlangıcını, istemi ve durmayı iki kez bildirebilir. V3'te Kiro'yu `--agent cmux` olmadan başlatın veya genel dosyayı `cmux hooks uninstall kiro --global` ile kaldırın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Примітка: встановлено і конфігурацію агента cmux, і глобальні хуки Kiro CLI V3. Kiro CLI V3 об’єднує хуки з усіх областей, тому сеанс `--agent cmux` у V3 може двічі повідомляти про кожен початок сеансу, запит і зупинку. У V3 запускайте Kiro без `--agent cmux` або видаліть глобальний файл командою `cmux hooks uninstall kiro --global`."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "注意：cmux agent 配置和 Kiro CLI V3 全局 hooks 均已安装。Kiro CLI V3 会合并所有作用域的 hooks，因此 V3 上的 `--agent cmux` 会话可能会两次上报每次会话开始、提示和停止。在 V3 上，请不带 `--agent cmux` 启动 Kiro，或用 `cmux hooks uninstall kiro --global` 移除全局文件。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "注意：cmux 代理程式設定與 Kiro CLI V3 全域勾點都已安裝。Kiro CLI V3 會合併所有範圍的勾點，因此 V3 上的 `--agent cmux` 工作階段可能會兩次回報每次工作階段開始、提示與停止。在 V3 上，請不帶 `--agent cmux` 啟動 Kiro，或使用 `cmux hooks uninstall kiro --global` 移除全域檔案。"
+          }
+        }
+      }
+    },
+    "cli.hooks.kiro.global.confirmProceed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\nProceed? [y/N] "
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\nهل ترغب في المتابعة؟ [y/N] "
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\nNastaviti? [y/N] "
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\nFortsæt? [y/N] "
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\nFortfahren? [y/N] "
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\n¿Proceder? [y/N] "
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\nContinuer ? [y/N] "
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\nProcedere? [y/N] "
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\n続行しますか? [y/N] "
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\nបន្តទេ? [y/N] "
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\n계속하시겠습니까? [y/N] "
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\nFortsette? [y/N] "
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\nKontynuować? [y/N] "
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\nContinuar? [y/N] "
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\nПродолжить? [y/N] "
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\nดำเนินการต่อ? [y/N] "
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\nDevam edilsin mi? [y/N] "
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\nПродовжити? [y/N] "
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\n是否继续？ [y/N] "
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\n是否繼續？ [y/N] "
+          }
+        }
+      }
+    },
+    "cli.hooks.kiro.global.installed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ global hooks installed at %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم تثبيت خطافات %@ العامة في %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Globalni %@ hookovi instalirani u %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Globale %@-hooks installeret i %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Globale %@-Hooks unter %@ installiert"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hooks globales de %@ instalados en %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hooks globaux de %@ installés dans %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hook globali di %@ installati in %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ のグローバルフックを %@ にインストールしました"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បានដំឡើង hooks សកលរបស់ %@ នៅ %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 전역 훅을 %@에 설치했습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Globale %@-hooks installert i %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zainstalowano globalne hooki %@ w %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hooks globais do %@ instalados em %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Глобальные хуки %@ установлены в %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ติดตั้ง hooks ส่วนกลางของ %@ ที่ %@ แล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ genel hook'ları %@ konumuna kuruldu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Глобальні хуки %@ встановлено в %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已在 %@ 安装 %@ 全局 hooks"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已在 %@ 安裝 %@ 全域勾點"
+          }
+        }
+      }
+    },
+    "cli.hooks.kiro.global.invalidJSON": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ exists but is not valid JSON. Fix or remove it before installing hooks."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الملف %@ موجود ولكنه ليس بتنسيق JSON صالح. قم بإصلاحه أو إزالته قبل تثبيت الخطافات."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ postoji, ali nije ispravan JSON. Popravite ga ili uklonite prije instaliranja hookova."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ findes, men er ikke gyldig JSON. Ret eller fjern den, før du installerer hooks."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "„%@“ existiert, ist aber kein gültiges JSON. Korrigiere oder entferne es, bevor du Hooks installierst."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ existe pero no es un JSON válido. Corríjalo o elimínelo antes de instalar los hooks."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ existe mais n'est pas un JSON valide. Corrigez-le ou supprimez-le avant d'installer les hooks."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ esiste ma non è un JSON valido. Correggilo o rimuovilo prima di installare gli hook."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ は存在しますが、有効な JSON ではありません。hooks をインストールする前に修正または削除してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ មានស្រាប់ ប៉ុន្តែមិនមែនជា JSON ត្រឹមត្រូវទេ។ សូមកែ ឬលុបវាមុនពេលដំឡើង hooks។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@이(가) 존재하지만 유효한 JSON이 아닙니다. 훅을 설치하기 전에 수정하거나 제거하십시오."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ finnes, men er ikke gyldig JSON. Rett eller fjern den før du installerer hooks."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ istnieje, ale nie jest prawidłowym plikiem JSON. Popraw go lub usuń przed instalacją hooków."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ existe, mas não é um JSON válido. Corrija ou remova o arquivo antes de instalar os hooks."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ существует, но не является корректным JSON. Исправьте или удалите его перед установкой хуков."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ มีอยู่แต่ไม่ใช่ JSON ที่ถูกต้อง แก้ไขหรือลบไฟล์ก่อนติดตั้ง hooks"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ var ancak geçerli bir JSON değil. Hook'ları kurmadan önce düzeltin veya kaldırın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ існує, але це некоректний JSON. Виправте або видаліть його перед встановленням хуків."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 存在但不是有效的 JSON。请先修复或移除它，再安装 hooks。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 存在，但不是有效的 JSON。請在安裝勾點前修正或移除它。"
+          }
+        }
+      }
+    },
+    "cli.hooks.kiro.global.noCmuxHooks": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No cmux hooks found in %@; left it unchanged"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يُعثر على خطافات cmux في %@؛ تُرك دون تغيير"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "U %@ nisu pronađeni cmux hookovi; ostavljeno bez izmjena"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingen cmux-hooks fundet i %@; filen er uændret"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine cmux-Hooks in %@ gefunden; Datei unverändert gelassen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se encontraron hooks de cmux en %@; se dejó sin cambios"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucun hook cmux trouvé dans %@ ; fichier laissé inchangé"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nessun hook cmux trovato in %@; lasciato invariato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ に cmux のフックが見つかりませんでした。変更していません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រកមិនឃើញ hooks របស់ cmux ក្នុង %@ ទេ មិនបានផ្លាស់ប្តូរ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에서 cmux 훅을 찾지 못했습니다. 변경하지 않았습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fant ingen cmux-hooks i %@; filen er uendret"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie znaleziono hooków cmux w %@; pozostawiono bez zmian"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nenhum hook do cmux encontrado em %@; o arquivo não foi alterado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Хуки cmux в %@ не найдены; файл оставлен без изменений"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่พบ hooks ของ cmux ใน %@ จึงไม่ได้เปลี่ยนแปลง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ içinde cmux hook'u bulunamadı; değiştirilmedi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Хуків cmux у %@ не знайдено; файл залишено без змін"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 %@ 中未找到 cmux hooks；未作更改"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 %@ 中找不到 cmux 勾點；未作變更"
+          }
+        }
+      }
+    },
+    "cli.hooks.kiro.global.noneFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No %@ found at %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يتم العثور على أي %@ في %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nije pronađen %@ u %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingen %@ fundet i %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kein %@ unter %@ gefunden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se encontró ningún %@ en %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucun %@ trouvé à l'emplacement %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nessun %@ trovato in %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ は %@ に見つかりませんでした"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រកមិនឃើញ %@ នៅ %@ ទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@(이)가 %@에서 발견되지 않았습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fant ingen %@ i %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie znaleziono %@ w %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nenhum %@ encontrado em %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ не найден в %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่พบ %@ ที่ %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ konumunda %@ bulunamadı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ не знайдено в %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未找到 %@，位置：%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 未於 %@ 尋獲"
+          }
+        }
+      }
+    },
+    "cli.hooks.kiro.global.notOwned": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ exists and was not written by cmux. Rename it, then run `cmux hooks setup kiro --global` again."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الملف %@ موجود ولم ينشئه cmux. أعد تسميته، ثم شغّل `cmux hooks setup kiro --global` مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ postoji i nije ga napisao cmux. Preimenujte ga, a zatim ponovo pokrenite `cmux hooks setup kiro --global`."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ findes og er ikke skrevet af cmux. Omdøb den, og kør derefter `cmux hooks setup kiro --global` igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ existiert und wurde nicht von cmux geschrieben. Benenne die Datei um und führe dann `cmux hooks setup kiro --global` erneut aus."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ existe y no lo escribió cmux. Cámbiale el nombre y vuelve a ejecutar `cmux hooks setup kiro --global`."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ existe et n’a pas été écrit par cmux. Renommez-le, puis relancez `cmux hooks setup kiro --global`."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ esiste e non è stato scritto da cmux. Rinominalo, quindi esegui di nuovo `cmux hooks setup kiro --global`."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ は存在しますが、cmux が書き込んだものではありません。名前を変更してから、もう一度 `cmux hooks setup kiro --global` を実行してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ មានស្រាប់ ហើយមិនមែនសរសេរដោយ cmux ទេ។ សូមប្តូរឈ្មោះវា បន្ទាប់មកដំណើរការ `cmux hooks setup kiro --global` ម្តងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 파일이 있지만 cmux가 작성한 파일이 아닙니다. 이름을 바꾼 다음 `cmux hooks setup kiro --global`을 다시 실행하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ finnes og er ikke skrevet av cmux. Gi den nytt navn, og kjør deretter `cmux hooks setup kiro --global` på nytt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ istnieje i nie został zapisany przez cmux. Zmień jego nazwę, a następnie ponownie uruchom `cmux hooks setup kiro --global`."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ existe e não foi criado pelo cmux. Renomeie o arquivo e execute `cmux hooks setup kiro --global` novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ существует и не был создан cmux. Переименуйте его, затем снова запустите `cmux hooks setup kiro --global`."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ มีอยู่และไม่ได้เขียนโดย cmux เปลี่ยนชื่อไฟล์ แล้วเรียก `cmux hooks setup kiro --global` อีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ var ve cmux tarafından yazılmadı. Adını değiştirin, ardından `cmux hooks setup kiro --global` komutunu yeniden çalıştırın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ існує і не був створений cmux. Перейменуйте його, а потім знову запустіть `cmux hooks setup kiro --global`."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 已存在，且不是由 cmux 写入的。请重命名该文件，然后再次运行 `cmux hooks setup kiro --global`。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 已存在，且不是由 cmux 寫入的。請重新命名該檔案，然後再次執行 `cmux hooks setup kiro --global`。"
+          }
+        }
+      }
+    },
+    "cli.hooks.kiro.global.postInstallNote": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "These global hooks are for Kiro CLI V3 only (`kiro-cli --v3`) and run for every agent. Kiro CLI 2.x and earlier ignore this file; use the default install (`cmux hooks setup kiro`) and `--agent cmux` there. Feed permission approvals still need `--agent cmux`."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تنطبق هذه الخطافات العامة على Kiro CLI V3 فقط (`kiro-cli --v3`)، ولكل وكيل. يتجاهل Kiro CLI 2.x والإصدارات الأقدم هذا الملف؛ استخدم هناك التثبيت الافتراضي (`cmux hooks setup kiro`) و`--agent cmux`. لا تزال موافقات أذونات Feed تتطلب `--agent cmux`."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ovi globalni hookovi su samo za Kiro CLI V3 (`kiro-cli --v3`) i pokreću se za svakog agenta. Kiro CLI 2.x i starije verzije ignorišu ovu datoteku; tamo koristite zadanu instalaciju (`cmux hooks setup kiro`) i `--agent cmux`. Feed odobrenja dozvola i dalje zahtijevaju `--agent cmux`."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disse globale hooks er kun til Kiro CLI V3 (`kiro-cli --v3`) og kører for alle agenter. Kiro CLI 2.x og ældre ignorerer denne fil; brug standardinstallationen (`cmux hooks setup kiro`) og `--agent cmux` der. Feed-godkendelser af tilladelser kræver stadig `--agent cmux`."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese globalen Hooks gelten nur für Kiro CLI V3 (`kiro-cli --v3`), und zwar für jeden Agent. Kiro CLI 2.x und älter ignorieren diese Datei; verwenden Sie dort die Standardinstallation (`cmux hooks setup kiro`) und `--agent cmux`. Feed-Berechtigungsfreigaben benötigen weiterhin `--agent cmux`."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Estos hooks globales se aplican solo a Kiro CLI V3 (`kiro-cli --v3`), para todos los agentes. Kiro CLI 2.x y versiones anteriores ignoran este archivo; en ellos, use la instalación predeterminada (`cmux hooks setup kiro`) y `--agent cmux`. Las aprobaciones de permisos de Feed siguen necesitando `--agent cmux`."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ces hooks globaux s’appliquent uniquement à Kiro CLI V3 (`kiro-cli --v3`), pour chaque agent. Kiro CLI 2.x et les versions antérieures ignorent ce fichier ; utilisez-y l’installation par défaut (`cmux hooks setup kiro`) et `--agent cmux`. Les approbations d’autorisation du Feed nécessitent toujours `--agent cmux`."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questi hook globali sono solo per Kiro CLI V3 (`kiro-cli --v3`) e vengono eseguiti per ogni agente. Kiro CLI 2.x e versioni precedenti ignorano questo file; lì usa l’installazione predefinita (`cmux hooks setup kiro`) e `--agent cmux`. Le approvazioni dei permessi del Feed richiedono ancora `--agent cmux`."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "これらのグローバルフックは Kiro CLI V3（`kiro-cli --v3`）にのみ、すべてのエージェントに対して適用されます。Kiro CLI 2.x 以前はこのファイルを無視するため、それらでは既定のインストール（`cmux hooks setup kiro`）と `--agent cmux` を使用してください。Feed の権限承認には引き続き `--agent cmux` が必要です。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "hooks សកលទាំងនេះសម្រាប់តែ Kiro CLI V3 (`kiro-cli --v3`) ប៉ុណ្ណោះ ហើយដំណើរការសម្រាប់ agent គ្រប់ៗ។ Kiro CLI 2.x និងកំណែចាស់ជាងនេះមិនអើពើឯកសារនេះទេ សូមប្រើការដំឡើងលំនាំដើម (`cmux hooks setup kiro`) និង `--agent cmux` នៅទីនោះ។ ការអនុម័តសិទ្ធិក្នុង Feed នៅតែត្រូវការ `--agent cmux`។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 전역 훅은 Kiro CLI V3(`kiro-cli --v3`)에만, 모든 에이전트에 적용됩니다. Kiro CLI 2.x 이하 버전은 이 파일을 무시하므로 해당 버전에서는 기본 설치(`cmux hooks setup kiro`)와 `--agent cmux`를 사용하세요. Feed 권한 승인에는 여전히 `--agent cmux`가 필요합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disse globale hookene er bare for Kiro CLI V3 (`kiro-cli --v3`) og kjører for alle agenter. Kiro CLI 2.x og eldre ignorerer denne filen; bruk standardinstallasjonen (`cmux hooks setup kiro`) og `--agent cmux` der. Feed-godkjenning av tillatelser krever fortsatt `--agent cmux`."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Te globalne hooki są tylko dla Kiro CLI V3 (`kiro-cli --v3`) i działają dla każdego agenta. Kiro CLI 2.x i starsze ignorują ten plik; tam użyj domyślnej instalacji (`cmux hooks setup kiro`) i `--agent cmux`. Zatwierdzanie uprawnień w Feed nadal wymaga `--agent cmux`."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esses hooks globais são apenas para o Kiro CLI V3 (`kiro-cli --v3`) e rodam para todos os agentes. O Kiro CLI 2.x e versões anteriores ignoram este arquivo; nelas, use a instalação padrão (`cmux hooks setup kiro`) e `--agent cmux`. As aprovações de permissão no Feed ainda exigem `--agent cmux`."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Эти глобальные хуки предназначены только для Kiro CLI V3 (`kiro-cli --v3`) и запускаются для каждого агента. Kiro CLI 2.x и более ранние версии игнорируют этот файл; в них используйте стандартную установку (`cmux hooks setup kiro`) и `--agent cmux`. Для подтверждения разрешений в Feed по-прежнему нужен `--agent cmux`."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "hooks ส่วนกลางเหล่านี้ใช้กับ Kiro CLI V3 (`kiro-cli --v3`) เท่านั้น และทำงานกับทุก agent Kiro CLI 2.x และเวอร์ชันก่อนหน้าจะไม่สนใจไฟล์นี้ ให้ใช้การติดตั้งเริ่มต้น (`cmux hooks setup kiro`) และ `--agent cmux` แทน การอนุมัติสิทธิ์ใน Feed ยังต้องใช้ `--agent cmux`"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu genel hook'lar yalnızca Kiro CLI V3 (`kiro-cli --v3`) içindir ve her ajan için çalışır. Kiro CLI 2.x ve öncesi bu dosyayı yok sayar; orada varsayılan kurulumu (`cmux hooks setup kiro`) ve `--agent cmux` kullanın. Feed izin onayları hâlâ `--agent cmux` gerektirir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ці глобальні хуки призначені лише для Kiro CLI V3 (`kiro-cli --v3`) і запускаються для кожного агента. Kiro CLI 2.x і старіші версії ігнорують цей файл; там використовуйте стандартне встановлення (`cmux hooks setup kiro`) і `--agent cmux`. Для схвалення дозволів у Feed і далі потрібен `--agent cmux`."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这些全局 hooks 仅适用于 Kiro CLI V3（`kiro-cli --v3`），并对每个 agent 生效。Kiro CLI 2.x 及更早版本会忽略此文件；在这些版本中请使用默认安装（`cmux hooks setup kiro`）和 `--agent cmux`。Feed 权限审批仍需要 `--agent cmux`。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這些全域勾點僅適用於 Kiro CLI V3（`kiro-cli --v3`），並套用於每個代理程式。Kiro CLI 2.x 及更早版本會忽略此檔案；請在這些版本使用預設安裝（`cmux hooks setup kiro`）與 `--agent cmux`。Feed 權限核准仍需要 `--agent cmux`。"
+          }
+        }
+      }
+    },
+    "cli.hooks.kiro.global.removed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Removed cmux hooks from %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تمت إزالة خطافات cmux من %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uklonjeni cmux hookovi iz %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-hooks fjernet fra %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-Hooks aus %@ entfernt"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se quitaron los hooks de cmux de %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hooks cmux supprimés de %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hook cmux rimossi da %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ から cmux のフックを削除しました"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បានលុប hooks របស់ cmux ចេញពី %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에서 cmux 훅을 제거했습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fjernet cmux-hooks fra %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usunięto hooki cmux z %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hooks do cmux removidos de %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Хуки cmux удалены из %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ลบ hooks ของ cmux ออกจาก %@ แล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux hook'ları %@ konumundan kaldırıldı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Хуки cmux видалено з %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已从 %@ 移除 cmux hooks"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已從 %@ 移除 cmux 勾點"
+          }
+        }
+      }
+    },
+    "cli.hooks.kiro.global.removedAndDeleted": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Removed cmux hooks and deleted %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تمت إزالة خطافات cmux وحذف %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uklonjeni cmux hookovi i obrisan %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-hooks fjernet og %@ slettet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-Hooks entfernt und %@ gelöscht"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se quitaron los hooks de cmux y se eliminó %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hooks cmux supprimés et %@ effacé"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hook cmux rimossi ed eliminato %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux のフックを削除し、%@ を削除しました"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បានលុប hooks របស់ cmux និងលុប %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 훅을 제거하고 %@을(를) 삭제했습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fjernet cmux-hooks og slettet %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usunięto hooki cmux i plik %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hooks do cmux removidos e %@ excluído"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Хуки cmux удалены, файл %@ удалён"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ลบ hooks ของ cmux และลบ %@ แล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux hook'ları kaldırıldı ve %@ silindi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Хуки cmux видалено, файл %@ видалено"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已移除 cmux hooks 并删除 %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已移除 cmux 勾點並刪除 %@"
+          }
+        }
+      }
+    },
+    "cli.hooks.kiro.global.uninstallInvalidJSON": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ is not valid JSON. cmux left it unchanged."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الملف %@ ليس JSON صالحًا. ترك cmux الملف دون تغيير."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ nije ispravan JSON. cmux ga je ostavio bez izmjena."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ er ikke gyldig JSON. cmux har ikke ændret filen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ist kein gültiges JSON. cmux hat die Datei unverändert gelassen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ no es un JSON válido. cmux lo dejó sin cambios."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ n’est pas un JSON valide. cmux l’a laissé inchangé."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ non è un JSON valido. cmux lo ha lasciato invariato."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ は有効な JSON ではありません。cmux は変更しませんでした。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ មិនមែនជា JSON ត្រឹមត្រូវទេ។ cmux មិនបានផ្លាស់ប្តូរវាទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 파일이 올바른 JSON이 아닙니다. cmux는 파일을 변경하지 않았습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ er ikke gyldig JSON. cmux har ikke endret filen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ nie jest prawidłowym plikiem JSON. cmux pozostawił go bez zmian."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ não é um JSON válido. O cmux não alterou o arquivo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ не является корректным JSON. cmux оставил его без изменений."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ไม่ใช่ JSON ที่ถูกต้อง cmux ไม่ได้เปลี่ยนแปลงไฟล์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ geçerli bir JSON değil. cmux dosyayı değiştirmedi."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ не є коректним JSON. cmux залишив файл без змін."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 不是有效的 JSON。cmux 未作更改。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 不是有效的 JSON。cmux 未作變更。"
+          }
+        }
+      }
+    },
+    "cli.hooks.kiro.global.confirmSummary": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "سيحدّث cmux الخطافات العامة لـ Kiro مع الحفاظ على الخطافات التي لم يثبتها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux will update Kiro's global hooks and preserve hooks it did not install."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux will update Kiro's global hooks and preserve hooks it did not install."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux aktualisiert Kiros globale Hooks und bewahrt Hooks, die cmux nicht installiert hat."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux will update Kiro's global hooks and preserve hooks it did not install."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux actualizará los hooks globales de Kiro y conservará los hooks que no haya instalado."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux mettra à jour les hooks globaux de Kiro et conservera ceux qu’il n’a pas installés."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux will update Kiro's global hooks and preserve hooks it did not install."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmuxはKiroのグローバルフックを更新し、cmuxがインストールしていないフックは保持します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux will update Kiro's global hooks and preserve hooks it did not install."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 Kiro 전역 훅을 업데이트하고 설치하지 않은 훅은 보존합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux will update Kiro's global hooks and preserve hooks it did not install."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux will update Kiro's global hooks and preserve hooks it did not install."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux will update Kiro's global hooks and preserve hooks it did not install."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux will update Kiro's global hooks and preserve hooks it did not install."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux will update Kiro's global hooks and preserve hooks it did not install."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux will update Kiro's global hooks and preserve hooks it did not install."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux will update Kiro's global hooks and preserve hooks it did not install."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 将更新 Kiro 的全局钩子，并保留未由 cmux 安装的钩子。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 會更新 Kiro 的全域勾點，並保留不是由 cmux 安裝的勾點。"
+          }
+        }
+      }
+    },
+    "cli.hooks.kiro.global.changedDuringConfirmation": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تغيّر ملف الخطافات العامة لـ Kiro أثناء انتظار cmux. لم تُجرَ أي تغييرات؛ شغّل الأمر مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Kiro global hooks file changed while cmux was waiting. No changes were made; run the command again."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Kiro global hooks file changed while cmux was waiting. No changes were made; run the command again."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Datei mit Kiros globalen Hooks wurde geändert, während cmux gewartet hat. Es wurden keine Änderungen vorgenommen; führe den Befehl erneut aus."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Kiro global hooks file changed while cmux was waiting. No changes were made; run the command again."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El archivo de hooks globales de Kiro cambió mientras cmux esperaba. No se realizaron cambios; ejecuta el comando de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le fichier des hooks globaux de Kiro a changé pendant l’attente de cmux. Aucune modification n’a été effectuée ; relancez la commande."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Kiro global hooks file changed while cmux was waiting. No changes were made; run the command again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmuxの待機中にKiroのグローバルフックファイルが変更されました。変更は行っていません。コマンドをもう一度実行してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Kiro global hooks file changed while cmux was waiting. No changes were made; run the command again."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 기다리는 동안 Kiro 전역 훅 파일이 변경되었습니다. 변경하지 않았으므로 명령을 다시 실행하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Kiro global hooks file changed while cmux was waiting. No changes were made; run the command again."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Kiro global hooks file changed while cmux was waiting. No changes were made; run the command again."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Kiro global hooks file changed while cmux was waiting. No changes were made; run the command again."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Kiro global hooks file changed while cmux was waiting. No changes were made; run the command again."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Kiro global hooks file changed while cmux was waiting. No changes were made; run the command again."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Kiro global hooks file changed while cmux was waiting. No changes were made; run the command again."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Kiro global hooks file changed while cmux was waiting. No changes were made; run the command again."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 等待期间 Kiro 全局钩子文件发生了变化。未进行任何更改；请重新运行命令。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 等待期間 Kiro 全域勾點檔案已變更。未進行任何變更；請再次執行命令。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

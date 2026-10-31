@@ -94,19 +94,19 @@ gh variable list --repo manaflow-ai/cmux
 
 | Variable | Used by | Intended steady state | Fallback baked into the workflow |
 | --- | --- | --- | --- |
-| `LINUX_RUNNER` | every Linux job (`ci.yml` web/typecheck/db, presence, cloud-vm, nightly/ios decide jobs, homebrew, tmux fuzz) A job that holds a GitHub App key reads it only through a bounded selector: `LINUX_RUNNER` when it names `blacksmith-4vcpu-ubuntu-2404`, `blacksmith-16vcpu-ubuntu-2404` or `blacksmith-32vcpu-ubuntu-2404`, else `blacksmith-4vcpu-ubuntu-2404`, so a 4 vCPU stall can move it and no value reaches a reused machine (`tests/test_ci_fork_runner_routing.py` tries every value) | `blacksmith-4vcpu-ubuntu-2404` | `blacksmith-4vcpu-ubuntu-2404` |
+| `LINUX_RUNNER` | every Linux job (`ci.yml` web/typecheck/db, presence, cloud-vm, nightly/ios decide jobs, homebrew, tmux fuzz) A job that holds a GitHub App key reads it only through a bounded selector: `LINUX_RUNNER` when it names `blacksmith-4vcpu-ubuntu-2404`, `blacksmith-16vcpu-ubuntu-2404` or `blacksmith-32vcpu-ubuntu-2404`, else `blacksmith-4vcpu-ubuntu-2404`, so a 4 vCPU stall can move it and no value reaches a reused machine (`tests/test_ci_fork_runner_routing.py` tries every value). The same holds for every job that reads any secret (R2, Vercel, Cloudflare, Stack, Sentry, signing): it runs on a fixed ephemeral label or this selector | `blacksmith-4vcpu-ubuntu-2404` | `blacksmith-4vcpu-ubuntu-2404` |
 | `CI_TRUSTED_RUNNER` | jobs holding trusted tokens that must run on an ephemeral VM: the required `backend migrations applied` check and `web-complexity-trusted.yml` (`validate-cla-policy.rb` accepts this exact selector for the CLA checks too, with a runner guard step that admits only GitHub-hosted runners and Blacksmith VMs; `cla.yml` and `cla-policy-guard.yml` pin `ubuntu-24.04` until they move to it). Only `ubuntu-24.04`, `blacksmith-2vcpu-ubuntu-2404` or `blacksmith-4vcpu-ubuntu-2404` is accepted; any other value, owned label included, falls back. Set it to `ubuntu-24.04` when Blacksmith stalls, or leave it unset when GitHub-hosted runners stall | unset | `blacksmith-4vcpu-ubuntu-2404` (forks: `ubuntu-24.04`) |
 | `LINUX_ARM64_RUNNER` | native ARM64 package entrypoint verification | `ubuntu-24.04-arm` | `ubuntu-24.04-arm` |
-| `MACOS_RUNNER_15` | the macOS 15 default: `macos-compile-admission`, non-PR `app-host-unit-tests`, nightly helper and test-cache jobs, `iroh-release-gate.yml` streamed validation | `blacksmith-6vcpu-macos-15` | `blacksmith-6vcpu-macos-15` |
-| `MACOS_RUNNER_PR` | **pull-request** macOS jobs in `ci-macos.yml` (the app-host shards and `tests-build-and-lag` follow `macos-compile-admission`), `terminal-hang-diagnostics.yml`, `ci.yml` (`claude-wrapper`) and `nightly.yml` (`refresh-test-compilation-cache`) | unset (see "Lanes" below) | `blacksmith-6vcpu-macos-15` |
+| `MACOS_RUNNER_15` | the macOS 15 default: `macos-compile-admission`, non-PR `app-host-unit-tests`, nightly helper and test-cache jobs; never a job with a secret, which takes a fixed label | `blacksmith-6vcpu-macos-15` | `blacksmith-6vcpu-macos-15` |
+| `MACOS_RUNNER_PR` | **pull-request** macOS jobs in `ci-macos.yml` (the app-host shards and `tests-build-and-lag` follow `macos-compile-admission`), `terminal-hang-diagnostics.yml`, `ci.yml` (`claude-wrapper`) and `nightly.yml` (`refresh-test-compilation-cache`, only to pick its 12 vCPU sibling when it names `blacksmith-6vcpu-macos-26`; it holds `CI_CACHE_R2` and never runs on the variable's value) | unset (see "Lanes" below) | `blacksmith-6vcpu-macos-15` |
 | `MACOS_RUNNER_TESTS` | test-only lanes that pick their Xcode by SDK and sign nothing: `test-e2e.yml`, `test-macos-suite.yml`, `test-ios.yml` (`auto`) and the `iroh-v2.yml` client | unset (see "Lanes" below) | each lane's own variable or Blacksmith label: `blacksmith-6vcpu-macos-26` for `test-e2e.yml`, `blacksmith-6vcpu-macos-15` for `test-macos-suite.yml`, `MACOS_RUNNER_IOS` for `test-ios.yml` and `iroh-v2.yml` |
 | `MACOS_RUNNER_DUAL_XCODE` | `swift-package-tests` (SDK 15 release helper, then SDK 26 package tests) on **every** event, pull requests included, except attempt 1 of a pull request run whose picker placed it on an owned Mac (no helper build in that run; see "Pull request pool preference") | `blacksmith-6vcpu-macos-15` | `blacksmith-6vcpu-macos-15` |
 | `MACOS_RUNNER_26` | the macOS 26 image: compatibility jobs, `release.yml` and nightly sign/notarize, the disk-heavy `release-build` universal app, and the nightly compilation-cache warmer | `blacksmith-6vcpu-macos-26` | `blacksmith-6vcpu-macos-26` |
 | `MACOS_RUNNER_26_LARGE` | the larger macOS 26 machine: changed-revision universal Nightly app builds | `blacksmith-12vcpu-macos-26` | `blacksmith-12vcpu-macos-26` |
 | `MACOS_RUNNER_DISPLAY` | macOS GUI, XCUITest, and virtual-display tests (`tests-build-and-lag`) | `blacksmith-6vcpu-macos-15` | `blacksmith-6vcpu-macos-15` |
-| `MACOS_RUNNER_IOS` | the iOS image: simulator tests, TestFlight upload, and `ios-streamed-validate.yml` (`test-ios.yml`, `ios-testflight.yml`) | `blacksmith-6vcpu-macos-26` | `blacksmith-6vcpu-macos-26` |
+| `MACOS_RUNNER_IOS` | the iOS image: simulator tests and TestFlight upload (`test-ios.yml`, `ios-testflight.yml`); `ios-streamed-validate.yml` and `ios-e2e.yml` hold secrets and take `blacksmith-6vcpu-macos-26` | `blacksmith-6vcpu-macos-26` | `blacksmith-6vcpu-macos-26` |
 | `CI_PAID_MACOS_OVERFLOW` | the repository-side switch for metered capacity; gates the four paid-overflow variables above (see "Break-glass" below) | unset (free capacity) | unset means the Blacksmith fallback wins |
-| `MACOS_RUNNER_BACKGROUND` | non-urgent macOS work only: `build-ghosttykit` and the macOS legs of `cmux-tui-artifacts` (post-merge). See "Background lane" below | `blacksmith-6vcpu-macos-15` | `blacksmith-6vcpu-macos-15` |
+| `MACOS_RUNNER_BACKGROUND` | non-urgent macOS work only: the macOS legs of `cmux-tui-artifacts` (post-merge); `build-ghosttykit` holds `GHOSTTY_RELEASE_TOKEN` and takes `blacksmith-6vcpu-macos-15`. See "Background lane" below | `blacksmith-6vcpu-macos-15` | `blacksmith-6vcpu-macos-15` |
 
 A runner variable names a **machine capability** — an OS version, a GUI, a
 simulator, both SDKs, or a larger instance — and every job needing that
@@ -789,8 +789,7 @@ A job belongs in the lane only if all of these hold:
   compare on the same hardware;
 - it does not need a GUI console session.
 
-Members today: `build-ghosttykit.yml` (Xcode from the image default, Zig
-xcframework build), and the two macOS Rust legs of
+Members today: the two macOS Rust legs of
 `cmux-tui-artifacts.yml` (passed as `macos_runner` to
 `cmux-tui-build-package.yml`; release and full-suite callers keep their own
 runner).
@@ -1025,6 +1024,13 @@ malformed `RUNNER_POOLS` is rewritten from these declarations, never crashed
 on. Jobs already queued on a dead member keep that label (GitHub binds it when
 it creates the job); moving them is the queue janitor's dead-label re-dispatch
 (with #27114), whose re-run reads the pool's new member.
+`LINUX_RUNNER` predates the pools and most Linux `runs-on` still read it
+(`vars.LINUX_RUNNER || ...`), so each pass also writes the linux pool's live
+member to it, unless the overflow switch's record is set or it holds a value
+that is not a Blacksmith label. On 2026-10-31 it still named
+`blacksmith-4vcpu-ubuntu-2404`, a size outside the set that had stopped
+starting jobs, and about 520 jobs waited on it. `--check` fails while it names
+a label outside the linux pool.
 With no evidence at all (no probe health yet, no snapshot) it marks nothing
 dead: it fails closed and never retires a member on a guess. A pool not marked
 `hosted` never resolves to a GitHub-hosted label, whatever is dead.
@@ -1106,7 +1112,7 @@ control jobs: a nightly's Linux cross-builds still wait for Blacksmith Linux
   read. That is the lever pulled by hand on 2026-09-29. A variable a signing
   job's `runs-on` reads is read from the workflows of `main` and
   `feat-cmux-next` (`scripts/ci/signing_runner_variables.py`; today
-  `LINUX_RUNNER`, `MACOS_RUNNER_26` and `MACOS_RUNNER_15`), and the switch
+  `LINUX_RUNNER` and `MACOS_RUNNER_26`; every job with a secret on `main` takes a fixed label, so `MACOS_RUNNER_15` is not one), and the switch
   never writes a label other than `blacksmith-*` or `ubuntu-*` to one: such a
   variable has no owned failover, an override naming a reused machine for one
   is refused, and a stalled probe never re-applies an older record's owned value

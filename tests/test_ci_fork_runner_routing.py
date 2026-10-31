@@ -6,6 +6,8 @@ from __future__ import annotations
 import json
 import re
 import unittest
+
+import yaml
 from pathlib import Path
 
 
@@ -231,14 +233,19 @@ def _string(node: tuple) -> str | None:
 
 def _bounded_pick(conditions: list[tuple], picked: tuple) -> list[str]:
     """The labels `... && contains(fromJSON('[labels]'), R) && R` can yield: R only when it equals
-    (ignoring case) one of the listed labels. [] when no such contains() guards R."""
-    name = _refs(picked)[0] if picked[0] == "ref" else None
+    (ignoring case) one of the listed labels. [] when no such contains() guards R. R is a ref
+    (`vars.X` and `vars['X']` are the same) or any expression written the same both times, such
+    as a capability `fromJSON(needs.runners.outputs.map).key`: an expression has one value."""
+    def same(needle: tuple) -> bool:
+        if picked[0] == "ref" and needle[0] == "ref":
+            return _refs(needle) == _refs(picked)
+        return picked[0] != "literal" and needle == picked
     for condition in conditions:
-        if (name and condition[0] == "call" and len(condition) == 3 and condition[1] == "contains"
-                and len(condition[2]) == 2
+        if (picked[0] in ("ref", "call") and condition[0] == "call" and len(condition) == 3
+                and condition[1] == "contains" and len(condition[2]) == 2
                 and condition[2][0][0] == "call" and len(condition[2][0]) == 3 and condition[2][0][1] == "fromJSON"
                 and len(condition[2][0][2]) == 1 and _string(condition[2][0][2][0]) is not None
-                and condition[2][1][0] == "ref" and _refs(condition[2][1]) == [name]):
+                and same(condition[2][1])):
             try:
                 labels = json.loads(_string(condition[2][0][2][0]))
             except json.JSONDecodeError:
@@ -293,11 +300,78 @@ def runner_label_errors(runs_on: str) -> list[str]:
 
 
 # (workflow, job) -> why its runner may come from elsewhere. Exact jobs only.
-APP_KEY_RUNNER_EXCEPTIONS = {
+# (workflow, job) -> why a job that holds a secret takes its runner from something this check
+# cannot enumerate (a picker job's output, a computed matrix). Exact jobs only. "open:" marks a
+# job that runs on a reused owned machine by design and still holds a secret there: each needs
+# its secret moved to a separate job on an ephemeral label, as #27622 did for the dogfood capture.
+SECRET_RUNNER_EXCEPTIONS = {
     ("nightly.yml", "generate-nightly-deltas"):
         "pick-classic-sign-runner's output, which names only Blacksmith macOS labels "
         "(classic_nightly_build_runner.py), else the literal Blacksmith fallback",
+    ("nightly.yml", "build-sign-notarize-nightly"):
+        "the same picker as generate-nightly-deltas: only Blacksmith macOS labels",
+    ("cmux-next-dev-daily.yml", "tip-deltas"):
+        "the runner job's `cloud`/`alternate` outputs, from classic_nightly_build_runner.py: "
+        "only Blacksmith macOS labels",
+    ("nightly.yml", "build-nightly-app"):
+        "open: CI_CACHE_R2 and SENTRY_AUTH_TOKEN on the pinned trusted mini (CI_NIGHTLY_TRUSTED_RUNNER) "
+        "by design; nightlies never use Blacksmith",
+    ("seed-derived-data.yml", "seed"):
+        "open: CI_CACHE_R2 on the pools seed_decide.py names, owned Macs included, by design "
+        "(it seeds their DerivedData)",
 }
+APP_KEY_RUNNER_EXCEPTIONS = {key: why for key, why in SECRET_RUNNER_EXCEPTIONS.items()
+                             if key == ("nightly.yml", "generate-nightly-deltas")}
+# A secret a job reads: `${{ secrets.X }}` (not the job's own GITHUB_TOKEN), `secrets[...]`, or
+# `secrets: inherit` into a reusable workflow. Context names are case-insensitive.
+SECRET_MARKER = re.compile(
+    r"\$\{\{(?:[^}]|\}(?!\}))*?\bsecrets\b(?!\s*\.\s*github_token\b)|^\s*secrets:\s*inherit\b",
+    re.IGNORECASE | re.MULTILINE,
+)
+
+
+def secret_jobs() -> list[tuple[str, str, object, dict]]:
+    """(workflow, job, runs-on, job) for every job that holds a secret or a GitHub App key."""
+    found = []
+    for path in sorted(WORKFLOWS.glob("*.y*ml")):
+        text = path.read_text(encoding="utf-8")
+        document = yaml.load(text, Loader=yaml.BaseLoader) or {}
+        # A workflow-level env reaches every job, so a secret there counts for each.
+        shared = yaml.safe_dump(document.get("env") or {}, sort_keys=False, width=100000)
+        for name, job in (document.get("jobs") or {}).items():
+            body = shared + yaml.safe_dump(job, sort_keys=False, width=100000)
+            if SECRET_MARKER.search(body) or APP_KEY_MARKER.search(body):
+                found.append((path.name, name, job.get("runs-on"), job))
+    return found
+
+
+def job_runner_errors(workflow: str, job: dict) -> list[str]:
+    """runner_label_errors for a whole job: a local reusable call is checked through its callee's
+    jobs, and `${{ matrix.KEY }}` through each value the job's own matrix lists."""
+    if "uses" in job and "runs-on" not in job:
+        uses = str(job["uses"])
+        if not uses.startswith("./.github/workflows/") or not (ROOT / uses).is_file():
+            return [f"passes secrets to {uses}, which is not a workflow of this repository"]
+        return []  # The callee's jobs are in secret_jobs() themselves.
+    runs_on = job.get("runs-on")
+    if not isinstance(runs_on, str):
+        return [f"runs-on {runs_on!r} is not one label"]
+    key = re.fullmatch(r"\$\{\{\s*matrix\.([A-Za-z_][A-Za-z0-9_-]*)\s*\}\}", runs_on.strip())
+    if key is None:
+        return runner_label_errors(runs_on)
+    matrix = (job.get("strategy") or {}).get("matrix")
+    if not isinstance(matrix, dict):
+        return [f"runs-on reads matrix.{key.group(1)} from a computed matrix {matrix!r}"]
+    listed, include = matrix.get(key.group(1)) or [], matrix.get("include") or []
+    if not isinstance(listed, list) or not isinstance(include, list):
+        return [f"runs-on reads matrix.{key.group(1)} from a computed list"]
+    values = list(listed)
+    values += [entry[key.group(1)] for entry in include if isinstance(entry, dict) and key.group(1) in entry]
+    if any(not isinstance(entry, dict) for entry in include):
+        return [f"matrix.include of matrix.{key.group(1)} holds a computed entry"]
+    if not values:
+        return [f"matrix.{key.group(1)} lists no value"]
+    return [error for value in values for error in runner_label_errors(str(value))]
 
 
 def app_key_jobs() -> list[tuple[str, str, str]]:
@@ -610,9 +684,11 @@ def _trusted_fork_exclusion(node: tuple) -> bool:
     return (
         node[0] == "not"
         and node[1][0] == "call"
+        and len(node[1]) == 3  # no index after contains() or fromJSON() (review of #27631)
         and node[1][1] == "contains"
         and len(node[1][2]) == 2
         and node[1][2][0][0] == "call"
+        and len(node[1][2][0]) == 3
         and node[1][2][0][1] == "fromJSON"
         and _refs(node[1][2][0][2][0])
         and _refs(node[1][2][0][2][0])[0].endswith("owned_head_repos")
@@ -1259,6 +1335,54 @@ class ForkRunnerRoutingTests(unittest.TestCase):
                 self.assertEqual(runner_label_errors(runs_on), [], f"{workflow}:{job} holds an App key")
         self.assertGreater(bounded, 0)
 
+    def test_a_job_with_a_secret_runs_where_no_variable_can_move_it(self) -> None:
+        # Every secret, not only App keys: R2, Vercel, Cloudflare, Stack server keys, Sentry,
+        # signing material. A job reading one runs where no variable value reaches a reused machine.
+        jobs = secret_jobs()
+        names = {(workflow, job) for workflow, job, _, _ in jobs}
+        for key in (("presence.yml", "deploy"), ("r2-cache-prune.yml", "prune"), ("ci-queue-janitor.yml", "sweep"),
+                    ("build-ghosttykit.yml", "build-ghosttykit"), ("docs-channels.yml", "nightly")):
+            self.assertIn(key, names)  # not vacuous
+        for key in SECRET_RUNNER_EXCEPTIONS:
+            self.assertIn(key, names, f"stale exception {key}")
+        for workflow, job, _, body in jobs:
+            if (workflow, job) in SECRET_RUNNER_EXCEPTIONS:
+                continue
+            with self.subTest(workflow=workflow, job=job):
+                self.assertEqual(job_runner_errors(workflow, body), [], f"{workflow}:{job} holds a secret")
+
+    def test_the_secret_detector_and_matrix_check(self) -> None:
+        for held in ("${{ secrets.R2_KEY }}", "${{ SECRETS.Vercel_Token }}", "${{ secrets['X'] }}",
+                     "secrets: inherit", "${{ format('{0}', secrets.A) }}"):
+            self.assertTrue(SECRET_MARKER.search(held), held)
+        for held in ("${{ toJSON(secrets) }}", "${{ secrets }}", "${{ fromJSON(toJSON(secrets)).X }}"):
+            self.assertTrue(SECRET_MARKER.search(held), held)
+        for clean in ("${{ secrets.GITHUB_TOKEN }}", "${{ secrets.github_token }}", "python3 -c 'import secrets'",
+                      "secrets.token_hex(8)", "${{ github.token }}"):
+            self.assertFalse(SECRET_MARKER.search(clean), clean)
+        literal = {"runs-on": "${{ matrix.pool }}", "strategy": {"matrix": {"pool": ["blacksmith-6vcpu-macos-15"]}}}
+        self.assertEqual(job_runner_errors("x.yml", literal), [])
+        moved = {"runs-on": "${{ matrix.pool }}",
+                 "strategy": {"matrix": {"pool": ["${{ vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15' }}"]}}}
+        self.assertNotEqual(job_runner_errors("x.yml", moved), [])
+        computed = {"runs-on": "${{ matrix.pool }}", "strategy": {"matrix": "${{ fromJSON(needs.a.outputs.m) }}"}}
+        self.assertNotEqual(job_runner_errors("x.yml", computed), [])
+        # Review of #27648: a computed include must not pass as an empty list.
+        included = {"runs-on": "${{ matrix.pool }}", "strategy": {"matrix": {
+            "pool": ["blacksmith-6vcpu-macos-15"], "include": "${{ fromJSON(vars.EXTRA) }}"}}}
+        self.assertNotEqual(job_runner_errors("x.yml", included), [])
+        listed = {"runs-on": "${{ matrix.pool }}", "strategy": {"matrix": {"pool": "${{ fromJSON(vars.P) }}"}}}
+        self.assertNotEqual(job_runner_errors("x.yml", listed), [])
+        self.assertNotEqual(job_runner_errors("x.yml", {"uses": "org/repo/.github/workflows/x.yml@v1"}), [])
+        self.assertEqual(runner_label_errors("ubuntu-latest"), [])
+        # An index after fromJSON turns the trusted fork exclusion into a substring test.
+        indexed = parse_expression("!contains(fromJSON(inputs.owned_head_repos)[0], "
+                                   "github.event.pull_request.head.repo.full_name)")
+        self.assertFalse(_trusted_fork_exclusion(indexed))
+        self.assertTrue(_trusted_fork_exclusion(parse_expression(
+            "!contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name)")))
+        self.assertNotEqual(runner_label_errors("self-hosted"), [])
+
     def test_key_holding_linux_jobs_follow_linux_runner_through_the_bounded_selector(self) -> None:
         runs_on = {(workflow, job): line for workflow, job, line in app_key_jobs()}
         for key in sorted(BOUNDED_SELECTOR_JOBS):
@@ -1352,6 +1476,12 @@ class ForkRunnerRoutingTests(unittest.TestCase):
                         "'blacksmith-4vcpu-ubuntu-2404' }}",
                         "${{ 'github.repository_owner' != 'manaflow-ai' && 'ubuntu-24.04' || "
                         "'blacksmith-4vcpu-ubuntu-2404' }}",
+                        # A capability pick must name the same expression in contains() and as the result.
+                        f"${{{{ {fork}contains(fromJSON('[\"blacksmith-6vcpu-macos-26\"]'), fromJSON(needs.r.outputs.map).a) "
+                        "&& fromJSON(needs.r.outputs.map).b || 'blacksmith-6vcpu-macos-26' }}",
+                        f"${{{{ {fork}contains(fromJSON('[\"blacksmith-6vcpu-macos-26\"]'), needs.r.outputs.a) "
+                        "&& fromJSON(needs.r.outputs.map).a || 'blacksmith-6vcpu-macos-26' }}",
+                        f"${{{{ {fork}fromJSON(needs.r.outputs.map).a || 'blacksmith-6vcpu-macos-26' }}}}",
                         "${{ 'ubuntu-24.04' }}", "glaeda-std-xcode-26.6", "self-hosted"):
             self.assertNotEqual(runner_label_errors(refused), [], refused)
         for allowed in ("blacksmith-6vcpu-macos-26", f"${{{{ {fork}'blacksmith-4vcpu-ubuntu-2404' }}}}",
@@ -1364,7 +1494,9 @@ class ForkRunnerRoutingTests(unittest.TestCase):
                         f"${{{{ {fork}github.event_name == 'merge_group' && 'blacksmith-32vcpu-ubuntu-2404' || "
                         f"{BOUNDED_LINUX_SELECTOR} }}}}",
                         f"${{{{ {fork}vars.MACOS_RUNNER_PR == 'blacksmith-6vcpu-macos-26' && "
-                        "'blacksmith-12vcpu-macos-26' || 'blacksmith-6vcpu-macos-15' }}"):
+                        "'blacksmith-12vcpu-macos-26' || 'blacksmith-6vcpu-macos-15' }}",
+                        f"${{{{ {fork}contains(fromJSON('[\"blacksmith-6vcpu-macos-26\"]'), fromJSON(needs.r.outputs.map).a) "
+                        "&& fromJSON(needs.r.outputs.map).a || 'blacksmith-6vcpu-macos-26' }}"):
             self.assertEqual(runner_label_errors(allowed), [], allowed)
 
     def test_trusted_runner_selector_admits_only_ephemeral_labels(self) -> None:

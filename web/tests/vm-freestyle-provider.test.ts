@@ -1113,7 +1113,7 @@ describe("Freestyle client configuration", () => {
       readFileSync(path.join(import.meta.dirname, "../package.json"), "utf8"),
     ) as { dependencies: Record<string, string> };
     expect(packageJson.dependencies["freestyle-beta"]).toBeUndefined();
-    expect(packageJson.dependencies.freestyle).toBe("0.2.10");
+    expect(packageJson.dependencies.freestyle).toBe("0.2.21");
   });
 });
 
