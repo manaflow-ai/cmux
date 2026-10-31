@@ -258,31 +258,40 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     const made: (string | undefined)[] = [];
     // The app each file came from: one the page made knows it (a capture cmux took); the host says
     // the rest for the person's drop, paste or pick in the file input (composer/attachmentSources.ts,
-    // which answers within its deadline). A chip read before the answer waits for it, with its tile
-    // showing, so the chip has its source wherever it goes (this chat's strip, or the chat it was
-    // pasted in) and its first draft write keeps it. One whose source nobody knows has none.
+    // which answers within its deadline). A chip never waits for that answer: it goes in the moment
+    // it is ready, with the source known by then, and a later answer is added to it where it is
+    // staged in this chat's strip. A source is a label only, so a ready file never holds a send for
+    // it. One whose source nobody knows has none.
     const fileSource: (AttachmentSource | undefined)[] = files.map((file) =>
       isMadeFile(file) ? undefined : sourceOfFile(file),
     );
     const asked = kind
       ? files.flatMap((file, index) => (isMadeFile(file) || fileSource[index] ? [] : [{ file, index }]))
       : [];
-    let answered = asked.length === 0;
-    const answer = answered
-      ? Promise.resolve()
-      : attachSources(
-          kind!,
-          asked.map(({ file }) => file),
-        ).then((sources) => {
-          sources.forEach((source, at) => {
-            if (!source) return;
-            const { file, index } = asked[at]!;
-            fileSource[index] = source;
-            // A failed chip's Retry reads this same file again: it keeps the answer.
-            withSource(file, source);
-          });
-          answered = true;
+    if (asked.length > 0)
+      void attachSources(
+        kind!,
+        asked.map(({ file }) => file),
+      ).then((sources) => {
+        const late = new Map<string, AttachmentSource>();
+        sources.forEach((source, at) => {
+          if (!source) return;
+          const { file, index } = asked[at]!;
+          fileSource[index] = source;
+          // A failed chip's Retry reads this same file again: it keeps the answer.
+          withSource(file, source);
+          // A chip already staged here before the answer gets it now.
+          const id = made[index];
+          if (id && staged.has(id)) late.set(id, source);
         });
+        if (late.size > 0)
+          setAttachments((chips) =>
+            chips.map((chip) => {
+              const source = late.get(chip.id);
+              return source && !chip.source ? { ...chip, source } : chip;
+            }),
+          );
+      });
     const sourced = (index: number, attachment: ComposerAttachment): ComposerAttachment => {
       const source = fileSource[index];
       return source && !attachment.source ? { ...attachment, source } : attachment;
@@ -298,10 +307,6 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
       return true;
     };
     const ready = (index: number, read: ComposerAttachment): void => {
-      if (!answered) {
-        void answer.then(() => ready(index, read));
-        return;
-      }
       if (!settle(index)) return;
       const attachment = sourced(index, read);
       made[index] = attachment.id;
@@ -363,16 +368,11 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
         {
           ready,
           failed,
-          uploading: function uploading(index) {
-            // In order behind its chip, which may be waiting for its source: until then its tile
-            // still holds a send.
-            if (!answered) return void answer.then(() => uploading(index));
+          uploading: (index) => {
             const id = shown[index]!.id;
             setPending((chips) => chips.map((chip) => (chip.id === id ? { ...chip, uploading: true } : chip)));
           },
-          original: function original(index, path, name) {
-            // After its chip, which may be waiting for its source.
-            if (!answered) return void answer.then(() => original(index, path, name));
+          original: (index, path, name) => {
             const id = made[index];
             setAttachments((staged) =>
               staged.map((chip) => (chip.id === id ? { ...chip, originalPath: path, originalName: name } : chip)),
@@ -380,8 +380,6 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
           },
         },
       );
-      // The chips waiting for their sources are placed before the batch ends.
-      await answer;
     } finally {
       batches.current.delete(batch);
       // A file intake said nothing of (it threw) is not left loading.

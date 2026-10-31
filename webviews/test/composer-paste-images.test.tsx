@@ -369,9 +369,49 @@ test("a file chosen in + > Attach files asks the host where it came from, and it
     await act(async () => {
       input.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
     });
-    await until(() => (composer.current!.wakeState().attachments ?? []).length > 0, "the chosen screenshot's chip");
+    await until(
+      () => composer.current!.wakeState().attachments?.[0]?.source !== undefined,
+      "the chosen screenshot's chip with its source",
+    );
     // Asked as a pick, never as a drop or paste: the host answers from the panel's own record.
     expect(asked).toEqual([{ kind: "choose", names: ["Screenshot 2026-10-29 at 10.14.02.png"] }]);
+    expect(composer.current!.wakeState().attachments?.map((chip) => chip.source)).toEqual([shot]);
+  } finally {
+    delete actions.cmuxAcpmuxActions;
+  }
+});
+
+// A ready file never waits for where it came from: the source is a label, so a slow host answer
+// (up to its 1.5 s deadline) must not hold the chip, or a send, behind it. The answer, when it comes,
+// is added to the chip already staged.
+test("a slow source answer never holds a ready chip; the source is added when it comes", async () => {
+  const shot = { name: "Screenshot", bundleId: "com.apple.screenshot.launcher" };
+  let answer: (value: { sources: unknown[] }) => void = () => {};
+  const actions = dom.window as unknown as {
+    cmuxAcpmuxActions?: Record<string, (params: Record<string, unknown>) => unknown>;
+  };
+  actions.cmuxAcpmuxActions = {
+    "chat.attach.source": () => new Promise((resolve) => (answer = resolve)),
+  };
+  try {
+    const composer = await openComposer();
+    const input = host.querySelector<HTMLInputElement>("input.acpmux-attach-input")!;
+    const file = new File([PNG], "Screenshot 2026-10-29 at 10.14.02.png", { type: "image/png" });
+    Object.defineProperty(input, "files", { value: [file], configurable: true });
+    const picked = performance.now();
+    await act(async () => {
+      input.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+    });
+    // The host has not answered: the chip is in, with no source yet, well before the lookup's
+    // 1.5 s deadline (SOURCES_DEADLINE_MS) could have let it through.
+    await until(() => (composer.current!.wakeState().attachments ?? []).length > 0, "the chip, before the answer");
+    expect(performance.now() - picked).toBeLessThan(750);
+    expect(composer.current!.wakeState().attachments?.map((chip) => chip.source)).toEqual([undefined]);
+    await act(async () => answer({ sources: [shot] }));
+    await until(
+      () => composer.current!.wakeState().attachments?.[0]?.source !== undefined,
+      "the late source on the staged chip",
+    );
     expect(composer.current!.wakeState().attachments?.map((chip) => chip.source)).toEqual([shot]);
   } finally {
     delete actions.cmuxAcpmuxActions;
