@@ -21,19 +21,22 @@ use super::*;
 pub(super) const ORPHAN_SHUTDOWN_REQUESTER: u64 = 0;
 
 impl ClientRegistry {
-    /// Installs the callback for client arrivals and departures. It runs
-    /// with no registry lock held.
-    pub(crate) fn set_client_presence_observer(&self, observer: impl Fn() + Send + Sync + 'static) {
-        *self.client_presence_observer.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
-            Some(Box::new(observer));
+    /// Adds a callback for client arrivals and departures. Each runs with
+    /// no registry lock held; none may add another (the list's lock is held
+    /// while they run).
+    pub(crate) fn add_client_presence_observer(&self, observer: impl Fn() + Send + Sync + 'static) {
+        self.client_presence_observers
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .push(Box::new(observer));
     }
 
     pub(crate) fn notify_client_presence(&self) {
-        if let Some(observer) = self
-            .client_presence_observer
+        for observer in self
+            .client_presence_observers
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .as_ref()
+            .iter()
         {
             observer();
         }
@@ -88,9 +91,9 @@ impl Mux {
     }
 
     /// Calls `observer` (with no registry lock held) each time a client
-    /// connects or leaves.
-    pub fn set_client_presence_observer(&self, observer: impl Fn() + Send + Sync + 'static) {
-        self.control_clients.set_client_presence_observer(observer);
+    /// connects or leaves, along with every observer added before it.
+    pub fn add_client_presence_observer(&self, observer: impl Fn() + Send + Sync + 'static) {
+        self.control_clients.add_client_presence_observer(observer);
     }
 
     /// Live hosted terminals (launching, adopting or running).

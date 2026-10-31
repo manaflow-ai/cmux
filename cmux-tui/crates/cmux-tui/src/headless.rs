@@ -6,6 +6,8 @@ use super::*;
 
 #[cfg(unix)]
 mod dev_orphan_exit;
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+mod lost_paths;
 
 pub(crate) fn run_headless<F>(
     mux: &Arc<Mux>,
@@ -66,6 +68,10 @@ where
     // running (dev_orphan_exit.rs).
     #[cfg(unix)]
     let orphan_exit = dev_orphan_exit::start_for_owner(mux);
+    // An owner whose socket or state directory is gone, with no client
+    // connected, stops: nothing can reach it again (lost_paths.rs).
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    let lost_paths = lost_paths::start_for_owner(mux, socket_path);
     // `--exit-with-pid`: armed once startup work has begun, so the stop
     // ends every terminal that work made (a starter already gone stops the
     // owner at once).
@@ -96,6 +102,10 @@ where
     #[cfg(unix)]
     if let Some(orphan_exit) = orphan_exit {
         orphan_exit.stop();
+    }
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    if let Some(lost_paths) = lost_paths {
+        lost_paths.stop();
     }
     Ok(())
 }
