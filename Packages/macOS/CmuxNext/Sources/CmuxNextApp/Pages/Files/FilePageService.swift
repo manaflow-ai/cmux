@@ -40,7 +40,7 @@ final class FilePageService: InternalPageProvider {
         /// The Markdown omnibar above the page (markdown tabs only).
         var bar: MarkdownOmnibarBar?
         /// Where the file lives: the machine of the pane the tab opened in (#25581).
-        var files: any FilePageFiles = LocalFilePageFiles.shared
+        var files: any FilePageFiles = LocalFilePageFiles()
         /// That machine's id (`local` for this Mac): a tab shows one machine's file of a path.
         var machine = "local"
     }
@@ -184,7 +184,7 @@ final class FilePageService: InternalPageProvider {
     /// The files of `machine` (#25581): this Mac's disk (nil or the local daemon), or the
     /// machine's daemon over its own read link, so a tab in a Cloud workspace shows the VM's file.
     func machineFiles(on machine: DaemonService?) -> any FilePageFiles {
-        guard let daemon = machine, !daemon.isLocal else { return LocalFilePageFiles.shared }
+        guard let daemon = machine, !daemon.isLocal else { return LocalFilePageFiles() }
         return RemoteFilePageFiles(client: services.agentGit.link(for: daemon),
                                    machine: services.machines.machineName(daemon.machineID) ?? daemon.machineID)
     }

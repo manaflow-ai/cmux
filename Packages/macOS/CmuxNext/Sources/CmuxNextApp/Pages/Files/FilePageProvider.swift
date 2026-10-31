@@ -130,7 +130,7 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
     init(kind: FilePageKind, file: URL?, userChose: Bool = true, readOnly: Bool = false, host: any FilePageHosting,
          clock: any Clock<Duration> = ContinuousClock(), libraries: URL?, images: any RemoteImageFetching,
          tableWidths: (any MarkdownTableWidthStoring)? = nil, comments: (any MarkdownCommentStoring)? = nil,
-         files: any FilePageFiles = LocalFilePageFiles.shared) {
+         files: any FilePageFiles = LocalFilePageFiles()) {
         self.kind = kind
         self.files = files
         // Both live in this Mac's extended attributes and app folder, keyed by path.

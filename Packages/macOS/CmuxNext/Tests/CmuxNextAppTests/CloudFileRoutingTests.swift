@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextDaemonService
+import CmuxNextLayout
 import CmuxNextPages
 import Foundation
 import Testing
