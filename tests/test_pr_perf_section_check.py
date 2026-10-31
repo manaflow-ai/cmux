@@ -1,5 +1,7 @@
 """The PR performance-section check: a perf PR records before/after deltas in its description."""
+import contextlib
 import importlib.util
+import io
 import subprocess
 import sys
 import tempfile
@@ -166,6 +168,31 @@ class SectionTests(unittest.TestCase):
         workflow = (ROOT / ".github/workflows/pr-perf-section-check.yml").read_text()
         self.assertIn("--no-renames", workflow)
         self.assertIn("previous_filename", workflow)
+
+
+class LightPathTests(unittest.TestCase):
+    """A small change takes the light path: no Performance table (Leo, 2026-10-31)."""
+
+    def test_small_or_removal_diffs_need_no_table(self):
+        for added, deleted in ((3, 4), (60, 60), (12, 900)):
+            code, message = module.check("Speed up the sidebar", "faster now", {"perf"}, list(CODE), added, deleted)
+            self.assertEqual(code, 0, message)
+            self.assertIn("light path", message)
+
+    def test_larger_diffs_and_unknown_sizes_still_need_one(self):
+        for added, deleted in ((100, 21), (40, 300), (None, None)):
+            code, _ = module.check("Speed up the sidebar", "faster now", set(), list(CODE), added, deleted)
+            self.assertEqual(code, 1, (added, deleted))
+
+    def test_command_line_reads_the_sizes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            body, paths = Path(tmp, "body.md"), Path(tmp, "paths.txt")
+            body.write_text("faster now\n", encoding="utf-8")
+            paths.write_text("Sources/App.swift\n", encoding="utf-8")
+            argv = ["--body-file", str(body), "--paths-file", str(paths), "--title", "Speed up"]
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(module.main(argv + ["--additions", "2", "--deletions", "1"]), 0)
+                self.assertEqual(module.main(argv + ["--additions", "", "--deletions", ""]), 1)
 
 
 class CommandLineTests(unittest.TestCase):
