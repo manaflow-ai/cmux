@@ -689,7 +689,7 @@
       "why": "PR #25862 keeps persistence behavior in CmuxNextWakeups.StateFileWriter and the final admission boundary in CmuxNextAgentPane.AgentPanePersistenceQuit. The App composition root injects its existing BackgroundWork into the state owners and drains that boundary in the existing normal and forced quit sequences, under their existing deadlines. The eight physical lines are lifecycle wiring, its required domain import and explanatory comments; moving this composition into a lower target would invert ownership or add forwarding-only APIs.",
       "author": "Codex PR #25862 author",
       "owner": "Codex PR #25862 author; remove when the quit composition is extracted",
-      "receipt": "The original +7 wiring was independently approved at 3bdc16821a6109c5631f2cb16a3538a13bc5cfb9; the +8 allowance including the domain import requires the current-head independent SHIP receipt on PR #25862 before ready-to-land.",
+      "receipt": "Review (Independent impact reviewer; composition allowance): SHIP at ed1246cc9b2d736cd4ad37bdf51ade8a516189e2",
       "expiry": "2026-11-30"
     }
   ],
