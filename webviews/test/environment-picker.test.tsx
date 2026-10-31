@@ -5,7 +5,7 @@
 // Cloud section and opens the host's create flow. It defaults to this computer. The machines come
 // from acpmux (`_acpmux/status` peers, by URL scheme, and the hosts its chats ran on); with
 // previews off the row keeps its plain Computer menu.
-import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, beforeEach, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
@@ -75,13 +75,20 @@ beforeAll(() => {
   host = dom.window.document.getElementById("root")!;
 });
 
+// These pickers are a signed-in account's: the signed-out Sign in for Cloud row is
+// environment-picker-cloud-machines.test.tsx's.
+beforeEach(async () => {
+  (await import("../src/agent-session/acpmux/cloudMachines")).setCloudMachinesForTestAccount(true);
+});
+
 afterEach(() => {
   act(() => root?.unmount());
   root = undefined;
   host.replaceChildren();
 });
 
-afterAll(() => {
+afterAll(async () => {
+  (await import("../src/agent-session/acpmux/cloudMachines")).setCloudMachinesForTestAccount(undefined);
   dom.window.close();
   for (const [key, had, value] of saved) {
     if (had) scope[key] = value;
@@ -519,6 +526,7 @@ test("each connect choice runs its own host action", async () => {
   expect(CONNECT_ACTIONS).toEqual({
     ssh: "remote.connect",
     cloud: "newCloudMachine",
+    cloudSignIn: "palette.auth.signIn",
     cloudPage: "palette.openCloudPane",
     addMachine: "device.add",
     move: "cloudMove",
@@ -594,6 +602,21 @@ test("a started Cloud chat: the picker shows its machine and Bring Back Local", 
   ]);
   await act(async () => newRows()[0]!.click());
   expect(calls).toEqual([["offload", "bringBack"]]);
+});
+
+test("a started Cloud chat's picker keeps its machine's load warning", async () => {
+  const { setComposerSettings, DEFAULT_COMPOSER } = await import("../src/agent-session/acpmux/composerSettings");
+  setComposerSettings(DEFAULT_COMPOSER);
+  await mount(true, {
+    ...startedOn("cloud"),
+    onOffload: () => {},
+    peerResources: { "build-cloud": { ramFreeGB: 8, coresBusy: 14, cores: 10, busy: true, lowMemory: false } },
+  });
+  await openPicker();
+  expect(machineRows()).toHaveLength(1);
+  expect(machineRows()[0]!.querySelector('.acpmux-env-state[data-warning="true"]')?.textContent).toBe(
+    t("composer.machineHighLoad", { busy: 14, cores: 10 }),
+  );
 });
 
 test("Return on a search never moves a chat by itself", async () => {
@@ -1074,6 +1097,40 @@ test("turning the warning setting off updates an already-open menu", async () =>
   expect(row().querySelector(".acpmux-location-name")?.getAttribute("data-warning")).toBeNull();
   expect(row().querySelector(".acpmux-menu-description")).toBeNull();
   setComposerSettings(DEFAULT_COMPOSER);
+});
+
+test("the environment picker warns on a ready machine at its CPU budget, as the plain menu does", async () => {
+  const { setComposerSettings, DEFAULT_COMPOSER } = await import("../src/agent-session/acpmux/composerSettings");
+  setComposerSettings(DEFAULT_COMPOSER);
+  await mount(true, {
+    peerResources: {
+      "gpu-box": { ramFreeGB: 8, coresBusy: 14, cores: 10, busy: true, lowMemory: false },
+    },
+  });
+  await openPicker();
+  const row = () =>
+    [...doc().querySelectorAll<HTMLElement>(".acpmux-env-popover .acpmux-env-row")].find(
+      (item) => item.querySelector(".acpmux-menu-label")?.textContent === "gpu-box",
+    )!;
+  const warning = row().querySelector('.acpmux-env-state[data-warning="true"]');
+  expect(warning?.textContent).toBe(t("composer.machineHighLoad", { busy: 14, cores: 10 }));
+  await act(async () => setComposerSettings({ showMachineLoadWarnings: false }));
+  expect(row().querySelector('.acpmux-env-state[data-warning="true"]')).toBeNull();
+  setComposerSettings(DEFAULT_COMPOSER);
+});
+
+test("the environment picker withholds a warning while a machine is not ready", async () => {
+  await mount(true, {
+    peerConnected: { "gpu-box": false },
+    peerResources: {
+      "gpu-box": { ramFreeGB: 1.2, coresBusy: 14, cores: 10, busy: true, lowMemory: true },
+    },
+  });
+  await openPicker();
+  const row = [...doc().querySelectorAll<HTMLElement>(".acpmux-env-popover .acpmux-env-row")].find(
+    (item) => item.querySelector(".acpmux-menu-label")?.textContent === "gpu-box",
+  )!;
+  expect(row.querySelector('.acpmux-env-state[data-warning="true"]')).toBeNull();
 });
 
 test("an open machine list reads the machines again until it closes", async () => {

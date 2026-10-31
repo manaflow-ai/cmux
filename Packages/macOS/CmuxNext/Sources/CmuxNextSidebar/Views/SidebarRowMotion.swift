@@ -38,7 +38,6 @@ struct RowMotion {
                 lines.changes()
             }
             SidebarDragSpring.stop(views)
-            Self.untuck(views)
             leaving.forEach { Self.closed($0.0, in: list) }
             lines.leaving.forEach { $0.removeFromSuperview() }
             return
@@ -57,7 +56,6 @@ struct RowMotion {
                 }
             }
             SidebarDragSpring.stop(views)
-            Self.untuck(views)
             // Movement off: the lines and history blocks land too, their earlier springs off (`move`'s snap).
             SidebarDragSpring.move(lines.springs + companions, in: list)
             leaving.forEach { Self.closed($0.0, in: list) }
@@ -72,10 +70,8 @@ struct RowMotion {
         let generations = leaving.map(\.0.reuseGeneration)
         list.rowMoves &+= 1
         let move = list.rowMoves
-        let ended = RowMotionEnd { [weak list, appearing, opens, leaving, generations, targets, leavingLines = lines.leaving] in
+        let ended = RowMotionEnd { [weak list, appearing, opens, leaving, generations, leavingLines = lines.leaving] in
             leavingLines.forEach { $0.removeFromSuperview() }
-            // Every line of this move, those that only moved too: an earlier move's tuck they kept ends here at the latest.
-            Self.untuck(targets.map(\.0) + appearing.map(\.0) + leaving.map(\.0), move: move)
             guard let list else { return }
             // A row reopened since keeps clipping until its own open ends.
             for ((view, _), open) in zip(appearing, opens) where view.opens == open { view.clipsToBounds = false }
@@ -85,16 +81,8 @@ struct RowMotion {
             if list.rowMoves == move { Self.land(list) }
             list.pruneOffscreen()
         }
-        let moving = Set((targets + appearing + leaving).filter { $0.0.frame != $0.1 }.map { ObjectIdentifier($0.0) })
-        let tucked = Self.tuck(appearing: appearing, leaving: leaving, move: move) {
-            Self.cover(of: $0, rows: list.rowViews, moving: moving)
-        }
-        // A line an earlier move tucked that now appears or leaves untucked (its row moves with a group) goes back to
-        // the rows' drawing order, and the shared fade takes it over (Codex review). A line that only moves keeps its
-        // tuck: no shared fade would take its place, so it would show at once; its own move's end untucks it.
-        Self.untuck((appearing + leaving).map(\.0).filter { !tucked.contains(ObjectIdentifier($0)) })
         Self.animate(frames: targets + appearing + leaving, companions: lines.springs + companions,
-                     fades: Self.fades(targets: targets, appearing: appearing, leaving: leaving).filter { !tucked.contains(ObjectIdentifier($0.0)) },
+                     fades: Self.fades(targets: targets, appearing: appearing, leaving: leaving),
                      lines: lines.changes, in: list, ended: ended,
                      insert: insert, travel: travel)
     }
@@ -207,7 +195,6 @@ struct RowMotion {
     /// or the new row motion's start and spring) instead of showing whole over
     /// the rows still making room (cx-ai79).
     static func place(_ view: SidebarRowView, at target: NSRect, opening: SidebarRowOpening?, hidden: Bool, in list: SidebarListView) {
-        untuck([view]) // a parked tab line kept from a fold comes back in order, not behind the rows
         guard let opening, !hidden, Motion.sidebar.animatesMovement else {
             view.frame = target
             view.alphaValue = hidden ? 0 : 1
@@ -242,7 +229,7 @@ struct RowMotion {
         }
     }
 
-    /// A moved selected row (with its workspace's tab rows) passes over the
+    /// A moved selected row passes over the
     /// rows it trades places with: it draws above them, and each row it
     /// crosses hides at once and fades back in once the move has nearly
     /// settled, so a translucent selection fill never shows a title through
@@ -254,42 +241,20 @@ struct RowMotion {
         // to pass over with: the rows it crosses stay as they are.
         guard let key = list.selectedRowKey, !list.suppressed.contains(key), !appearing.contains(where: { $0.0.key == key }),
               let before = old.row(for: key)?.y, let after = layout.row(for: key)?.y, before != after else { return }
-        let block = Self.block(of: key)
         let passed = targets.map(\.0).filter { view in
-            guard !block(view.key), let was = old.row(for: view.key)?.y, let now = layout.row(for: view.key)?.y else { return false }
+            guard view.key != key, let was = old.row(for: view.key)?.y, let now = layout.row(for: view.key)?.y else { return false }
             return (was < before) != (now < after)
         }
-        // Only a block that crosses rows is raised: re-adding a view delays its
+        // Only a row that crosses rows is raised: re-adding a view delays its
         // first frames, so a row an insert pushes down would lag the new row
         // opening above it (cx-ai79).
         guard !passed.isEmpty else { return }
-        if let top = list.subviews.last(where: { $0 is SidebarRowView }) {
-            var anchor = top
-            for row in layout.rows where block(row.key) {
-                guard let view = list.rowViews[row.key], view !== anchor else { continue }
-                list.addSubview(view, positioned: .above, relativeTo: anchor)
-                anchor = view
-            }
+        if let top = list.subviews.last(where: { $0 is SidebarRowView }), let view = list.rowViews[key], view !== top {
+            list.addSubview(view, positioned: .above, relativeTo: top)
         }
         for view in passed {
             guard let hide = Motion.sidebar.passOverAnimation(.move) else { return }
             view.layer?.add(hide, forKey: "cmux.passOver")
-        }
-    }
-
-    /// The rows that move with `key`: a workspace and its tab rows.
-    private static func block(of key: SidebarRowKey) -> (SidebarRowKey) -> Bool {
-        let workspace: WorkspaceID? = switch key {
-        case let .workspace(id), let .tab(id, _): id
-        default: nil
-        }
-        return { candidate in
-            if candidate == key { return true }
-            guard let workspace else { return false }
-            switch candidate {
-            case let .workspace(id), let .tab(id, _): return id == workspace
-            default: return false
-            }
         }
     }
 }
