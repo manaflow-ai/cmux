@@ -8083,7 +8083,8 @@ export class AcpmuxDirectClient {
     const generation = this.selectionGeneration;
     for (let pages = 0; pages < 200; pages++) {
       const from = this.firstSeq;
-      if (generation !== this.selectionGeneration || from === undefined || from <= seq || !this.seqHistoryLeft()) return;
+      if (generation !== this.selectionGeneration || from === undefined || from <= seq || !this.seqHistoryLeft())
+        return;
       await this.loadOlder();
       if (this.firstSeq === from) return;
     }

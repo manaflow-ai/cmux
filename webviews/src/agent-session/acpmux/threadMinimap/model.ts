@@ -463,15 +463,13 @@ export function minimapTurns(
       return { ...prior!, ...base };
     const earlier = sameEarlier
       ? prior!.earlierTurns!
-      : earlierRows.map(
-          (row): MinimapTurn => ({
-            index: -1,
-            id: row.id,
-            key: turnKey(sessionId, row),
-            prompt: (row.text ?? "").trim(),
-            reply: [],
-          }),
-        );
+      : earlierRows.map((row): MinimapTurn => ({
+          index: -1,
+          id: row.id,
+          key: turnKey(sessionId, row),
+          prompt: (row.text ?? "").trim(),
+          reply: [],
+        }));
     const turns = [...earlier, ...loadedTurns];
     return {
       ...base,
