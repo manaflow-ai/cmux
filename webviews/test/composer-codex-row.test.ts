@@ -34,7 +34,7 @@ await requireBrowserLane("composer-codex-row.test.ts", async () => {
 
   for (const look of ["claude", "codex"])
     for (const theme of ["light", "dark"])
-      for (const width of [720, 420])
+      for (const width of [720, 420, 280])
         test(`${look} ${theme} ${width}: controls belong to their look's row`, async () => {
           const page = await browser.newPage({ viewport: { width, height: 560 }, deviceScaleFactor: 2 });
           try {
@@ -76,6 +76,14 @@ await requireBrowserLane("composer-codex-row.test.ts", async () => {
               const axis = geometry.controls[0]!.cy;
               for (const control of geometry.controls) expect(Math.abs(control.cy - axis)).toBeLessThanOrEqual(0.5);
               expect(geometry.box.bottom - geometry.bar.bottom).toBeLessThanOrEqual(0.5);
+              // Every control fits the box, none over another, at a split pane's width too (review of
+              // #28901: the plain footer's infinite fit width kept the full labels at 280 px).
+              const row = [...geometry.controls].sort((a, b) => a.left - b.left);
+              for (const control of row) {
+                expect(control.left).toBeGreaterThanOrEqual(geometry.box.left - 0.5);
+                expect(control.right).toBeLessThanOrEqual(geometry.box.right + 0.5);
+              }
+              for (let i = 1; i < row.length; i++) expect(row[i]!.left).toBeGreaterThanOrEqual(row[i - 1]!.right - 0.5);
               // The look dots sit in the row's empty middle (Leo 2026-10-30: "you notice how the middle
               // of the normal codex compser has all that blank space? we can just have the dots there.").
               if (width >= 720) expect(geometry.dots).not.toBeNull();
