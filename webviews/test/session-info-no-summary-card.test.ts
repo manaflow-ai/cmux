@@ -31,16 +31,7 @@ await requireBrowserLane("session-info-no-summary-card.test.ts", async () => {
   });
 
   const open = async (inspector: boolean, dark = false, scale = 1) => {
-    const page = await pane.open({ width: 900, height: 640 });
-    if (scale !== 1) {
-      const cdp = await page.context().newCDPSession(page);
-      await cdp.send("Emulation.setDeviceMetricsOverride", {
-        width: 900,
-        height: 640,
-        deviceScaleFactor: scale,
-        mobile: false,
-      });
-    }
+    const page = await pane.open({ width: 900, height: 640, scale, colorScheme: dark ? "dark" : "light" });
     // The pane's theme is the host's (applyTheme), not the browser's color scheme.
     const theme = agentPaneTheme(
       deriveTokens({
@@ -128,7 +119,8 @@ await requireBrowserLane("session-info-no-summary-card.test.ts", async () => {
               .waitFor({ timeout: 10_000 });
             await page.waitForTimeout(600);
             const name = `${inspector ? "after-session-info" : "before-summary-card"}-${dark ? "dark" : "light"}.png`;
-            await page.screenshot({ path: path.join(out, "stills", name) });
+            // The pane's top right: the header's tools and the panel under them, with some transcript.
+            await page.screenshot({ path: path.join(out, "stills", name), clip: { x: 380, y: 0, width: 520, height: 240 } });
           } finally {
             await page.close();
           }
