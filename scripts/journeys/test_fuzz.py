@@ -83,6 +83,14 @@ class Pure(unittest.TestCase):
             for item in burst[:-1]:
                 self.assertNotEqual(item["t"], "slow")
 
+    def test_new_refusals_when_the_list_is_full(self):
+        full = [f"m{i}" for i in range(100)]
+        self.assertEqual(ext_fuzz.new_refusals(full, full[1:] + ["split refused"]), ["split refused"])
+        self.assertEqual(ext_fuzz.new_refusals(["a"], ["a", "b"]), ["b"])
+        self.assertEqual(ext_fuzz.new_refusals(full, full), [])
+        self.assertTrue(ext_fuzz.SPLIT_REFUSAL.search("Not enough room to split this column"))
+        self.assertFalse(ext_fuzz.SPLIT_REFUSAL.search("The terminal could not start"))
+
     def test_ddmin_finds_the_pair(self):
         seq = [{"a": "x", "i": i} for i in range(20)]
         fails = lambda cand: {3, 11} <= {c["i"] for c in cand}

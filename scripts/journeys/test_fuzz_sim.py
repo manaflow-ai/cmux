@@ -120,6 +120,8 @@ class FakeApp:
             if "second_split_lost" in self.bugs and time.monotonic() - self.last_split < 0.5:
                 return {"handled_by": "keyRouter"}
             self.last_split = time.monotonic()
+            if "other_toast" in self.bugs:
+                self.toasts.append("The terminal could not start")
             if getattr(self, "hook", None):
                 self.hook["started"] = self.hook.get("started", 0) + 1
             if "no_room" in self.bugs and getattr(self, "splits_made", 0) >= 1:
@@ -414,6 +416,11 @@ class Sim(unittest.TestCase):
         report, error = run(bugs={"no_room"}, seq=seq, shrink=False, actions="layout")
         self.assertIsNone(error, json.dumps(report["log"][-1:])[:800])
         self.assertEqual((report["split_type"]["refused"], report["split_type"]["red"]), (1, 0))
+
+    def test_an_unrelated_refusal_does_not_hide_a_split_type_red(self):
+        seq = [{"a": "new_terminal", "t": "slow"}, {"a": "split_type", "t": "slow"}]
+        report, error = run(bugs={"split_keys_to_last", "other_toast"}, seq=seq, shrink=False, actions="layout")
+        self.assertEqual(report["failure"]["oracle"], "keys", report["failure"])
 
     def test_a_late_browser_close_does_not_hide_a_browser_create(self):
         seq = [{"a": "new_terminal", "t": "slow"}, {"a": "open_url", "t": "slow"}, {"a": "open_url", "t": "slow"}]

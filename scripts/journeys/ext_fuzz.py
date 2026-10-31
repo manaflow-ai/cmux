@@ -334,6 +334,24 @@ def refusals(j):
     return list(report.get("refusals") or []) if isinstance(report, dict) else []
 
 
+def new_refusals(before, after):
+    """The refusal messages AFTER has that BEFORE did not (debug.toast keeps only the newest 100: once full, a new
+    message shifts the list instead of growing it, so a length compare would miss it)."""
+    before, after = list(before or []), list(after or [])
+    if len(after) > len(before) and after[:len(before)] == before:
+        return after[len(before):]
+    for k in range(len(before) + 1):  # the longest tail of BEFORE that AFTER starts with
+        tail = before[k:]
+        if after[:len(tail)] == tail:
+            return after[len(tail):]
+    return after
+
+
+# A refusal that answers a split ("Not enough room to split this column / pane"): only these make a split + type round
+# not judged; any other message (an error toast of the bug under test) never hides a red.
+SPLIT_REFUSAL = re.compile(r"split", re.I)
+
+
 def hang_records(j, after):
     report = _rpc(j, "debug.hangs", {"after": after, "limit": 200}) or {}
     rows = [r for r in report.get("records") or [] if isinstance(r, dict)] if isinstance(report, dict) else []
@@ -573,7 +591,7 @@ class Fuzz:
         self.splits = getattr(self, "splits", 0) + 1
         snap = f"fz-split-{self.splits}"
         ext_smoke.step_smoke_snapshot(j, {"name": snap})
-        refused_before = len(refusals(j))
+        refused_before = refusals(j)
         known = {p.get("terminal_id") for p in surfaces(j) if p.get("terminal_id")}
         hold = None if self.diagnostic else self.creation_hook("hold", [1])
         lines, at, paths, release, reached = [], None, [], None, None
@@ -614,7 +632,7 @@ class Fuzz:
         """The split_type oracle: ext_smoke.cond_smoke_new_terminals (placement new_panes, the last line on the focused
         terminal), polled until it holds or SPLIT_LINES_TIMEOUT."""
         import ext_smoke
-        refused = refusals(self.j)[rec.get("refused_before", 0):]
+        refused = [m for m in new_refusals(rec.get("refused_before"), refusals(self.j)) if SPLIT_REFUSAL.search(str(m))]
         if refused:
             # A split the app refused with a visible message ("Not enough room to split this column"): its line goes to
             # the pane that has the keys, as it should. Not judged; the create oracle records the refusal.
@@ -818,7 +836,7 @@ class Fuzz:
                 r["typeable_ms"] = self.new_tab_field(r["at"])
         problems = []
         if not held(got):
-            refused = refusals(self.j)[len(refused_before):]
+            refused = new_refusals(refused_before, refusals(self.j))
             if refused:
                 self.notes.append({"n": self.n, "refused": refused[-3:], "want": want, "got": got})
             else:
