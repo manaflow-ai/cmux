@@ -2620,7 +2620,7 @@ async fn refusing_creates(creates: u64) -> MockServer {
 async fn run_refuses_a_command_over_the_env_value_limit_before_creating_a_vm() {
     // The API limits an env value to 32 KiB counted as JavaScript string
     // length (UTF-16 code units); the whole command goes in one.
-    let under = refusing_creates(1).await;
+    let under = refusing_creates(2).await;
     let out = cli(&under, &["run", "--", &"x".repeat(32 * 1024)]).await;
     assert_ne!(out.code, exit::USAGE, "{}", out.stderr);
     // Two UTF-16 units each: 16 Ki of them is exactly the limit.
