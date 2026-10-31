@@ -484,13 +484,14 @@ import Testing
             markAskShown: base.markAskShown))
         let ticket = SessionTicket(sessionId: "s1", ticket: "a.b.c", signalURL: URL(string: "wss://hub.invalid/v1/sessions/s1/ws")!,
                                    ice: [], peer: .init(id: "v1", name: "Studio", signingKey: "key"), role: .host, scope: .view)
+        var fixture = false
+        model.fixtureActive = { fixture }
         #expect(await model.macScreenGate(ticket), "an unjoined Mac serves as before")
-        defer { DebugJoinConsent.status = nil }
         // A fixture set while the ticket's read runs.
         held = true
         let pending = Task { await model.macScreenGate(ticket) }
         for _ in 0..<1000 where reads < 2 { await Task.yield() }
-        DebugJoinConsent.status = JoinStatus(credentialPresent: false)
+        fixture = true
         read.open()
         #expect(!(await pending.value))
         // And one set before.

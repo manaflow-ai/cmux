@@ -24,7 +24,7 @@
 .acpmux-handoff-review .acpmux-handoff-confirm { display: flex; align-items: center; gap: 8px; }
 .acpmux-handoff-confirm input { accent-color: var(--agent-text); }
 .acpmux-handoff-review details label { margin-top: 12px; }
-.acpmux-handoff-review summary { cursor: pointer; color: var(--agent-muted); }
+.acpmux-handoff-review summary { cursor: default; color: var(--agent-muted); }
 .acpmux-handoff-coverage { margin: 0; color: var(--agent-muted); font-size: 11px; }
 .acpmux-handoff-buttons { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
 .acpmux-handoff-buttons button {
@@ -34,7 +34,7 @@
   font: inherit;
   color: var(--agent-text);
   background: var(--agent-control, color-mix(in srgb, var(--agent-text) 10%, transparent));
-  cursor: pointer;
+  cursor: default;
 }
 .acpmux-handoff-buttons button[type=button] { background: none; color: var(--agent-muted); }
 .acpmux-handoff-buttons button:disabled { opacity: .45; cursor: default; }

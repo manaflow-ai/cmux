@@ -738,7 +738,7 @@ button.acpmux-chat-inspector-port:hover,
   border-radius: var(--acpmux-inspector-row-radius);
   color: inherit;
   text-decoration: none;
-  cursor: pointer;
+  cursor: default;
 }
 .acpmux-chat-inspector-source__link:focus-visible {
   outline: 1.5px solid var(--agent-text);

@@ -22,7 +22,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 
 from cmux_next_push_attribution import MAX_COMMENTED_PRS, failed_jobs, last_green, never_passed, should_comment  # noqa: E402
-from cmux_next_route import outputs, route  # noqa: E402
+from cmux_next_route import MAX_PRIORITY_SUITES, outputs, route  # noqa: E402
 
 PACKAGE = "Packages/macOS/CmuxNext"
 GRAPH = json.loads((ROOT / PACKAGE / "ci-target-graph.json").read_text(encoding="utf-8"))
@@ -265,6 +265,14 @@ class PullRequestTiers(unittest.TestCase):
         result = tiers([f"{PACKAGE}/Tests/CmuxNextControlTests/CLISurfaceParityTests.swift"])
         self.assertEqual(result["swift_priority_filter"], "")
 
+    def test_a_diff_past_the_cap_gets_no_priority_shard(self):
+        suites = sorted(path.stem for path in (ROOT / PACKAGE / "Tests/CmuxNextAppTests").glob("*Tests.swift"))
+        changed = [f"{PACKAGE}/Tests/CmuxNextAppTests/{name}.swift" for name in suites]
+        self.assertGreater(len(changed), MAX_PRIORITY_SUITES)
+        self.assertEqual(tiers(changed)["swift_priority_filter"], "")
+        at_cap = tiers(changed[:MAX_PRIORITY_SUITES])["swift_priority_filter"]
+        self.assertEqual(at_cap.count("|") + 1, MAX_PRIORITY_SUITES)
+
     def test_cloud_bring_back_stays_prioritized_for_new_cases(self):
         result = tiers([f"{PACKAGE}/Tests/CmuxNextAppTests/CloudBringBackTests.swift"])
         self.assertEqual(result["swift_priority_filter"], r".*(CloudBringBackTests)\.")
@@ -445,6 +453,11 @@ class PullRequestTiers(unittest.TestCase):
         """Workflows, CI scripts, the router and gh-merge-green: actionlint, the CI unit tests and the
         routing replay check them on Linux, and one command reverts them."""
         result = tiers(["scripts/ci/cmux_next_route.py", "tests/test_cmux_next_route.py"])
+        for tier in ("macos", "scheme", "native", "swift", "generated", "daemon", "full"):
+            self.assertEqual(result[tier], "false", tier)
+
+        # The warm-sources table is read only by its Linux guard test.
+        result = tiers([".github/warm-sources.json", "tests/test_ci_warm_sources.py"])
         for tier in ("macos", "scheme", "native", "swift", "generated", "daemon", "full"):
             self.assertEqual(result[tier], "false", tier)
 
@@ -922,12 +935,126 @@ class WorkflowRoute(unittest.TestCase):
         self.assertEqual(result, alone)
 
     def test_a_job_a_mac_job_runs_or_needs_runs_every_tier(self):
+        """Path routing, placement, the web bundles and the fast tier feed or are Mac jobs WORKFLOW_JOB_TIERS
+        does not place: a change to one runs every tier."""
         for old, new in (("    name: cmux-next path routing", "    name: cmux-next path routing (old)"),
                          ("    name: cmux-next web bundles (source-keyed cache)", "    name: old bundles"),
-                         ("    name: cmux-next fast tier\n", "    name: old fast tier\n"),
-                         ("    name: cmux-next swift test\n", "    name: old swift test\n")):
+                         ("    name: cmux-next fast tier\n", "    name: old fast tier\n")):
             with self.subTest(job=new):
                 self.assertEqual(self.route_with_base(self.base_without(old, new))["full"], "true")
+        for job in ("macos-placement", "swift-canary-fleet", "push-head-preflight"):
+            with self.subTest(job=job):
+                self.assertEqual(self.route_with_base(self.base_with_job_edited(job))["full"], "true")
+
+    def base_with_job_edited(self, job: str) -> str:
+        """The head workflow with only `job`'s own timeout-minutes changed: a base that differs in that job."""
+        start = re.search(rf"^  {re.escape(job)}:\n", self.HEAD, re.M)
+        self.assertIsNotNone(start, job)
+        end = re.compile(r"^  [\w-]+:\n", re.M).search(self.HEAD, start.end())
+        block = self.HEAD[start.start():end.start() if end else len(self.HEAD)]
+        edited, count = re.subn(r"^    timeout-minutes: (\d+)$", lambda m: f"    timeout-minutes: {int(m.group(1)) + 1}",
+                                block, count=1, flags=re.M)
+        self.assertEqual(count, 1, f"{job} has no job-level timeout-minutes")
+        return self.HEAD.replace(block, edited)
+
+    def test_a_change_to_the_swift_test_job_runs_swift_test_on_every_target(self):
+        """#5424: a change to how swift test runs ran the daemon suites and every compile too. It runs the
+        swift test job on every CmuxNext test target (and the generated-files check it folds in), not the rest."""
+        result = self.route_with_base(self.base_with_job_edited("swift-test"))
+        for tier in ("swift", "generated", "macos"):
+            self.assertEqual(result[tier], "true", tier)
+        self.assertEqual((result["swift_targets"], result["swift_filter"]), ("all", ""))
+        for tier in ("daemon", "native", "scheme", "mac_release", "fast_tier", "full"):
+            self.assertEqual(result[tier], "false", tier)
+
+    def test_a_change_to_one_mac_job_runs_that_job_s_tiers(self):
+        cases = {
+            "daemon-test": ({"daemon", "generated"}, {"swift", "native", "scheme", "mac_release"}),
+            "generated-files": ({"generated"}, {"swift", "daemon", "native", "scheme"}),
+            "release-compile": ({"native", "mac_release"}, {"swift", "daemon", "generated", "scheme"}),
+            "app-compile-fleet": ({"native"}, {"swift", "daemon", "generated", "scheme", "mac_release"}),
+            "cmux-scheme-compile": ({"native", "scheme"}, {"swift", "daemon", "generated", "mac_release"}),
+        }
+        for job, (run, skip) in cases.items():
+            with self.subTest(job=job):
+                result = self.route_with_base(self.base_with_job_edited(job))
+                self.assertEqual({tier for tier in run | skip if result[tier] == "true"}, run)
+                self.assertEqual((result["full"], result["swift_targets"]), ("false", ""))
+
+    def test_a_job_no_pull_request_runs_adds_no_tier(self):
+        """#26896 changed only the DEV landing compile, which runs on feat-cmux-next pushes: its pull request
+        ran every tier and still never ran that job. The base push runs it."""
+        for job in ("dev-landing-compile", "dev-landing-place", "release-compile-fast", "request-nightly-next"):
+            with self.subTest(job=job):
+                result = self.route_with_base(self.base_with_job_edited(job) if job != "request-nightly-next"
+                                              else self.base_without("  request-nightly-next:\n", "  request-nightly-next:\n    continue-on-error: false\n"))
+                for tier in ("macos", "swift", "daemon", "native", "full"):
+                    self.assertEqual(result[tier], "false", tier)
+
+    def test_jobs_beside_one_another_take_both_tiers(self):
+        base = self.base_with_job_edited("swift-test")
+        self.HEAD, head = base, self.HEAD  # edit the daemon job on top of the swift test one
+        try:
+            base = self.base_with_job_edited("daemon-test")
+        finally:
+            self.HEAD = head
+        result = self.route_with_base(base)
+        self.assertEqual({tier for tier in ("swift", "daemon", "generated", "native") if result[tier] == "true"},
+                         {"swift", "daemon", "generated"})
+
+    def test_a_changed_if_or_an_added_job_runs_every_tier(self):
+        """A listed job's `if:` decides when it runs on every route, and a new or removed job is not listed."""
+        job = yaml_jobs(self.HEAD)["swift-test"]
+        self.assertEqual(self.HEAD.count(f"    if: {job['if']}\n"), 1)
+        changed_if = self.HEAD.replace(f"    if: {job['if']}\n", "    if: ${{ needs.path_route.outputs.swift == 'true' }}\n")
+        self.assertEqual(self.route_with_base(changed_if)["full"], "true")
+        start = self.HEAD.index("  swift-test:\n")
+        removed = self.HEAD[:start] + self.HEAD[start:].replace("  swift-test:\n", "  swift-test-old:\n", 1)
+        self.assertEqual(self.route_with_base(removed)["full"], "true")
+
+    def test_a_job_change_beside_other_files_keeps_their_tiers(self):
+        rust = "cmux-tui/crates/acpmux/src/hub/queue.rs"
+        result = self.route_with_base(self.base_with_job_edited("cmux-scheme-compile"),
+                                      [".github/workflows/cmux-next.yml", rust])
+        alone = tiers([rust])
+        self.assertEqual(result["daemon"], alone["daemon"])
+        self.assertEqual((result["native"], result["scheme"], result["swift"]), ("true", "true", alone["swift"]))
+
+    def test_the_job_tiers_cover_what_each_job_gates_on(self):
+        """Each WORKFLOW_JOB_TIERS job is a Mac job of cmux-next.yml, and its tiers include every tier output
+        its `if:` reads, so the tiers a change to it selects make that job run."""
+        from cmux_next_route import WORKFLOW_JOB_TIERS, WORKFLOW_TIER_FIELDS, Route, linux_job
+        jobs = yaml_jobs(self.HEAD)
+        for job, job_tiers in WORKFLOW_JOB_TIERS.items():
+            with self.subTest(job=job):
+                self.assertIn(job, jobs)
+                self.assertFalse(linux_job(jobs[job], ROOT), f"{job} runs only on Linux")
+                self.assertTrue(set(job_tiers) <= set(WORKFLOW_TIER_FIELDS) and all(hasattr(Route(), t) for t in job_tiers))
+                read = set(re.findall(r"needs\.path_route\.outputs\.(\w+)", str(jobs[job].get("if", ""))))
+                self.assertLessEqual(read & set(WORKFLOW_TIER_FIELDS), set(job_tiers))
+
+    def test_never_on_pull_request(self):
+        from cmux_next_route import never_on_pull_request
+        jobs = yaml_jobs(self.HEAD)
+        for job in ("dev-landing-place", "dev-landing-compile", "release-compile-fast", "request-nightly-next",
+                    "request-cmux-next-dev-publish", "dev-daily-tree-wait", "dev-daily-place"):
+            self.assertTrue(never_on_pull_request(job, jobs), job)
+        for job in ("swift-test", "daemon-test", "generated-files", "release-compile", "app-compile-fleet",
+                    "cmux-scheme-compile", "fast-tier", "macos-placement", "path_route", "web-bundles"):
+            self.assertFalse(never_on_pull_request(job, jobs), job)
+        synthetic = {
+            "push": {"if": "${{ !cancelled() && github.event_name == 'push' }}"},
+            "either": {"if": "${{ github.event_name == 'push' || github.event_name == 'pull_request' }}"},
+            "grouped": {"if": "${{ (github.event_name == 'push' && a || inputs.dev_daily == true) && b }}"},
+            "half": {"if": "${{ (github.event_name == 'push' || b) && c }}"},
+            "after": {"needs": ["push"], "if": "${{ needs.push.result == 'success' }}"},
+            "unlisted": {"if": "${{ needs.push.result == 'success' }}"},
+            "maybe": {"needs": "push", "if": "${{ always() && needs.push.result != 'success' }}"},
+            "none": {}, "nested": {"if": "${{ github.event_name == 'push' && ${{ x }} }}"},
+        }
+        self.assertEqual({name for name in synthetic if never_on_pull_request(name, synthetic)},
+                         {"push", "grouped", "after"})
+
 
     def test_top_level_env_runs_every_tier(self):
         base = self.base_without("  CI_CACHE_R2_PUBLIC_URL: ${{ vars.CI_CACHE_R2_PUBLIC_URL || 'https://ci-cache.cmux.com' }}",
@@ -956,6 +1083,45 @@ class WorkflowRoute(unittest.TestCase):
             self.assertTrue(linux_runs_on(value), value)
         for value in mac:
             self.assertFalse(linux_runs_on(value), value)
+
+
+def yaml_jobs(text: str) -> dict:
+    import yaml
+    return yaml.load(text, Loader=yaml.BaseLoader)["jobs"]
+
+
+class RunnerAndScriptRoutes(unittest.TestCase):
+    """#5424 fix 3: a pull request of workflows, scripts or tests runs swift test and the daemon suites only
+    when a Swift target or one of those jobs reads what it changed."""
+
+    def test_an_unrelated_workflow_runs_no_mac_tier(self):
+        result = tiers([".github/workflows/ci-web.yml"])
+        for tier in ("macos", "swift", "daemon", "native"):
+            self.assertEqual(result[tier], "false", tier)
+
+    def test_a_python_only_script_runs_no_swift_test_or_daemon(self):
+        for script in ("scripts/ci/owned_pool_rescue.py", "scripts/cmux-next/gen-layout-grid.py"):
+            with self.subTest(script=script):
+                result = tiers([script])
+                self.assertEqual((result["swift"], result["daemon"], result["full"]), ("false", "false", "false"))
+
+    def test_scripts_the_swift_test_and_daemon_jobs_run_or_tests_read_keep_them(self):
+        self.assertEqual(tiers(["scripts/cmux-next/swift-test-with-hang-sampler.sh"])["full"], "true")
+        self.assertEqual(tiers(["scripts/cmux-next/tests/bundle-server-helper.test.sh"])["swift"], "true")
+        pin = tiers(["scripts/cmux-next/pin-cmux-tui.sh"])
+        self.assertEqual((pin["swift"], pin["daemon"]), ("true", "true"))
+        self.assertEqual(tiers(["scripts/cmux-next/check-daemon-capabilities.sh"])["daemon"], "true")
+
+    def test_a_script_a_build_phase_runs_keeps_the_compiles_not_swift_test(self):
+        for script in ("scripts/build-diff-sidecar.sh", "scripts/cmux-next/build-mobile-host.sh",
+                       "scripts/cmux-next/build-web-bundles.sh"):
+            with self.subTest(script=script):
+                result = tiers([script])
+                self.assertEqual((result["native"], result["swift"], result["daemon"]), ("true", "false", "false"))
+
+    def test_a_rust_only_change_runs_the_daemon_tier_not_swift_test(self):
+        result = tiers(["cmux-tui/crates/acpmux/src/hub/queue.rs"])
+        self.assertEqual((result["daemon"], result["swift"], result["native"]), ("true", "false", "false"))
 
 
 class PushAttribution(unittest.TestCase):
@@ -999,6 +1165,28 @@ class PushAttribution(unittest.TestCase):
         sections = pr_status.parse(comments[0]["body"])
         self.assertEqual(sections["checks"], "Existing check evidence")
         self.assertIn("<!-- cmux-next-push-attribution:12 -->", sections["push-attribution"])
+
+    def test_a_base_tier_run_starts_the_range_at_the_commit_it_tested(self):
+        """cmuxterm-hq#5424: the base Mac tier runs in `cmux-next base tier · <sha>` dispatches. Its
+        same-tree run's head_sha is the branch tip when it started, not the commit it tested, so the
+        range since the last pass starts at the sha in the run's name."""
+        import cmux_next_push_attribution as attribution
+
+        tested, newer, red = "a" * 40, "b" * 40, "c" * 40
+        runs = [{"id": 30, "head_sha": newer, "status": "completed", "display_title": f"cmux-next base tier · {tested}"},
+                {"id": 20, "head_sha": "d" * 40, "status": "completed", "display_title": "cmux-next · " + "d" * 40}]
+        self.assertEqual(attribution.tested_sha(runs[0]), tested)
+        self.assertEqual(attribution.tested_sha({"head_sha": newer, "display_title": "cmux NEXT DEV daily"}), newer)
+        jobs = {40: {"cmux-next daemon tests": "failure"}, 30: {"cmux-next daemon tests": "success"},
+                20: {"cmux-next daemon tests": "skipped"}}
+        ranges = []
+        with mock.patch.object(attribution, "run_jobs", side_effect=lambda repo, run_id: jobs[run_id]), \
+             mock.patch.object(attribution, "gh_api", return_value={"workflow_runs": runs}), \
+             mock.patch.object(attribution, "pull_requests",
+                               side_effect=lambda repo, good, head, branch: ranges.append((good, head)) or []):
+            self.assertEqual(attribution.main(["--repo", "o/r", "--run-id", "40", "--sha", red,
+                                               "--events", "push,workflow_dispatch"]), 0)
+        self.assertEqual(ranges, [(tested, red)])
 
     def test_skipped_jobs_do_not_end_the_range(self):
         earlier = [
