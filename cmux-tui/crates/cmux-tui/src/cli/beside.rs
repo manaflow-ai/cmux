@@ -16,7 +16,7 @@ use serde_json::{Map, Value, json};
 pub(super) const NEW_COLUMN_WIDTH: f64 = 0.66;
 
 /// The parent selectors a creation may name.
-const PARENTS: [&str; 3] = ["workspace", "screen", "pane"];
+pub(super) const PARENTS: [&str; 3] = ["workspace", "screen", "pane"];
 
 /// Where a creation with no place goes, from the app's identity answer.
 #[derive(Debug, PartialEq)]

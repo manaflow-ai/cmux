@@ -4,6 +4,7 @@ import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextDaemon
+import CmuxNextFiles
 import CmuxNextLayout
 
 /// Tab actions (category `.tab` except `tabGroup.*`): create, close,
@@ -295,6 +296,12 @@ enum TabHandlers {
             return tab.pinned ? PinStrings.unpinTab : PinStrings.pinTab
         }
         PinnedPage.bind(registry, ctx: ctx)
+        // Edit Source (u18051): a tab rendering a local HTML or SVG file opens its source in the code editor (Open as Text).
+        registry.bindEffect("browser.editSource", effect: { invocation in
+            guard let (tab, pane) = ctx.daemonTab(invocation), let file = FileOpenKind.sourceFile(ofPage: tab.url) else { return .refused(FilePageStrings.notAFile) }
+            ctx.services.linkOpener.openFile(file, from: ctx.services.paneController(for: pane), asText: true); return .done
+        })
+        ActionTargetVisibility.hide("browser.editSource", in: registry) { ($0.target?.id).flatMap { ctx.services.locateTab($0) }.map { FileOpenKind.sourceFile(ofPage: $0.0.url) == nil } ?? false }
     }
 
     /// Optimistic rename; an empty name clears it on the daemon.

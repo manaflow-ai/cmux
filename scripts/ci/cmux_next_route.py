@@ -223,6 +223,8 @@ WEBVIEW = (
 BUNDLE_INPUTS = (
     "webviews/src/*", "webviews/scripts/*", "webviews/package.json", "webviews/bun.lock",
     "webviews/reactCompiler.mjs", "webviews/vite.config.ts", "schemas/settings/*",
+    # The feature tips' source (webviews/scripts/pages/gen-feature-tips.mjs).
+    "release-notes/next/highlights/*",
     "Resources/markdown-viewer/marked.min.js",
     "scripts/build-webviews-app.sh", "scripts/check-webviews-bun-version.sh",
     "scripts/cmux-next/build-agent-pane-web.sh", "scripts/cmux-next/build-pages-web.sh",
@@ -244,11 +246,12 @@ CHECKED_WEB_BUNDLES = (
     PACKAGE + "Sources/CmuxNextAgentPane/Resources/agent-pane/*",
 )
 
-# CI-only files: workflows, CI scripts, the router and gh-merge-green, and their tests. actionlint
-# and the CI unit tests (ci.yml's guards) and the routing replay (the checks job) cover them on
-# Linux, and `gh-merge-green --revert` undoes one in a command.
+# CI-only files: workflows, CI scripts, the router and gh-merge-green, the warm-sources table
+# (tests/test_ci_warm_sources.py), and their tests. actionlint and the CI unit tests (ci.yml's
+# guards) and the routing replay (the checks job) cover them on Linux, and `gh-merge-green
+# --revert` undoes one in a command.
 CI_ONLY = (
-    ".github/workflows/*", "scripts/ci/*", "scripts/gh-merge-green",
+    ".github/workflows/*", ".github/warm-sources.json", "scripts/ci/*", "scripts/gh-merge-green",
     "tests/test_cmux_next_route.py", "tests/test_cmux_next_route_replay.py",
     "tests/test_cmux_next_checks_workflow.py", "tests/test_gh_merge_green*.py",
     "tests/test_base_red_excuse.py", "tests/test_test_reds.py", "tests/fixtures/test_reds/*", "tests/test_ci_*.py",
@@ -262,6 +265,12 @@ CI_SELF = (".github/workflows/cmux-next.yml", "scripts/ci/cmux_next_route.py", "
 ISOLATED_PRIORITY_SUITES = frozenset((
     "CmuxNextControlTests", "BranchStateResourcesTests", "CLISurfaceParityTests",
 ))
+
+# The priority shard only reorders: the broad pass skips its suites and would run them anyway. Past
+# this many suites its regex stalls swift-testing's filter (cmux#27236's 378 suites, a 9.7 KB
+# `.*(A|B|...)\.`, sat 1500 s in Configuration.TestFilter.apply before any test ran, and the broad
+# pass's matching `--skip` stalled the same way), so a diff that wide gets no priority shard.
+MAX_PRIORITY_SUITES = 40
 
 
 def web_fast(path: str) -> bool:
@@ -943,6 +952,10 @@ def route(root: Path, event: str, changed: list[str] | None, labels: set[str],
     graph = load_graph(root)
     tests = {name for name, target in graph["targets"].items() if target["kind"] == "test"}
     result.priority_suites = priority_suites(root, graph, changed)
+    if len(result.priority_suites) > MAX_PRIORITY_SUITES:
+        result.reasons.append(f"{len(result.priority_suites)} changed Swift suites: no priority shard"
+                              f" (over {MAX_PRIORITY_SUITES}, its filter stalls swift-testing)")
+        result.priority_suites = set()
     read = lambda path: any(matches(path, r) for name in tests for r in graph["targets"][name].get("reads", []))  # noqa: E731
     # The fast tiers: a web nit or a CI change lands in minutes. ci-web's bundle --check stands in for
     # the app compile; actionlint, the CI tests and the routing replay check CI changes. A file a Mac
