@@ -128,10 +128,13 @@ public final class CloudClassicPageOps {
 
         init(_ machine: CloudMachine, revision: Int) {
             id = machine.id
-            status = switch machine.status {
+            status = switch machine.shownStatus {
             case .provisioning: "provisioning"
             case .running: "running"
             case .paused: "paused"
+            case .pausing: "pausing"
+            case .starting: "starting"
+            case .deleting: "deleting"
             case .failed: "failed"
             case .destroyed: "deleting"
             case .unknown: "unknown"
