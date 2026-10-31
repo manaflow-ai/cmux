@@ -97,7 +97,7 @@ pub(crate) fn fold_newest_lines(path: &Path, max: u64, fold: impl FnMut(&[u8])) 
     // From the byte before the cut: when that byte ends a line, only it is skipped.
     let from = len.saturating_sub(max).saturating_sub(1);
     file.seek(SeekFrom::Start(from))?;
-    let mut reader = BufReader::new(file.take(len - from));
+    let mut reader = BufReader::new(file.take(len.saturating_sub(from)));
     let mut offset = from;
     if from > 0 {
         // The line the cut falls in is not whole.
@@ -108,16 +108,16 @@ pub(crate) fn fold_newest_lines(path: &Path, max: u64, fold: impl FnMut(&[u8])) 
                 return Ok(());
             }
             let (used, ends) = match buf.iter().position(|byte| *byte == b'\n') {
-                Some(at) => (at + 1, true),
+                Some(at) => (at.saturating_add(1), true),
                 None => (buf.len(), false),
             };
             reader.consume(used);
-            skipped += used as u64;
+            skipped = skipped.saturating_add(used as u64);
             if ends {
                 break;
             }
         }
-        offset += skipped;
+        offset = offset.saturating_add(skipped);
     }
     fold_reader(reader, offset, fold).map(|_| ())
 }

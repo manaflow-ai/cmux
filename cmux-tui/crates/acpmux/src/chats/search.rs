@@ -112,12 +112,12 @@ impl Hit {
 /// The newest message of `turns` that holds every word of `needle`.
 pub fn find(needle: &Needle, turns: &[Turn]) -> Option<Hit> {
     let mut hit: Option<Hit> = None;
-    let mut matches = 0;
+    let mut matches = 0_usize;
     for (turn, t) in turns.iter().enumerate() {
         for (role, text) in [("prompt", &t.prompt), ("answer", &t.answer)] {
             let flat = flatten(text);
             let Some(at) = needle.find(&flat) else { continue };
-            matches += 1;
+            matches = matches.saturating_add(1);
             // A later message is newer: the last one found is the hit.
             hit = Some(Hit { turn, role, snippet: snippet(&flat, at), matches: 0 });
         }
@@ -136,7 +136,7 @@ fn snippet(text: &str, at: usize) -> String {
     let chars: Vec<char> = text.chars().collect();
     let len = chars.len();
     let mut start = at.saturating_sub(BEFORE);
-    let end = len.min(start + SNIPPET);
+    let end = len.min(start.saturating_add(SNIPPET));
     // Near the end, the snippet holds more of what comes before.
     start = start.min(end.saturating_sub(SNIPPET));
     let mut out = String::new();

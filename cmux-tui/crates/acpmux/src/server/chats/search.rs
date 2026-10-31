@@ -63,7 +63,7 @@ pub(super) async fn handle(
         return Ok(json!({"ready": false, "hits": [], "nextCursor": null}));
     };
     let activity = hub.chat_activity();
-    let deadline = Instant::now() + Duration::from_millis(budget);
+    let (started, budget) = (Instant::now(), Duration::from_millis(budget));
     super::blocking(move || {
         let Some(chats) = service.listed_from(&filter) else {
             return Ok(json!({"ready": true, "enabled": false, "hits": [], "nextCursor": null}));
@@ -74,13 +74,13 @@ pub(super) async fn handle(
             if hits.len() >= limit {
                 break;
             }
-            if scanned > 0 && Instant::now() >= deadline {
+            if scanned > 0 && started.elapsed() >= budget {
                 partial = true;
                 break;
             }
-            scanned += 1;
+            scanned = scanned.saturating_add(1);
             let Ok(turns) = super::transcript_turns(&chat.entry) else {
-                unreadable += 1;
+                unreadable = unreadable.saturating_add(1);
                 continue;
             };
             if let Some(hit) = find(&needle, &turns) {
