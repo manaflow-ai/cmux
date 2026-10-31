@@ -1,0 +1,61 @@
+{
+ "id": "cmdn-ctrlbt-type-quick",
+ "priority": "P0",
+ "title": "Cmd-N, then Ctrl-` AT ONCE (no wait for the workspace to show), then type: the line runs in the new terminal at once",
+ "why": "STATUS 1729: in 6 of 14 rounds of focus-switch-corner-drag the line typed after Cmd-N then Ctrl-` got debug.key handled_by app (the router's stale last action newSurface) and did not run. Cmd-N's New Tab key hold owns every key of its window until its page reports ready (at most 4 s); a Ctrl-` before that hid the page and the hold kept the keys typed for the new terminal. The last check records the New Tab hold's log (debug.focus new_tab_key_log): 'hold key' on the base, 'release: a creation took the keys' on the fix, when the page was not ready at the Ctrl-` (the hold path). QUICK VARIANT (journey parameter, coordinator rule 2026-10-31): the only change from cmdn-ctrlbt-type is that the Ctrl-` follows Cmd-N's reply at once instead of after the 'new workspace shows' expect (about 60-150 ms later), so the Ctrl-` comes before the New Tab page's readiness (113-275 ms) more often and more rounds take the hold path. Run on the base and the head builds the same way. A refused Ctrl-` (a pane still opening) fails before the final expect: 'not run'.",
+ "source": "P0 CMD-N CTRL-BACKTICK FIRST KEY (STATUS 1729), agent a539d1ff2011e6d9e",
+ "budget_seconds": 90,
+ "steps": [
+  {
+   "do": "smoke_remember_workspaces"
+  },
+  {
+   "do": "key",
+   "title": "Cmd-N: a new workspace on the New Tab page",
+   "key": "n",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "ws-a"
+  },
+  {
+   "do": "new_terminal",
+   "name": "jr-cmdn-ctrlbt",
+   "via": "key"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "type",
+   "text": "echo cb-${nonce}",
+   "enter": true,
+   "mark": "typed"
+  },
+  {
+   "do": "expect",
+   "title": "the typed line runs in the new terminal at once (not after Cmd-N's 4 s New Tab hold)",
+   "since": "typed",
+   "within": 1.0,
+   "timeout": 8,
+   "all": [
+    {
+     "daemon_line": "cb-${nonce}"
+    },
+    {
+     "app_text_line": "cb-${nonce}"
+    },
+    {
+     "frame_text": "cb-${nonce}"
+    },
+    {
+     "app_rpc": {
+      "method": "debug.focus",
+      "path": "new_tab_key_log",
+      "len_gte": 0
+     }
+    }
+   ]
+  }
+ ]
+}
