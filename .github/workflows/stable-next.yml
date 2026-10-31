@@ -95,7 +95,13 @@ jobs:
 
       - name: Is this the night window
         id: window
-        run: python3 -I scripts/ci/stable_next.py window
+        run: |
+          if [ ! -f scripts/ci/stable_next.py ]; then
+            echo "::notice title=cmux NEXT Stable::nightly-next has no stable tooling yet (scripts/ci/stable_next.py); no run tonight"
+            echo "open=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          python3 -I scripts/ci/stable_next.py window
 
       - name: Was tonight's stable build published
         id: tonight
@@ -114,13 +120,18 @@ jobs:
           NIGHT_START: ${{ steps.window.outputs.night_start }}
         run: |
           set -euo pipefail
-          # A run whose jobs still wait for a runner 90 minutes after it started (an owned pool or the
+          # A run with a job that has waited for a runner over 90 minutes (an owned pool or the
           # Blacksmith macOS lane not taking jobs) is cancelled, so it never holds the night; the next
-          # hourly tick dispatches a fresh run once the cancel has landed.
+          # hourly tick dispatches a fresh run once the cancel has landed. It counts the job's own wait,
+          # not the run's age: a run is "queued" too while a later job waits briefly after hours of gates.
           for id in $(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/stable-next.yml/runs?branch=nightly-next&status=queued&per_page=20" \
-              --jq "[.workflow_runs[] | select((now - (.run_started_at | fromdateiso8601)) > 5400) | .id] | .[]"); do
-            echo "::warning title=cmux NEXT Stable::run $id still waits for runners after 90 min; cancelling it"
-            gh run cancel "$id" -R "$GITHUB_REPOSITORY" || true
+              --jq '.workflow_runs[].id'); do
+            stuck="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$id/jobs?per_page=100" \
+              --jq '[.jobs[] | select(.status == "queued" and (now - (.created_at | fromdateiso8601)) > 5400)] | length')"
+            if [ "${stuck:-0}" -gt 0 ]; then
+              echo "::warning title=cmux NEXT Stable::run $id has a job waiting for a runner over 90 min; cancelling it"
+              gh run cancel "$id" -R "$GITHUB_REPOSITORY" || true
+            fi
           done
           runs="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/stable-next.yml/runs?branch=nightly-next&event=workflow_dispatch&created=%3E%3D$NIGHT_START&per_page=50" \
             --jq '[.workflow_runs[] | .status + ":" + (.conclusion // "")]')"
