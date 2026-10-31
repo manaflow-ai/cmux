@@ -125,7 +125,8 @@ async fn a_failover_never_moves_a_chat_onto_a_fallback_that_cannot_start() {
     assert_eq!(hub.session_summary(&session)["harness"], "primary", "{err}");
     assert!(records(&hub, &id, "failover").is_empty(), "{:?}", records(&hub, &id, "failover"));
     // The turn's error is its own, and says the fallback could not take it, and why.
-    assert!(err.starts_with("agent process closed"), "{err}");
+    // A sign-in failure reads as one (`auth.signed_out`), naming the dead process after it.
+    assert!(err.contains("agent process closed"), "{err}");
     assert!(err.contains("the fallback profile direct cannot start"), "{err}");
     assert!(err.contains("CodeRouter is not running"), "{err}");
     // The dead primary's own last stderr line still comes first: the note is added after the
@@ -194,7 +195,8 @@ async fn a_failover_whose_fallback_fails_to_start_moves_the_chat_back_with_its_c
     let conversation = hub.session_summary(&session)["agentSessionId"].clone();
     assert!(conversation.is_string(), "{conversation}");
     let err = prompt(&mut c, &id, "hello").await.expect_err("neither profile answers");
-    assert!(err.starts_with("agent process closed"), "{err}");
+    // A sign-in failure reads as one (`auth.signed_out`), naming the dead process after it.
+    assert!(err.contains("agent process closed"), "{err}");
     assert!(err.contains("the fallback profile direct cannot start"), "{err}");
     // Back on its own profile, with the conversation it had: the fallback's start dropped the
     // id of a conversation its store does not hold before its program failed to start.
