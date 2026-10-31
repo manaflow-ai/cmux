@@ -286,6 +286,110 @@ final class PerMacDialer: MacLinkDialer, @unchecked Sendable {
         #expect(live.focusedMacID == "m1")
     }
 
+    @Test func bannerRetryRedialsTheFocusedMacAndKeepsErrorsInDiagnostics() async throws {
+        let key = "cmuxMobile.live.mac.t-multimac"
+        UserDefaults.standard.removeObject(forKey: key)
+        defer { UserDefaults.standard.removeObject(forKey: key) }
+        let store = emptyStore()
+        let dialer = PerMacDialer()
+        let live = coordinator(store: store, dialer: dialer)
+        defer { live.stop() }
+        await settle { store.macConnection["m1"] == .connected }
+        let session = try #require(live.sessions["m1"])
+        session.outdated = false
+        session.chatsError = "acpmux channel closed"
+        session.daemonError = "list-workspaces reply is not an object"
+        live.phaseChanged(session)
+        #expect(store.macLinkStatus["m1"] == "Connected")
+        #expect(store.macLinkDiagnostics["m1"]?.contains("acpmux channel closed") == true)
+        #expect(store.macLinkDiagnostics["m1"]?.contains("list-workspaces reply is not an object") == true)
+
+        // Fail a redial synchronously so Retry must bypass its backoff.
+        let link = session.link
+        link.send(.linkDropped(generation: link.dialGeneration, reason: "dropped"))
+        link.send(.dialFailed(generation: link.dialGeneration, reason: "timeout"))
+        link.send(.dialFailed(generation: link.dialGeneration, reason: "timeout"))
+        guard case .waiting = link.phase else {
+            Issue.record("expected retry backoff")
+            return
+        }
+        let generation = link.dialGeneration
+        // Exercise Retry before the asynchronous phase observer publishes a banner.
+        live.banner = nil
+        live.retryConnection()
+        #expect(link.dialGeneration > generation)
+        guard case .connecting = link.phase else {
+            Issue.record("Retry did not begin a dial")
+            return
+        }
+        #expect(live.focusedMacID == "m1")
+        #expect(dialer.dialCount("m2") == 0)
+    }
+
+    @Test func bannerRetryKeepsItsMacWhenFocusChanges() async throws {
+        let key = "cmuxMobile.live.mac.t-multimac"
+        UserDefaults.standard.removeObject(forKey: key)
+        defer { UserDefaults.standard.removeObject(forKey: key) }
+        let store = emptyStore()
+        let dialer = PerMacDialer()
+        let live = coordinator(store: store, dialer: dialer)
+        defer { live.stop() }
+        live.showing(macIDs: nil)
+        await settle { store.macConnection["m1"] == .connected && store.macConnection["m2"] == .connected }
+        let first = try #require(live.sessions["m1"])
+        let second = try #require(live.sessions["m2"])
+        let link = first.link
+        link.send(.linkDropped(generation: link.dialGeneration, reason: "dropped"))
+        link.send(.dialFailed(generation: link.dialGeneration, reason: "timeout"))
+        link.send(.dialFailed(generation: link.dialGeneration, reason: "timeout"))
+        guard case .waiting = link.phase else {
+            Issue.record("expected retry backoff")
+            return
+        }
+        // Publish the waiting phase synchronously: link observation otherwise
+        // runs after this MainActor test yields, which would test the fallback.
+        live.phaseChanged(first)
+        try #require(live.banner?.identity == "m1")
+        // The displayed banner still belongs to m1 when focus moves to m2.
+        live.focusedMacID = "m2"
+        let firstGeneration = link.dialGeneration
+        let secondGeneration = second.link.dialGeneration
+        live.retryConnection()
+        #expect(link.dialGeneration > firstGeneration)
+        #expect(second.link.dialGeneration == secondGeneration)
+        #expect(live.focusedMacID == "m2")
+    }
+
+    @Test(arguments: [false, true])
+    func bannerRetryRestartsDiscoveryWithoutATarget(hasSession: Bool) async throws {
+        let key = "cmuxMobile.live.mac.t-multimac"
+        UserDefaults.standard.removeObject(forKey: key)
+        defer { UserDefaults.standard.removeObject(forKey: key) }
+        let store = emptyStore()
+        let live = coordinator(store: store, dialer: PerMacDialer())
+        defer { live.stop() }
+        await settle { store.macConnection["m1"] == .connected }
+        try #require(live.registeredTeamID == store.activeTeamID)
+        if hasSession {
+            let session = try #require(live.sessions["m1"])
+            session.link.send(.target(nil))
+            try #require(session.link.target == nil)
+            live.focusedMacID = "m1"
+        } else {
+            live.focusedMacID = "missing-session"
+            try #require(live.focused === live.idleSession)
+        }
+        live.banner = nil
+        store.teamDataState = .failed
+
+        live.retryConnection()
+
+        // Discovery must re-register and reload the team, not just touch a link.
+        #expect(live.registeredTeamID == nil)
+        #expect(store.teamDataState == .loading)
+        #expect(live.focusedMacID == nil)
+    }
+
     /// Review blocker: a chat tab id repeats across Macs; each Mac's chat is its own.
     @Test func chatsOfTwoMacsWithTheSameTabIDAreSeparate() {
         let sessions = AgentSessionDirectory()

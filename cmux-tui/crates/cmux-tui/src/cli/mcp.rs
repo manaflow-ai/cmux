@@ -483,6 +483,29 @@ fn typed_key(call: &v2_tools::CallPlan) -> Option<(Option<String>, String)> {
     Some((call.session.clone(), terminal.to_owned()))
 }
 
+/// A history answer's rows as one `text` of lines (`{start, next, text}`): each unstyled
+/// row is one run, so the row's text is its runs joined.
+fn history_text(mut value: Value) -> Value {
+    let Some(rows) = value.get("rows").and_then(Value::as_array) else { return value };
+    let text = rows
+        .iter()
+        .map(|row| {
+            row.get("runs")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(|run| run.get("text").and_then(Value::as_str))
+                .collect::<String>()
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    if let Some(object) = value.as_object_mut() {
+        object.remove("rows");
+        object.insert("text".into(), json!(text));
+    }
+    value
+}
+
 /// The stdio JSON-RPC server: one request per line, answered in order.
 pub(super) struct Server<B> {
     backend: B,
@@ -974,11 +997,14 @@ impl<B: Backend> Server<B> {
             }
             list.insert("pane".into(), Value::String(tab.to_owned()));
             let answer = self.call_v2(tab_list, &list);
-            if answer["isError"] == true {
+            if answer.get("isError").and_then(Value::as_bool) == Some(true) {
                 return Err(answer);
             }
-            let items =
-                answer["structuredContent"]["items"].as_array().cloned().unwrap_or_default();
+            let items = answer
+                .pointer("/structuredContent/items")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default();
             let shown = match items.as_slice() {
                 [only] => Some(only),
                 items => items.iter().find(|item| item["focused"] == true),
@@ -989,10 +1015,10 @@ impl<B: Backend> Server<B> {
             shown.clone()
         } else if bare.starts_with("tab_") || under_scope {
             let answer = self.call_v2(tab_get, &lookup);
-            if answer["isError"] == true {
+            if answer.get("isError").and_then(Value::as_bool) == Some(true) {
                 return Err(answer);
             }
-            let record = &answer["structuredContent"];
+            let record = answer.get("structuredContent").unwrap_or(&Value::Null);
             record.get("value").unwrap_or(record).clone()
         } else {
             let Some(tab_list) = v2_tools::find("tab_list") else {
@@ -1007,8 +1033,11 @@ impl<B: Backend> Server<B> {
             }
             list.insert("limit".into(), json!(500));
             let answer = self.call_v2(tab_list, &list);
-            let items =
-                answer["structuredContent"]["items"].as_array().cloned().unwrap_or_default();
+            let items = answer
+                .pointer("/structuredContent/items")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default();
             let named: Vec<Value> =
                 items.into_iter().filter(|item| item["name"].as_str() == Some(bare)).collect();
             // No tab, or several, by that name: the daemon judges it as a terminal name.
@@ -1097,6 +1126,10 @@ impl<B: Backend> Server<B> {
             Ok(arguments) => arguments,
             Err(answer) => return answer,
         };
+        let arguments = match self.tab_move_destination(tool, &arguments) {
+            Ok(arguments) => arguments,
+            Err(answer) => return answer,
+        };
         let mut call = match tool.plan(&arguments) {
             Ok(call) => call,
             Err(error) => return tool_error(envelope(error, "not_run", None)),
@@ -1105,9 +1138,20 @@ impl<B: Backend> Server<B> {
             return tool_error(envelope(error, "not_run", None));
         }
         let page = call.page;
+        // History an agent reads is plain lines: `styled` (colors and attributes per run)
+        // defaults to true in the daemon, and a 300-line read was 88k characters
+        // (tests/tool-evals r13a). Asked for `styled`, the rows come as the daemon sends them.
+        let plain_history =
+            tool.wire == "terminal.history.read" && !arguments.contains_key("styled");
+        if plain_history && let Some(params) = call.plan.params.as_object_mut() {
+            params.insert("styled".into(), json!(false));
+        }
         let typed = self.wait_past_typed(tool, &mut call);
         let wrote = (tool.wire == "terminal.input.write")
-            .then(|| typed_key(&call).zip(call.plan.params["text"].as_str().map(str::to_owned)))
+            .then(|| {
+                typed_key(&call)
+                    .zip(call.plan.params.get("text").and_then(Value::as_str).map(str::to_owned))
+            })
             .flatten();
         match self.backend.resource(call.session.as_deref(), call.plan, &call.prefixes) {
             Ok(value) if typed.is_some() => success(
@@ -1126,6 +1170,7 @@ impl<B: Backend> Server<B> {
                 }
                 success(value, tool.mutation)
             }
+            Ok(value) if plain_history => success(history_text(value), tool.mutation),
             Ok(value) => success(
                 match page {
                     Some(page) => v2_tools::paginate(value, page),
@@ -1162,7 +1207,7 @@ impl<B: Backend> Server<B> {
             return None;
         }
         let anchored = format!("(?m)^\\s*(?:{pattern})");
-        call.plan.params["pattern"] = json!(anchored);
+        call.plan.params.set("pattern", json!(anchored));
         Some(format!(
             "pattern {pattern:?} is also in the command typed here, so this waited for it at \
              the start of an output line: {anchored:?}"
