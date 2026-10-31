@@ -5816,7 +5816,7 @@
     "tunable-source.CmuxNextSettings/Schema/SettingsSchema+AutoArchive.generated.swift:idleDaysDefault": "20429d2567dac2a674cd2280201e5439b403fe90e67a18bcd0ed69030cd1a3d5",
     "tunable-source.CmuxNextSettings/Schema/SettingsSchema+AutoArchive.generated.swift:idleDaysPath": "f40ff60d270d0b5e257fb919e0d86e744016aa6855ae19d03f60bff926624464",
     "tunable-source.CmuxNextSettings/Schema/SettingsSchema+AutoArchive.generated.swift:idleDaysRange": "432ecb8f80f015e3e6f59c7957279d262229ab24a851ae7b2c2cadeccc701b22",
-    "tunable-source.CmuxNextSettings/Schema/SettingsSchema+AutoArchive.generated.swift:styleDefault": "314f1b77511cb18c6ace33e08d7735b7211685a874c2f31453aabaafde52720e",
+    "tunable-source.CmuxNextSettings/Schema/SettingsSchema+AutoArchive.generated.swift:styleDefault": "a52e550391300d50873a7985c028fc897f2136deef893a95336492aa0ed26fed",
     "tunable-source.CmuxNextSettings/Schema/SettingsSchema+AutoArchive.generated.swift:stylePath": "0eeca8ee74d0689ef89db944d485d5c8d464e7240f83b10a2fb3a974698a4e8d",
     "tunable-source.CmuxNextSettings/Schema/SettingsSchema+Browser.swift:descriptors": "6c2f0e307abe03580a91bbd12b71e6dd78873d6a0aa6fa5f3efcc6da4540a497",
     "tunable-source.CmuxNextSettings/Schema/SettingsSchema+BrowserApp.swift:button": "ce0561ba2eb0ccbb53c58b1bcbbbf21ac0c550bdc8acd90213b20e13f5ccd7e0",
