@@ -44,14 +44,14 @@ struct SidebarPriorityRowActions {
     /// The target a hover button and the row's menu pass.
     static func target(_ chat: String) -> ActionTargetRef { ActionTargetRef(kind: .agentChat, id: chat) }
 
-    /// A row button's action and chat; nil for the view's own choices (open, fold, bell).
+    /// A row button's action and chat; nil for the view's own choices (open, fold, bell, drag).
     static func route(_ action: SidebarPriorityAction) -> (ActionID, String)? {
         switch action {
         case .markRead(let id): (Self.markRead, id)
         case .togglePin(let id): (Self.togglePin, id)
         case .snooze(let id): (Self.snooze, id)
         case .archive(let id): (Self.archive, id)
-        case .open, .setCollapsed, .toggleShown: nil
+        case .open, .setCollapsed, .toggleShown, .place: nil
         }
     }
 

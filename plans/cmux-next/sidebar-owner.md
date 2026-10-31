@@ -691,3 +691,8 @@ Workspace previews anchor on the drawn row fill, including pinned workspace pill
 ## Runaway session warning badge (2026-10-30)
 
 - PR [#27899](https://github.com/manaflow-ai/cmux/pull/27899). Leo, verbatim: "that visibility into [one agent host's] guys was (and is?) pretty bad i feel like we can make more improvements to acpmux/cmux-next". A workspace row whose agent chats acpmux finds breaking a usage rule (no autocompact cap, context over 400k, more than 40 subagents an hour; acpmux `usageWarnings`) draws a small `exclamationmark.triangle.fill` in the theme's attention color in the trailing cluster, left of the muted bell's slot, the same size as that bell. Its tooltip is each warning's line, and the row's accessibility label says them. It is its own view (`usageWarningMark`), never the working spinner. It never gives way to the hover controls: while the row is hovered it sits just left of the ⋯ and ×, the title fading before it, so a person can still point at it and read its tooltip (the first fleet capture showed the controls in its place). Rows with no warnings are unchanged. Tests: `SidebarUsageWarningTests`; gallery `AAUsageWarningGalleryTests` (before/after, light and dark).
+
+## Reviewed behavior-only commits
+
+The following Priority pointer behavior commits were reviewed as Sidebar-Look: no visual change:
+0075119003a, 19aed8cb69b, 876f8cdf5fc, 0137a6a9787, fda89c002c8, d8104ae97a6, 5218136c15f, db179b9bc0f.

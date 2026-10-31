@@ -25,6 +25,7 @@ extension SidebarListViewComponents {
 
     /// The app lost focus: the gesture ends and no row stays hovered (the pointer's next move hovers again).
     func pointerFocusLost() {
+        onPointerFocusLost?()
         endPointerGesture()
         setHovered(nil)
     }
@@ -33,7 +34,11 @@ extension SidebarListViewComponents {
     /// still come to this window (a child page window took the keys after the press switched workspaces). With the
     /// button up, the release went to another window: the gesture ends as for the app losing focus.
     func pointerWindowLostKey() {
-        if holdsPointerGesture, leftButtonIsDown() { return }
+        // A Priority gesture is owned by its panel rather than this list, so holdsPointerGesture
+        // can be false while the button is down. A child page window may become key during that
+        // gesture; preserve it until its release arrives. App deactivation has its own callback
+        // and still cancels immediately.
+        if leftButtonIsDown() { return }
         pointerFocusLost()
     }
 
@@ -75,7 +80,9 @@ extension SidebarListViewComponents {
 
     /// Sees every left press and release of the app before its window does (`pointerEventSeen`); the caller removes it.
     func observePointerEnds() -> Any? {
-        NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .leftMouseUp]) { [weak self] event in
+        NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .leftMouseUp, .keyDown]) { [weak self] event in
+            if event.type == .keyDown { self?.onPointerKeyDown?(event); return event }
+            self?.onPointerEvent?(event)
             // A window's event is in its coordinates; one with no window (the desktop's) is on screen.
             _ = self?.pointerEventSeen(event.type, in: event.window,
                                        at: event.window?.convertPoint(toScreen: event.locationInWindow) ?? event.locationInWindow)

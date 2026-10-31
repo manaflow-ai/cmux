@@ -96,6 +96,8 @@ public nonisolated enum SidebarPriorityAction: Hashable, Sendable {
     case snooze(String)
     case archive(String)
     case setCollapsed(Bool)
+    /// The person dragged the chat; the view now shows `order` (top first). It keeps that place.
+    case place(String, order: [String])
     /// The titlebar bell: show or hide the view.
     case toggleShown
 }
