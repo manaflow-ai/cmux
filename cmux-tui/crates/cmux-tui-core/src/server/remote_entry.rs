@@ -230,7 +230,8 @@ fn serve_remote_connection(
     // stream (fail closed).
     let refused = match check {
         None => false,
-        Some(cmux_link::stamp::StampCheck::LinkToken { issued_at_ms }) => {
+        Some(cmux_link::stamp::StampCheck::LinkToken { issued_at_ms })
+        | Some(cmux_link::stamp::StampCheck::NativeLinkToken { issued_at_ms, .. }) => {
             !config.record_checks
                 || !matches!(mux.record_remote_check_at(&peer.install, issued_at_ms), Ok(true))
         }
@@ -245,7 +246,11 @@ fn serve_remote_connection(
     let Some(stream) = fs_wire::route_first_line(&mux, stream, &*gate, &peer, entry_fs) else {
         return;
     };
-    let admission = RemoteAdmission { peer, gate };
+    let native_vm_kind = match check {
+        Some(cmux_link::stamp::StampCheck::NativeLinkToken { vm_kind, .. }) => Some(vm_kind),
+        _ => None,
+    };
+    let admission = RemoteAdmission { peer, gate, native_vm_kind };
     serve_line_connection(
         mux,
         stream,
@@ -294,12 +299,21 @@ fn read_stamp(stream: &UnixStream) -> Option<cmux_link::stamp::Stamp> {
 
 struct RemoteAdmission {
     peer: RemotePeer,
+    native_vm_kind: Option<Option<cmux_link::token::VmKind>>,
     gate: Arc<dyn RemoteGate>,
 }
 
 impl LineAdmission for RemoteAdmission {
     fn registered(&self, mux: &Arc<Mux>, client: u64) -> bool {
-        mux.bind_remote_peer(client, &self.peer).is_ok()
+        if mux.bind_remote_peer(client, &self.peer).is_err() {
+            return false;
+        }
+        // No peer-controlled frame has run yet. This field is never set by
+        // set-client-info or any other request and dies with the connection.
+        let Ok(mut state) = mux.control_clients.state.lock() else { return false };
+        let Some(record) = state.clients.get_mut(&client) else { return false };
+        record.native_vm_kind = self.native_vm_kind;
+        true
     }
 
     fn refusal(&self, line: &str) -> Option<Value> {

@@ -684,7 +684,7 @@ fn trust(
     let Some(socket) = mux.control_clients.agent_sessions.socket() else {
         return refuse(writer, id, Refusal::Unavailable);
     };
-    agent_session_trust::trust(mux, id, socket, params, writer)
+    agent_session_trust::trust(mux, client, id, socket, params, writer)
 }
 
 /// The page router's owner `agent_session.trust` (page_router.rs).
