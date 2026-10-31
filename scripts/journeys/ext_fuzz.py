@@ -463,6 +463,8 @@ class Fuzz:
         elif name == "type_line":
             rec["at"] = D.now()
             rec["probe"] = self.probe(before, require_new=False)
+        elif name == "paste" and not self.focused_terminal():
+            rec["at"], rec["skipped"] = D.now(), "the focused tab is not a terminal (Return would submit a field)"
         elif name == "paste":
             # A comment line: the shell runs nothing, and Return leaves the line empty for the next probe.
             text = f": fzp{j.nonce}{self.n}"
@@ -484,6 +486,11 @@ class Fuzz:
         if spec.get("closes"):
             rec["dialog"] = self.answer_dialog()
         return rec
+
+    def focused_terminal(self):
+        st = state(self.j)
+        tab = st["focus"].get("tab")
+        return any(t["tab"] == tab for t in st["terminals"].values())
 
     def wait_focus(self, kind, since, timeout=CREATE_TIMEOUT):
         end = D.now() + timeout
@@ -979,7 +986,9 @@ class Fuzz:
 def signature(oracle, detail):
     """A finding's identity across runs: ids, numbers and hex removed (`W1: appkit content:pane_ab12 (PageWebView)
     != model agentPage` and the same with another pane id are one finding)."""
-    text = re.sub(r"\b(pane|tab|ws|term|win|surface|screen)_[0-9a-zA-Z]+", r"\1_*", str(detail))
+    text = re.sub(r"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b", "<uuid>", str(detail))
+    text = re.sub(r"\b(pane|tab|ws|term|win|window|surface|screen)[_:][0-9a-zA-Z-]+", r"\1_*", text)
+    text = re.sub(r"\b[0-9a-fA-F]{12,}\b", "<hex>", text)
     text = re.sub(r"0x[0-9a-fA-F]+|\d+(\.\d+)?", "#", text)
     return f"{oracle}:{text[:160]}"
 

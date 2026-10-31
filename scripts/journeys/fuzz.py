@@ -330,7 +330,7 @@ def main(argv=None):
         if opts.corpus:
             # Lawrence's reported bugs, one round (a close-all between them): ext_fuzz.CORPUS_SETS[--set].
             seq = ext_fuzz.corpus_sequence(ext_fuzz.CORPUS_SETS[opts.set])
-            work.append(("corpus", {"fuzz_sequence": json.dumps(seq, separators=(",", ":"))}, None))
+            work.append(("corpus", {"fuzz_sequence": json.dumps(seq, separators=(",", ":")), "fuzz_set": opts.set}, None))
 
     def play(label, options, seed, n):
         # ABBA over rounds; the second side plays on the mini the first one got.

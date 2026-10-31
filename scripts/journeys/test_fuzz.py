@@ -102,6 +102,12 @@ class Pure(unittest.TestCase):
             for item in seq:
                 self.assertIn(item["a"], ext_fuzz.ACTIONS)
 
+    def test_signature_drops_window_ids_and_uuids(self):
+        a = ext_fuzz.signature("focus", "window 3FA85F64-5717-4562-B3FC-2C963F66AFA6: model terminal vs first responder sidebar")
+        b = ext_fuzz.signature("focus", "window 9C1D2E3F-1111-4222-8333-444455556666: model terminal vs first responder sidebar")
+        self.assertEqual(a, b)
+        self.assertEqual(ext_fuzz.signature("desync", "W5 win_ab12cd: x"), ext_fuzz.signature("desync", "W5 win_ff00ee: x"))
+
     def test_speed_table_reds_only_a_real_slowdown(self):
         rows = [{"build": "base", "seed": 1, "a": "new_tab", "t": "slow", "typeable_ms": v} for v in (200, 210, 190, 205, 220)]
         rows += [{"build": "test", "seed": 1, "a": "new_tab", "t": "slow", "typeable_ms": v} for v in (420, 400, 450, 390, 410)]
