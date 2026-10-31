@@ -657,9 +657,38 @@ def xctrace_launch(app, label):
         _, xml, _ = run(["xcrun", "xctrace", "export", "--input", trace, "--xpath",
                          f'/trace-toc/run[@number="1"]/data/table[@schema="{schema}"]'], timeout=180)
         tables[schema] = summarize_table(xml)
+        if schema == "dyld-activity-interval":
+            tables[schema]["app_initializers"] = app_initializer_rows(xml, app)
     result["tables"] = tables
     shutil.rmtree(scratch, ignore_errors=True)
     return result
+
+
+def duration_us(text):
+    match = re.match(r"([\d.]+)\s*(ns|µs|us|ms|s)\b", text.strip())
+    if not match:
+        return None
+    return float(match.group(1)) * {"ns": 1e-3, "µs": 1, "us": 1, "ms": 1e3, "s": 1e6}[match.group(2)]
+
+
+def app_initializer_rows(xml, app):
+    """Every static-initializer row whose image is in the app bundle (the main binary's glslang ones included), and
+    the 15 longest initializer rows of any image, with their durations in µs."""
+    # The row names the image by its file name after the address ("Run static initializer  0x1ab83124b  dyld").
+    ours_names = {os.path.basename(p) for p in macho_files(app)}
+    rows = []
+    for row in re.findall(r"<row>(.*?)</row>", xml, re.S):
+        values = re.findall(r'fmt="([^"]*)"', row)
+        text = " | ".join(values)
+        if "static initializer" not in text.lower():
+            continue
+        us = next((d for d in (duration_us(v) for v in values[1:3]) if d is not None), None)
+        match = re.search(r"Run static initializer\s+0x[0-9a-f]+\s+([^|]*?)\s*(?:\||$)", text)
+        image = match.group(1).strip() if match else ""
+        rows.append({"us": us, "image": image, "ours": image in ours_names, "row": text[:300]})
+    ours = [r for r in rows if r["ours"]]
+    return {"ours": ours, "ours_total_us": round(sum(r["us"] or 0 for r in ours), 1),
+            "longest": sorted(rows, key=lambda r: -(r["us"] or 0))[:15], "count": len(rows)}
 
 
 def summarize_table(xml):
@@ -699,6 +728,8 @@ def main():
     parser.add_argument("--exec-probe", action="store_true",
                         help="also the signing probe (full launches: ad-hoc bench copy, notarized nightly, approved-quarantine nightly, nightly re-signed ad hoc), after the launches")
     parser.add_argument("--exec-probe-only", action="store_true", help="only the signing probe, none of the A/B/C launches")
+    parser.add_argument("--trace-only", action="store_true",
+                        help="only the App Launch traces (a fresh copy and copy A) with every initializer row of the app")
     parser.add_argument("--signing-variants", action="store_true",
                         help="with --exec-probe-only: the notarized nightly, then the same bytes re-signed ad hoc as "
                              "shipped, arm64-only and without Chromium (what drives the first-launch assessment)")
@@ -728,6 +759,13 @@ def main():
         report["exec_floor_inherit_limits_ms"] = exec_floor(limits=False)
         if args.exec_probe_only:
             run_exec_probe(report, root, app, save)
+            return
+        if args.trace_only:
+            copy_e = fresh_copy(app, root, "E")
+            copies.append(copy_e)
+            report["xctrace"] = [xctrace_launch(copy_e, "E-fresh"), xctrace_launch(app, "A-reused"),
+                                 xctrace_launch(app, "A-reused-2")]
+            save()
             return
         log(f"exec floor (/usr/bin/true, same Popen shape): Finder limits {report['exec_floor_ms']} ms, the caller's "
             f"{report['exec_floor_inherit_limits_ms']} ms (python {report['python']}, nofile {report['nofile_rlimit']}, "
