@@ -67,7 +67,26 @@ DEVTOOLS_OWNER = "the DevTools main-thread stall owner"
 
 
 # What runs now, for the watchdog thread and the signal handler (one run per process).
-LIVE: dict = {"session": None, "ops": [], "findings": [], "watch": None, "pending": None, "out": None}
+# pending: the failure report() shrinks now (owned by report()). ending: the seed's own failures while its end steps
+# run (owned by run_ops, set only when no shrink is pending, cleared after cleanup). seen: the keys of the findings
+# reported so far, so a hang never prints one twice.
+LIVE: dict = {"session": None, "ops": [], "findings": [], "watch": None, "pending": None, "ending": [], "seen": set(),
+              "out": None}
+
+
+def finding_key(record: dict) -> str:
+    """The identity of a finding: its oracle and its stall signature or the start of its detail."""
+    return record.get("oracle", "") + ":" + ((record.get("extra") or {}).get("signature") or (record.get("detail") or "")[:60])
+
+
+def unreported() -> list[dict]:
+    """The failures a hang or a stop must still print: the one being shrunk (unshrunk), else the seed's own failures
+    that its end steps were running for, less those already reported."""
+    pending = LIVE.get("pending")
+    if pending:
+        return [dict(pending, note="its shrink was cut short; the ops are unshrunk")]
+    return [dict(r, note="the run ended in the seed's end steps; not shrunk")
+            for r in LIVE.get("ending") or [] if finding_key(r) not in LIVE["seen"]]
 WATCH_POLL_S = 5.0
 # The run has one final verdict: the first thread that claims it (the watchdog, a signal handler or the main thread at
 # the run's end) prints it and exits; every later claim, and the main thread's verdict, finding and launch paths once
@@ -821,21 +840,33 @@ def run_ops(opts, site, ops: list[dict], run_token: str, log, label: str, seed: 
             raise
         return None, dict(session.counts, notes=session.notes[-20:]), session.stalls
     except Failure as failure:
-        # Until report() takes it, a hang in the end steps below prints this failure (review of #29662: it was only a
-        # return value then, and a hang in end:kill lost it).
-        LIVE["pending"] = {"target": "browser", "id": f"{failure.oracle}-{seed}", "seed": seed, "oracle": failure.oracle,
-                           "detail": failure.detail[:1500], "op_index": failure.op_index, "reproduced": None,
-                           "ops": ops[:failure.op_index + 1] if failure.op_index >= 0 else ops[:1], "extra": failure.extra}
+        # While the end steps below run, a hang prints this failure (review of #29662). Only for the seed's own run: a
+        # shrink replay's failure never replaces the failure being shrunk (report() owns LIVE["pending"]).
+        if not LIVE.get("pending"):
+            LIVE["ending"] = [failure_record(failure, seed, ops, opts)] + [
+                failure_record(stall, seed, ops, opts) for stall in session.stalls.values() if opts.build_config != "debug"]
         return failure, dict(session.counts, notes=session.notes[-20:]), session.stalls
     except Exception as error:  # noqa: BLE001 (a harness bug: reported, never a verdict)
         raise HarnessError(f"{type(error).__name__}: {error}\n{traceback.format_exc()[-1500:]}") from None
     finally:
+        if not LIVE.get("pending") and not LIVE.get("ending") and opts.build_config != "debug":
+            # A seed with no fatal failure still has its judged stalls (bench), which report() takes after the end.
+            LIVE["ending"] = [failure_record(stall, seed, ops, opts) for stall in session.stalls.values()]
         for step, work in (("quit", session.quit_app), ("kill", session.kill_app), ("cleanup", session.cleanup)):
             try:
                 end_step(session, step, work, seed, len(ops), label)
             except Exception as error:  # noqa: BLE001 (the next end step still runs)
                 print(f"browser-fuzz: {label} end:{step} failed: {type(error).__name__}: {error}", flush=True)
+        LIVE["ending"] = []
         LIVE["session"] = None
+
+
+def failure_record(failure: Failure, seed: int, ops: list[dict], opts) -> dict:
+    """A finding record of `failure`, unshrunk (the shape report() prints)."""
+    return {"target": "browser", "id": f"{failure.oracle}-{seed}", "seed": seed,
+            "ops_per_seed": getattr(opts, "ops", None), "build_config": getattr(opts, "build_config", None),
+            "oracle": failure.oracle, "detail": failure.detail[:1500], "op_index": failure.op_index, "reproduced": None,
+            "ops": ops[:failure.op_index + 1] if failure.op_index >= 0 else ops[:1], "extra": failure.extra}
 
 
 def end_step(session, step: str, work, seed: int, index: int, label: str):
@@ -858,11 +889,9 @@ def end_now(verdict: str, code: int, claimed: bool = False):
     process can follow the verdict. browser-fuzz.sh's EXIT trap (tag_teardown.py) also ends the tag's processes."""
     if not claimed:
         claim_final()
-    pending = LIVE.get("pending")
-    if pending:
-        print("BROWSER-FUZZ-FINDING " + json.dumps(dict(pending, note="its shrink was cut short; the ops are unshrunk")),
-              flush=True)
-        write_finding(pending)
+    for record in unreported():
+        print("BROWSER-FUZZ-FINDING " + json.dumps(record), flush=True)
+        write_finding(record)
     print(f"BROWSER-FUZZ-VERDICT {verdict}", flush=True)
     session = LIVE.get("session")
     app = getattr(getattr(session, "opts", None), "app", None)
@@ -952,7 +981,7 @@ def handle_hang(hung: dict, opts):
         write_finding(record)
     # Findings of earlier seeds (and a shrink that the hang cut short) stay in the verdict: a harness hang after a
     # finding is a FAIL with that finding, not a NOVERDICT.
-    earlier = len(LIVE.get("findings") or []) + (1 if LIVE.get("pending") else 0)
+    earlier = len(LIVE.get("findings") or []) + len(unreported())
     if not finding and earlier:
         line, finding = f"FAIL {earlier} finding(s) before {line[len('NOVERDICT '):]}", True
     end_now(line, 1 if finding else 2, claimed=True)
@@ -1003,7 +1032,7 @@ def stopped(signum, _frame):
     op = cur.get("op") or {}
     step = f"end:{op.get('step')}" if op.get("op") == "end" else f"op {cur.get('index')} {op.get('op')}"
     where = f" at {cur.get('label')} {step}" if cur else ""
-    found = len(LIVE.get("findings") or []) + (1 if LIVE.get("pending") else 0)
+    found = len(LIVE.get("findings") or []) + len(unreported())
     head = f"FAIL {found} finding(s) before" if found else "NOVERDICT"
     end_now(f"{head} the run was stopped by signal {signum}{where}", 1 if found else 2, claimed=True)
 
@@ -1066,7 +1095,7 @@ def main() -> int:
     seed = opts.seed if opts.seed is not None else random.randrange(1 << 31)
     findings: list[dict] = LIVE["findings"]
     attempts, harness_errors, total_ops, totals = 0, 0, 0, {}
-    seen: set[str] = set()
+    seen: set[str] = LIVE["seen"]
 
     advisory: dict[str, dict] = {}
     stalls_judged = opts.build_config != "debug"
@@ -1084,13 +1113,12 @@ def main() -> int:
 
     def report(failure: Failure, seed: int, ops: list[dict]):
         """Shrinks one failure (fresh launches, within the budget and the deadline) and prints its finding."""
-        key = failure.oracle + ":" + (failure.extra.get("signature") or failure.detail[:60])
+        key = finding_key({"oracle": failure.oracle, "extra": failure.extra, "detail": failure.detail})
         if key in seen:
             print(f"browser-fuzz: seed {seed}: {failure.oracle} again (already a finding): {failure.detail[:200]}", flush=True)
             return
         seen.add(key)
         prefix = ops[:failure.op_index + 1] if failure.op_index >= 0 else ops[:1]
-        LIVE["pending"] = None
         replays = {"tried": 0, "failed": 0, "harness_errors": 0}
 
         def fails(candidate: list[dict]) -> bool:
@@ -1151,7 +1179,6 @@ def main() -> int:
         total_ops += counts.get("ops", 0)
         brief = json.dumps({k: v for k, v in counts.items() if k != "notes"})
         if failure is None:
-            LIVE["pending"] = None
             print(f"browser-fuzz: seed {seed}: no fatal failure, {len(stalls)} stall signature(s), counts {brief}", flush=True)
         else:
             print(f"browser-fuzz: seed {seed} FAIL at op {failure.op_index}: {failure.oracle}: {failure.detail[:600]}", flush=True)
