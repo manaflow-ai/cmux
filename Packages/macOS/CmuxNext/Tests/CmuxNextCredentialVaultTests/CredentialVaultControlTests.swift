@@ -13,9 +13,10 @@ import Testing
 @MainActor @Suite(.serialized) struct CredentialVaultControlTests {
     /// The Keychain stand-in: values in memory.
     final class MemorySecrets: CredentialVaultSecretStoring, Sendable {
-        let values = Mutex([String: String]())
-        func save(_ value: String, for name: String) throws { values.withLock { $0[name] = value } }
-        func value(for name: String) throws -> String? { values.withLock { $0[name] } }
+        let values = Mutex([String: CredentialVaultSecretRecord]())
+        func save(_ record: CredentialVaultSecretRecord, for name: String) throws { values.withLock { $0[name] = record } }
+        func record(for name: String) throws -> CredentialVaultSecretRecord? { values.withLock { $0[name] } }
+        func value(for name: String) throws -> String? { values.withLock { $0[name]?.value } }
         /// How many deletes reached the Keychain.
         let deletes = Mutex(0)
         func delete(_ name: String) throws {

@@ -3,8 +3,9 @@ public import Foundation
 
 /// The Chief vault (cmux issue 26412): credentials the person hands cmux (API keys, tokens) that
 /// agents use by name without seeing them. One owner: this store. A value lives only in the login
-/// Keychain (``CredentialVaultSecretStoring``); the folder holds names, scopes and use times
-/// (`vault.json`) and the audit log (`vault-audit.jsonl`), never a value.
+/// Keychain (``CredentialVaultSecretStoring``), together with its authoritative scope; the folder
+/// holds names, cached scopes and use times (`vault.json`) and the audit log (`vault-audit.jsonl`),
+/// never a value. Agents can edit that folder, so its scope is never trusted.
 ///
 /// Every call blocks on the Keychain or the disk: callers run them off the main actor
 /// (`CredentialVaultControl` runs them on the async lane).
@@ -164,9 +165,13 @@ public nonisolated final class CredentialVault: Sendable {
             if old == nil, let clash = index.keys.first(where: { $0.caseInsensitiveCompare(name) == .orderedSame }) {
                 throw Failure.exists(clash)
             }
-            let previous = old == nil ? nil : try secrets.value(for: name)
-            try secrets.save(value, for: name)
-            index[name] = Entry(scope: Self.ordered(scope ?? old?.scope ?? Consumer.allCases),
+            // Read even when the cache omits this name: a deleted cache must not orphan or
+            // broaden a protected item, and rollback must preserve its value and scope together.
+            let previous = try secrets.record(for: name)
+            if onlyNew, previous != nil { throw Failure.exists(name) }
+            let effective = Self.ordered(scope ?? previous?.scope ?? Consumer.allCases)
+            try secrets.save(CredentialVaultSecretRecord(value: value, scope: effective), for: name)
+            index[name] = Entry(scope: effective,
                                 note: (note ?? old?.note).flatMap { $0.isEmpty ? nil : $0 },
                                 createdMs: old?.createdMs ?? at, updatedMs: at, lastUsedMs: old?.lastUsedMs,
                                 lastUsedBy: old?.lastUsedBy, uses: old?.uses ?? 0)
@@ -182,18 +187,30 @@ public nonisolated final class CredentialVault: Sendable {
         }
     }
 
-    /// Changes who may use `name`.
-    func setScope(_ name: String, scope: [Consumer], by caller: Caller) throws {
+    /// Changes who may use `name`. A caller whose gesture may be synthetic passes
+    /// `agentsApproved: false`: widening the current protected scope then throws `needsApproval`
+    /// before any write. A stale Settings snapshot cannot bypass the person's approval.
+    func setScope(_ name: String, scope: [Consumer], by caller: Caller, agentsApproved: Bool = true) throws {
         guard caller.consumer == .user else { throw Failure.agentsMayNotWrite }
         guard !scope.isEmpty else { throw Failure.emptyScope }
         defer { changed() }
         try lock.withLock { _ in
             var index = try readIndex()
             guard var entry = index[name] else { throw Failure.missing([name]) }
+            guard let previous = try secrets.record(for: name) else { throw Failure.missing([name]) }
+            if !agentsApproved, scope.contains(.agents), !previous.scope.contains(.agents) {
+                throw Failure.needsApproval([name])
+            }
             entry.scope = Self.ordered(scope)
             entry.updatedMs = millis()
             index[name] = entry
-            try writeIndex(index)
+            try secrets.save(CredentialVaultSecretRecord(value: previous.value, scope: entry.scope), for: name)
+            do {
+                try writeIndex(index)
+            } catch {
+                try? secrets.save(previous, for: name)
+                throw error
+            }
             appendAudit(AuditRecord(atMs: entry.updatedMs, event: "scope", names: [name], by: caller.label, consumer: caller.consumer,
                                     command: nil, outcome: entry.scope.map(\.rawValue).joined(separator: ",")))
         }
@@ -264,11 +281,11 @@ public nonisolated final class CredentialVault: Sendable {
             }
             var values: [String: String] = [:]
             for name in names {
-                guard let value = try secrets.value(for: name) else {
+                guard let secret = try secrets.record(for: name) else {
                     record("missing")
                     throw Failure.missing([name])
                 }
-                values[name] = value
+                values[name] = secret.value
                 index[name]?.lastUsedMs = at
                 index[name]?.lastUsedBy = caller.label
                 index[name]?.uses += 1
@@ -320,7 +337,13 @@ public nonisolated final class CredentialVault: Sendable {
         do {
             let file = try JSONDecoder().decode(IndexFile.self, from: data)
             guard file.secrets.keys.allSatisfy(Self.isValidName) else { throw Failure.index(indexURL.path) }
-            return file.secrets
+            var entries = file.secrets
+            for name in file.secrets.keys {
+                // Same-UID agents can change or replay vault.json. Only the current Keychain
+                // payload authorizes a release; a missing/legacy item never permits agents.
+                entries[name]?.scope = try secrets.record(for: name)?.scope ?? [.user]
+            }
+            return entries
         } catch {
             throw Failure.index(indexURL.path)
         }

@@ -120,10 +120,17 @@ public final class CredentialVaultPageRoute: PageProvider {
             guard case .array(let items)? = params["scope"] else { throw PageError.invalidParams(CredentialVaultStrings.badScope) }
             let scope = items.compactMap { $0.stringValue.flatMap(CredentialVault.Consumer.init(rawValue:)) }
             guard scope.count == items.count, !scope.isEmpty else { throw PageError.invalidParams(CredentialVaultStrings.badScope) }
-            // Letting agents use a secret kept for the person releases it without a sheet from then
-            // on, and the switch's gesture may be synthetic (a DEV build's debug input): the person
-            // approves it on the vault's own sheet, which no synthetic input answers.
-            if scope.contains(.agents), board.entries[name]?.scope.contains(.agents) != true {
+            // The board can lag a revocation. Check authorization under the write's own lock,
+            // against the protected scope, before committing a gesture that may be synthetic.
+            let applied = try await Self.off {
+                do {
+                    try vault.setScope(name, scope: scope, by: person, agentsApproved: false)
+                    return true
+                } catch CredentialVault.Failure.needsApproval(_) {
+                    return false
+                }
+            }
+            if !applied {
                 let approval = CredentialVault.Approval.scope(name: name, scope: scope)
                 let allowed: Bool
                 if let approve {
@@ -137,8 +144,8 @@ public final class CredentialVaultPageRoute: PageProvider {
                     await board.reload().value
                     return ["done": false]
                 }
+                try await Self.off { try vault.setScope(name, scope: scope, by: person, agentsApproved: true) }
             }
-            try await Self.off { try vault.setScope(name, scope: scope, by: person) }
             done = true
         }
         await board.reload().value

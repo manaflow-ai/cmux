@@ -15,6 +15,24 @@ function when(ms: number): string {
   return new Intl.DateTimeFormat(locale(), { dateStyle: "medium", timeStyle: "short" }).format(new Date(ms));
 }
 
+/** Keep a status on one short line; its full text remains available on hover and to assistive technology. */
+function UseSummary({ secret }: { secret: CredentialVaultSecret }) {
+  const full = useText(secret);
+  const characters = [...new Intl.Segmenter(locale(), { granularity: "grapheme" }).segment(full)];
+  const text =
+    characters.length > 60
+      ? `${characters
+          .slice(0, 59)
+          .map((part) => part.segment)
+          .join("")}…`
+      : full;
+  return (
+    <div className="row-help" title={text === full ? undefined : full} aria-label={full}>
+      {text}
+    </div>
+  );
+}
+
 /** The scope with agents on or off; its other consumers stay (an agents-only secret stays
  * agents-only), and a scope left empty is the person's. */
 export function withAgents(scope: CredentialVaultConsumer[], agents: boolean): CredentialVaultConsumer[] {
@@ -55,7 +73,7 @@ function SecretRow({
           <div className="row-title" id={labelId}>
             <code>{secret.name}</code>
           </div>
-          <div className="row-help">{useText(secret)}</div>
+          <UseSummary secret={secret} />
         </div>
         <div className="row-control action-row-control">
           <span className="row-help" aria-hidden="true">

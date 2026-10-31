@@ -59990,127 +59990,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Keys and tokens agents use by name with `cmux vault exec`. Values stay in your Keychain; agents never see them."
+            "value": "Agents use Keychain credentials by name"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "مفاتيح ورموز مميزة يستخدمها الوكلاء بالاسم عبر `cmux vault exec`. تبقى القيم في سلسلة المفاتيح، ولا يراها الوكلاء أبدًا."
+            "value": "يستخدم الوكلاء بيانات سلسلة المفاتيح بالاسم"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ključevi i tokeni koje agenti koriste po imenu pomoću `cmux vault exec`. Vrijednosti ostaju u vašem privjesku ključeva; agenti ih nikada ne vide."
+            "value": "Agenti koriste akreditive iz privjeska ključeva po imenu"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nøgler og tokens, som agenter bruger ved navn med `cmux vault exec`. Værdierne bliver i din nøglering; agenter ser dem aldrig."
+            "value": "Agenter bruger nøgleringens loginoplysninger ved navn"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Schlüssel und Tokens, die Agents über ihren Namen mit `cmux vault exec` verwenden. Die Werte bleiben in deinem Schlüsselbund; Agents sehen sie nie."
+            "value": "Agents nutzen Schlüsselbund-Zugangsdaten per Namen"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claves y tokens que los agentes usan por su nombre con `cmux vault exec`. Los valores se quedan en tu llavero; los agentes nunca los ven."
+            "value": "Los agentes usan credenciales del llavero por nombre"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Clés et jetons que les agents utilisent par leur nom avec `cmux vault exec`. Les valeurs restent dans votre trousseau ; les agents ne les voient jamais."
+            "value": "Les agents utilisent les identifiants du trousseau par nom"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chiavi e token che gli agenti usano per nome con `cmux vault exec`. I valori restano nel tuo portachiavi; gli agenti non li vedono mai."
+            "value": "Gli agenti usano per nome le credenziali del portachiavi"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "エージェントが `cmux vault exec` で名前を指定して使うキーやトークンです。値はキーチェーンに保存されたままで、エージェントが見ることはありません。"
+            "value": "キーチェーンの認証情報を名前でエージェントに使用させます"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "កូនសោ និងថូខឹនដែលភ្នាក់ងារប្រើតាមឈ្មោះជាមួយ `cmux vault exec`។ តម្លៃនៅតែក្នុង Keychain របស់អ្នក ភ្នាក់ងារមិនដែលឃើញវាឡើយ។"
+            "value": "ភ្នាក់ងារប្រើព័ត៌មានសម្ងាត់ក្នុង Keychain តាមឈ្មោះ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "에이전트가 `cmux vault exec`로 이름을 지정해 사용하는 키와 토큰입니다. 값은 키체인에 남아 있으며 에이전트는 값을 볼 수 없습니다."
+            "value": "에이전트가 키체인의 자격 증명을 이름으로 사용합니다"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nøkler og tokener som agenter bruker ved navn med `cmux vault exec`. Verdiene blir i nøkkelringen din; agenter ser dem aldri."
+            "value": "Agenter bruker nøkkelringens påloggingsinformasjon ved navn"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Klucze i tokeny, których agenci używają po nazwie za pomocą `cmux vault exec`. Wartości pozostają w Twoim pęku kluczy; agenci nigdy ich nie widzą."
+            "value": "Agenci używają po nazwie danych z pęku kluczy"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chaves e tokens que agentes usam pelo nome com `cmux vault exec`. Os valores ficam nas suas Chaves; os agentes nunca os veem."
+            "value": "Agentes usam credenciais das Chaves pelo nome"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ключи и токены, которые агенты используют по имени через `cmux vault exec`. Значения остаются в вашей связке ключей; агенты никогда их не видят."
+            "value": "Агенты используют данные из связки ключей по имени"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "คีย์และโทเค็นที่เอเจนต์ใช้ผ่านชื่อด้วย `cmux vault exec` ค่าต่างๆ จะอยู่ในพวงกุญแจของคุณ และเอเจนต์จะไม่เห็นค่าเหล่านั้น"
+            "value": "เอเจนต์ใช้ข้อมูลรับรองในพวงกุญแจผ่านชื่อ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ajanların `cmux vault exec` ile adıyla kullandığı anahtarlar ve belirteçler. Değerler Anahtar Zinciri'nizde kalır; ajanlar bunları hiçbir zaman görmez."
+            "value": "Ajanlar Anahtar Zinciri bilgilerini adlarıyla kullanır"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ключі й токени, які агенти використовують за назвою через `cmux vault exec`. Значення залишаються у вашій в'язці ключів; агенти ніколи їх не бачать."
+            "value": "Агенти використовують дані з в’язки ключів за назвою"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Các khóa và token mà tác tử dùng theo tên với `cmux vault exec`. Giá trị vẫn nằm trong Chuỗi khóa của bạn; tác tử không bao giờ thấy chúng."
+            "value": "Tác tử dùng thông tin xác thực trong Chuỗi khóa theo tên"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "智能体通过 `cmux vault exec` 按名称使用的密钥和令牌。值保留在你的钥匙串中，智能体永远看不到。"
+            "value": "智能体按名称使用钥匙串中的凭据"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "代理程式透過 `cmux vault exec` 依名稱使用的金鑰和權杖。值保留在你的鑰匙圈中，代理程式永遠看不到。"
+            "value": "代理程式依名稱使用鑰匙圈中的憑證"
           }
         }
       }
@@ -60121,127 +60121,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No credentials yet. Add one here or with `cmux vault set NAME`; a key pasted into a Chief message can move here too."
+            "value": "Add a credential here or with `cmux vault set`"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "لا توجد بيانات اعتماد بعد. أضف واحدة هنا أو باستخدام `cmux vault set NAME`؛ ويمكن أيضًا نقل مفتاح ملصق في رسالة إلى Chief إلى هنا."
+            "value": "أضف بيانات اعتماد هنا أو عبر `cmux vault set`"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Još nema akreditiva. Dodajte jedan ovdje ili pomoću `cmux vault set NAME`; ključ zalijepljen u poruku za Chief također se može premjestiti ovdje."
+            "value": "Dodajte akreditiv ovdje ili uz `cmux vault set`"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ingen loginoplysninger endnu. Tilføj en her eller med `cmux vault set NAME`; en nøgle, der indsættes i en besked til Chief, kan også flyttes hertil."
+            "value": "Tilføj loginoplysninger her eller med `cmux vault set`"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Noch keine Anmeldedaten. Füge welche hier oder mit `cmux vault set NAME` hinzu; ein in eine Chief-Nachricht eingefügter Schlüssel kann ebenfalls hierher verschoben werden."
+            "value": "Hier oder mit `cmux vault set` Zugangsdaten hinzufügen"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aún no hay credenciales. Añade una aquí o con `cmux vault set NAME`; una clave pegada en un mensaje al Chief también puede moverse aquí."
+            "value": "Añade credenciales aquí o con `cmux vault set`"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aucun identifiant pour l’instant. Ajoutez-en un ici ou avec `cmux vault set NAME` ; une clé collée dans un message au Chief peut aussi être déplacée ici."
+            "value": "Ajoutez un identifiant ici ou via `cmux vault set`"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ancora nessuna credenziale. Aggiungine una qui o con `cmux vault set NAME`; anche una chiave incollata in un messaggio al Chief può essere spostata qui."
+            "value": "Aggiungi credenziali qui o con `cmux vault set`"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "認証情報はまだありません。ここで追加するか、`cmux vault set NAME` で追加してください。Chief へのメッセージに貼り付けたキーもここに移動できます。"
+            "value": "ここで追加するか `cmux vault set` を使います"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "មិនទាន់មានព័ត៌មានផ្ទៀងផ្ទាត់នៅឡើយទេ។ បន្ថែមមួយនៅទីនេះ ឬដោយប្រើ `cmux vault set NAME`។ កូនសោដែលបានបិទភ្ជាប់ក្នុងសារទៅ Chief ក៏អាចផ្លាស់ទីមកទីនេះបានដែរ។"
+            "value": "បន្ថែមព័ត៌មានសម្ងាត់ទីនេះ ឬប្រើ `cmux vault set`"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "아직 자격 증명이 없습니다. 여기에서 추가하거나 `cmux vault set NAME`으로 추가하세요. Chief 메시지에 붙여 넣은 키도 이곳으로 옮길 수 있습니다."
+            "value": "여기에서 추가하거나 `cmux vault set`을 사용하세요"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ingen påloggingsinformasjon ennå. Legg til her eller med `cmux vault set NAME`; en nøkkel som limes inn i en Chief-melding, kan også flyttes hit."
+            "value": "Legg til pålogging her eller med `cmux vault set`"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Brak danych logowania. Dodaj je tutaj lub poleceniem `cmux vault set NAME`; klucz wklejony do wiadomości do Chief również można tu przenieść."
+            "value": "Dodaj dane tutaj lub przez `cmux vault set`"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nenhuma credencial ainda. Adicione uma aqui ou com `cmux vault set NAME`; uma chave colada numa mensagem ao Chief também pode vir para cá."
+            "value": "Adicione credenciais aqui ou com `cmux vault set`"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Учетных данных пока нет. Добавьте их здесь или командой `cmux vault set NAME`; ключ, вставленный в сообщение для Chief, тоже можно переместить сюда."
+            "value": "Добавьте данные здесь или через `cmux vault set`"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ยังไม่มีข้อมูลรับรอง เพิ่มได้ที่นี่หรือด้วย `cmux vault set NAME` และคีย์ที่วางในข้อความถึง Chief ก็ย้ายมาที่นี่ได้เช่นกัน"
+            "value": "เพิ่มข้อมูลรับรองที่นี่หรือใช้ `cmux vault set`"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Henüz kimlik bilgisi yok. Buradan veya `cmux vault set NAME` ile ekleyin; Chief mesajına yapıştırılan bir anahtar da buraya taşınabilir."
+            "value": "Buradan veya `cmux vault set` ile kimlik bilgisi ekleyin"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Облікових даних ще немає. Додайте їх тут або командою `cmux vault set NAME`; ключ, вставлений у повідомлення для Chief, теж можна перемістити сюди."
+            "value": "Додайте дані тут або через `cmux vault set`"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chưa có thông tin xác thực. Thêm tại đây hoặc bằng `cmux vault set NAME`; khóa được dán vào tin nhắn gửi Chief cũng có thể chuyển vào đây."
+            "value": "Thêm thông tin tại đây hoặc qua `cmux vault set`"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "还没有凭据。可在此处或使用 `cmux vault set NAME` 添加；粘贴到 Chief 消息中的密钥也可以移到这里。"
+            "value": "在此处或通过 `cmux vault set` 添加凭据"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "還沒有憑證。可在此處或使用 `cmux vault set NAME` 加入；貼到 Chief 訊息中的金鑰也可以移到這裡。"
+            "value": "在此處或透過 `cmux vault set` 加入憑證"
           }
         }
       }

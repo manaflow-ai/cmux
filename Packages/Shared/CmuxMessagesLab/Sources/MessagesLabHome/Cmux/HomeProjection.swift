@@ -125,7 +125,9 @@ final class HomeProjection: @preconcurrency ChatIntents {
     var heldPass = false
 
     /// Moves credentials found in a send to the Credential Vault (the host's sheet); nil sends them as typed.
-    var secretHost: HomeSecretHost?
+    var secretHost: HomeSecretHost? {
+        didSet { saveDraft() }
+    }
     /// The draft text the person answered the vault offer for, moving nothing: a Return sends it as
     /// it is (until it goes, or the text changes).
     var secretWarnedDraft: String?
@@ -555,7 +557,11 @@ final class HomeProjection: @preconcurrency ChatIntents {
     /// back in its place (Lawrence 2026-10-23: the pictures came back after all the text).
     func saveDraft() {
         guard !stopped, !restoringDraftAttachments, let store = controller.store else { return }
-        homeStore.setDraft(store.state.ui.draft.text, for: conversation)
+        let draft = store.state.ui.draft
+        // Typing saves before Return can offer the vault. Keep a detected credential only in
+        // the live field while the person decides; a cancelled offer never writes it to disk.
+        let containsSecret = secretHost != nil && !HomeSecretScan().findings(in: draft.plainText).isEmpty
+        homeStore.setDraft(containsSecret ? "" : draft.text, for: conversation)
         homeStore.setDraftAttachments(draftAttachments, for: conversation)
     }
 

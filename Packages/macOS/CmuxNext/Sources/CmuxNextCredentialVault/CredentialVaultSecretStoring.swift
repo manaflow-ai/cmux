@@ -1,10 +1,10 @@
 import Foundation
 import Security
 
-/// Where vault values live (the seam tests replace with memory).
+/// Where vault values and their authoritative scopes live (the seam tests replace with memory).
 nonisolated protocol CredentialVaultSecretStoring: Sendable {
-    func save(_ value: String, for name: String) throws
-    func value(for name: String) throws -> String?
+    func save(_ record: CredentialVaultSecretRecord, for name: String) throws
+    func record(for name: String) throws -> CredentialVaultSecretRecord?
     func delete(_ name: String) throws
 }
 
@@ -18,8 +18,8 @@ nonisolated struct KeychainCredentialVaultSecrets: CredentialVaultSecretStoring 
         [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecAttrAccount as String: name]
     }
 
-    func save(_ value: String, for name: String) throws {
-        let data = Data(value.utf8)
+    func save(_ record: CredentialVaultSecretRecord, for name: String) throws {
+        let data = try record.encoded()
         let status = SecItemUpdate(base(name) as CFDictionary, [kSecValueData as String: data] as CFDictionary)
         if status == errSecItemNotFound {
             var add = base(name)
@@ -33,7 +33,7 @@ nonisolated struct KeychainCredentialVaultSecrets: CredentialVaultSecretStoring 
         }
     }
 
-    func value(for name: String) throws -> String? {
+    func record(for name: String) throws -> CredentialVaultSecretRecord? {
         var query = base(name)
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
@@ -41,7 +41,7 @@ nonisolated struct KeychainCredentialVaultSecrets: CredentialVaultSecretStoring 
         let status = SecItemCopyMatching(query as CFDictionary, &result)
         if status == errSecItemNotFound { return nil }
         guard status == errSecSuccess, let data = result as? Data else { throw CredentialVault.Failure.keychain(status) }
-        return String(data: data, encoding: .utf8)
+        return try CredentialVaultSecretRecord(data: data)
     }
 
     func delete(_ name: String) throws {
