@@ -14,6 +14,8 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
 import { mkdirSync } from "node:fs";
 import path from "node:path";
+import { agentPaneTheme } from "../src/gallery/theme/web";
+import { deriveTokens, GHOSTTY_DEFAULT, rgbHex } from "../src/gallery/theme/tokens";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { papercutPane } from "./support/papercutChat";
 
@@ -138,18 +140,21 @@ await requireBrowserLane("session-info-layout-still.test.ts", async () => {
     await panel(page).waitFor({ state: "detached", timeout: 5_000 });
   };
 
+  /// A window's frame: a synthetic 360x240 app window (title bar, sidebar, striped rows), so the card
+  /// draws at its size in the stills.
+  const FRAME = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAWgAAADwCAIAAACixWkYAAADnUlEQVR42u3dIQoAIBBFQe9/ToPZIGJZm1UFizCfdwKRqZtyLpJ0VfIEksAhCRySwCEJHJLAIUngkAQOSeCQBA5J4JAkcEgChyRwSAKHJHBIEjgkgUMSOCSBQxI4JIFDksAhCRySwCEJHJLAIUlbOGptWoWZHQwc4DADBzjMwAEOM3CAwwwc4DADh3wIM3CAwwwc4DADBzjMwAEOM3CAw8zAAQ4zcIDDDBzgMAMHOMzAAQ4zAwc4zMABDjNwgMMMHP/UR0jaBg5wSOAAhwQOcEjgAIcEDnBI4JAPIYEDHBI4wCGBAxwSOMAhgQMcksABDgkc4JDAAQ4JHOCQwAEOSeAAhwQOcEjgAIcEDnBI4ACHBA5egEMCBzgkcDjIZOYgEzjMwAEOM3CAw8zAAQ4zcIDDDBzgMAMHOMzAAQ4zAwc4zMABDjNwgMMMHOAwAwc4zAwc4DADBzjMwAEOM3CAwwwc4DADh8BhBg5wmIEDHGbgAIcZOMBhBg4HmSQ5yAQOCRzgkMABDgkc4JDAAQ5J4ACHBA5wSOAAhwQOcEjgAIckcIBDAgc4JHCAQwIHOCRwgEMCh8AhgQMcEjjAIYEDHBI4wCGBAxySwAEOCRzgkMDhIJOZg0zgMAMHOMwMHOAwAwc4zMABDjNwgMMMHOAwM3CAwwwc4DADBzjMwAEOM3CAwwwcAocZOMBhBg5wmIEDHGbgAIcZOMBhZuAAhxk4wGEGDnCYgQMcZuAAh5mBw0EmyUEmcEjgAIcEDnBI4ACHBA5egEMCBzgkcIBDAgc4JHCAQwIHOPwJCRzgkMABDgkc4JDAAQ4JHOCQBA5wSOAAhwQOcEjgAIcEDnBIAgc4JHCAQwIHOCRwOMhk5iATOMzAIXCYgQMcZuAAhxk4wGEGDnCYgQMcZgYOcJiBAxxm4ACHGTjAYQYOcJgZOMBhBg5wmIEDHGbgAIcZOMBhZuAAhxk4wGEGDnCYgQMcZuAAhxk4BA4zcDjIJDnIBA4JHOCQwAEOCRzgkAQOcEjgAIcEDnBI4ACHBA5wSAIHOCRwgEMCBzgkcIBDAgc4JIEDHBI4wCGBAxwSOMAhgQMcEjgEDgkc4JDAAQ4JHOCQwOEgk5mDTOAwM3CAwwwc4DADBzjMwAEOM3CAw8zAAQ4zcIDDDBzgMAMHOMzAAQ4zcMACHGbgAIcZOMBhBg5wmIEDHGbgAIeZgQMcZuAAhxk4wGEGDnCYgQMcZgYOcJg92gTLGv2E3aKKfgAAAABJRU5ErkJggg==";
   /// The host's computer use card, as AgentPaneComputerUsePreview pushes it.
   const computerUse = (page: Page) =>
-    page.evaluate(async () => {
+    page.evaluate(async (frame) => {
       const url = "/computerUse/computerUsePreview.ts";
       const module = (await import(/* @vite-ignore */ url)) as { setComputerUsePreview(value: unknown): void };
       module.setComputerUsePreview({
         session: "cu-still",
         app: "Calculator",
         done: false,
-        frame: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+        frame,
       });
-    });
+    }, FRAME);
 
   for (const name of browsers.keys())
     for (const [row, preview] of [
@@ -211,6 +216,17 @@ await requireBrowserLane("session-info-layout-still.test.ts", async () => {
       for (const colorScheme of ["light", "dark"] as const) {
         const page = await pane!.open({ width: 900, height: 640, scale: 2, colorScheme });
         try {
+          // The pane's theme is the host's (applyTheme), not the browser's color scheme.
+          const dark = colorScheme === "dark";
+          const theme = agentPaneTheme(
+            deriveTokens({
+              ...GHOSTTY_DEFAULT,
+              background: rgbHex(dark ? 0x1e1e1e : 0xffffff),
+              foreground: rgbHex(dark ? 0xe5e5e5 : 0x1c1c1c),
+            }),
+            true,
+          );
+          await page.evaluate((theme) => window.cmuxAcpmuxBridge!.applyTheme(theme), theme);
           await computerUse(page);
           await page.locator(".acpmux-cu-preview").waitFor({ timeout: 10_000 });
           await header(page);
