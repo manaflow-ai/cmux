@@ -49,25 +49,37 @@ def open_(first, empty=0.0, **extra):
 
 
 
-class SubagentNameTests(unittest.TestCase):
+class SubagentClickTests(unittest.TestCase):
     class Run:
+        """`debug.agent_pane click` as the app answers it (DebugAgentPaneClick.click): `text` names
+        the element; one the page does not show answers "no visible element matches"."""
         def __init__(self, shown):
-            self.shown, self.hovered = shown, []
+            self.shown, self.clicked = shown, []
 
         def rpc(self, method, params=None, timeout=40):
-            self.hovered.append(params["text"])
-            return {} if params["text"] in self.shown else {"error": "no visible element matches"}
+            assert method == "debug.agent_pane" and params["action"] == "click" and params.get("text")
+            self.clicked.append(params["text"])
+            if params["text"] not in self.shown:
+                return {"pane": "p", "error": "no visible element matches"}
+            return {"pane": "p", "x": 1.0, "y": 2.0}
 
     def test_clicks_the_newest_subagent_the_chat_shows(self):
         bench = load_bench("--runs=3")
         # The chat holds Auditor 0..3; this build renders only 0 and 2.
         run = self.Run({"Auditor 0", "Auditor 2"})
-        self.assertEqual(bench.subagent_name(run), "Auditor 2")
-        self.assertEqual(run.hovered, ["Auditor 3", "Auditor 2"])
+        reply = bench.click_subagent(run)
+        self.assertEqual(run.clicked, ["Auditor 3", "Auditor 2"])
+        self.assertEqual(reply["clicked"], "Auditor 2")
+        self.assertNotIn("error", reply)
 
-    def test_falls_back_to_the_newest_when_none_shows(self):
+    def test_an_older_rendered_line_still_opens(self):
         bench = load_bench("--runs=3")
-        self.assertEqual(bench.subagent_name(self.Run(set())), "Auditor 3")
+        run = self.Run({"Auditor 0"})
+        self.assertEqual(bench.click_subagent(run)["clicked"], "Auditor 0")
+
+    def test_no_shown_line_keeps_the_error(self):
+        bench = load_bench("--runs=3")
+        self.assertEqual(bench.click_subagent(self.Run(set()))["error"], "no visible element matches")
 
 
 class SummaryTests(unittest.TestCase):

@@ -396,18 +396,19 @@ def why(record):
     return (" " + " ".join(parts)) if parts else ""
 
 
-def subagent_name(run):
-    """A subagent line the chat shows now, newest first, found by hovering (no click, no open).
-    The click needs the line in the page, and which of the chat's subagent lines it renders
-    depends on the build: a fixed name per open failed with "no visible element matches" for
-    "Auditor 0" at one base and "Auditor 1" at another (2026-10-31). Each open is its own copy
-    of the chat with its own subagents, so the same name in two opens opens two subagents."""
+def click_subagent(run):
+    """Clicks a subagent line the chat shows, newest first. The click needs the line in the page,
+    and which of the chat's subagent lines it renders depends on the build: a fixed name per open
+    failed with "no visible element matches" for "Auditor 0" at one base and "Auditor 1" at
+    another (2026-10-31). A click that matches nothing returns that error at once and does
+    nothing, so the next name is tried. Each open is its own copy of the chat with its own
+    subagents, so the same name in two opens opens two subagents."""
+    reply = None
     for k in range(SUBAGENTS - 1, -1, -1):
-        name = f"Auditor {k}"
-        found = run.rpc("debug.agent_pane", {"action": "hover", "text": name}) or {}
-        if not found.get("error"):
-            return name
-    return f"Auditor {SUBAGENTS - 1}"
+        reply = run.rpc("debug.agent_pane", {"action": "click", "text": f"Auditor {k}"}) or {}
+        if reply.get("error") != "no visible element matches":
+            return {**reply, "clicked": f"Auditor {k}"}
+    return reply
 
 
 def measure_case(run, case, sessions, index):
@@ -421,8 +422,7 @@ def measure_case(run, case, sessions, index):
         return traced(run, lambda: open_workspace(run, session))
     if case == "subagent":
         settle_open(run, session)
-        name = subagent_name(run)
-        return traced(run, lambda: run.rpc("debug.agent_pane", {"action": "click", "text": name}))
+        return traced(run, lambda: click_subagent(run))
     raise ValueError(case)
 
 
