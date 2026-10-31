@@ -2292,3 +2292,8 @@ reason = "Run by hand before changing the Cloud capture provision scripts; no ne
 [[test]]
 path = "tests/test_cmux_next_kill_switches.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_devbox_bubblewrap.py"
+lane = "manual"
+reason = "Run by hand (cmux-ci) before changing the devbox bubblewrap recipe: it builds the Dockerfile's devtools and bubblewrap layers in Docker and runs an unprivileged sandbox; no new CI tests (CLAUDE.md, Verification)."
