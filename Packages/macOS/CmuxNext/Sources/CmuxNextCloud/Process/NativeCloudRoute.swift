@@ -1,4 +1,4 @@
-import Foundation
+package import Foundation
 package import CmuxInstallAuthCore
 
 /// The app-owned Native link for one selected team and mesh. Enrollment and
