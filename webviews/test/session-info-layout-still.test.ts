@@ -12,6 +12,8 @@
 // CMUX_BROWSER_TESTS=1 bun test test/session-info-layout-still.test.ts
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
+import { mkdirSync } from "node:fs";
+import path from "node:path";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { papercutPane } from "./support/papercutChat";
 
@@ -199,4 +201,30 @@ await requireBrowserLane("session-info-layout-still.test.ts", async () => {
           }
         });
       }
+  // Stills for the pull request, when the run keeps an output folder (fast checks' FAST_CHECKS_OUT):
+  // a 900px pane beside a computer use card, Session Info closed and open, 2x, light and dark.
+  const out = process.env.FAST_CHECKS_OUT;
+  if (out && browsers.has("chromium"))
+    test("stills: Session Info closed and open beside a computer use card", async () => {
+      current = browsers.get("chromium")!;
+      mkdirSync(path.join(out, "stills"), { recursive: true });
+      for (const colorScheme of ["light", "dark"] as const) {
+        const page = await pane!.open({ width: 900, height: 640, scale: 2, colorScheme });
+        try {
+          await computerUse(page);
+          await page.locator(".acpmux-cu-preview").waitFor({ timeout: 10_000 });
+          await header(page);
+          await toggle(page).waitFor({ timeout: 10_000 });
+          await close(page);
+          await settle(page);
+          await page.screenshot({ path: path.join(out, "stills", `session-info-closed-${colorScheme}.png`) });
+          await toggle(page).click({ force: true });
+          await page.locator('aside.acpmux-chat-inspector[data-presence="shown"]').waitFor({ timeout: 10_000 });
+          await settle(page);
+          await page.screenshot({ path: path.join(out, "stills", `session-info-open-${colorScheme}.png`) });
+        } finally {
+          await page.close();
+        }
+      }
+    });
 });
