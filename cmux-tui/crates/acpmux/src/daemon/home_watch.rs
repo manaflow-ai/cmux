@@ -6,18 +6,14 @@
 //! its home, socket and lock, and shuts down normally once any of the three is no longer the
 //! file it started with: removed, renamed away, or replaced by another one.
 //!
-//! Event-driven, never a timer: one `notify` watch (inotify on Linux, FSEvents on macOS) on the
-//! home and on the socket's folder when that is another one. An idle daemon's folders see no
-//! entry change, so the watch adds no wakeup (`tests/daemon_idle.rs`). Each event re-reads the
-//! three paths' identities (`lstat`); nothing else. The watch stops when [`HomeGone`] is
-//! dropped: at shutdown, or once it reported the loss.
-//!
-//! A removal at any depth is seen: removing a folder removes its entries first, the socket and
-//! the lock among them. Renaming an ancestor of the home (`mv /tmp/t /tmp/u` for the home
-//! `/tmp/t/.acpmux`) changes no entry in the watched folders, so it is seen only at the next
-//! entry change there; watching every ancestor would wake the daemon for activity anywhere
-//! above it (FSEvents watches a folder's whole tree). A command never starts a daemon in the
-//! old, now missing path (`config::autostart_refusal`).
+//! Event-driven, never a timer: on Linux/macOS, watch the individual home/socket/lock paths
+//! and their lexical and resolved ancestors for rename/removal only. Kernel subscription masks
+//! exclude directory-entry activity, so unrelated writes under /tmp or /Users never wake us.
+//! One exception, macOS: kqueue cannot watch a socket (open(2) refuses one), so the entries of
+//! the folder that holds the socket wake a check instead (`record_watch::DirWatch`).
+//! Other Unix platforms keep a nearest-directory notify watch with event filtering.
+//! The watcher is dropped when its task ends. Home and socket have separate tasks, so losing the
+//! socket does not stop monitoring the home during shutdown.
 //!
 //! The home and lock are read as soon as the daemon holds its lock (by path: a replacement in
 //! the instant between taking the lock and that read is not seen), and the socket as it is
@@ -34,8 +30,7 @@
 //! last check of the home: a replacement in between cannot be ruled out (POSIX has no
 //! unlink-if-same-file). Its agent hosts are other processes: they end with
 //! their record (`agent_host` `watch_record`); one still starting when the home is replaced may
-//! write its record into the replacement, as on a daemon without this watch. A renamed
-//! ancestor (above) also leaves an unadopted host running until its folder changes.
+//! write its record into the replacement, as on a daemon without this watch.
 
 use std::future::Future;
 use std::path::{Path, PathBuf};
@@ -58,8 +53,17 @@ pub(crate) fn identity(path: &Path) -> Option<Identity> {
 /// The paths a running daemon owns, with the identity each had when it started.
 #[derive(Clone, Debug)]
 #[cfg_attr(not(unix), allow(dead_code))]
+struct OwnedPath {
+    path: PathBuf,
+    identity: Identity,
+    /// Resolve the lexical path again before comparing; this catches symlink retargeting.
+    resolved: bool,
+}
+
+#[derive(Clone, Debug)]
+#[cfg_attr(not(unix), allow(dead_code))]
 pub(crate) struct Owned {
-    paths: Vec<(PathBuf, Identity)>,
+    paths: Vec<OwnedPath>,
 }
 
 impl Owned {
@@ -68,11 +72,19 @@ impl Owned {
     /// for a loss.
     #[cfg(unix)]
     pub(crate) fn now(paths: &[&Path]) -> Option<Self> {
-        let paths = paths
-            .iter()
-            .map(|p| identity(p).map(|id| (p.to_path_buf(), id)))
-            .collect::<Option<Vec<_>>>()?;
-        Some(Self { paths })
+        let mut owned: Vec<OwnedPath> = Vec::new();
+        for path in paths {
+            for ancestor in lexical_ancestors(path) {
+                let id = identity(&ancestor)?;
+                if !owned.iter().any(|entry| entry.path == ancestor) {
+                    owned.push(OwnedPath { path: ancestor, identity: id, resolved: false });
+                }
+            }
+            let resolved = std::fs::canonicalize(path).ok()?;
+            let id = identity(&resolved)?;
+            owned.push(OwnedPath { path: path.to_path_buf(), identity: id, resolved: true });
+        }
+        Some(Self { paths: owned })
     }
 
     /// These paths and `other`'s.
@@ -91,22 +103,39 @@ impl Owned {
     /// [`Owned::lost`], leaving out `skip` (a path this daemon removes itself).
     #[cfg(unix)]
     fn lost_except(&self, skip: Option<&Path>) -> Option<String> {
-        self.paths.iter().filter(|(path, _)| Some(path.as_path()) != skip).find_map(
-            |(path, was)| match identity(path) {
-                None => Some(format!("{} was removed", path.display())),
-                Some(now) if now != *was => Some(format!("{} was replaced", path.display())),
+        self.paths.iter().filter(|entry| Some(entry.path.as_path()) != skip).find_map(|entry| {
+            let now = if entry.resolved {
+                std::fs::canonicalize(&entry.path).ok().and_then(|path| identity(&path))
+            } else {
+                identity(&entry.path)
+            };
+            match now {
+                None => Some(format!("{} was removed", entry.path.display())),
+                Some(now) if now != entry.identity => {
+                    Some(format!("{} was replaced", entry.path.display()))
+                }
                 Some(_) => None,
-            },
-        )
+            }
+        })
     }
+}
+
+/// Preserve `..` components too: resolving them lexically would change symlink semantics.
+#[cfg(unix)]
+fn lexical_ancestors(path: &Path) -> Vec<PathBuf> {
+    path.ancestors()
+        .filter(|p| !p.as_os_str().is_empty() && *p != Path::new("/"))
+        .map(Path::to_path_buf)
+        .collect()
 }
 
 /// Set just before a shutdown removes the socket it bound: from then on the watch leaves the
 /// socket out, so that removal is not taken for a lost home.
-#[cfg_attr(not(unix), allow(dead_code))]
+#[cfg(unix)]
 static SOCKET_RELEASED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// This daemon removes its own socket now (see [`SOCKET_RELEASED`]).
+#[cfg(unix)]
 pub(crate) fn release_socket() {
     SOCKET_RELEASED.store(true, std::sync::atomic::Ordering::SeqCst);
 }
@@ -123,46 +152,101 @@ pub(crate) fn watch(
     home: &Path,
     socket: &Path,
 ) -> HomeGone {
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     use notify::Watcher as _;
-    // The home and lock as the daemon first held them (`held`), and the socket as bound.
-    let Some(owned) = held.zip(bound).map(|(held, bound)| held.with(bound)) else {
+    // The home and lock as the daemon first held them (`held`), and the socket as bound. The
+    // home watcher starts immediately after lock acquisition, before startup writes; the socket
+    // watcher is added once the socket is bound. Keep the held set separate: a socket ancestor
+    // outside the home must never be classified as a home loss.
+    let held_for_classification = held.clone();
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    let home_owned = held.is_some();
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    let bound_owned = bound.is_some();
+    let Some(owned) = (match (held, bound) {
+        (Some(held), Some(bound)) => Some(held.with(bound)),
+        (Some(held), None) => Some(held),
+        (None, Some(bound)) => Some(bound),
+        (None, None) => None,
+    }) else {
         tracing::warn!("home watch off: {} or {} cannot be read", home.display(), socket.display());
         return Box::pin(std::future::pending());
     };
     // One slot: events that arrive while a check runs fold into the next check.
     let (tx, mut rx) = tokio::sync::mpsc::channel::<()>(1);
-    let watcher = notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
-        if !matches!(&event, Ok(e) if e.kind.is_access()) {
-            let _ = tx.try_send(());
-        }
-    });
-    let mut watcher = match watcher {
-        Ok(w) => w,
-        Err(e) => {
-            tracing::warn!("home watch off: {e}");
-            return Box::pin(std::future::pending());
-        }
-    };
-    // The folders, canonical: FSEvents reports `/private/var/...` for `/var/...`.
-    let mut dirs = vec![home.to_path_buf()];
-    if let Some(parent) = socket.parent().filter(|p| !p.as_os_str().is_empty())
-        && std::fs::canonicalize(parent).ok() != std::fs::canonicalize(home).ok()
-    {
-        dirs.push(parent.to_path_buf());
-    }
-    for dir in &dirs {
-        let dir = std::fs::canonicalize(dir).unwrap_or_else(|_| dir.clone());
-        if let Err(e) = watcher.watch(&dir, notify::RecursiveMode::NonRecursive) {
-            // A folder gone before its watch began (the home removed during the startup) is
-            // the loss itself, not a watch that could not be set up.
-            if let Some(why) = owned.lost() {
-                crate::config::mark_home_lost();
-                return Box::pin(std::future::ready(why));
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    let watcher = {
+        let mut paths: Vec<PathBuf> = owned.paths.iter().map(|entry| entry.path.clone()).collect();
+        // Include resolved ancestors too: an intermediate symlink's target may itself move.
+        for entry in &owned.paths {
+            if let Ok(resolved) = std::fs::canonicalize(&entry.path) {
+                paths.extend(lexical_ancestors(&resolved));
             }
-            tracing::warn!("home watch off: watch {}: {e}", dir.display());
-            return Box::pin(std::future::pending());
         }
-    }
+        paths.sort();
+        paths.dedup();
+        crate::agent_host::record_watch::DirWatch::start_identities(&paths, move || {
+            let _ = tx.try_send(());
+            tx.is_closed()
+        })
+    };
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    let watcher = {
+        // FSEvents reports canonical paths; retain both spellings for filtering while identity
+        // checks keep the lexical spelling. Ancestor watches must not wake us for unrelated entries.
+        let mut relevant: Vec<PathBuf> =
+            owned.paths.iter().map(|entry| entry.path.clone()).collect();
+        relevant
+            .extend(owned.paths.iter().filter_map(|entry| std::fs::canonicalize(&entry.path).ok()));
+        let watcher = notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
+            let relevant_event = match event {
+                Ok(e) => {
+                    !e.kind.is_access()
+                        && (e.need_rescan()
+                            || e.paths.is_empty()
+                            || e.paths.iter().any(|p| relevant.contains(p)))
+                }
+                Err(_) => true,
+            };
+            if relevant_event {
+                let _ = tx.try_send(());
+            }
+        });
+        let mut watcher = match watcher {
+            Ok(w) => w,
+            Err(e) => {
+                tracing::warn!("home watch off: {e}");
+                return Box::pin(std::future::pending());
+            }
+        };
+        let mut dirs = Vec::new();
+        if home_owned {
+            dirs.push(home.to_path_buf());
+        }
+        if bound_owned {
+            let parent = socket.parent().unwrap_or(socket).to_path_buf();
+            if !dirs.contains(&parent) {
+                dirs.push(parent);
+            }
+        }
+        for dir in &dirs {
+            if let Err(e) = watcher.watch(&dir, notify::RecursiveMode::NonRecursive) {
+                // A folder gone before its watch began (the home removed during the startup) is
+                // the loss itself, not a watch that could not be set up.
+                if let Some(why) = owned.lost() {
+                    if held_for_classification.as_ref().is_some_and(|held| held.lost().is_some()) {
+                        crate::config::mark_home_lost();
+                    } else {
+                        crate::config::mark_socket_lost();
+                    }
+                    return Box::pin(std::future::ready(why));
+                }
+                tracing::warn!("home watch off: watch {}: {e}", dir.display());
+                return Box::pin(std::future::pending());
+            }
+        }
+        watcher
+    };
     let socket = socket.to_path_buf();
     Box::pin(async move {
         // Owned here: the watch lives exactly as long as this future.
@@ -180,7 +264,11 @@ pub(crate) fn watch(
             lost = check();
         }
         // At once, before the shutdown starts: no write may make the old home again.
-        crate::config::mark_home_lost();
+        if held_for_classification.as_ref().is_some_and(|held| held.lost().is_some()) {
+            crate::config::mark_home_lost();
+        } else {
+            crate::config::mark_socket_lost();
+        }
         lost.unwrap_or_default()
     })
 }
@@ -195,6 +283,9 @@ impl Owned {
         None
     }
 }
+
+#[cfg(not(unix))]
+pub(crate) fn release_socket() {}
 
 #[cfg(not(unix))]
 pub(crate) fn watch(
@@ -226,6 +317,56 @@ mod tests {
         assert!(owned.lost().unwrap().ends_with("was replaced"), "{:?}", owned.lost());
         std::fs::remove_dir_all(&home).unwrap();
         assert!(owned.lost().unwrap().ends_with("was removed"), "{:?}", owned.lost());
+    }
+
+    #[test]
+    fn an_ancestor_rename_is_lost_even_when_the_home_is_unchanged() {
+        let dir = tempfile::tempdir().unwrap();
+        let parent = dir.path().join("parent");
+        let home = parent.join("home");
+        std::fs::create_dir_all(&home).unwrap();
+        let owned = Owned::now(&[home.as_path()]).unwrap();
+        std::fs::rename(&parent, dir.path().join("moved")).unwrap();
+        assert!(owned.lost().is_some(), "ancestor rename was not detected");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_symlink_ancestor_retarget_is_lost() {
+        let dir = tempfile::tempdir().unwrap();
+        let one = dir.path().join("one");
+        let two = dir.path().join("two");
+        std::fs::create_dir_all(one.join("home")).unwrap();
+        std::fs::create_dir_all(two.join("home")).unwrap();
+        let link = dir.path().join("link");
+        std::os::unix::fs::symlink(&one, &link).unwrap();
+        let home = link.join("home");
+        let owned = Owned::now(&[home.as_path()]).unwrap();
+        std::fs::remove_file(&link).unwrap();
+        std::os::unix::fs::symlink(&two, &link).unwrap();
+        assert!(owned.lost().is_some(), "symlink retarget was not detected");
+    }
+
+    #[test]
+    fn a_socket_ancestor_loss_is_not_a_home_loss() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().join("home");
+        let first = dir.path().join("first");
+        let second = dir.path().join("second");
+        std::fs::create_dir_all(&home).unwrap();
+        std::fs::create_dir_all(&first).unwrap();
+        std::fs::create_dir_all(&second).unwrap();
+        let link = dir.path().join("socket-link");
+        std::os::unix::fs::symlink(&first, &link).unwrap();
+        let socket = link.join("s.sock");
+        std::fs::write(&socket, "").unwrap();
+        let held = Owned::now(&[home.as_path()]).unwrap();
+        let bound = Owned::now(&[socket.as_path()]).unwrap();
+        std::fs::rename(dir.path().join("second"), dir.path().join("replacement")).unwrap();
+        std::fs::remove_file(&link).unwrap();
+        std::os::unix::fs::symlink(dir.path().join("replacement"), &link).unwrap();
+        assert!(held.lost().is_none(), "socket ancestor changed the home identity");
+        assert!(bound.lost().is_some(), "socket ancestor replacement was not detected");
     }
 
     #[test]

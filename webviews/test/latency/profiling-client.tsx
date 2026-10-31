@@ -7,16 +7,20 @@ const counters = () => {
   const scope = window as Window & {
     __latencyReactCommits?: number;
     __latencyReactRootRenders?: number;
+    /** The Profiler's actualDuration summed over every commit (the rail sweep's per-move React time). */
+    __latencyReactActualMs?: number;
     __latencyReactProfile?: { source: string; phase: string; actualDuration: number; commitTime: number };
   };
   scope.__latencyReactCommits ??= 0;
   scope.__latencyReactRootRenders ??= 0;
+  scope.__latencyReactActualMs ??= 0;
   return scope;
 };
 
 const committed: ProfilerOnRenderCallback = (_id, phase, actualDuration, _baseDuration, _startTime, commitTime) => {
   const scope = counters();
   scope.__latencyReactCommits! += 1;
+  scope.__latencyReactActualMs! += actualDuration;
   scope.__latencyReactProfile = { source: "React.Profiler.onRender", phase, actualDuration, commitTime };
 };
 

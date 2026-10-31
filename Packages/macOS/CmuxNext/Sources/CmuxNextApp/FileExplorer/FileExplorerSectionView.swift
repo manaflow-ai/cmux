@@ -22,6 +22,8 @@ final class FileExplorerSectionView: NSView, RightSidebarRefreshing, NSTableView
     /// The item whose name is being edited (Rename, or a new item's first name).
     private var renaming: URL?
     private let header = NSTextField(labelWithString: "")
+    /// Shown while the root is a protected folder the person has not asked to see (``FileExplorerModel/held``).
+    private let showContents = NSButton(title: FileExplorerStrings.showProtectedContents, target: nil, action: nil)
     let table = FileExplorerTableView()
     private let scroll = NSScrollView()
     private var rows: [FileExplorerRow] = []
@@ -55,7 +57,7 @@ final class FileExplorerSectionView: NSView, RightSidebarRefreshing, NSTableView
         build()
         observation = Task { [weak self] in
             guard let model = self?.model else { return }
-            for await _ in ObservationStream({ [model] in (model.rows, model.root, model.failure) }) {
+            for await _ in ObservationStream({ [model] in (model.rows, model.root, model.failure, model.held) }) {
                 self?.render()
             }
         }
@@ -126,7 +128,17 @@ final class FileExplorerSectionView: NSView, RightSidebarRefreshing, NSTableView
         scroll.drawsBackground = false
         scroll.translatesAutoresizingMaskIntoConstraints = false
         addSubview(scroll)
+        showContents.bezelStyle = .push
+        showContents.controlSize = .small
+        showContents.target = self
+        showContents.action = #selector(showContentsClicked)
+        showContents.isHidden = true
+        showContents.translatesAutoresizingMaskIntoConstraints = false
+        showContents.setAccessibilityIdentifier("cmux.fileExplorer.showContents")
+        addSubview(showContents)
         NSLayoutConstraint.activate([
+            showContents.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Metrics.space3),
+            showContents.topAnchor.constraint(equalTo: header.bottomAnchor, constant: Metrics.space2),
             header.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Metrics.space3),
             header.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Metrics.space3),
             header.topAnchor.constraint(equalTo: topAnchor, constant: Metrics.space2),
@@ -140,10 +152,19 @@ final class FileExplorerSectionView: NSView, RightSidebarRefreshing, NSTableView
     private func render() {
         header.stringValue = model.failure ?? model.root.map { ($0.path as NSString).abbreviatingWithTildeInPath } ?? FileExplorerStrings.noFolder
         rows = model.rows
+        showContents.isHidden = !model.held
         table.reloadData()
         if let selection = model.selection, let index = rows.firstIndex(where: { $0.url == selection }) {
             table.selectRowIndexes(IndexSet(integer: index), byExtendingSelection: false)
         }
+    }
+
+    /// The person asks to see the protected folder the tree is held at: it lists now.
+    @objc private func showContentsClicked() {
+        guard let root = model.root else { return }
+        let model = model
+        // task-owner: one listing; a newer one supersedes it (the model's generation).
+        Task { await model.setRoot(root, asked: true) }
     }
 
     @objc private func doubleClicked() {

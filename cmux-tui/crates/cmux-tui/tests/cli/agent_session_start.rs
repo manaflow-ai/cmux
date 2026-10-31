@@ -362,8 +362,10 @@ fn agent_session_start_passes_the_host_gate_on_an_ssh_host() {
 
 /// The guest's own `owner` record never allows a start on a Cloud VM (its
 /// agents keep sudo): only the caller's `vm_kind: "owner"`, the Cloud API's
-/// answer for it, does, and team evidence refuses even then. A machine that
-/// is not a Cloud VM needs no word.
+/// answer for it, does. On a team VM that word is the creator's (the Cloud
+/// API gives it to nobody else), so it goes on there too; any other word or
+/// none is still `team_vm_blocked`. A machine that is not a Cloud VM needs no
+/// word.
 #[test]
 fn a_cloud_vm_start_needs_the_callers_owner_word_not_the_vms_record() {
     let owner = Daemon::start_cloud("vmowner", "owner");
@@ -380,7 +382,12 @@ fn a_cloud_vm_start_needs_the_callers_owner_word_not_the_vms_record() {
 
     let team = Daemon::start_cloud("vmteam", "team");
     let surface = team.own_agent_tab();
+    // The creator's word: past the host gate, the next check is the folder's trust.
     let reply = team.start_chat_as(surface, "owner");
+    assert_eq!(reply["error_code"], "agent_session.untrusted_folder", "{reply}");
+    let reply = team.start_chat(surface);
+    assert_eq!(reply["error_code"], "agent_session.team_vm_blocked", "{reply}");
+    let reply = team.start_chat_as(surface, "team");
     assert_eq!(reply["error_code"], "agent_session.team_vm_blocked", "{reply}");
 
     let ssh = Daemon::start("vmssh", None);
@@ -400,8 +407,8 @@ fn a_cloud_vm_start_needs_the_callers_owner_word_not_the_vms_record() {
 }
 
 /// Folder trust on a Cloud VM takes the start's rule: only the caller's
-/// `vm_kind: "owner"` reaches it, never the VM's own record, and team
-/// evidence refuses even then. A page cannot vouch for the Cloud API's
+/// `vm_kind: "owner"` reaches it, never the VM's own record; on a team VM
+/// that word is the creator's and reaches it too. A page cannot vouch for the Cloud API's
 /// answer, so its routed operations never reach a Cloud VM's trust.
 #[test]
 fn agent_session_trust_on_a_cloud_vm_needs_the_callers_owner_word() {
@@ -439,8 +446,13 @@ fn agent_session_trust_on_a_cloud_vm_needs_the_callers_owner_word() {
 
     let team = Daemon::start_cloud("trustteam", "team");
     let surface = team.own_agent_tab();
-    let reply = trust(&team, surface, json!("owner"));
-    assert_eq!(reply["error_code"], "agent_session.team_vm_blocked", "{reply}");
+    for kind in [json!(null), json!("team")] {
+        let reply = trust(&team, surface, kind);
+        assert_eq!(reply["error_code"], "agent_session.team_vm_blocked", "{reply}");
+    }
+    // The creator's word (the Cloud API's owner answer) reaches the trust read.
+    let read = trust(&team, surface, json!("owner"));
+    assert_eq!(read["ok"], true, "{read}");
 
     // A machine that shows no Cloud sign (its root may have removed them):
     // a word that is not `owner`, an explicit `null` included, refuses.
@@ -482,6 +494,80 @@ fn agent_session_start_refuses_a_codex_alias_before_any_agent_starts() {
     let default = daemon.start_chat(surface);
     assert_eq!(default["error_code"], "agent_session.not_asking", "{default}");
     assert_eq!(daemon.acpmux_sessions(), 0, "an agent started before the family check");
+}
+
+/// On the caller's own Cloud VM (its `vm_kind: "owner"`, the Cloud API's
+/// answer) a Codex or opencode chat starts: that VM is the person's own
+/// disposable sandbox. The same harness stays refused without the word, on
+/// an SSH host (not a sandbox of theirs) and on a team VM.
+#[test]
+fn agent_session_start_starts_codex_on_the_callers_own_cloud_vm_only() {
+    let config = json!({
+        "harnesses": {
+            "fcx": {"argv": ["python3", FAKE_AGENT], "family": "codex"},
+            "fop": {"argv": ["python3", FAKE_AGENT], "family": "opencode"},
+        },
+        "defaultHarness": "fcx",
+    });
+    let start = |daemon: &Daemon, surface: u64, harness: &str, kind: Option<&str>| {
+        let work = daemon.dir.join("work");
+        let mut request = json!({"id": 40, "cmd": "agent-session-start", "surface": surface,
+                                 "harness": harness, "cwd": work.to_str().unwrap()});
+        if let Some(kind) = kind {
+            request["vm_kind"] = json!(kind);
+        }
+        daemon.rpc(request)
+    };
+    let trust = |daemon: &Daemon| {
+        let work = daemon.dir.join("work");
+        let set = daemon.acpmux_call("acp.trust.set", json!({"cwd": work, "level": "trusted"}));
+        assert!(set.get("error").is_none(), "{set}");
+    };
+
+    let owner = Daemon::start_in("cxowner", None, Some(config.clone()), Some("owner"));
+    let identity = owner.rpc(json!({"id": 1, "cmd": "identify"}));
+    let capabilities = identity["data"]["capabilities"].to_string();
+    assert!(capabilities.contains("agent-session-start-owner-cloud-v1"), "{identity}");
+    let surface = owner.own_agent_tab();
+    let refused = start(&owner, surface, "fcx", None);
+    assert_eq!(refused["error_code"], "agent_session.host_unverified", "{refused}");
+    // The first start brings acpmux up; the folder's trust is the person's.
+    let untrusted = start(&owner, surface, "fcx", Some("owner"));
+    assert_eq!(untrusted["error_code"], "agent_session.untrusted_folder", "{untrusted}");
+    trust(&owner);
+    let started = start(&owner, surface, "fcx", Some("owner"));
+    assert_eq!(started["ok"], true, "{started}");
+    assert!(started["data"]["session"].as_str().is_some_and(|s| !s.is_empty()), "{started}");
+    let opencode_tab = owner.own_agent_tab();
+    let started = start(&owner, opencode_tab, "fop", Some("owner"));
+    assert_eq!(started["ok"], true, "{started}");
+    assert_eq!(owner.acpmux_sessions(), 2, "{started}");
+
+    // Not a Cloud VM: the caller's word does not make a Mac or SSH host a sandbox.
+    let ssh = Daemon::start_with("cxssh", None, Some(config.clone()));
+    let identity = ssh.rpc(json!({"id": 2, "cmd": "identify"}));
+    let capabilities = identity["data"]["capabilities"].to_string();
+    assert!(!capabilities.contains("agent-session-start-owner-cloud-v1"), "{identity}");
+    let surface = ssh.own_agent_tab();
+    let refused = start(&ssh, surface, "fcx", Some("owner"));
+    assert_eq!(refused["error_code"], "agent_session.not_asking", "{refused}");
+    let refused = start(&ssh, surface, "fop", Some("owner"));
+    assert_eq!(refused["error_code"], "agent_session.not_asking", "{refused}");
+    assert_eq!(ssh.acpmux_sessions(), 0, "an agent started on an SSH host");
+
+    let team = Daemon::start_in("cxteam", None, Some(config), Some("team"));
+    let identity = team.rpc(json!({"id": 3, "cmd": "identify"}));
+    let capabilities = identity["data"]["capabilities"].to_string();
+    assert!(!capabilities.contains("agent-session-start-owner-cloud-v1"), "{identity}");
+    let surface = team.own_agent_tab();
+    let refused = start(&team, surface, "fcx", None);
+    assert_eq!(refused["error_code"], "agent_session.team_vm_blocked", "{refused}");
+    // The creator's owner word takes a team VM's chat (#29107), but only one that asks first.
+    let refused = start(&team, surface, "fcx", Some("owner"));
+    assert_eq!(refused["error_code"], "agent_session.not_asking", "{refused}");
+    let refused = start(&team, surface, "fop", Some("owner"));
+    assert_eq!(refused["error_code"], "agent_session.not_asking", "{refused}");
+    assert_eq!(team.acpmux_sessions(), 0, "an agent started on a team VM");
 }
 
 /// A session never leaves its machine (cx-k21v): a tab whose record names
