@@ -277,7 +277,8 @@ struct ContributedAnswersTests {
         #expect(more?.item.title == "15 more matching chats", "\(more?.item.title ?? "no more row")")
         #expect(ids.count <= PaletteContributedAnswers.pageRowLimit, "\(ids.count) rows")
         palette.model.send(.activate("agentChats.moreInSearch"))
-        await palette.model.settle()
+        // Not settle(): the opened page's own query waits for an answer this test never gives.
+        await Self.until { palette.model.pageTitle == "Agent Chats" }
         #expect(palette.model.pageTitle == "Agent Chats", "the more row opens the chats page: \(palette.model.pageTitle)")
         #expect(palette.model.query == "a", "with the same query: \(palette.model.query)")
     }
@@ -298,7 +299,10 @@ struct ContributedAnswersTests {
         palette.model.send(.setQuery("a "))
         await palette.model.settle()
         #expect(palette.model.rows.contains { $0.id == "chat:a0" }, "the old chats stand in")
+        let first = palette.model.selectedRowID
         _ = palette.model.handle(.moveToLast)
+        // The last selectable row: a ranked row, not the first one (a refused move onto a stand-in leaves it there).
+        #expect(palette.model.selectedRowID != first, "End did not move: \(palette.model.selectedRowID ?? "nil")")
         #expect(palette.model.selectedRowID?.hasPrefix("history:") == true, "selected: \(palette.model.selectedRowID ?? "nil")")
     }
 }
