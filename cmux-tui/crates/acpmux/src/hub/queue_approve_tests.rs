@@ -334,3 +334,65 @@ async fn an_approval_keeps_the_approvers_rules_across_a_restart() {
     hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// A hub whose session store is memory, for tests that queue prompts directly.
+fn memory_hub() -> Arc<Hub> {
+    let mut cfg: Config = serde_json::from_value(json!({
+        "harnesses": {"fake": {"argv": ["python3", FAKE]}},
+        "defaultHarness": "fake"
+    }))
+    .unwrap();
+    cfg.store.mode = StoreMode::Memory;
+    let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+    Hub::new(cfg, store)
+}
+
+fn held_guest() -> Value {
+    json!({"kind": "person_message", "from": "guest:aside", "fromName": "Cy", "approval": "owner"})
+}
+
+/// A prompt that waits for the owner wakes nothing until approved, as a prompt a failed turn
+/// holds does: a hibernated child with only such a prompt frees its parent's width slot (review
+/// of #26747: `waking_children` subtracted only held prompts, so it took a slot).
+#[tokio::test]
+async fn a_child_with_only_an_owner_held_prompt_takes_no_width_slot() {
+    let hub = memory_hub();
+    let new = |subsession| crate::hub::NewRequest {
+        cwd: Some(std::env::temp_dir()),
+        subsession,
+        ..crate::hub::NewRequest::default()
+    };
+    let parent = hub.new_session(new(None)).await.unwrap();
+    let link = crate::store::SubsessionLink {
+        started_by: parent.id.clone(),
+        short_name: "a".into(),
+        depth: 1,
+        offered: false,
+    };
+    let child = hub.new_session(new(Some(link))).await.unwrap();
+    hub.set_status(&child, SessionStatus::Idle);
+    assert_eq!(hub.width_used(&parent.id), 0, "a hibernated child frees its slot");
+    insert(&hub, &child, "g-1", Some(&held_guest()));
+    assert!(child.queue()[0].awaiting_owner);
+    assert_eq!(hub.width_used(&parent.id), 0, "an owner-held prompt woke the child");
+    assert!(hub.waking_children(&parent.id).is_empty());
+    hub.shutdown_all().await;
+}
+
+/// A prompt that waits for the owner holds no other agent's notice back from the running turn
+/// (review of #26747: `prompt_waits` passed only held prompts, so a guest's prompt kept every
+/// notice out of the turn until the owner answered).
+#[tokio::test]
+async fn an_owner_held_prompt_does_not_hold_back_a_notice() {
+    let hub = memory_hub();
+    let req = crate::hub::NewRequest { cwd: Some(std::env::temp_dir()), ..Default::default() };
+    let session = hub.new_session(req).await.unwrap();
+    assert!(!super::super::inbox::notice_held(&session), "an empty queue holds nothing back");
+    insert(&hub, &session, "g-1", Some(&held_guest()));
+    assert!(session.queue()[0].awaiting_owner);
+    assert!(!super::super::inbox::notice_held(&session), "an owner-held prompt held a notice");
+    // The owner's own waiting prompt still does.
+    insert(&hub, &session, "owner", None);
+    assert!(super::super::inbox::notice_held(&session));
+    hub.shutdown_all().await;
+}
