@@ -6,7 +6,13 @@ import type { ConnectKind, OffloadKind } from "./environments";
 import type { RunModeRows } from "./sandboxRun";
 import { useEscapingList } from "../../ui/popupHost";
 import type { AcpmuxSnapshot, QueueEdit } from "./model";
-import { type AttachmentError, type ComposerAttachment, type DroppedKind, type LinkItem } from "./attachments";
+import {
+  withoutInlineTokens,
+  type AttachmentError,
+  type ComposerAttachment,
+  type DroppedKind,
+  type LinkItem,
+} from "./attachments";
 import type { UploadResult } from "./cloudUploads";
 import { cappedShellChips, shellAttachment, type ShellRun } from "./shell/shellRuns";
 import { opensProcessTerminal } from "./processTerminal";
@@ -196,7 +202,7 @@ export const COMPOSER_LABELS = {
 export type ComposerHandle = {
   /// Puts a held-back prompt in: `text` before what is typed now, `attachments` before the rest.
   restore(text: string, attachments: ComposerAttachment[]): void;
-  /// Snapshot the unsent text without taking it out of this chat.
+  /// Snapshot the unsent text without attachment markers or taking it out of this chat.
   draftText(): string;
   /// Prevent ordinary session-switch attachment handoff for text-only recovery.
   suppressAttachmentCarryFor(sessionId?: string): void;
@@ -686,7 +692,10 @@ export function Composer({
   useImperativeHandle(
     handle,
     () => ({
-      draftText: () => field.current?.value() ?? textRef.current,
+      draftText: () =>
+        withoutInlineTokens(field.current?.value() ?? textRef.current, (id) =>
+          attachmentsRef.current.some((attachment) => attachment.id === id),
+        ),
       suppressAttachmentCarryFor(sessionId) {
         suppressedAttachmentCarry.current = { from: sessionId };
       },

@@ -48,6 +48,8 @@ Object.assign(dom.window.Range.prototype, {
 const { act, createRef } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { Composer } = await import("../src/agent-session/acpmux/Composer");
+const { setComposerSettings } = await import("../src/agent-session/acpmux/composerSettings");
+const { inlineToken } = await import("../src/agent-session/acpmux/attachments");
 const { noChat } = await import("../src/gallery/fixtures/acpmux");
 const { readPersistedDraft, writePersistedDraft } = await import("../src/agent-session/acpmux/composerDraft");
 const host = document.getElementById("composer")!;
@@ -72,6 +74,7 @@ const attachment: ComposerAttachment = {
   text: "attached content",
 };
 async function fixture() {
+  setComposerSettings({ attachmentView: "inline" });
   root = createRoot(host);
   const handle = createRef<ComposerHandle>();
   const sent: string[] = [];
@@ -115,7 +118,7 @@ test("recovery copies only text, keeps the source intact, and sends nothing", as
   expect(f.handle.current!.draftText()).toBe("held draft");
   expect(f.handle.current!.wakeState().attachments).toEqual([]);
   expect(f.stored.get("source")).toEqual([attachment]);
-  expect(readPersistedDraft("source")).toBe("held draft");
+  expect(readPersistedDraft("source")).toBe(`held draft${inlineToken(attachment.id)}`);
   expect(f.sent).toEqual([]);
   await f.draw("source");
   expect(f.handle.current!.draftText()).toBe("held draft");
@@ -187,7 +190,7 @@ test("edits while selecting remain in the source and another chat receives no co
   resolve(false);
   await run;
   expect(f.handle.current!.draftText()).toBe("");
-  expect(readPersistedDraft("source")).toBe("edited held draft");
+  expect(readPersistedDraft("source")).toBe(`edited held draft${inlineToken(attachment.id)}`);
   expect(f.stored.get("source")).toEqual([attachment]);
   expect(f.sent).toEqual([]);
 });
