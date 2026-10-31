@@ -92,6 +92,25 @@ struct UnsentDraftTests {
         #expect(AgentUnsentDrafts(file: file).draft(for: "tab-1") == nil)
     }
 
+    /// A seed made but never taken (the host failed before its handshake, and a stand-in page mounted
+    /// without the draft) leaves the draft waiting: that page's empty text does not clear it, and the
+    /// next host gets it. Taken, the page's clear clears it.
+    @Test func aSeedNeverTakenKeepsTheDraftForTheNextHost() async throws {
+        let directory = try Self.directory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appending(path: AgentUnsentDrafts.fileName)
+        AgentUnsentDrafts(file: file).set("the saved draft", for: "tab-1")
+
+        let drafts = AgentUnsentDrafts(file: file)
+        _ = try #require(drafts.seed(for: "tab-1", session: nil))
+        drafts.typed("", for: "tab-1")
+        #expect(AgentUnsentDrafts(file: file).draft(for: "tab-1") == "the saved draft")
+        let retry = try #require(drafts.seed(for: "tab-1", session: nil))
+        #expect(await retry.take()?.draft == "the saved draft")
+        drafts.typed("", for: "tab-1")
+        #expect(AgentUnsentDrafts(file: file).draft(for: "tab-1") == nil)
+    }
+
     /// A file this run cannot read is set aside, never replaced by an empty or partial one.
     @Test func anUnreadableFileIsSetAsideNotOverwritten() throws {
         let directory = try Self.directory()

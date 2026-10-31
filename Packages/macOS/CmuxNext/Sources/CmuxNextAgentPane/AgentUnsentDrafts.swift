@@ -53,12 +53,15 @@ public final class AgentUnsentDrafts {
     }
 
     /// Tab `key`'s kept text as a new chat's seed; nil for a tab whose chat has a session, or
-    /// (`local` false) one on another machine. A seed given out is the page's from then on: its
-    /// empty text clears it.
+    /// (`local` false) one on another machine. Once the page takes it (its handshake), it is the
+    /// page's: its empty text clears it. Until then the tab still waits for it, so a stand-in page
+    /// (a host that failed before its handshake) cannot clear it with its empty prompt. Before
+    /// (cmux#28204 review at 3da4b376), making the seed counted as delivered.
     public func seed(for key: String, session: String?, local: Bool = true) -> AgentPaneSeedSource? {
         guard local, session == nil, let text = drafts[key] else { return nil }
-        undelivered.remove(key)
-        return AgentPaneSeedSource(AgentPaneSeed(draft: text))
+        let source = AgentPaneSeedSource(AgentPaneSeed(draft: text))
+        source.onDraftTaken = { [weak self] in _ = self?.undelivered.remove(key) }
+        return source
     }
 
     /// Keeps the typed text of `model`'s chat for the tab `key` names when it runs, until the chat
