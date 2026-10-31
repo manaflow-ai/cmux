@@ -34,9 +34,12 @@ jobs queued on a pool they hold exceeds a threshold:
      suspect lacks it, the jobs of at most two recently completed runs of its
      own workflow for up to three workflows (evidence_queries()). Without
      it the job is just waiting in a backed-up pool and is left alone. While
-     any other job of the run is unfinished (running, held, or queued without
-     being lost itself), it may be the gate the job waits behind, so the run
-     is left alone at any head (_gated()). A lost job holds nothing but never
+     any other job of the run created before it is unfinished (running, held,
+     or queued without being lost itself), it may be the gate the job waits
+     behind, so the run is left alone at any head (_gated()). A job created
+     with or after it is never one of its needs (may_need(): GitHub creates a
+     job once its needs finished), so it neither gates the job nor restarts
+     its 30 minutes when it finishes (lost_wait_start()). A lost job holds nothing but never
      runs, so this category is not gated on a backed-up pool. A run whose
      head is stale (a push with no open pull request at its head, or a pull
      request run whose PR is closed, merged or superseded) is cancelled. A
@@ -227,6 +230,7 @@ import starved_labels  # noqa: E402
 from delivery_workflows import REPLACEMENT_JOB_READS, attempt_jobs, build_started, is_delivery_run  # noqa: E402
 from delivery_workflows import delivers, is_delivery_event, is_delivery_workflow  # noqa: E402
 from delivery_workflows import newer_head_runs, superseded_unstarted  # noqa: E402
+from delivery_workflows import dev_publish_published, dev_publish_source, dev_publish_superseded  # noqa: E402
 
 
 API = "https://api.github.com"
@@ -1163,6 +1167,8 @@ class Candidate:
     # Category e at an open pull request's head: this sweep re-runs it as cmux-bot once the cancel
     # settles (rerun_open_head()), and the pending entry carries it otherwise (open_head_lost()).
     open_head: bool = False
+    # That re-run is of this job alone, not the run's failed jobs (LostVerdict.rerun_job).
+    rerun_job: int | None = None
 
 
 def classify(
@@ -1317,20 +1323,42 @@ def took_runner(job: Mapping[str, Any]) -> bool:
             and bool(job.get("runner_id") or job.get("runner_name")))
 
 
-def lost_wait_start(job: Mapping[str, Any], run_jobs: Iterable[Mapping[str, Any]]) -> dt.datetime | None:
-    """When the job could first have run: its `created_at`, or the last completion among its run's other jobs.
+def may_need(job: Mapping[str, Any], other: Mapping[str, Any]) -> bool:
+    """`other`, a job of the same run, may be one of `job`'s `needs`: it was created before `job`.
 
-    A job record can exist before its `needs` finished, and the jobs API names
-    no `needs`, so any sibling's completion may be the one it waited for.
+    The jobs API names no `needs`, but GitHub creates a job's record only once
+    its `needs` have finished, so a need always predates its dependent. A
+    sibling created at the same moment or later came from the same or a later
+    completion and cannot be what `job` waits on. Run 41158893861 (2026-10-31):
+    `GhosttyKit release check` (job 124413283263, needs `changes`) was created
+    at 02:18:12Z, the second `changes` finished, beside `web / runners` and
+    `web / web-subarea-scope`; the `web / react-*` jobs were created at 02:30Z
+    and 02:43Z as their own needs finished, and `ci-status`, which needs every
+    job, had no record at all. Counting those later jobs as possible gates kept
+    the job, queued with no runner while a newer job on its label started,
+    from ever being found lost. A sibling or job with no `created_at` may be a
+    need, which errs toward leaving the job alone.
+    """
+    if other is job:
+        return False
+    created, other_created = parse_time(job.get("created_at")), parse_time(other.get("created_at"))
+    return created is None or other_created is None or other_created < created
+
+
+def lost_wait_start(job: Mapping[str, Any], run_jobs: Iterable[Mapping[str, Any]]) -> dt.datetime | None:
+    """When the job could first have run: its `created_at`, or the last completion among the jobs it may need.
+
+    The jobs API names no `needs`, so the completion of any sibling that may
+    be one (may_need(): created before the job) may be the one it waited for.
     Taking the latest errs toward a later start, and so toward leaving a job
-    alone. A sibling not finished yet may be the gate too, so the wait counts
-    only once none is left (_gated()).
+    alone. Such a sibling not finished yet may be the gate too, so the wait
+    counts only once none is left (_gated()).
     """
     created = parse_time(job.get("created_at"))
     if created is None:
         return None
     finished = [parse_time(other.get("completed_at")) for other in run_jobs
-                if other is not job and other.get("status") == "completed"]
+                if may_need(job, other) and other.get("status") == "completed"]
     return max([created, *(moment for moment in finished if moment is not None)])
 
 
@@ -1364,6 +1392,8 @@ class LostJob:
     queued_since: dt.datetime
     # Newer jobs on the same labels that a runner took (skipped_by_pool()).
     skipped: int
+    # The job's id: in a run that already failed, the failover re-runs this job alone (open_head_lost()).
+    job_id: int | None = None
 
 
 def _overdue(run_jobs: Sequence[Mapping[str, Any]], now: dt.datetime) -> Iterable[tuple[Mapping[str, Any], dt.datetime]]:
@@ -1383,9 +1413,17 @@ def _gated(run_jobs: Iterable[Mapping[str, Any]], suspects: Iterable[Mapping[str
     Its wait has not begun, whether the run is stale or current. A sibling
     that is itself a suspect (unassigned and overdue, and in find_lost() also
     skipped by its pool) is no gate, so two lost jobs never mask each other.
+    Nor is a sibling no suspect may need (may_need(): created with or after
+    every suspect), running or not: the run cannot finish without the lost
+    job, a cancel's re-run brings the sibling back with it, and in run
+    41158893861 such siblings were created in waves (02:30Z, 02:43Z, 02:57Z)
+    and kept running beside the lost `GhosttyKit release check` until a
+    runner took it at 02:59Z, 41 minutes in.
     """
+    suspects = list(suspects)
     exempt = {id(job) for job in suspects}
-    return any(job.get("status") != "completed" and id(job) not in exempt for job in run_jobs)
+    return any(job.get("status") != "completed" and id(job) not in exempt
+               and any(may_need(suspect, job) for suspect in suspects) for job in run_jobs)
 
 
 def _lost_scope(run: Mapping[str, Any]) -> bool:
@@ -1424,7 +1462,8 @@ def find_lost(
         for job, since in _overdue(run_jobs, now):
             skipped = skipped_by_pool(job, since, others)
             if skipped:
-                found.append((job, LostJob(str(job.get("name") or ""), job_pool_key(job), since, skipped)))
+                job_id = job.get("id") if isinstance(job.get("id"), int) else None
+                found.append((job, LostJob(str(job.get("name") or ""), job_pool_key(job), since, skipped, job_id)))
         if found and not _gated(run_jobs, [job for job, _ in found]):
             lost[run["id"]] = min((item for _, item in found), key=lambda item: item.queued_since)
     return lost
@@ -1535,6 +1574,9 @@ OPEN_HEAD_RULE = ("never cancelled: an open pull request's run at its head is ne
 # the stall-aware failover, cancelled and re-run at the same head in the same sweep (rerun_open_head()).
 OPEN_HEAD_FAILOVER = ("stall-aware failover at the open head: cancelled and its failed jobs re-run as cmux-bot "
                       "at the same head in this sweep (or the next, if the cancel has not settled)")
+OPEN_HEAD_JOB_FAILOVER = ("stall-aware failover at the open head: the run already failed, so it is cancelled and "
+                          "only the lost job is re-run as cmux-bot at the same head, keeping that red, in this sweep "
+                          "(or the next, if the cancel has not settled)")
 
 
 def open_pr_at_head(run: Mapping[str, Any], prs: Sequence[Mapping[str, Any]] | None) -> Mapping[str, Any] | None:
@@ -1579,11 +1621,14 @@ class LostVerdict:
     pr: Mapping[str, Any] | None = None
     # The cancel is at an open pull request's head: this sweep re-runs it as cmux-bot (rerun_open_head()).
     open_head: bool = False
+    # Re-run this job alone (POST /actions/jobs/{id}/rerun) instead of the run's failed jobs: the run already
+    # failed, and re-running its failed jobs would repeat that red (open_head_lost()).
+    rerun_job: int | None = None
 
 
 def open_head_lost(run: Mapping[str, Any], run_jobs: Sequence[Mapping[str, Any]], evidence: str,
                    pr: Mapping[str, Any], *, rerun_state: bool, newer: Mapping[str, Any] | None,
-                   cmux_bot: bool) -> LostVerdict:
+                   cmux_bot: bool, lost_job_id: int | None = None) -> LostVerdict:
     """Category e at the head of open pull request `pr`: the stall-aware failover, or OPEN_HEAD_RULE.
 
     A job GitHub never assigned (runner_id 0, no runner name), queued 30 minutes or more since it could run
@@ -1597,7 +1642,12 @@ def open_head_lost(run: Mapping[str, Any], run_jobs: Sequence[Mapping[str, Any]]
     - a nightly, DEV or promote run (_lost_scope() already leaves out protected runs; checked again here);
     - an attempt a bot started (bot_rerun()): run 40398277457, the rescue's attempt 2, was cancelled at its
       head and never re-run; such an attempt is never cancelled a second time;
-    - a run that already failed: re-running its failed jobs would repeat a red job too;
+    - a run that already failed, unless the lost job (`lost_job_id`) is its only unfinished job: then the
+      cancel kills nothing else and only that job is re-run (`rerun_job`, POST /actions/jobs/{id}/rerun),
+      so the red stays as it is. Run 41150189497 (PR #28544, 2026-10-31): `cmux-next fast tier` on
+      glaeda-side-std-xcode-26.6 queued from 00:36Z with no runner while newer jobs on that label ran, kept
+      here for 2.5 hours because `cmux-next swift test` had failed, until a person failed it over by hand.
+      Re-running the run's failed jobs would repeat that red, so any other unfinished job keeps the rule;
     - a run a newer run at its head took over, which reports for that head;
     - no re-run state (rerun_state) or no cmux-bot token this sweep (cmux_bot): the cancel could not be
       carried or re-run as cmux-bot, so nothing is cancelled.
@@ -1614,7 +1664,10 @@ def open_head_lost(run: Mapping[str, Any], run_jobs: Sequence[Mapping[str, Any]]
         return keep("a nightly, DEV or promote run")
     if bot_rerun(run):
         return keep(f"attempt {run.get('run_attempt')} is a bot's re-run")
-    if any(job.get("status") == "completed" and job.get("conclusion") == "failure" for job in run_jobs):
+    failed = any(job.get("status") == "completed" and job.get("conclusion") == "failure" for job in run_jobs)
+    unfinished = [job for job in run_jobs if job.get("status") != "completed"]
+    alone = lost_job_id is not None and [job.get("id") for job in unfinished] == [lost_job_id]
+    if failed and not alone:
         return keep("the run already failed, and a re-run of its failed jobs would repeat that red")
     if newer is not None:
         return keep(f"newer run {newer.get('id')} at its head took over")
@@ -1622,6 +1675,9 @@ def open_head_lost(run: Mapping[str, Any], run_jobs: Sequence[Mapping[str, Any]]
         return keep("no re-run state to fall back on")
     if not cmux_bot:
         return keep("no cmux-bot token this sweep to re-run it")
+    if failed:
+        return LostVerdict("cancel", f"{reason}: {OPEN_HEAD_JOB_FAILOVER}", rerun=True, pr=pr, open_head=True,
+                           rerun_job=lost_job_id)
     return LostVerdict("cancel", f"{reason}: {OPEN_HEAD_FAILOVER}", rerun=True, pr=pr, open_head=True)
 
 
@@ -1675,7 +1731,7 @@ def classify_lost(
     at_head = open_pr_at_head(run, prs)
     if at_head is not None:
         return open_head_lost(run, run_jobs, evidence, at_head, rerun_state=rerun_state, newer=newer,
-                              cmux_bot=cmux_bot)
+                              cmux_bot=cmux_bot, lost_job_id=lost.job_id)
     if state == "stale":
         return LostVerdict("cancel", f"{evidence}; {why}", pr=pr)
     if bot_rerun(run):
@@ -2011,6 +2067,9 @@ def new_lost_reruns(candidates: Iterable[Candidate], results: Mapping[int, str],
             if candidate.open_head:
                 # At an open pull request's head: only cmux-bot re-runs it (rerun_open_head(), plan_lost_reruns()).
                 entry["open_head"] = True
+            if candidate.rerun_job is not None:
+                # The run already failed: only this job is re-run (rerun_lost()).
+                entry["job_id"] = candidate.rerun_job
             if unconfirmed:
                 entry["cancel_unconfirmed"] = True
             entries.append(entry)
@@ -2331,7 +2390,7 @@ def build_plan(
             if lost_verdict is not None and lost_verdict.action == "cancel":
                 candidates.append(Candidate(run, held_category, lost_verdict.reason, usage, lost_verdict.pr,
                                             rerun=lost_verdict.rerun, app_actor=app_actor,
-                                            open_head=lost_verdict.open_head))
+                                            open_head=lost_verdict.open_head, rerun_job=lost_verdict.rerun_job))
                 continue
         pr = None
         if run.get("event") == "pull_request":
@@ -2891,6 +2950,124 @@ def skip_superseded_delivery(
     return decisions, failures
 
 
+# --- DEV publish runs a newer publish already covered ---------------------------------------------------------
+# delivery_workflows.dev_publish_superseded() is the rule. Reads a sweep: one listing of the publisher's
+# successful runs, the jobs of up to DEV_PUBLISH_WINNER_READS of them, then per candidate (oldest first, at most
+# DEV_PUBLISH_JOB_READS) its jobs, its source run and one compare; a cancel re-reads the run and its jobs first.
+DEV_PUBLISH_MAX_CANCELS = 20
+DEV_PUBLISH_JOB_READS = 25
+DEV_PUBLISH_WINNER_READS = 3
+
+
+def skip_superseded_dev_publish(
+    github: "GitHub",
+    runs: Sequence[Mapping[str, Any]],
+    jobs_by_run: Mapping[int, Sequence[Mapping[str, Any]]],
+    *,
+    dry_run: bool,
+    max_cancels: int = DEV_PUBLISH_MAX_CANCELS,
+    max_reads: int = DEV_PUBLISH_JOB_READS,
+    now: dt.datetime | None = None,
+) -> tuple[list[SupersededDecision], int]:
+    """Cancel each in-flight DEV publish run a newer published one already covers (dev_publish_superseded())."""
+    candidates = sorted((run for run in runs if run.get("status") in IN_FLIGHT_RUN_STATUSES
+                         and dev_publish_source(run) is not None),
+                        key=lambda run: (dev_publish_source(run) or 0, run["id"]))
+    if not candidates:
+        return [], 0
+    decisions: list[SupersededDecision] = []
+    winner: Mapping[str, Any] | None = None
+    winner_jobs: Sequence[Mapping[str, Any]] | None = None
+    try:
+        published = sorted((run for run in github.dev_publish_runs() if dev_publish_source(run) is not None),
+                           key=lambda run: dev_publish_source(run) or 0, reverse=True)
+        for run in published[:DEV_PUBLISH_WINNER_READS]:
+            jobs = complete_jobs(github.jobs(run["id"]))
+            if dev_publish_published(run, jobs):
+                winner, winner_jobs = run, jobs
+                break
+        winner_source = github.run(dev_publish_source(winner)).get("head_sha") if winner else None
+    except RateLimited:
+        raise
+    except RuntimeError as error:
+        print(f"queue-janitor: DEV publish runs: {error}", file=sys.stderr)
+        return [SupersededDecision(run, "keep", f"the published DEV runs could not be read: {error}")
+                for run in candidates], 1
+    failures = cancels = reads = 0
+    compares: dict[str, bool | None] = {}
+
+    def contains(old: str, new: str) -> bool | None:
+        if old not in compares:
+            try:
+                compares[old] = github.compare_status(old, new) in ("ahead", "identical")
+            except RateLimited:
+                raise
+            except RuntimeError as error:
+                print(f"queue-janitor: compare {old[:12]}...{new[:12]}: {error}", file=sys.stderr)
+                compares[old] = None
+        return compares[old]
+
+    for run in candidates:
+        if winner is None:
+            decisions.append(SupersededDecision(run, "keep", "no newer DEV publish run has published"))
+            continue
+        if (dev_publish_source(run) or 0) >= (dev_publish_source(winner) or 0):
+            decisions.append(SupersededDecision(run, "keep", f"it publishes a source run no older than run "
+                                                f"{winner.get('id')}'s"))
+            continue
+        if cancels >= max_cancels:
+            decisions.append(SupersededDecision(run, "keep", f"cap of {max_cancels} reached"))
+            continue
+        if reads >= max_reads:
+            decisions.append(SupersededDecision(run, "keep", f"read budget of {max_reads} runs spent"))
+            continue
+        reads += 1
+        try:
+            jobs = complete_jobs(jobs_by_run[run["id"]]) if run["id"] in jobs_by_run else complete_jobs(
+                github.jobs(run["id"]))
+            source_sha = github.run(dev_publish_source(run)).get("head_sha")
+        except RateLimited:
+            raise
+        except RuntimeError as error:
+            failures += 1
+            decisions.append(SupersededDecision(run, "keep", f"failed to read: {error}"))
+            continue
+        ok, why = dev_publish_superseded(run, jobs, source_sha=source_sha, newer=winner, newer_jobs=winner_jobs,
+                                         newer_source_sha=winner_source, contains=contains, now=now)
+        if not ok:
+            decisions.append(SupersededDecision(run, "keep", why))
+            continue
+        if dry_run:
+            decisions.append(SupersededDecision(run, "cancel", f"would cancel: {why}"))
+            cancels += 1
+            continue
+        # Right before the cancel the run and its jobs are read again: one whose Mac job started since is kept.
+        try:
+            current, fresh = github.run(run["id"]), complete_jobs(github.jobs(run["id"]))
+        except RateLimited:
+            raise
+        except RuntimeError as error:
+            failures += 1
+            decisions.append(SupersededDecision(run, "keep", f"failed to re-read: {error}"))
+            continue
+        ok, why = dev_publish_superseded(current, fresh, source_sha=source_sha, newer=winner,
+                                         newer_jobs=winner_jobs, newer_source_sha=winner_source,
+                                         contains=contains, now=now)
+        if not ok:
+            decisions.append(SupersededDecision(run, "keep", f"on re-read: {why}"))
+            continue
+        try:
+            github.cancel(run["id"])
+        except RuntimeError as error:
+            if not _cancel_refused(error):
+                failures += 1
+            decisions.append(SupersededDecision(run, "keep", f"cancel failed: {error}"))
+            continue
+        decisions.append(SupersededDecision(run, "cancel", f"cancelled: {why}"))
+        cancels += 1
+    return decisions, failures
+
+
 def render_superseded_summary(decisions: Sequence[SupersededDecision]) -> str:
     lines = ["", "### Superseded nightly, DEV and promote runs", "",
              "A stale delivery run (every job but the light control and decide ones still queued for 20 min or more, "
@@ -3018,12 +3195,27 @@ def _job_key(job: Mapping[str, Any]) -> Any:
     return job.get("id") or (job.get("name"), job.get("created_at"))
 
 
-def open_head_jobs_moved(before: Sequence[Mapping[str, Any]], now: Sequence[Mapping[str, Any]]) -> str | None:
+def _failed(job: Mapping[str, Any]) -> bool:
+    return job.get("status") == "completed" and job.get("conclusion") == "failure"
+
+
+def open_head_jobs_moved(
+    before: Sequence[Mapping[str, Any]],
+    now: Sequence[Mapping[str, Any]],
+    rerun_job: int | None = None,
+) -> str | None:
     """Why a lost run at an open PR's head may no longer be cancelled, from its jobs read again just before.
 
     The plan judged the sweep's job inventory, which can be minutes old: a lost job that took a runner since
     is running valid work at the PR's head, and cancelling it would interrupt that work. None when every job
-    the inventory showed unassigned still is, at least one still is, and none has failed since."""
+    the inventory showed unassigned still is, at least one still is, and none has failed since.
+
+    A job that had already failed in the inventory is not one that "failed since": the plan already judged
+    it (open_head_lost() fails such a run over by re-running its lost job alone, `rerun_job`). Counting it
+    here refused every one of those failovers: on 2026-10-31, after #28852, every sweep from 06:30Z listed
+    each lost job in a failed cmux-next run as "skipped (a job failed since the inventory)", and those skips
+    filled the per-sweep cap of 10. For such a run the lost job must also still be its only unfinished job,
+    or the job-only re-run would leave a sibling created since the inventory cancelled and never re-run."""
     lost = {_job_key(job) for job in before if unassigned(job)}
     if not lost:
         return "no lost job in the inventory"
@@ -3032,8 +3224,13 @@ def open_head_jobs_moved(before: Sequence[Mapping[str, Any]], now: Sequence[Mapp
             return f"job {job.get('name')!r} took a runner since the inventory"
     if not any(unassigned(job) for job in now):
         return "no job is still unassigned"
-    if any(job.get("status") == "completed" and job.get("conclusion") == "failure" for job in now):
+    already_failed = {_job_key(job) for job in before if _failed(job)}
+    if any(_failed(job) and _job_key(job) not in already_failed for job in now):
         return "a job failed since the inventory"
+    if rerun_job is not None:
+        others = [job for job in now if job.get("status") != "completed" and job.get("id") != rerun_job]
+        if others:
+            return f"job {others[0].get('name')!r} is unfinished beside the lost job"
     return None
 
 
@@ -3041,6 +3238,10 @@ def open_head_jobs_moved(before: Sequence[Mapping[str, Any]], now: Sequence[Mapp
 # (a dropped connection after it did), so the run's re-run entry is kept and the next sweep reconciles it
 # (new_lost_reruns(), plan_lost_reruns()).
 CANCEL_SENT = "failed (cancel sent, outcome unknown): "
+
+# rerun_lost()'s result prefix for a re-run GitHub took: "re-ran failed jobs", or "re-ran job <id>" for a lost
+# job re-run alone; the sweep summary counts both as freed.
+RERAN = "re-ran "
 
 
 def cancel_plan(
@@ -3096,7 +3297,7 @@ def cancel_plan(
             if again.get("status") not in IN_FLIGHT_RUN_STATUSES:
                 results[run_id] = f"skipped (now {again.get('status')})"
                 continue
-            moved = open_head_jobs_moved((jobs_by_run or {}).get(run_id, ()), now_jobs)
+            moved = open_head_jobs_moved((jobs_by_run or {}).get(run_id, ()), now_jobs, candidate.rerun_job)
             if moved:
                 results[run_id] = f"skipped ({moved})"
                 continue
@@ -3520,6 +3721,17 @@ class GitHub:
             raise
         return str(((payload or {}).get("commit") or {}).get("sha") or "")
 
+    def compare_status(self, base: str, head: str) -> str:
+        """GitHub's compare status of base...head (ahead, behind, identical or diverged)."""
+        payload = self.request("GET", f"/repos/{self.repo}/compare/{base}...{head}?per_page=1")
+        return str((payload or {}).get("status") or "")
+
+    def dev_publish_runs(self) -> list[dict[str, Any]]:
+        """One page of the newest successful runs of the DEV publisher (skip_superseded_dev_publish())."""
+        query = urllib.parse.urlencode({"status": "success", "event": "workflow_dispatch", "per_page": 20})
+        payload = self.request("GET", f"/repos/{self.repo}/actions/workflows/cmux-next-dev-daily.yml/runs?{query}")
+        return [run for run in payload.get("workflow_runs") or [] if isinstance(run, Mapping)]
+
     def cancel(self, run_id: int) -> None:
         self.request("POST", f"/repos/{self.repo}/actions/runs/{run_id}/cancel")
 
@@ -3531,6 +3743,12 @@ class GitHub:
         if app_only and not self.app_token:
             raise RuntimeError(f"run {run_id} needs an App's re-run; this sweep has only GITHUB_TOKEN")
         self.request("POST", f"/repos/{self.repo}/actions/runs/{run_id}/rerun-failed-jobs", app_only=app_only)
+
+    def rerun_job(self, job_id: int, *, app_only: bool = False) -> None:
+        """Re-run one job (and the jobs that need it), keeping every other job's result; see rerun_failed()."""
+        if app_only and not self.app_token:
+            raise RuntimeError(f"job {job_id} needs an App's re-run; this sweep has only GITHUB_TOKEN")
+        self.request("POST", f"/repos/{self.repo}/actions/jobs/{job_id}/rerun", app_only=app_only)
 
     def request_ui_tests(self, run: Mapping[str, Any], attempt: int) -> None:
         """Start ci-ui-tests.yml for the attempt a re-run of a pull request's CI began.
@@ -3628,9 +3846,15 @@ def rerun_lost(github: GitHub, decisions: Sequence[LostRerun]) -> tuple[list[dic
         if decision.action != "rerun":
             continue
         run_id = int(decision.entry["run_id"])
+        app_only = bool(decision.entry.get("app_actor") or decision.entry.get("open_head"))
+        job_id = decision.entry.get("job_id")
         try:
-            github.rerun_failed(run_id, app_only=bool(decision.entry.get("app_actor") or decision.entry.get("open_head")))
-            results[run_id] = "re-ran failed jobs"
+            if isinstance(job_id, int) and not isinstance(job_id, bool):
+                github.rerun_job(job_id, app_only=app_only)
+                results[run_id] = f"{RERAN}job {job_id}"
+            else:
+                github.rerun_failed(run_id, app_only=app_only)
+                results[run_id] = f"{RERAN}failed jobs"
         except Exception as error:  # noqa: BLE001 one failed re-run never drops the other entries
             failures += 1
             results[run_id] = f"failed: {error!r}"
@@ -4007,7 +4231,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 open_head_pending, open_head_results, open_head_failures = [dict(e) for e in open_head], {}, 0
             failures += open_head_failures
             open_head_freed = sum(1 for decision in open_head_decisions if decision.action == "rerun"
-                                  and open_head_results.get(int(decision.entry["run_id"])) == "re-ran failed jobs")
+                                  and open_head_results.get(int(decision.entry["run_id"]), "").startswith(RERAN))
             fresh = [*(entry for entry in fresh if not (entry.get("open_head") and not entry.get("cancel_unconfirmed"))),
                      *open_head_pending]
             save_lost_reruns([*pending, *fresh])
@@ -4063,6 +4287,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"queue-janitor: superseded delivery runs: {error}", file=sys.stderr)
         superseded_decisions, superseded_failures = [], 1
     failures += superseded_failures
+    try:
+        dev_decisions, dev_failures = skip_superseded_dev_publish(github, runs, delivery_jobs, dry_run=args.dry_run)
+    except RuntimeError as error:  # a rate limit: the next sweep reads them again
+        print(f"queue-janitor: superseded DEV publish runs: {error}", file=sys.stderr)
+        dev_decisions, dev_failures = [], 1
+    superseded_decisions = [*superseded_decisions, *dev_decisions]
+    failures += dev_failures
 
     summary = render_summary(plan, dry_run=args.dry_run, now=now, results=results)
     summary += render_open_head_reruns(open_head_decisions, open_head_results, freed=open_head_freed)
