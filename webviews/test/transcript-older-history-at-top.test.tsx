@@ -106,7 +106,7 @@ test("a reader back at the top after a page lands gets the next page", async () 
     asked += 1;
     return new Promise<void>((resolve) => (land = resolve));
   };
-  const draw = async () =>
+  const draw = async (connected = true) =>
     act(async () =>
       root.render(
         <VirtualTranscript
@@ -114,7 +114,7 @@ test("a reader back at the top after a page lands gets the next page", async () 
           onToggleActivity={() => {}}
           expanded={new Set()}
           canLoadOlder
-          onLoadOlder={onLoadOlder}
+          onLoadOlder={connected ? onLoadOlder : undefined}
           sessionId="s-top"
         />,
       ),
@@ -141,6 +141,17 @@ test("a reader back at the top after a page lands gets the next page", async () 
       await scrollTo(0);
       expect(asked).toBe(first + page);
     }
+    // Disconnect while the last page is pending. Its settlement must not re-arm a stale 500 ms
+    // retry; reconnecting starts exactly one fresh request on this same mounted transcript.
+    const beforeDisconnect = asked;
+    await draw(false);
+    land?.();
+    await act(async () => Promise.resolve());
+    await draw(true);
+    expect(asked).toBe(beforeDisconnect + 1);
+    // fixed-wait: allow the stale retry window to elapse before checking it did not re-arm.
+    await new Promise((resolve) => setTimeout(resolve, 550));
+    expect(asked).toBe(beforeDisconnect + 1);
   } finally {
     await act(async () => root.unmount());
   }
