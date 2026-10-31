@@ -17,6 +17,7 @@ import {
   sliceHoldsInline,
 } from "./composer/inlineNode";
 import { followActionsWidth } from "./composerScrollLane";
+import { caretInView } from "./composer/caretInView";
 import { MINIMAL_SCROLLER_ATTRIBUTE, followShownScrollerFade } from "../../scrollers";
 import {
   Editor,
@@ -93,8 +94,8 @@ export type MarkdownFieldHandle = {
   /// Places attachments `ids` at the caret, in the text (composer/inlineNode.ts); false where they
   /// cannot go (a code block, an editor not made yet).
   insertInline(ids: readonly string[]): boolean;
-  /// Takes attachment `id` out of the text.
-  removeInline(id: string): void;
+  /// Takes attachment `id` out of the text; `caret`, the caret goes where it was.
+  removeInline(id: string, caret?: boolean): void;
   /// Puts the attachments placed in the text in `ids`' order, each place in the text kept.
   orderInline(ids: readonly string[]): void;
 };
@@ -843,6 +844,8 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
       .use(composerKeys)
       .use(surfacePlugins.current.map((plugin) => $prose(() => plugin)))
       .use(keepCaret)
+      // A rewrap with no edit (the actions' width, a resize) keeps the caret in view too.
+      .use($prose(() => caretInView(FADE_BAND_PX)))
       .use(blockKeys)
       .use(commonmark)
       .use(gfm)
@@ -1042,8 +1045,8 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
           refocus.current = null;
           return insertInline(view.current, ids);
         },
-        removeInline: (id) => {
-          if (view.current) removeInline(view.current, id);
+        removeInline: (id, caret) => {
+          if (view.current) removeInline(view.current, id, caret);
         },
         orderInline: (ids) => {
           if (view.current) orderInline(view.current, ids);

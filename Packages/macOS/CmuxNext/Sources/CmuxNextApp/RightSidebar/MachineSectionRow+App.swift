@@ -1,3 +1,4 @@
+import CmuxNextCloud
 import CmuxNextServer
 
 /// Main actor: it reads the machine registry and each daemon's store.
@@ -19,8 +20,10 @@ extension MachineSectionRow {
             let connecting = state == .connecting
             let name = daemon.isLocal ? RightSidebarStrings.thisMac : machines.machineName(daemon.machineID) ?? daemon.machineID
             let report = health.reports[daemon.machineID]
+            let cloud = daemon.isLocal ? nil : machines.session(daemon.machineID)
             return MachineSectionRow(id: daemon.machineID, name: name, isConnected: connected, isLocal: daemon.isLocal,
                                      kind: kind(daemon.machineID, isLocal: daemon.isLocal, in: machines), isConnecting: connecting,
+                                     serverState: cloud.flatMap { cloudServerState($0.machine.status, stage: $0.stage) },
                                      health: report?.health, healthStep: report?.worstStep?.step,
                                      joined: daemon.isLocal ? nil : byPeer[daemon.machineID])
         }
@@ -28,6 +31,27 @@ extension MachineSectionRow {
         let mesh = all.filter { $0.meshPeerId.map { !known.contains($0) } ?? true }
             .map { MachineSectionRow.joined($0, health: health.reports[JoinedMachine.healthID($0.id)]) }
         return (ServerTunables.machinesFixture.value ? live + fixtures : live) + mesh
+    }
+
+    /// What a Cloud machine's row says from its server record and its stage (the Cloud page's own
+    /// reading): a paused machine nothing attaches to reads "Paused", and one an attach or a click is
+    /// resuming reads "Resuming…" with a spinner (a resume that failed reads "Failed"); a failed machine
+    /// reads "Failed", a destroyed one "Deleted". Nil while it runs or starts, so the row follows its
+    /// link: a spinner only for a genuine connect. A paused machine's daemon store may sit in
+    /// `.connecting`, which is not a connect anyone can wait on. Other statuses (unknown, or
+    /// transitions a newer server reports) follow the link too.
+    nonisolated static func cloudServerState(_ status: CloudMachine.Status, stage: CloudMachineStage) -> MachineServerState? {
+        switch status {
+        case .paused:
+            switch stage {
+            case .paused: .paused
+            case .failed: .failed
+            default: .resuming
+            }
+        case .failed: .failed
+        case .destroyed: .deleted
+        default: nil
+        }
     }
 
     /// What `machineID` is in `machines`: this Mac, a Cloud machine, an SSH machine, else a paired server.
