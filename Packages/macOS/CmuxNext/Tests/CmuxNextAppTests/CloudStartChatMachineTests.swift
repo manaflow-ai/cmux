@@ -114,6 +114,37 @@ struct CloudStartChatMachineTests {
         #expect(throws: CloudMove.Failure.self) { try CloudStartChat.checkAccount(teamA, now: [nil, nil], listCurrent: true) }
     }
 
+    /// Router review at 020b012: a machine the server names no creator for counts as this person's
+    /// only by this account's own sends, never another user's or team's on this Mac; and a send's
+    /// pin and copy record are one ledger entry, so they are evicted together.
+    @Test func onlyThisAccountsSendsMakeAMachineWithNoCreatorItsOwn() {
+        let destinations = CloudStartChat.Destinations()
+        let userA: [String?] = ["user-a", "team-a"], userB: [String?] = ["user-b", "team-a"]
+        destinations.record("vm-a-chats", for: CloudStartChat.pinKey(UUID().uuidString, account: userA))
+        #expect(destinations.machines(of: userB).isEmpty)
+        #expect(destinations.machines(of: userA) == ["vm-a-chats"])
+        let unowned = [Self.machine("vm-a-chats", "cloud-chats", by: nil)]
+        #expect(CloudStartChat.destination(for: CloudStartChat.pinKey(UUID().uuidString, account: userB), destinations: destinations,
+                                           candidates: unowned, user: "user-b", used: destinations.machines(of: userB)) { _ in true } == .new)
+
+        // Pin, place and copy of one send under its pin key: evicting the oldest drops all of them.
+        let first = CloudStartChat.pinKey(UUID().uuidString, account: userB)
+        destinations.record("vm-1", for: first)
+        _ = destinations.place(for: first, on: "vm-1") { "work/a" }
+        destinations.recordCopy("work/a", for: first, on: "vm-1")
+        for _ in 0..<(CloudStartChat.Destinations.limit - 2) {
+            destinations.record("vm-x", for: CloudStartChat.pinKey(UUID().uuidString, account: userB))
+        }
+        #expect(destinations.machine(for: first) == "vm-1")
+        #expect(destinations.copiedChat(for: first, on: "vm-1") == "work/a")
+        // The next drops user A's send (the oldest), the one after it this send.
+        destinations.record("vm-y", for: CloudStartChat.pinKey(UUID().uuidString, account: userB))
+        #expect(destinations.machine(for: first) == "vm-1")
+        destinations.record("vm-z", for: CloudStartChat.pinKey(UUID().uuidString, account: userB))
+        #expect(destinations.machine(for: first) == nil)
+        #expect(destinations.copiedChat(for: first, on: "vm-1") == nil)
+    }
+
     @Test func aRetryWhoseMachineIsGonePicksAfreshAndARetryOfANewMachineStaysOnIt() {
         let destinations = CloudStartChat.Destinations()
         let key = UUID().uuidString

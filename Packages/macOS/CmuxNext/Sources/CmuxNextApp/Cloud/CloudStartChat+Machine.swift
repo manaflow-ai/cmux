@@ -112,6 +112,14 @@ extension CloudStartChat {
         /// Every machine a kept send ran on.
         var machines: Set<String> { Set(entries().map(\.machineID)) }
 
+        /// Every machine a kept send of the account `account` ran on (sends pinned under
+        /// ``CloudStartChat/pinKey(_:account:)``): what counts as that account's own machine when the
+        /// server names no creator. Another user's sends on this Mac, or another team's, never do.
+        func machines(of account: [String?]) -> Set<String> {
+            let suffix = CloudStartChat.accountSuffix(account).lowercased()
+            return Set(entries().filter { $0.key.hasSuffix(suffix) }.map(\.machineID))
+        }
+
         /// Pins the send `key` to `machineID` (before anything runs there). A pin to the same
         /// machine keeps its finished copy.
         func record(_ machineID: String, for key: String) {
@@ -200,20 +208,27 @@ extension CloudStartChat {
     /// Where the send `key` goes: the machine its first try took while that machine exists
     /// (`exists` nil: the list is not loaded yet, so it is kept), else ``pick(_:user:used:)``.
     /// Drops a pin to a machine that is gone, which holds no tab of this send.
+    /// `used`: the machines that count as this person's when the server names no creator; every
+    /// kept send's when nil (tests).
     static func destination(for key: String, destinations: Destinations, candidates: [Candidate], user: String?,
-                            exists: (String) -> Bool?) -> Destination {
+                            used: Set<String>? = nil, exists: (String) -> Bool?) -> Destination {
         if let pinned = destinations.machine(for: key) {
             if exists(pinned) != false { return .machine(pinned) }
             destinations.forget(key)
         }
-        return pick(candidates, user: user, used: destinations.machines).map(Destination.machine) ?? .new
+        return pick(candidates, user: user, used: used ?? destinations.machines).map(Destination.machine) ?? .new
     }
 
     /// The key a send's machine is pinned under: the send's key in the account (user and team) it
     /// was sent in. A team switch keeps the user signed in, so a pin from the previous team is never
     /// this team's machine, and switching back finds it again.
     static func pinKey(_ key: String, account: [String?]) -> String {
-        key + "@" + account.map { $0 ?? "" }.joined(separator: "/")
+        key + accountSuffix(account)
+    }
+
+    /// The end of every ``pinKey(_:account:)`` of the account `account`.
+    static func accountSuffix(_ account: [String?]) -> String {
+        "@" + account.map { $0 ?? "" }.joined(separator: "/")
     }
 
     /// Refuses a send whose account changed since it began (`asked`), or whose machine list is not
@@ -243,7 +258,8 @@ extension CloudStartChat {
             return Candidate(id: session.machineID, title: session.machine.title, slug: session.machine.slug, createdBy: session.machine.createdBy,
                              status: session.machine.status, pauseReason: session.machine.pauseReason, connected: connected, chats: chats)
         }
-        let destination = Self.destination(for: pin, destinations: destinations, candidates: candidates, user: cloud.auth.user?.id) { id in
+        let destination = Self.destination(for: pin, destinations: destinations, candidates: candidates, user: cloud.auth.user?.id,
+                                           used: destinations.machines(of: account)) { id in
             machines.session(id) != nil
         }
         var invocation = invocation

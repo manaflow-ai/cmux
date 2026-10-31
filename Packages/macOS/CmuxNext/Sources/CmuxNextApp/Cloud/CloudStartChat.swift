@@ -118,13 +118,16 @@ struct CloudStartChat {
         // A retry whose copy finished opens its chat (by its tab key) without copying again: a
         // second push would overwrite what the chat already changed there.
         let destinations = services.cloud.startChatDestinations
+        // Under the same account-scoped key as its machine pin (``pinKey(_:account:)``): one ledger
+        // entry per send, so its pin and its copy record are evicted together.
+        let pin = Self.pinKey(start.key, account: account)
         let remoteChat: String
-        if let copied = destinations.copiedChat(for: start.key, on: machine.machineID) {
+        if let copied = destinations.copiedChat(for: pin, on: machine.machineID) {
             remoteChat = copied
         } else {
-            let place = destinations.place(for: start.key, on: machine.machineID) { start.remotePlace + "/" + UUID().uuidString.prefix(8).lowercased() }
+            let place = destinations.place(for: pin, on: machine.machineID) { start.remotePlace + "/" + UUID().uuidString.prefix(8).lowercased() }
             remoteChat = try await move.sync(folder, to: socket, machine: name, cli: cli, retry: again, place: place).chat
-            destinations.recordCopy(remoteChat, for: start.key, on: machine.machineID)
+            destinations.recordCopy(remoteChat, for: pin, on: machine.machineID)
         }
         // The copy may take long: a chat whose account changed meanwhile opens nowhere, and this
         // Mac's tab stays.
