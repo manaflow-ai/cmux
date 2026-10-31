@@ -151,8 +151,8 @@ struct BrowserCallerTarget: Sendable, Equatable {
 }
 
 extension ControlRouter {
-    /// Aims a browser action (`browser back`, `browser screenshot-page`: it requires a focused
-    /// browser or browser page) that an agent or a cmux terminal runs without a target at the
+    /// Aims an existing-browser action (`browser back`, `browser edit-source`) that an
+    /// agent or a cmux terminal runs without a target at the
     /// browser nearest its caller (#26648), so it never acts on the person's focused browser in
     /// another window. A pane-target action gets the pane that shows that browser (the mirroring
     /// pane for a mirrored tab), a tab-target action the tab. A browser no pane shows, or one an
@@ -163,8 +163,8 @@ extension ControlRouter {
                                          topology: ControlTopology) throws {
         let browserAction = action.requires.contains("browserFocused")
             || (action.category == "browser" && action.requires.contains("webViewFocused"))
-            // These inspector actions also support app web views, so their catalog has no focus requirement.
-            || ["toggleBrowserDeveloperTools", "showBrowserJavaScriptConsole", "inspectBrowserElement"].contains(action.id)
+            // Inspectors and Edit Source have no focus requirement, but still act on an existing browser.
+            || ["toggleBrowserDeveloperTools", "showBrowserJavaScriptConsole", "inspectBrowserElement", "browser.editSource"].contains(action.id)
         guard request.target == nil, browserAction,
               request.callerAgentSession != nil || request.callerTerminal != nil || request.callerHomeChat else { return }
         let caller = ControlCaller(agentSession: request.callerAgentSession, terminalID: request.callerTerminal,
