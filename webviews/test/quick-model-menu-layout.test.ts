@@ -304,6 +304,59 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
     } finally {
       await chat.close();
     }
+    // One right edge (Leo 2026-10-31: "plus all this dumbass shit in the model picker"): with each
+    // row's effort item on, every ⌘N key and the running row's check share the menu's trailing
+    // column, after the effort item and the star, never mid-row.
+    const inChat = await open("in-chat");
+    try {
+      await inChat.locator(".acpmux-quick-model-effort[data-running]").first().waitFor();
+      const edges = await inChat.locator(".acpmux-quick-model-effort").evaluateAll((rows) =>
+        rows.map((row) => {
+          const key = row.querySelector(
+            ":scope > .ui-menu-item .ui-menu-shortcut, :scope > .ui-menu-item .ui-menu-check:not(:empty)",
+          );
+          const effort = row.querySelector(":scope > .acpmux-quick-effort-trigger");
+          const star = row.querySelector(":scope > .acpmux-quick-star");
+          const box = key?.getBoundingClientRect();
+          return {
+            right: box ? Math.round(box.right) : undefined,
+            left: box?.left,
+            effortRight: effort?.getBoundingClientRect().right,
+            starRight: star?.getBoundingClientRect().right,
+          };
+        }),
+      );
+      const keyed = edges.filter((edge) => edge.right !== undefined);
+      expect(keyed.length, JSON.stringify(edges)).toBeGreaterThan(1);
+      expect(new Set(keyed.map((edge) => edge.right)).size, JSON.stringify(edges)).toBe(1);
+      for (const edge of keyed) {
+        if (edge.effortRight !== undefined) expect(edge.effortRight).toBeLessThanOrEqual(edge.left! + 0.5);
+        if (edge.starRight !== undefined) expect(edge.starRight).toBeLessThanOrEqual(edge.left! + 0.5);
+      }
+    } finally {
+      await inChat.close();
+    }
+  });
+
+  test("two tabs with the same mark tell apart: the later one carries a corner badge, no name", async () => {
+    // Leo 2026-10-31: "plus all this dumbass shit in the model picker" (three Claude sparks alike).
+    const page = await open("harness-symbols");
+    try {
+      await page.locator(".acpmux-quick-rail-tab").first().waitFor();
+      const tabs = await page.locator(".acpmux-quick-rail-tab").evaluateAll((nodes) =>
+        nodes.map((node) => ({
+          name: node.getAttribute("aria-label"),
+          twin: node.querySelector(".acpmux-quick-rail-twin")?.getAttribute("data-twin") ?? null,
+          text: (node.querySelector(".acpmux-quick-rail-twin") as HTMLElement | null)?.innerText ?? "",
+        })),
+      );
+      expect(tabs.find((tab) => tab.name === "Claude Code")?.twin).toBeNull();
+      expect(tabs.find((tab) => tab.name === "Claude Code (sr)")?.twin).toBe("1");
+      expect(tabs.find((tab) => tab.name === "Codex")?.twin).toBeNull();
+      expect(tabs.every((tab) => tab.text === "")).toBe(true);
+    } finally {
+      await page.close();
+    }
   });
 
   test("many harnesses wrap into whole symbols, never one cut at the strip's edge", async () => {
@@ -389,7 +442,9 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
         // Beside the row's effort item, clear of the model's name (a starred row's star may follow
         // the effort item at the row's very end).
         const triggerBox = (await trigger.boundingBox())!;
-        const nameBox = (await row.locator(":scope > .acpmux-quick-item:first-child").boundingBox())!;
+        const nameBox = (await row
+          .locator(":scope > .acpmux-quick-item:first-child > .acpmux-quick-label")
+          .boundingBox())!;
         const menuBox = (await dropdown.boundingBox())!;
         const viewport = page.viewportSize()!;
         // Beside the effort item whenever the window has room on that side; a narrow window shifts it,
