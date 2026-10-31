@@ -33,6 +33,7 @@ Values for `shortcuts.bindings.<action>`:
 - `shortcuts.bindings.newTab`
 - `shortcuts.bindings.renameTab`
 - `shortcuts.bindings.reopenPreviousSession`
+- `shortcuts.bindings.searchTabs`
 
 ## Workspace
 
