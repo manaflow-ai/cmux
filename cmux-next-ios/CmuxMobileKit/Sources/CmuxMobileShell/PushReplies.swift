@@ -340,19 +340,23 @@ public final class PushReplies {
         return coordinator
     }
 
-    private func send(_ reply: PushReply, on live: LiveCoordinator, budget: Duration) async {
+    private func send(_ reply: PushReply, on live: LiveCoordinator, budget: Duration, epoch: Int) async {
+        guard epoch == accountEpoch else { return }
         do {
             try await live.deliver(reply, budget: budget)
+            guard epoch == accountEpoch else { return }
             if let eventId = reply.eventId { clearDelivered(eventId: eventId) }
             // Its photos leave the App Group once sent (review L4).
             if case .text(_, let names) = reply.action, !names.isEmpty, let outbox = PushOutbox(group: await PushAppGroup.resolved(timeout: PushAppGroupResolver.cleanupTimeout)) {
                 await Task.detached(priority: .utility) { outbox.removeAttachments(names) }.value
             }
         } catch let failure as LiveCoordinator.PushReplyFailure {
+            guard epoch == accountEpoch else { return }
             switch failure.reason {
             case .unreachable:
                 // The link missed its budget: the service's mailbox, sealed to the Mac (PR B).
-                if await sendViaMailbox(reply, on: live) { return }
+                if await sendViaMailbox(reply, on: live, epoch: epoch) { return }
+                guard epoch == accountEpoch else { return }
                 await postCouldNotReach(reply, reason: nil)
             case .refused(let message):
                 await postNotice(reply, title: String(localized: "Not sent to \(reply.macName ?? String(localized: "your Mac"))"), body: message)
@@ -360,6 +364,7 @@ public final class PushReplies {
                 break
             }
         } catch {
+            guard epoch == accountEpoch else { return }
             await postCouldNotReach(reply, reason: nil)
         }
     }
@@ -372,11 +377,14 @@ public final class PushReplies {
     /// Sends `reply` through the mailbox; true when the service took it.
     /// A Mac that was online is asked once, a moment later, whether it
     /// applied it; a refusal is posted with its reason.
-    private func sendViaMailbox(_ reply: PushReply, on live: LiveCoordinator) async -> Bool {
+    private func sendViaMailbox(_ reply: PushReply, on live: LiveCoordinator, epoch: Int) async -> Bool {
+        guard epoch == accountEpoch else { return true }
         let outcome: LiveCoordinator.MailboxOutcome
         do {
             outcome = try await live.deliverViaMailbox(reply)
+            guard epoch == accountEpoch else { return true }
         } catch let failure as LiveCoordinator.PushReplyFailure {
+            guard epoch == accountEpoch else { return true }
             switch failure.reason {
             case .unreachable: return false
             case .cancelled: return true
@@ -387,12 +395,15 @@ public final class PushReplies {
         } catch {
             return false
         }
+        guard epoch == accountEpoch else { return true }
         if let eventId = reply.eventId { clearDelivered(eventId: eventId) }
         let mac = reply.macName ?? String(localized: "your Mac")
         var last: LiveAPI.MailboxState?
         for delay in Self.mailboxCheckDelays {
             try? await clock.sleep(for: delay)
+            guard epoch == accountEpoch else { return true }
             guard let state = await live.mailboxState(of: reply) else { continue }
+            guard epoch == accountEpoch else { return true }
             last = state
             switch Self.mailboxVerdict(state, signed: live.signedMailboxOutcome(reply, state: state)) {
             case .applied:
@@ -408,6 +419,7 @@ public final class PushReplies {
             }
         }
         // The Mac has not said: the service holds it, but nobody confirmed it (review M3).
+        guard epoch == accountEpoch else { return true }
         if outcome == .queued || last?.state == "queued" || last != nil {
             await postNotice(reply, title: String(localized: "Not confirmed by \(mac)"),
                              body: String(localized: "Your reply is waiting for \(mac) to come online. It expires in 10 minutes."))
