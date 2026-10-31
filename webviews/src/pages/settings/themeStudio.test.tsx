@@ -278,3 +278,13 @@ test("a light/dark pair shows the side for the Mac's appearance, not the window'
     window.matchMedia = previous;
   }
 });
+
+test("with an App Theme set, a space or workspace theme says it replaces the App Theme in its window too", async () => {
+  // A workspace theme colors its window's chrome (the room shows its workspace's colors), App Theme
+  // or not: the note must not read as if only the terminal theme gave way.
+  page = await renderPage({ path: "/settings/theme", mock: { values: { "appearance.appTheme": "GitHub Light" } } });
+  const note = theme(page).querySelector<HTMLElement>('[data-override="workspace"]')!;
+  expect(note.textContent).toContain("Overridden in this workspace by Dracula, App Theme included");
+  await run(() => page!.store.reset("appearance.appTheme"));
+  expect(theme(page).querySelector('[data-override="workspace"]')?.textContent).not.toContain("App Theme included");
+});
