@@ -5,7 +5,7 @@ import CmuxNextTestSupport
 import Testing
 
 /// Reviews on #27875: a group drawn as its one row (`SidebarLayout+SoleMember`) has no header row. Left on that row
-/// focused the group (a header the list does not draw, so Return opened nothing); the group editor, which Rename in
+/// focused the group with no ring and Return opened nothing (the row is now the group's stop); the group editor, which Rename in
 /// the row's Group options submenu opens, needed the header's view and opened nothing; and a drop into the group (it
 /// opens no gap) lit the header's fill, which nothing drew, so an accepted drop showed no destination; and a drag of the
 /// row moved only the workspace, so the group could no longer be reordered; and a drop into a nested such group took its
@@ -218,15 +218,25 @@ import Testing
         #expect(list.focusedGroup == before, "Shift-Tab from the opened group's one row went to \(String(describing: list.focusedGroup)), not the previous header")
     }
 
-    @Test func leftOnTheOneRowFocusesNoHeaderlessGroup() throws {
+    /// The one row is its group's header too: Left on it focuses the group there, the row draws the ring, and Return
+    /// opens the group's editor at the row.
+    @Test func leftOnTheOneRowFocusesItsGroupThere() throws {
         let (sidebar, window) = Self.sidebar()
         defer { Self.close(sidebar, window) }
-        #expect(try #require(sidebar.list.displayed.row(for: .workspace(Self.coord))).standsForGroup)
-        let left = String(Character(UnicodeScalar(NSLeftArrowFunctionKey)!))
-        let event = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber,
-                                                  context: nil, characters: left, charactersIgnoringModifiers: left, isARepeat: false, keyCode: 123))
-        _ = SidebarGroupKeys(list: sidebar.list).handle(event, flags: [])
-        #expect(sidebar.list.focusedGroup == nil, "Left focused a group the list draws no header for")
+        let list = sidebar.list
+        #expect(try #require(list.displayed.row(for: .workspace(Self.coord))).standsForGroup)
+        func key(_ characters: String, _ code: UInt16) throws {
+            let event = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber,
+                                                      context: nil, characters: characters, charactersIgnoringModifiers: characters,
+                                                      isARepeat: false, keyCode: code))
+            _ = SidebarGroupKeys(list: list).handle(event, flags: [])
+            list.reload(animated: false)
+        }
+        try key(String(Character(UnicodeScalar(NSLeftArrowFunctionKey)!)), 123)
+        #expect(list.focusedGroup == Self.group, "Left on the one row did not focus its group")
+        #expect((list.rowViews[.workspace(Self.coord)] as? WorkspaceRowView)?.isKeyboardFocused == true, "the one row drew no focus ring")
+        try key("\r", 36)
+        #expect(list.groupEditor.shownGroup == Self.group, "Return on the focused group opened no editor at its one row")
     }
 
     @Test func theGroupEditorOpensAtTheOneRow() throws {

@@ -103,6 +103,8 @@ final class WorkspaceRowView: SidebarRowView {
     override var showsSelection: Bool { isSelected || isSecondarySelected }
     /// A tab dragged from a pane would move into this workspace.
     var isDropTarget = false { didSet { if isDropTarget != oldValue { needsDisplay = true } } }
+    /// The keyboard focused the group this row stands for (`SidebarRow.standsForGroup`): its header's focus ring.
+    var isKeyboardFocused = false { didSet { if isKeyboardFocused != oldValue { needsDisplay = true } } }
     var onClose: (() -> Void)?
     var onMore: (() -> Void)?
     /// The menu the more button opened is open (`SidebarRowMenu`): the hover controls stay shown and the more
@@ -214,6 +216,7 @@ final class WorkspaceRowView: SidebarRowView {
         isSecondarySelected = false
         isOnScreen = false
         isDropTarget = false
+        isKeyboardFocused = false
         onClose = nil
         onMore = nil
         showsMenu = false
