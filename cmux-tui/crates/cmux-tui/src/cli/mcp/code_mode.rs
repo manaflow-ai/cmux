@@ -182,7 +182,9 @@ pub(super) fn descriptors(tools: &[Value]) -> Vec<Value> {
              - Open a file, diff or page in cmux (not a terminal): open {{kind: \"file\" | \
              \"diff\" | \"page\", path | url, where}} in one call; where: right (default), \
              left, below, above, here, sticky (a docked column; edge), pane {{pane}}, workspace \
-             {{workspace}}. Several opens with where: right share one column.\n\
+             {{workspace}}. Several opens with where: right share one column. To make an \
+             existing column sticky: column_update {{screen, column, dock: true, edge}} \
+             (column: its column_id in screen_layout_export).\n\
              - workspace_status_set {{workspace, key, text}} (a sidebar status pill); \
              workspace_status_clear {{workspace, key}} removes it (an empty text leaves an empty \
              pill); \

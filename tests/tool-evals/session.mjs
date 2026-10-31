@@ -312,6 +312,8 @@ async function standInApp(path, cmux, origin, log) {
   const open = async (kind, what, pane, request) => {
     const label = `[${kind}] ${what}`.slice(0, 80);
     const created = await cmux(["tab", "create", "terminal", "--pane", pane, "--name", label]);
+    // `focus: true` (the run's or the open's) shows the new tab, as the app does.
+    if (request.focus === true && created?.tab_id) await cmux(["tab", created.tab_id, "focus"]);
     appendFileSync(log, `${JSON.stringify({ kind, what, pane, tab: created?.tab_id, request })}\n`);
     return { created: { tab_id: created?.tab_id, pane_id: pane }, state: "done" };
   };
@@ -321,11 +323,11 @@ async function standInApp(path, cmux, origin, log) {
       const args = params.args ?? {};
       const what = args.path ?? args.url ?? (kind === "diff" ? "changes" : "");
       const pane = (await paneOf(params.target)) ?? origin.pane_id;
-      return open(kind, what, pane, { method, action: params.action, args, target: params.target ?? null });
+      return open(kind, what, pane, { method, action: params.action, args, target: params.target ?? null, focus: params.focus === true || args.focus === true });
     }
     if (method === "browser.open_split") {
       const pane = params.workspace_id ? await workspacePane(params.workspace_id) : await besidePane();
-      return open("page", params.url ?? "", pane ?? origin.pane_id, { method, url: params.url });
+      return open("page", params.url ?? "", pane ?? origin.pane_id, { method, url: params.url, focus: params.focus === true });
     }
     if (method === "system.identify") {
       const caller = { workspace: origin.workspace_id, screen: origin.screen_id, pane: origin.pane_id, tab: origin.tab_id, terminal_id: origin.terminal_id };

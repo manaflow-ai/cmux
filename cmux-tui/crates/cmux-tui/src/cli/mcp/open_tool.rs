@@ -69,7 +69,27 @@ impl<B: Backend> Server<B> {
         if kind != "diff" && value.is_none() {
             return invalid(format!("open needs {value_key} for a {kind}"));
         }
-        let place = text(arguments, "where").unwrap_or("right");
+        // `where` is a word; an object names its pane or workspace (`where: {workspace: id}`,
+        // which a model wrote and which opened on the right before). Anything else is refused,
+        // never read as the default.
+        let mut arguments = arguments.clone();
+        let place = match arguments.get("where").cloned() {
+            None => "right".to_owned(),
+            Some(Value::String(place)) => place,
+            Some(Value::Object(named)) => {
+                let Some((key, value)) = ["pane", "workspace"]
+                    .iter()
+                    .find_map(|key| named.get(*key).map(|value| (*key, value.clone())))
+                else {
+                    return invalid("open where must be a word, or {pane} or {workspace}");
+                };
+                arguments.insert(key.into(), value);
+                key.to_owned()
+            }
+            Some(_) => return invalid("open where must be a word, or {pane} or {workspace}"),
+        };
+        let arguments = &arguments;
+        let place = place.as_str();
         let focus = arguments.get("focus").and_then(Value::as_bool).unwrap_or(false);
         // The app first: with no app to show the viewer, no split is left behind.
         let Some(tool) = self.actions.iter().find(|tool| tool.cli_name == action) else {

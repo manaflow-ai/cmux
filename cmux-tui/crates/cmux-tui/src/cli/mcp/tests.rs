@@ -1952,6 +1952,19 @@ fn open_splits_and_opens_in_one_call() {
     assert!(run["params"].to_string().contains("notes.md"), "{run}");
     drop(sent);
 
+    // `where` as an object names its workspace: the page goes there, not to the right.
+    let docs = "ws_00000000000000000000000000000009";
+    let result = server
+        .call(&json!({"name": "open", "arguments": {"kind": "file", "path": "a.md",
+                                                     "where": {"workspace": docs}}}))
+        .expect("a tool result");
+    assert_ne!(result["isError"], true, "{result}");
+    let sent = server.backend.sent.borrow();
+    let listed = sent.iter().rev().find(|s| s["request"]["operation"] == "pane.list");
+    let listed = listed.unwrap_or_else(|| panic!("{sent:?}"));
+    assert!(listed["request"].to_string().contains(docs), "{listed}");
+    drop(sent);
+
     // No app: `open` says so, where an agent would otherwise try a terminal.
     let mut server = Server::new(Fake { fail_apps: true, ..Fake::default() }, None);
     let result = server
