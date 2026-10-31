@@ -781,8 +781,18 @@ button.cv-subagent > :last-child {
    button as wide as its words, its hover buttons after it, then the duration pushed to the
    trailing column and the chevron in the disclosure slot, on the same x as every tool row's. */
 .cv-tool.cv-subagent-done-row {
+  position: relative;
+  isolation: isolate;
   display: flex;
   min-width: 0;
+}
+.cv-subagent-done::before {
+  /* The line's one button owns the full row: its hit area reaches the duration and chevron while
+     those columns remain inert visual markers, so the row has no second navigation control. */
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
 }
 .cv-subagent-done-row > .cv-subagent-done {
   grid-template-columns: var(--cv-glyph-slot) minmax(0, 1fr);

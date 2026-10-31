@@ -224,6 +224,17 @@ test("the trailing column and the chevron hold fixed grid columns in the shared 
   expect(line).not.toContain("display: flex");
 });
 
+test("the subagent row's one button reaches its trailing markers", () => {
+  const css = readFileSync(new URL("../../subagents/subagents.css", import.meta.url), "utf8");
+  const row = /\.cv-tool\.cv-subagent-done-row \{([^}]*)\}/.exec(css)?.[1] ?? "";
+  expect(row).toContain("position: relative");
+  expect(row).toContain("isolation: isolate");
+  const hitArea = /\.cv-subagent-done::before \{([^}]*)\}/.exec(css)?.[1] ?? "";
+  expect(hitArea).toContain('content: ""');
+  expect(hitArea).toContain("inset: 0");
+  expect(hitArea).toContain("z-index: -1");
+});
+
 test("a started sub-session's row names the session, with no narration in front of it", () => {
   const source = readFileSync(new URL("./SubsessionCallCard.tsx", import.meta.url), "utf8");
   expect(source).not.toContain('t("subsession.started"');
