@@ -684,7 +684,7 @@ export function mergeQueue(
   authors?: ReadonlyMap<string, Participant | null>,
 ): QueuedPrompt[] {
   const known = new Map(current.map((entry) => [entry.id, entry]));
-  return listed.map((entry) => {
+  const merged = listed.map((entry) => {
     const id = String(entry?.promptId ?? "");
     const preview = String(entry?.prompt ?? entry?.preview ?? "");
     const had = known.get(id);
@@ -722,7 +722,7 @@ export function mergeQueue(
         : authors?.has(id)
           ? (authors.get(id) ?? undefined)
           : had?.author;
-    const merged = queuedEntry(
+    const built = queuedEntry(
       id,
       whole ? had.prompt : preview,
       had?.next === true,
@@ -734,9 +734,37 @@ export function mergeQueue(
     );
     // Whether a person's Stop holds it, as acpmux lists it (`heldByStop`); listed unheld, it was
     // let go. A list without the field (an older acpmux) keeps what the records said.
-    if (entry?.heldByStop === true && entry?.held !== false) return { ...merged, heldByStop: true };
-    return entry?.held === false || entry?.heldByStop === false ? merged : keepStopHold(merged, had);
+    const next =
+      entry?.heldByStop === true && entry?.held !== false
+        ? { ...built, heldByStop: true as const }
+        : entry?.held === false || entry?.heldByStop === false
+          ? built
+          : keepStopHold(built, had);
+    // An entry the list left as it was stays the same object: the transcript keys a waiting message's
+    // card by its entry (queuedMessages.ts), so an unchanged one draws nothing again.
+    return had && sameQueuedEntry(had, next) ? had : next;
   });
+  // The chat's own change carries its whole queue each time (a step, its usage): the same entries
+  // give the same list back, so nothing that reads the queue sees a change.
+  return merged.length === current.length && merged.every((entry, index) => entry === current[index])
+    ? (current as QueuedPrompt[])
+    : merged;
+}
+
+/// Whether two queue entries say the same: their fields, and what their images, message, author and
+/// inline parts hold (small records, compared whole).
+function sameQueuedEntry(a: QueuedPrompt, b: QueuedPrompt): boolean {
+  return (
+    a.id === b.id &&
+    a.prompt === b.prompt &&
+    a.next === b.next &&
+    a.sending === b.sending &&
+    a.heldByStop === b.heldByStop &&
+    JSON.stringify(a.images) === JSON.stringify(b.images) &&
+    JSON.stringify(a.message) === JSON.stringify(b.message) &&
+    JSON.stringify(a.author) === JSON.stringify(b.author) &&
+    JSON.stringify(a.inlineParts) === JSON.stringify(b.inlineParts)
+  );
 }
 
 export function settleOptimisticPrompt(
@@ -1332,6 +1360,10 @@ export class AcpmuxDirectClient {
   private sessionRereadResyncsAsks = false;
   /// Sidebar entries by acpmux session object. A changed session arrives as a new object, so unchanged rows keep their entry and skip rendering.
   private sessionEntries = new WeakMap<Session, AcpmuxSessionEntry>();
+  /// The snapshot's session entries for the list they were mapped from: a snapshot whose list did
+  /// not change (a streamed token, a row's change) hands the pane the same array, so what the pane
+  /// derives from `snapshot.sessions` keeps its identity and no row redraws for it.
+  private sessionEntriesOf?: { sessions: Session[]; entries: AcpmuxSessionEntry[] };
   private selectedSessionId?: string;
   /** The session a link named that the daemon does not have (`sessionMustExist`). */
   private missingSession?: string;
@@ -5396,6 +5428,21 @@ export class AcpmuxDirectClient {
     acpmuxPerf.timed("client.emit", () => this.emitNow(connection));
   }
 
+  /// The session list as the snapshot's entries, the same array while `this.sessions` is.
+  private sessionEntryList(): AcpmuxSessionEntry[] {
+    if (this.sessionEntriesOf?.sessions === this.sessions) return this.sessionEntriesOf.entries;
+    const entries = this.sessions.map((session) => {
+      let entry = this.sessionEntries.get(session);
+      if (!entry) {
+        entry = sessionEntry(session);
+        this.sessionEntries.set(session, entry);
+      }
+      return entry;
+    });
+    this.sessionEntriesOf = { sessions: this.sessions, entries };
+    return entries;
+  }
+
   private emitNow(connection: string): void {
     if (this.closed && !this.replayMode) return;
     if (this.snapshotHold) {
@@ -5428,14 +5475,7 @@ export class AcpmuxDirectClient {
       protocolVersion: 1,
       rows: this.rows.sorted(),
       subagentViews: this.subagents.views(),
-      sessions: this.sessions.map((session) => {
-        let entry = this.sessionEntries.get(session);
-        if (!entry) {
-          entry = sessionEntry(session);
-          this.sessionEntries.set(session, entry);
-        }
-        return entry;
-      }),
+      sessions: this.sessionEntryList(),
       peers: this.peers,
       peerKinds: this.peerKinds,
       peerConnected: this.peerConnected,
