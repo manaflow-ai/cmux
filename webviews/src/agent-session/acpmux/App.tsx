@@ -329,7 +329,13 @@ import {
 } from "./conversation/runInBackground";
 import { UserBubble } from "./conversation/UserBubble";
 import { ChiefPromptBubble } from "./conversation/ChiefPromptBubble";
-import { editableKey, editableSeqs, editableTurns, promptTurns } from "./conversation/editPrompt";
+import {
+  editableKey,
+  editableSeqs,
+  promptTurns,
+  trackEditableTurns,
+  type EditableTurns,
+} from "./conversation/editPrompt";
 import {
   clearFindHighlights,
   FIND_ACTIVE_HIGHLIGHT,
@@ -5146,9 +5152,13 @@ function AcpmuxPane() {
   // Keep the same served/connected gate as ordinary forks, but do not use `forkable`, which excludes
   // a working chat (Leo, 2026-10-24).
   const editsServed = snapshot.canFork && connected && !snapshot.summary?.peer;
-  const editSeqs = editableTurns(editsServed ? snapshot.rows : [], snapshot.summary?.family);
-  const editSeqsKey = editableKey(editSeqs);
-  const stableEditSeqs = useMemo(() => editableSeqs(editSeqsKey), [editSeqsKey]);
+  const lastEditTurns = useRef<EditableTurns | undefined>(undefined);
+  const rowsForEdits = editsServed ? snapshot.rows : NO_ROWS;
+  const editFamily = snapshot.summary?.family;
+  const stableEditSeqs = useMemo(
+    () => (lastEditTurns.current = trackEditableTurns(rowsForEdits, editFamily, lastEditTurns.current)).seqs,
+    [rowsForEdits, editFamily],
+  );
   // Each prompt's own turn, for the Fork under its bubble; rebuilt only when the turns change.
   const promptSeqsKey = editableKey(promptTurns(forkable ? snapshot.rows : []));
   const stablePromptSeqs = useMemo(() => editableSeqs(promptSeqsKey), [promptSeqsKey]);
