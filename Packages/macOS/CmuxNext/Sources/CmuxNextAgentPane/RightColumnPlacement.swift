@@ -15,7 +15,8 @@ public import CoreGraphics
 /// No split leaves the source under ``minimumChatWidth`` or the right column under
 /// ``minimumRightColumnWidth``: that open is a tab in the pane on the right, or in the source's own
 /// pane when there is none.
-public enum RightColumnPlacement {
+public struct RightColumnPlacement {
+    public init() {}
     /// The narrowest the source (the chat) stays after a split.
     public static let minimumChatWidth: CGFloat = 480
     /// The narrowest the right column may be for a split in it.

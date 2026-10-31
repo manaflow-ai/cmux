@@ -4,13 +4,14 @@
 // have the thing be clickable, and then you can open it."). The caller reads its state live
 // (subsessions.ts) and adds a prompt or a reply below.
 import type { ReactNode } from "react";
-import { AgentMark, knownMark } from "../../shared/AgentMark";
 import { useAgentAvatar } from "../agentAvatar";
 import { Spinner } from "../conversation/icons";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { SUBSESSION_STATE_LABEL, type SubsessionState } from "./subsessions";
 import { DisclosureRow, type DisclosureRowProps } from "./DisclosureRow";
+import { AgentIdentity } from "./AgentIdentity";
+import { agentTone } from "./agentTones";
 import "./AgentCard.css";
 
 export type AgentCardProps = {
@@ -19,6 +20,8 @@ export type AgentCardProps = {
   harness?: string;
   /// Its acpmux session, whose own avatar (Set Avatar…, agentAvatar.ts) replaces the mark.
   sessionId?: string;
+  /// Stable list identity, for the icon's tone when the harness has no mark.
+  identity?: string;
   model?: string;
   /// Undefined while the session list does not have it (a gallery, an archived chat).
   state?: SubsessionState;
@@ -48,6 +51,7 @@ export function AgentCard({
   name,
   harness,
   sessionId,
+  identity,
   model,
   state,
   doing,
@@ -64,8 +68,9 @@ export function AgentCard({
   children,
 }: AgentCardProps) {
   const t = useT();
-  // A profile names its family first (`claude-sr2`): its family's mark when it has none.
-  const mark = harness ? knownMark(harness, harness.split(/[-_/]/)[0]) : undefined;
+  // A profile names its family first (`claude-sr2`): AgentIdentity draws its family's mark when it
+  // has none, else the session icon in the card's own stable tone.
+  const tone = agentTone(identity ?? sessionId ?? name);
   const avatar = useAgentAvatar(sessionId);
   const stateText = state
     ? slot
@@ -81,10 +86,13 @@ export function AgentCard({
         icon={
           avatar ? (
             <img className="cv-agent-avatar" src={avatar} alt="" width={16} height={16} />
-          ) : mark ? (
-            <AgentMark agent={mark} size={14} />
           ) : (
-            <Icon name="agent.session" size={16} />
+            <AgentIdentity
+              harness={harness}
+              tone={tone}
+              size={14}
+              fallbackNode={<Icon name="agent.session" size={16} />}
+            />
           )
         }
         label={disclosureLabel ?? name}
@@ -112,10 +120,13 @@ export function AgentCard({
       <span className="cv-agent-card__icon" aria-hidden>
         {avatar ? (
           <img className="cv-agent-avatar" src={avatar} alt="" width={16} height={16} />
-        ) : mark ? (
-          <AgentMark agent={mark} size={14} />
         ) : (
-          <Icon name="agent.session" size={16} />
+          <AgentIdentity
+            harness={harness}
+            tone={tone}
+            size={14}
+            fallbackNode={<Icon name="agent.session" size={16} />}
+          />
         )}
       </span>
       <span className="cv-agent-card__name">{name}</span>

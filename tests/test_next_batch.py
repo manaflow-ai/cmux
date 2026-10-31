@@ -720,6 +720,22 @@ class BaseReds(unittest.TestCase):
         # The daemon red is the older run's; generated files passed in the newest run, so its older red is not.
         self.assertEqual(controller.failing_on_base("b" * 40), {"cmux-next daemon tests: error error: y"})
 
+    def test_cancelled_base_tier_runs_never_count_toward_the_lookback(self):
+        # The base tier kick cancels superseded base tier runs before a Mac job starts; more of them than
+        # the lookback must not hide the newest run with a verdict.
+        controller = self.controller()
+        title = "cmux-next base tier · "
+        cancelled = [{"id": 100 + n, "status": "completed", "conclusion": "cancelled", "head_branch": nb.BASE,
+                      "display_title": title + f"{n:x}" * 40} for n in range(nb.BASE_TIER_LOOKBACK + 2)]
+        tier = {"id": 2, "status": "completed", "conclusion": "failure", "head_branch": nb.BASE,
+                "display_title": title + "c" * 40, "created_at": "2026-10-30T12:00:00Z"}
+        controller.gh.runs.side_effect = [[{"id": 1, "status": "completed", "head_branch": nb.BASE}], cancelled + [tier]]
+        jobs = {1: [{"id": 7, "name": "cmux-next Release compile (Xcode 26)", "conclusion": "success"}],
+                2: [{"id": 8, "name": "cmux-next daemon tests", "conclusion": "failure"}]}
+        controller.gh.api.side_effect = lambda route, **_: {"jobs": jobs[int(route.split("/runs/")[1].split("/")[0])]}
+        controller.gh.gh.return_value = subprocess.CompletedProcess([], 0, "2026-10-19T03:02:59.1Z error: y\n", "")
+        self.assertEqual(controller.failing_on_base("b" * 40), {"cmux-next daemon tests: error error: y"})
+
     def test_a_stack_waits_once_for_the_bases_own_tree_run(self):
         controller = self.controller()
         controller.gh.runs.return_value = [
