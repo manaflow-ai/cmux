@@ -33,6 +33,7 @@ nonisolated enum AddMachineStrings {
     static var done: String { s("addMachine.done", "Done") }
     static var openWorkspace: String { s("addMachine.openWorkspace", "Open Workspace") }
     static var tryAgain: String { s("addMachine.tryAgain", "Try Again") }
+    static var changeHost: String { s("addMachine.changeHost", "Change Host") }
     static var copyDetails: String { s("addMachine.copyDetails", "Copy Details") }
     static var fix: String { s("addMachine.fix", "Fix") }
 
@@ -47,6 +48,7 @@ nonisolated enum AddMachineStrings {
         case .peer: s("addMachine.step.peer", "Add it as a peer here")
         case .peerBack: s("addMachine.step.peerBack", "Add this Mac as its peer")
         case .identity: s("addMachine.step.identity", "Name the machine")
+        case .approvals: s("addMachine.step.approvals", "Let this Mac allow its prompts")
         default: joinStep(step) ?? step.rawValue
         }
     }
@@ -87,6 +89,7 @@ nonisolated enum AddMachineStrings {
         switch action {
         case .add: phase == .running ? addingButton : add
         case .tryAgain: tryAgain
+        case .changeHost: changeHost
         case .fix: phase == .running ? checkingButton : fix
         case .openWorkspace: openWorkspace
         case .copyDetails: copyDetails
@@ -100,6 +103,10 @@ nonisolated enum AddMachineStrings {
     static var connected: String { s("machines.connected", "Connected") }
     static var offline: String { s("machines.offline", "Offline") }
     static var connecting: String { s("machines.connecting", "Connecting…") }
+    static var paused: String { s("machines.paused", "Paused") }
+    static var resuming: String { s("machines.resuming", "Resuming…") }
+    static var failed: String { s("machines.failed", "Failed") }
+    static var deleted: String { s("machines.deleted", "Deleted") }
 
     /// A group header of the Machines section; nil for this Mac, whose row has no header.
     static func group(_ kind: MachineKind) -> String? {

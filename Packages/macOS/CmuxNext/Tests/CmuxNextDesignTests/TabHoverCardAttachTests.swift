@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextDesign
+import CmuxNextTestSupport
 import Testing
 
 /// Lawrence 2026-10-20 (screenshot of a browser tab's card): "Tab cards are still disjoint from
@@ -9,6 +10,7 @@ import Testing
 /// lining it up with the tab. Like Chrome and Helium, a tab's card stays on its tab: its top on
 /// the tab's bottom edge, its leading edge on the tab's (its trailing edge on the tab's when there
 /// is no room to the right), and it flips above only when there is no room below.
+@Suite(.closesItsWindows)
 @MainActor struct TabHoverCardAttachTests {
     private static let size = CGSize(width: 240, height: 180)
     private static let margin: CGFloat = 8
@@ -83,7 +85,7 @@ import Testing
         parent.orderFrontRegardless()
         let panel = HoverCardPanel()
         defer {
-            panel.orderOut(nil)
+            panel.closeAfterTest()
             parent.close()
         }
         let body = NSView()
@@ -108,6 +110,8 @@ import Testing
         _ = NSApplication.shared
         let screen = try #require(NSScreen.screens.first)
         let frame = CGRect(x: screen.frame.minX + 100, y: screen.visibleFrame.maxY - 200, width: 400, height: 300)
-        #expect(HoverCardPanel().constrainFrameRect(frame, to: screen) == frame)
+        let panel = HoverCardPanel()
+        defer { panel.closeAfterTest() }
+        #expect(panel.constrainFrameRect(frame, to: screen) == frame)
     }
 }
