@@ -2,7 +2,6 @@
 // created notes.md +53"; Leo 2026-10-30: "i like claude code they put the number overarching
 // too"): the lines its edits added in green, and the lines they removed in red when there are any,
 // in the same marks a file's own row draws (WriteLabel.tsx, EditDiff.tsx).
-import { useRef } from "react";
 import { toolFiles } from "../diff";
 import type { AcpmuxActivity } from "../model";
 
@@ -28,20 +27,26 @@ export function editTotals(tools: readonly Tool[]): EditTotals | undefined {
   return { additions, deletions };
 }
 
+/// The last count per group, under its last edit's snapshot: an entry lives as long as that
+/// snapshot (a WeakMap, no cleanup needed).
+const totalsCache = new WeakMap<Tool, { edits: Tool[]; totals: EditTotals | undefined }>();
+
 /// A group's totals, counted again only when one of its edits changes. Items are immutable
 /// snapshots (direct.ts replaces only the call a chunk changed), so a call streaming its output, a
 /// command or a thought, leaves every edit as it was and the totals are reused: the per-render work
-/// is an identity check per item, with no diff parsed again.
+/// is an identity check per item, with no diff parsed again. A pure read of a module cache, so the
+/// React Compiler still optimizes the rows that call it.
 export function useEditTotals(items: readonly AcpmuxActivity[]): EditTotals | undefined {
-  const last = useRef<{ edits: Tool[]; totals: EditTotals | undefined } | undefined>(undefined);
   const edits: Tool[] = [];
   for (const item of items) if (item.tool?.diffs?.length) edits.push(item.tool);
-  const prior = last.current;
+  const last = edits[edits.length - 1];
+  if (!last) return undefined;
+  const prior = totalsCache.get(last);
   if (prior && prior.edits.length === edits.length && edits.every((tool, at) => tool === prior.edits[at]))
     return prior.totals;
   editTotalsProbe.count?.();
-  const totals = edits.length ? editTotals(edits) : undefined;
-  last.current = { edits, totals };
+  const totals = editTotals(edits);
+  totalsCache.set(last, { edits, totals });
   return totals;
 }
 
