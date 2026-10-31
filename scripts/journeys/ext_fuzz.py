@@ -613,6 +613,12 @@ class Fuzz:
         except D.StepError:
             pass
         st = st or state(self.j)
+        # The app's own invariant counters (debug.surfaces; R3a/R3b are counted there on builds with #29056): a change
+        # across an action tells a real size fault from a stale report field.
+        report = _rpc(self.j, "debug.surfaces") or {}
+        if isinstance(report, dict) and "invariant_violations" in report:
+            self._trace("app", "invariants", f"violations {report.get('invariant_violations')} checks "
+                                             f"{report.get('invariant_checks')}", ms)
         for p in surfaces(self.j, text=True):
             term = (st["terminals"].get(str(p.get("terminal_id") or "")) or {}).get("term")
             if not term:
