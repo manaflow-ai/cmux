@@ -309,6 +309,12 @@ class Run:
             shutil.rmtree(self.scratch, ignore_errors=True)
 
 
+def recorded(folder):
+    """Whether the app's launch recorder finished in `folder`: every window it recorded wrote frames.json."""
+    windows = [os.path.join(folder, name) for name in os.listdir(folder) if name.startswith("window-")] if os.path.isdir(folder) else []
+    return bool(windows) and all(os.path.exists(os.path.join(window, "frames.json")) for window in windows)
+
+
 def relaunch(scratch, env, args=()):
     """bench_memory.launch's direct launch, on an existing scratch state."""
     import plistlib
@@ -490,7 +496,6 @@ def main():
                     run.quit()
                     record_dir = os.path.join(frames_root, f"{condition}-restore-{index}") if opts.record_launch else None
                     pictures = run.saved_pictures()
-                    launched = time.monotonic()
                     run.launch(trace_launch=True, record=record_dir)
                     record = run.rpc("debug.chat_open_trace", {"action": "wait", "timeout_ms": 15000,
                                                                "settle_ms": 600, "page_timing": True}, timeout=40) or {}
@@ -499,9 +504,13 @@ def main():
                     record["acp_log"] = run.rpc("debug.agent_pane", {"action": "acp_log", "limit": 40})
                     record["saved_pictures"] = pictures
                     if record_dir:
-                        # test script: the recording runs on the app's clock from its first frame; the
-                        # next quit must not cut it short.
-                        time.sleep(max(0.0, opts.record_launch + 1 - (time.monotonic() - launched)))
+                        # The recording runs on the app's clock from its first window frame and writes
+                        # frames.json when it ends: the next quit waits for that (bounded), not a guess.
+                        done = time.monotonic() + opts.record_launch + 30
+                        while time.monotonic() < done and not recorded(record_dir):
+                            time.sleep(0.5)  # test script: waiting for the app's recorder to finish
+                        if not recorded(record_dir):
+                            say(f"chat-open: {condition} restore {index}: the launch recording wrote no frames.json")
                     records.append(record)
                     say(f"chat-open: {condition} restore {index}: first_content_ms={record.get('first_content_ms')} "
                         f"first_image_ms={record.get('first_image_ms')} saved_pictures={pictures}{why(record)}")

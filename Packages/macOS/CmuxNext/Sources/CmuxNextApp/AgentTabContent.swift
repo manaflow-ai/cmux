@@ -62,13 +62,15 @@ struct AgentTabContent {
     private func drawLastPage(_ key: String, until view: AgentPaneView?) {
         let paneView = pane.view
         let images = pane.services.agentTabs.launchImages
+        // From the tab's record, so a tab its launch defers (no view yet) is judged as what it is.
+        let newTab = view.map { $0.model.newTab != nil } ?? pane.services.agentTabs.isNewTabPage(key)
         // A New Tab page with no saved image of its own draws the last New Tab frame (cx-ec99), unless
         // it shows in Chromium: that page draws over the frame as it comes in, both seen at once.
         let newTabFrame = { view?.model.newTab == nil || view?.pageDrawsOverCovers == true ? nil : AgentPaneNewTabFrame.shared.image(size: paneView.contentHost.bounds.size, appearance: Self.appearance(of: paneView)) }
         // A saved picture with no alpha over a page that is clear now (an older version's Chromium JPEG of a
         // see-through page) is black where the page is clear: the pane shows its loading state instead.
         let saved = { images.take(key, size: paneView.contentHost.bounds.size, appearance: Self.appearance(of: paneView))
-            .flatMap { image in AgentPaneView.savedPictureCovers(image, page: view, in: paneView) ? image : nil } }
+            .flatMap { image in AgentPaneView.savedPictureCovers(image, newTab: newTab, in: paneView) ? image : nil } }
         let image = { saved() ?? newTabFrame() }
         if paneView.launchImageView == nil, let image = image() { paneView.showLaunchImage(image) }
         guard let imageView = paneView.launchImageView, let view else { return }

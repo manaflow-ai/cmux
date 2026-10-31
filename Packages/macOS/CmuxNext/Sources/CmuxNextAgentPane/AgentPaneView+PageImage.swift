@@ -23,13 +23,12 @@ extension AgentPaneView {
     ///
     /// - Parameters:
     ///   - image: The saved picture.
-    ///   - view: The page's view; nil when it is not made yet (a launch that defers the tab), and
-    ///     the picture then covers only when every agent page would paint opaque there.
+    ///   - newTab: Whether the page is a New Tab page (its tab's record, known before its view is
+    ///     made: a launch that defers the tab draws its picture first).
     ///   - scope: The view whose theme scope the page shows in (its pane): a workspace's own
     ///     picture or glass makes its pages clear.
-    public static func savedPictureCovers(_ image: NSImage, page view: AgentPaneView?, in scope: NSView) -> Bool {
-        let surfaces: [SurfaceKind] = view.map { [$0.surfaceKind] } ?? [.agentPane, .newTabPage]
-        return PageImageBackground.covers(image, pageIsOpaque: surfaces.allSatisfy { pageIsOpaque($0, in: scope) })
+    public static func savedPictureCovers(_ image: NSImage, newTab: Bool, in scope: NSView) -> Bool {
+        PageImageBackground.covers(image, pageIsOpaque: pageIsOpaque(newTab ? .newTabPage : .agentPane, in: scope))
     }
 
     /// Whether the page of `surface` paints an opaque background of its own in `scope`'s theme
