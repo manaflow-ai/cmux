@@ -241,6 +241,34 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
     await page.close();
   });
 
+  test("bottom room survives upward scrolling before a collapse is measured", async () => {
+    const page = await open("no-preference");
+    await show(page, [...done, ...live(1)]);
+    await settle(page);
+    await probe(page, `[data-row-id="live-run"] button.cv-tool.is-toggle[aria-expanded="false"]`);
+    await clickAndWatch(page);
+    const expandedEnd = await scrollHeight(page);
+    // Deliver reader intent and a scroll synchronously with the close, before ResizeObserver
+    // can report the shrinking body. This releases the line hold but must not release its room.
+    await page.evaluate(() => {
+      const toggle = document.querySelector<HTMLElement>("[data-probe]")!;
+      const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+      toggle.click();
+      scroller.dispatchEvent(new WheelEvent("wheel", { deltaY: -160, bubbles: true }));
+      scroller.scrollTop -= 160;
+      scroller.dispatchEvent(new Event("scroll"));
+    });
+    await settle(page);
+    expect(await page.locator("[data-probe]").getAttribute("aria-expanded")).toBe("false");
+    expect(await atLatest(page)).toBe(false);
+    expect(await scrollHeight(page)).toBe(expandedEnd);
+    await page.mouse.wheel(0, 10_000);
+    await settle(page);
+    expect(await atLatest(page)).toBe(true);
+    expect(await scrollHeight(page)).toBe(expandedEnd);
+    await page.close();
+  });
+
   test("a completed turn keeps the reply before a personal steer visible across fold toggles", async () => {
     const page = await open("reduce");
     await show(page, [
