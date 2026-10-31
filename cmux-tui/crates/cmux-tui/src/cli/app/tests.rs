@@ -76,7 +76,8 @@ fn space_mutations_use_the_catalog_actions_and_name_targets() {
         assert_eq!(method, "action.run");
         assert_eq!(params["action"], action);
         assert_eq!(params.get("target").and_then(Value::as_str), target);
-        assert_eq!(params["args"], action_args);
+        // `run_action` leaves `args` out when the action takes none.
+        assert_eq!(params.get("args").cloned().unwrap_or_else(|| json!({})), action_args);
     }
 }
 
@@ -124,7 +125,11 @@ fn space_flags_are_not_positional_names() {
         assert_eq!(method, "action.run", "{words:?}");
         assert_eq!(params["action"], action, "{words:?}");
         assert_eq!(params.get("target").and_then(Value::as_str), target, "{words:?}");
-        assert_eq!(params["args"], action_args, "{words:?}");
+        assert_eq!(
+            params.get("args").cloned().unwrap_or_else(|| json!({})),
+            action_args,
+            "{words:?}"
+        );
     }
 }
 
