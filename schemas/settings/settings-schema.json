@@ -18290,7 +18290,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "suggest",
+      "default" : "manual",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.autoArchive",
