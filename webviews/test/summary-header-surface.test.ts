@@ -315,6 +315,11 @@ await requireBrowserLane("summary-header-surface.test.ts", async () => {
           const title = panel.locator(".acpmux-summary-agents h3 .acpmux-summary-title__button");
           expect(await title.count()).toBe(1);
           expect(await title.textContent()).toContain("1 running");
+          // One line, starting at the section's left edge, however many counts it carries.
+          const box = (await title.boundingBox())!;
+          const section = (await panel.locator(".acpmux-summary-agents").boundingBox())!;
+          expect(box.height).toBeLessThanOrEqual(24);
+          expect(box.x - section.x).toBeLessThanOrEqual(12);
           await title.click();
           const tabs = panel.locator(".acpmux-summary-tabs");
           await tabs.waitFor({ timeout: 5_000 });

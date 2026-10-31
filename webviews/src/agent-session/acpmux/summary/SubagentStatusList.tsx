@@ -185,7 +185,7 @@ export function SubagentStatusList({
       <h3 className="acpmux-summary-title">
         {onShowAll ? (
           <button type="button" className="acpmux-summary-title__button" onClick={onShowAll}>
-            {heading}
+            <span className="acpmux-summary-title__text">{heading}</span>
             <Icon name="disclosure.collapsed" size={10} />
           </button>
         ) : (
