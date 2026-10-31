@@ -135,6 +135,10 @@ fn pending_log(bytes: &[u8]) -> Arc<TerminalLog> {
             last_output: std::time::Instant::now(),
             pending: bytes.to_vec(),
             pending_start: 0,
+            resident: 0,
+            measured_rows: None,
+            measure_due: false,
+            forgotten: false,
         }),
     })
 }
@@ -202,4 +206,97 @@ fn the_stream_end_is_the_largest_frame_end_of_any_file() {
     let ends = all_stream_ends(&directory);
     assert_eq!(ends.get(&(terminal(), generation_key("g1"))), Some(&16));
     fs::remove_dir_all(&directory).unwrap();
+}
+
+/// A file at `start` in `terminal_directory` holding one frame of `bytes`
+/// (written by hand: an older daemon's layout, not `append_frame`'s).
+fn write_frame_file(terminal_directory: &Path, start: u64, bytes: &[u8]) {
+    let path = terminal_directory.join(format!("{}-{start:020}.{SUFFIX}", generation_key("g1")));
+    let mut encoder = GzEncoder::new(Vec::new(), Compression::fast());
+    encoder.write_all(bytes).unwrap();
+    let compressed = encoder.finish().unwrap();
+    let mut frame = Vec::new();
+    frame.extend_from_slice(&start.to_le_bytes());
+    frame.extend_from_slice(&u32::try_from(compressed.len()).unwrap().to_le_bytes());
+    frame.extend_from_slice(&u32::try_from(bytes.len()).unwrap().to_le_bytes());
+    frame.extend_from_slice(&compressed);
+    fs::write(path, frame).unwrap();
+}
+
+#[test]
+fn a_read_finds_bytes_in_an_older_file_that_reaches_past_the_cursor() {
+    let directory = store_directory("older-file");
+    let terminal_directory = terminal_directory(&directory, &terminal());
+    fs::create_dir_all(&terminal_directory).unwrap();
+    // The file named 5 holds 5..16; the file named 10 holds only 10..12
+    // (an older daemon resumed behind). Bytes 12..16 are only in the first.
+    write_frame_file(&terminal_directory, 5, b"fghijklmnop");
+    write_frame_file(&terminal_directory, 10, b"kl");
+    let window = read_after(&directory, &terminal(), "g1", 12, 1024)
+        .expect("bytes 12..16 are stored, in the file named 5");
+    assert_eq!(window.bytes, b"mnop");
+    assert_eq!((window.start_offset, window.next_offset), (12, 16));
+    assert!(!window.truncated);
+    let from_start = read_after(&directory, &terminal(), "g1", 0, 1024).unwrap();
+    assert_eq!(from_start.bytes, b"fghijklmnop");
+    fs::remove_dir_all(&directory).unwrap();
+}
+
+#[test]
+fn a_read_after_a_gap_in_one_file_still_takes_the_bytes_another_file_holds() {
+    let directory = store_directory("gap-other-file");
+    let terminal_directory = terminal_directory(&directory, &terminal());
+    fs::create_dir_all(&terminal_directory).unwrap();
+    // The file named 0 holds 0..3 and then 20..23; the file named 3 holds
+    // 3..20. Reading past 3 must not jump to 20.
+    write_frame_file(&terminal_directory, 0, b"abc");
+    append_frame(&Segments::default(), &terminal_directory, "g1", 20, b"uvw").unwrap();
+    let late = terminal_directory.join(format!("{}-{:020}.{SUFFIX}", generation_key("g1"), 20));
+    assert!(!late.exists(), "the frame at 20 went into the file named 0");
+    write_frame_file(&terminal_directory, 3, b"defghijklmnopqrst");
+    let window = read_after(&directory, &terminal(), "g1", 3, 1024).unwrap();
+    assert_eq!(window.bytes, b"defghijklmnopqrstuvw");
+    assert_eq!((window.start_offset, window.next_offset), (3, 23));
+    assert!(!window.truncated);
+    fs::remove_dir_all(&directory).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn a_newest_file_that_cannot_be_stated_is_left_and_the_frame_goes_to_a_new_file() {
+    let directory = store_directory("unstatable");
+    let terminal_directory = terminal_directory(&directory, &terminal());
+    fs::create_dir_all(&terminal_directory).unwrap();
+    append_frame(&Segments::default(), &terminal_directory, "g1", 0, b"abc").unwrap();
+    // The newest file is listed but cannot be stated (a dangling link).
+    let broken = terminal_directory.join(format!("{}-{:020}.{SUFFIX}", generation_key("g1"), 3));
+    std::os::unix::fs::symlink(directory.join("missing"), &broken).unwrap();
+    append_frame(&Segments::default(), &terminal_directory, "g1", 6, b"ghi")
+        .expect("the frame goes to a new file");
+    assert!(fs::symlink_metadata(&broken).unwrap().file_type().is_symlink(), "left as it is");
+    let fresh = terminal_directory.join(format!("{}-{:020}.{SUFFIX}", generation_key("g1"), 6));
+    assert!(fresh.is_file(), "the frame is in a file of its own");
+    let window = read_after(&directory, &terminal(), "g1", 6, 1024).unwrap();
+    assert_eq!(window.bytes, b"ghi");
+    fs::remove_dir_all(&directory).unwrap();
+}
+
+#[test]
+fn one_read_returns_the_stored_bytes_and_the_unflushed_ones_after_them() {
+    let registry = store_directory("store-read");
+    let store = super::super::OutputStore::new(Some(&registry));
+    store.full.set_enabled(true);
+    let generation: Arc<str> = Arc::from("g1");
+    store.append(&terminal(), &generation, b"abcd", None);
+    let log = store.logs.lock().unwrap().get(&terminal()).unwrap().clone();
+    let policy = PersistencePolicy::resolve(Some("full"), None, None);
+    let directory = store.directory().unwrap().to_path_buf();
+    assert!(!flush_logs(&store.full, &directory, &[(log, Some(1))], policy, false));
+    // New output after the flush: in memory only.
+    store.append(&terminal(), &generation, b"efgh", None);
+    let window = store.read_after(&terminal(), 0, 1024).unwrap();
+    assert_eq!(window.bytes, b"abcdefgh", "the stored bytes, then the unflushed ones");
+    assert_eq!((window.start_offset, window.next_offset), (0, 8));
+    assert!(!window.truncated, "nothing after the stream end");
+    fs::remove_dir_all(&registry).unwrap();
 }
