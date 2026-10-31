@@ -4,6 +4,7 @@
 // count opens Changes; its adjacent disclosure retains hover cards and dismissal.
 import { agentPaneEntry, type AgentPaneVariant } from "../../../gallery/format";
 import { activity, assistant, chat, summary, tool, user } from "../../../gallery/fixtures/acpmux";
+import type { Play } from "../../../gallery/play";
 
 const create = (title: string, number: number) =>
   tool(`gh pr create --title "${title}"`, "execute", "completed", {
@@ -18,6 +19,11 @@ const merge = (number: number) =>
     exitCode: 0,
   });
 const inspector = { "pane.tabState": { inspector: true } };
+/// Session Info opens only on the viewer's click (#26692): the play opens it to show its Changes.
+const openSessionInfo: Play = async (ctx) => {
+  if (!ctx.document.querySelector(".acpmux-chat-inspector")) await ctx.click({ role: "button", name: "Session Info" });
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-chat-inspector[data-presence=shown]"));
+};
 
 // Synthetic received message, opened: the last visible row is its panel's end, immediately above the
 // dock (the variant ids keep their old "-show-more" names).
@@ -99,6 +105,7 @@ export const pullRequestComparisons = agentPaneEntry({
       note: "No composer dock: the PRs live in Session Info's Changes section.",
       documentAttributes: { "pr-dock": "none" },
       native: inspector,
+      play: openSessionInfo,
       snapshot: chat([
         user("Split the change into four PRs", 6),
         activity(

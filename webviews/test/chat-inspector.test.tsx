@@ -33,6 +33,7 @@ import {
   INSPECTOR_WIDTH,
   inspectorState,
   resetInspectorState,
+  setInspectorOpen,
   setInspectorSection,
 } from "../src/agent-session/acpmux/inspector/inspectorState";
 import { sessionEntry } from "../src/agent-session/acpmux/sessionList";
@@ -94,6 +95,8 @@ function installDom(inspector: boolean): HTMLElement {
   for (const key of Object.keys(replacements)) saved.set(key, scope[key]);
   Object.assign(scope, replacements);
   resetInspectorState();
+  // The viewer opened Session Info before the chat's first frame: it never opens by itself (#26692).
+  setInspectorOpen(true);
   return dom.window.document.getElementById("root")!;
 }
 
@@ -286,7 +289,7 @@ test("the Inspector starts right under the header: no row for a machine and fold
   expect(inspectorTopOffset(28)).toBe("28px");
 });
 
-test("the Inspector opens with a first chat: its environment, context use and outputs; the toggle closes it", async () => {
+test("the Inspector, once opened, shows its environment, context use and outputs; the toggle closes it", async () => {
   const container = installDom(true);
   const opened = await render(container, localChat);
   expect(toggle(container)?.getAttribute("aria-pressed")).toBe("true");
@@ -528,7 +531,7 @@ test("an output whose diff split leaves no room to push the chat closes the Insp
   });
   expect(panel(container)).toBeNull();
   expect(toggle(container)?.getAttribute("aria-pressed")).toBe("false");
-  // Not remembered as closed: the next chat still opens it, and the toggle brings it back here.
+  // Not remembered as closed: the toggle brings it back here.
   expect(inspectorState().open).toBe(true);
   await click(toggle(container)!);
   expect(panel(container)).not.toBeNull();

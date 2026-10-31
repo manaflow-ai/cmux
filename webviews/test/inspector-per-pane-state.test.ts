@@ -6,9 +6,11 @@
 // pane after a relaunch is a fresh copy over the same storage.
 import { afterEach, beforeEach, expect, setSystemTime, test } from "bun:test";
 import { JSDOM } from "jsdom";
+import { fileURLToPath } from "node:url";
 
 type Module = typeof import("../src/agent-session/acpmux/inspector/inspectorState");
-const MODULE = new URL("../src/agent-session/acpmux/inspector/inspectorState.ts", import.meta.url).pathname;
+// A path, not a URL path: a checkout under a folder with a space (a fleet step) must still load.
+const MODULE = fileURLToPath(new URL("../src/agent-session/acpmux/inspector/inspectorState.ts", import.meta.url));
 let loads = 0;
 /// A chat pane's page showing chat `sessionId`: its own copy of the module.
 async function page(sessionId: string): Promise<Module> {
@@ -49,16 +51,96 @@ const storageEvent = (key: string) => dom.window.dispatchEvent(new dom.window.St
 test("a toggle, a drag or a fold in one pane leaves the other pane as it was", async () => {
   const left = await page("chat-left");
   const right = await page("chat-right");
-  expect(left.inspectorState().open).toBe(true);
-  expect(right.inspectorState().open).toBe(true);
+  expect(left.inspectorState().open).toBe(false);
+  expect(right.inspectorState().open).toBe(false);
 
-  left.setInspectorOpen(false);
+  left.setInspectorOpen(true);
   left.setInspectorWidth(480);
   left.setInspectorSection("context", true);
   for (const key of Object.keys(localStorage)) storageEvent(key);
 
-  expect(left.inspectorState()).toMatchObject({ open: false, width: 480, sections: { context: true } });
-  expect(right.inspectorState()).toMatchObject({ open: true, width: 320, sections: { context: false } });
+  expect(left.inspectorState()).toMatchObject({
+    open: true,
+    width: 480,
+    sections: { context: true },
+  });
+  expect(right.inspectorState()).toMatchObject({
+    open: false,
+    width: 320,
+    sections: { context: false },
+  });
+});
+
+// cmux #26692: Session Info (machine, folder, repository, branch and Save) opened by itself over every
+// new chat and covered its composer. It opens only when the viewer opens it.
+test("a new chat never opens Session Info by itself, whatever another chat or an old install left", async () => {
+  // A first chat, on an install that never touched it.
+  expect((await page("chat-first")).inspectorState().open).toBe(false);
+
+  // The last choice in another pane was open, and so was the old shared key.
+  (await page("chat-opened")).setInspectorOpen(true);
+  localStorage.setItem("cmux.agentPane.inspector.open", "1");
+  expect((await page("chat-next")).inspectorState().open).toBe(false);
+
+  // A chat saved open by the old default (no version): the viewer never opened it there.
+  localStorage.setItem(
+    `${PREFIX}chat-old-default`,
+    JSON.stringify({ open: true, width: 360, sourcesAll: true, at: Date.now() }),
+  );
+  expect((await page("chat-old-default")).inspectorState()).toMatchObject({
+    open: false,
+    width: 360,
+    sourcesAll: true,
+  });
+
+  // A pane showing a chat with Session Info open moves to a new chat: the new chat shows it closed
+  // from its first frame, and keeps it closed once bound.
+  const { createInspectorStore } = await page("unbound");
+  const store = createInspectorStore(() => localStorage);
+  store.bind("chat-a");
+  store.setOpen(true);
+  expect(store.shownFor("chat-b").open).toBe(false);
+  store.bind("chat-b");
+  expect(store.current().open).toBe(false);
+  // Chat A was left open by the viewer: it shows open again.
+  expect(store.shownFor("chat-a").open).toBe(true);
+  store.bind("chat-a");
+  expect(store.current().open).toBe(true);
+
+  // The viewer's own open survives a harness switch on an empty new chat (no session for a moment,
+  // then the new harness's): it is the same chat to them.
+  store.bind("chat-empty");
+  store.setOpen(true);
+  store.bind("");
+  expect(store.current().open).toBe(true);
+  expect(store.shownFor("chat-switched").open).toBe(true);
+  store.bind("chat-switched");
+  expect(store.current().open).toBe(true);
+
+  // The host hands the tab a new chat (its handshake reset: no session, then the new chat's): it
+  // shows closed before its first prompt and is saved closed, while the chat it left keeps its open.
+  store.startNewChat();
+  // A fold before the pane leaves the chat is not saved under it as closed.
+  store.setSection("environment", false);
+  store.bind(undefined);
+  expect(store.current().open).toBe(false);
+  expect(store.shownFor("chat-handed").open).toBe(false);
+  store.bind("chat-handed");
+  expect(store.current().open).toBe(false);
+  expect(store.shownFor("chat-switched").open).toBe(true);
+  // The host hands the tab back the same chat (no session between): it shows and saves as before.
+  store.bind("chat-switched");
+  store.startNewChat();
+  store.bind("chat-switched");
+  expect(store.current().open).toBe(true);
+  store.setWidth(410);
+  expect(createInspectorStore(() => localStorage).shownFor("chat-switched").width).toBe(410);
+  // The viewer opens it on the new chat before its first prompt: that open is the viewer's and stays.
+  store.startNewChat();
+  store.bind(undefined);
+  store.setOpen(true);
+  store.bind("chat-opened-early");
+  expect(store.current().open).toBe(true);
 });
 
 test("after a relaunch each pane shows its own state again", async () => {
@@ -81,22 +163,24 @@ test("Sources View all persists with the pane's chat", async () => {
   expect(other.inspectorState().sourcesAll).toBe(false);
 });
 
-test("a pane with no state of its own starts from the last choice, and the old shared key migrates", async () => {
-  // The single key every pane shared before: an old install's closed Inspector stays closed.
+test("a pane with no state of its own starts closed at the last width, and the old shared key migrates", async () => {
+  // The single key every pane shared before: an old install's width is the default.
   localStorage.setItem("cmux.agentPane.inspector.open", "0");
   localStorage.setItem("cmux.agentPane.inspector.width", "420");
   expect((await page("chat-old")).inspectorState()).toMatchObject({ open: false, width: 420 });
 
-  (await page("chat-a")).setInspectorOpen(true);
-  expect((await page("chat-new")).inspectorState().open).toBe(true);
+  const opened = await page("chat-a");
+  opened.setInspectorOpen(true);
+  opened.setInspectorWidth(440);
+  expect((await page("chat-new")).inspectorState()).toMatchObject({ open: false, width: 440 });
 });
 
 test("the same chat in two panes: a toggle in one does not move the other", async () => {
   const one = await page("chat-same");
   const two = await page("chat-same");
-  one.setInspectorOpen(false);
+  one.setInspectorOpen(true);
   for (const key of Object.keys(localStorage)) storageEvent(key);
-  expect(two.inspectorState().open).toBe(true);
+  expect(two.inspectorState().open).toBe(false);
 });
 
 /// Storage as a page that read it now sees it: its reads are that moment's,
@@ -151,15 +235,18 @@ test("with no session the pane saves nothing until one comes, then saves under i
   store.bind("chat-a");
   // A harness switch shows a new chat with no session yet: the last chat is no longer the pane's.
   store.bind(undefined);
-  store.setOpen(false);
+  // The viewer opens it before the new chat's first prompt; chat A keeps its own (closed).
+  store.setOpen(true);
+  store.setWidth(400);
   const relaunched = createInspectorStore(() => localStorage);
   relaunched.bind("chat-a");
-  expect(relaunched.current().open).toBe(true);
+  expect(relaunched.current()).toMatchObject({ open: false, width: 320 });
   // The new chat's session arrives: what the pane shows is saved as that chat's.
+  expect(store.shownFor("chat-new").open).toBe(true);
   store.bind("chat-new");
   const again = createInspectorStore(() => localStorage);
   again.bind("chat-new");
-  expect(again.current().open).toBe(false);
+  expect(again.current()).toMatchObject({ open: true, width: 400 });
 });
 
 test("storage keeps the newest chats of the last 30 days, and always the pane's own", async () => {

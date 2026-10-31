@@ -25,6 +25,9 @@ export default agentPaneEntry({
       workflowLabs: true,
       native: { "pane.tabState": { inspector: true }, "chat.subagentPane": { opened: true } },
       play: async (ctx) => {
+        // Session Info opens only on the viewer's click (#26692): open it to reach its running agents.
+        if (!ctx.document.querySelector(".acpmux-chat-inspector"))
+          await ctx.click({ role: "button", name: "Session Info" });
         const selector = ".acpmux-workflow-phase__agents .acpmux-workflow-agent__button:not(:disabled)";
         await ctx.waitFor(() => ctx.document.querySelector(selector));
         await ctx.click({ selector });
