@@ -265,7 +265,7 @@ impl StartCopy {
             match push(&self.socket, Path::new(&self.local), &folder) {
                 Ok(()) => {
                     return match Ledger::update(ledger, |pins| {
-                        pins.record_copy(&chat, &self.key, &self.machine)
+                        pins.record_copy(&chat, &self.key, &self.machine);
                     }) {
                         Ok(()) => {
                             json!({"ok": true, "chat": chat, "folder": folder, "copied": true})
