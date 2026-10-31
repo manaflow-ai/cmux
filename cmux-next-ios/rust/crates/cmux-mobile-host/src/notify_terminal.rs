@@ -101,6 +101,9 @@ pub struct TerminalClassifier {
     asked_at: HashMap<(Option<u64>, String), Instant>,
     /// A terminal agent's events pushed lately, by tab and kind (`AgentEvent`).
     agent_at: HashMap<(Option<u64>, &'static str), Instant>,
+    /// Per tab, when its last question pushed: a hook that reports the same ask without the
+    /// question (warning, no options) is that question's, not an approval.
+    asked_on: HashMap<Option<u64>, Instant>,
 }
 
 /// What a terminal agent's hook notification says happened, read from the level the
@@ -197,6 +200,14 @@ impl TerminalClassifier {
             }
         }
         if let Some(agent_event) = agent_event {
+            if agent_event.kind == "permission"
+                && self
+                    .asked_on
+                    .get(&surface)
+                    .is_some_and(|at| now.saturating_duration_since(*at) < QUESTION_REPEAT_WINDOW)
+            {
+                return None;
+            }
             // One event of the agent's told twice (a harness reporting one approval through two
             // hooks): pushed once.
             let key = (surface, agent_event.kind);
@@ -267,6 +278,10 @@ impl TerminalClassifier {
                 return None;
             }
             self.asked_at.insert(key, now);
+            self.asked_on.insert(surface, now);
+            if self.asked_on.len() > SEEN_LIMIT {
+                self.asked_on.retain(|_, at| now.saturating_duration_since(*at) < QUESTION_REPEAT_WINDOW);
+            }
             if self.asked_at.len() > SEEN_LIMIT {
                 self.asked_at.retain(|_, at| now.saturating_duration_since(*at) < QUESTION_REPEAT_WINDOW);
             }
@@ -645,14 +660,23 @@ mod tests {
             }
         );
         let mut c = TerminalClassifier::default();
-        let approval = c.handle_at(&hook(21, "Claude needs approval", "warning", "Bash"), &places(), t0).unwrap();
+        let approval =
+            c.handle_at(&hook(21, "Claude needs approval", "warning", "Bash"), &places(), t0).unwrap();
         assert_eq!(
-            (approval.kind.as_str(), approval.title.as_deref(), approval.body.as_deref(), approval.state.as_deref()),
+            (
+                approval.kind.as_str(),
+                approval.title.as_deref(),
+                approval.body.as_deref(),
+                approval.state.as_deref()
+            ),
             ("permission", Some("Bash"), None, Some("waiting"))
         );
         let mut c = TerminalClassifier::default();
         let error = c.handle_at(&hook(22, "Codex reported an error", "error", ""), &places(), t0).unwrap();
-        assert_eq!((error.kind.as_str(), error.agent.as_deref(), error.state.as_deref()), ("failed", Some("Codex"), Some("failed")));
+        assert_eq!(
+            (error.kind.as_str(), error.agent.as_deref(), error.state.as_deref()),
+            ("failed", Some("Codex"), Some("failed"))
+        );
         // A program's own alert is still a terminal notification.
         let mut c = TerminalClassifier::default();
         assert_eq!(c.handle_at(&event(23, Some(7), "terminal"), &places(), t0).unwrap().kind, "terminal");
@@ -666,10 +690,17 @@ mod tests {
         let mut c = TerminalClassifier::default();
         assert!(c.handle_at(&hook(30, "Claude needs approval", "warning", "Bash"), &places(), t0).is_some());
         let again = t0 + Duration::from_secs(1);
-        assert!(c.handle_at(&hook(31, "Claude needs approval", "warning", "Bash"), &places(), again).is_none());
-        assert!(c.handle_at(&hook(32, "Claude finished", "info", ""), &places(), t0 + Duration::from_secs(2)).is_some());
+        assert!(
+            c.handle_at(&hook(31, "Claude needs approval", "warning", "Bash"), &places(), again).is_none()
+        );
+        assert!(
+            c.handle_at(&hook(32, "Claude finished", "info", ""), &places(), t0 + Duration::from_secs(2))
+                .is_some()
+        );
         let later = t0 + ECHO_WINDOW + Duration::from_secs(1);
-        assert!(c.handle_at(&hook(33, "Claude needs approval", "warning", "Bash"), &places(), later).is_some());
+        assert!(
+            c.handle_at(&hook(33, "Claude needs approval", "warning", "Bash"), &places(), later).is_some()
+        );
     }
 
     /// The per-minute cap is for programs that loop OSC 9: agents finishing in many
@@ -682,7 +713,12 @@ mod tests {
         for tab in 0..(TERMINAL_PER_MINUTE as u64 + 5) {
             map.surfaces.insert(
                 100 + tab,
-                Place { workspace_id: "ws_a".into(), workspace: "w".into(), tab_id: format!("t{tab}"), terminal: true },
+                Place {
+                    workspace_id: "ws_a".into(),
+                    workspace: "w".into(),
+                    tab_id: format!("t{tab}"),
+                    terminal: true,
+                },
             );
         }
         let many = Places::default();
@@ -801,8 +837,13 @@ mod tests {
         let e = c.handle_at(&hook, &places(), t0 + Duration::from_secs(1)).expect("the question pushes");
         assert_eq!(e.kind, "question");
         assert_eq!(e.questions[0].options.len(), 3);
-        // A hook without a question is still that OSC's echo.
-        assert!(c.handle_at(&hook_n(62), &places(), t0 + Duration::from_secs(2)).is_none());
+        // The same ask reported by a hook without the question is that question's, not an approval.
+        let mut bare = event(62, Some(7), "agent");
+        bare["title"] = json!("Claude asked a question");
+        bare["level"] = json!("warning");
+        assert!(c.handle_at(&bare, &places(), t0 + Duration::from_secs(2)).is_none());
+        // The turn that follows still reports its end.
+        assert!(c.handle_at(&hook_n(63), &places(), t0 + Duration::from_secs(40)).is_some());
     }
 
     /// A terminal agent's AskUserQuestion (the daemon's `question`, cmux-tui
