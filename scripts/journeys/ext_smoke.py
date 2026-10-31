@@ -150,8 +150,13 @@ def step_smoke_type_now(j, step):
     replies.append(j.key("return", [], j.key_window))
     if step.get("bind"):  # never `as`: the driver names the current terminal after any step with `as`
         j.vars[step["bind"]] = text
+    # Each key's path, in order (debug.key `handled_by`): "app" is the router's hold (a key held for a terminal still
+    # being made, replayed there), "responder" a key that went straight to the focused view.
+    paths = [str(r.get("handled_by")) if isinstance(r, dict) else "?" for r in replies]
+    j.smoke_typed_paths = getattr(j, "smoke_typed_paths", []) + [{"line": text, "paths": paths}]
     return {"typed": text, "keys": len(replies), "at": round(sent, 3), "at_once": waited is None, "waited_hold_s": waited,
-            "handled_by": sorted({str(r.get("handled_by")) for r in replies if isinstance(r, dict)})}
+            "handled_by": sorted(set(paths)), "first_handled_by": paths[0] if paths else None,
+            "held_keys": paths.count("app")}
 
 
 def _workspace_ids(j):
@@ -1105,6 +1110,31 @@ def _holds(j):
     return out
 
 
+# debug.key sequence errors that mean the journey's request was wrong (a red of the journey, never "not run").
+_BURST_JOURNEY_ERRORS = ("each step needs key_code and down", "key_window must be shell or page")
+
+
+def step_smoke_hold_path(j, step):
+    """TIP RED 1193 counts a round only when its keys took the hold path (cmux-ad 11:05Z): at least one key typed at
+    once after a Cmd-D was held by the app's router (debug.key handled_by "app"), or a burst's hold counter rose.
+    Else the round is not run ("hold path not proven"): a pass with every key handled by the focused view (responder)
+    proves nothing about the hold. Runs after the round's checks, so a failure on any path still counts as a failure;
+    the step records each line's paths either way."""
+    typed = [t for t in getattr(j, "smoke_typed_paths", []) if t["line"] in set(j.sub(step.get("lines", [])))] \
+        if step.get("lines") else getattr(j, "smoke_typed_paths", [])
+    lines = [{"line": t["line"], "held": t["paths"].count("app"), "first": t["paths"][0] if t["paths"] else None,
+              "paths": sorted(set(t["paths"]))} for t in typed]
+    burst = getattr(j, "smoke_burst_holds", "none")
+    held = sum(t["held"] for t in lines) + (sum(burst.values()) if isinstance(burst, dict) else 0)
+    result = {"hold_path": held > 0, "held_keys": held, "lines": lines, "burst_holds": burst}
+    if held <= 0:
+        why = "no key typed at once was handled_by app" if lines else "no typed line recorded"
+        if burst is None:
+            why += "; this build has no debug.input late_keys hold counter for the burst"
+        raise D.NotRun(f"hold path not proven: {why} ({json.dumps(result)[:400]})")
+    return result
+
+
 def step_smoke_burst(j, step):
     """Plays BURST (a list of {key, modifiers} and {text, enter?}) as ONE `debug.key {sequence}`: real key events posted
     to the app's queue (its sendEvent, key router, hold and replay paths, as hardware keys), GAP_MS (default 0) apart.
@@ -1123,22 +1153,33 @@ def step_smoke_burst(j, step):
                 steps += _seq_key(_RETURN, (), gap)
         else:
             key = item["key"]
+            if key != "return" and key not in _KEYCODES:
+                raise D.StepError(f"smoke_burst: no key code for key {key!r}")
             code = _RETURN if key == "return" else _KEYCODES[key]
             steps += _seq_key(code, tuple(item.get("modifiers", [])), gap)
         if item.get("mark"):
             j.marks[item["mark"]] = D.now()
     before = _holds(j)
     reply = j.app.rpc("debug.key", {"sequence": steps, "key_window": "shell", "window": j.key_window or _journey_window(j)}) or {}
-    if not isinstance(reply, dict) or reply.get("error"):
-        raise D.StepError(f"debug.key sequence refused: {json.dumps(reply)[:300]}")
+    if not isinstance(reply, dict):
+        raise D.StepError(f"debug.key sequence: no reply object: {json.dumps(reply)[:300]}")
+    if reply.get("error"):
+        if reply["error"] in _BURST_JOURNEY_ERRORS:
+            raise D.StepError(f"debug.key sequence refused the journey's request: {reply['error']}")
+        # The host's limit, not the build's (no key window, an inactive app, no event clock): no keys were posted.
+        raise D.NotRun(GAP + f" (debug.key sequence refused: {str(reply['error'])[:200]})")
     time.sleep(float(reply.get("duration_ms") or 0) / 1000 + 1.0)  # until the last event was posted and dispatched
+    key_now, windows = _main_key(j)
+    if not key_now:
+        # Posted keys go to the key window; with none, the app drops them (a host prompt took the key, not the build).
+        raise D.NotRun(GAP + f" (the journey's window lost key status during the burst; windows {json.dumps(windows)[:200]})")
     after = _holds(j)
     held = None if before is None or after is None else {k: after.get(k, 0) - before.get(k, 0) for k in after}
     j.smoke_burst_holds = held
     return {"steps": len(steps), "reply": reply, "held_keys": held}
 
 
-STEPS = {"smoke_burst": step_smoke_burst, "smoke_no_key_gaps": step_smoke_no_key_gaps, "smoke_ready": step_smoke_ready, "smoke_make_key": step_smoke_make_key, "smoke_type_now": step_smoke_type_now,
+STEPS = {"smoke_burst": step_smoke_burst, "smoke_hold_path": step_smoke_hold_path, "smoke_no_key_gaps": step_smoke_no_key_gaps, "smoke_ready": step_smoke_ready, "smoke_make_key": step_smoke_make_key, "smoke_type_now": step_smoke_type_now,
          "smoke_remember_workspaces": step_smoke_remember_workspaces, "smoke_close_all": step_smoke_close_all,
          "smoke_snapshot": step_smoke_snapshot, "smoke_adopt_line": step_smoke_adopt_line,
          "smoke_long_line": step_smoke_long_line, "smoke_widths": step_smoke_widths}

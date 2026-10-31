@@ -1121,6 +1121,8 @@ class Burst(unittest.TestCase):
                     return {"scheduled": len(params["sequence"]), "duration_ms": 0}
                 if method == "debug.input":
                     return {"holds": [{"path": "creation", "stage": {"count": len(sent) * 5}}]}
+                if method == "debug.window_list":
+                    return {"windows": [{"id": "W1", "kind": "main", "key": True}]}
                 return {}
 
         class J:
@@ -1144,6 +1146,78 @@ class Burst(unittest.TestCase):
         j.smoke_key_ok = False
         with self.assertRaises(self.NotRun):
             self.ext.step_smoke_burst(j, {"burst": [{"text": "a"}]})
+
+
+    def _burst(self, replies, key=True, burst=None):
+        class App:
+            def rpc(self_, method, params=None):
+                if method == "debug.key":
+                    return replies
+                if method == "debug.window_list":
+                    return {"windows": [{"id": "W1", "kind": "main", "key": key}]}
+                return {}
+
+        class J:
+            app, vars, marks, key_window, smoke_key_ok = App(), {}, {}, "W1", True
+
+            def sub(self_, x):
+                return x
+        sleep = self.ext.time.sleep
+        self.ext.time.sleep = lambda s: None
+        try:
+            return self.ext.step_smoke_burst(J(), {"burst": burst or [{"text": "a"}]})
+        finally:
+            self.ext.time.sleep = sleep
+
+    def test_a_host_refusal_or_a_lost_key_window_is_not_run_and_a_bad_request_is_a_red(self):
+        for error in ("no event timestamp to start the sequence from", "no window", "did not become key"):
+            with self.assertRaises(self.NotRun):
+                self._burst({"error": error})
+        with self.assertRaises(self.ext.D.StepError):
+            self._burst({"error": "each step needs key_code and down"})
+        with self.assertRaises(self.NotRun):  # posted keys dropped with no key window
+            self._burst({"scheduled": 2, "duration_ms": 0}, key=False)
+        with self.assertRaises(self.ext.D.StepError):  # an unknown key name: a step error, never a traceback
+            self._burst({"scheduled": 2}, burst=[{"key": "f13"}])
+
+
+class HoldPath(unittest.TestCase):
+    """smoke_hold_path: a TIP RED 1193 pass counts only on the hold path (cmux-ad 11:05Z)."""
+
+    def setUp(self):
+        sys.path.insert(0, str(HERE))
+        import ext_smoke
+
+        class StepError(Exception):
+            pass
+
+        class NotRun(Exception):
+            pass
+
+        ext_smoke.install(type("D", (), {"StepError": StepError, "NotRun": NotRun, "now": staticmethod(lambda: 0.0)}))
+        self.ext, self.NotRun = ext_smoke, NotRun
+
+    def _j(self, *typed, burst="none"):
+        j = type("J", (), {"sub": lambda self_, x: x})()
+        j.smoke_typed_paths = [{"line": line, "paths": paths} for line, paths in typed]
+        if burst != "none":
+            j.smoke_burst_holds = burst
+        return j
+
+    def test_responder_only_is_not_proven_and_one_held_key_is(self):
+        with self.assertRaises(self.NotRun) as no:
+            self.ext.step_smoke_hold_path(self._j(("echo d1", ["responder"] * 8), ("echo d2", ["responder"] * 8)),
+                                          {"lines": ["echo d1", "echo d2"]})
+        self.assertIn("hold path not proven", str(no.exception))
+        done = self.ext.step_smoke_hold_path(self._j(("echo w1", ["app"] * 8), ("echo d1", ["app", "responder"]),
+                                                     ("echo d2", ["responder"])), {"lines": ["echo d1", "echo d2"]})
+        self.assertEqual((done["hold_path"], done["held_keys"]), (True, 1))  # w1's held keys do not count
+
+    def test_a_burst_without_a_hold_counter_is_not_proven(self):
+        with self.assertRaises(self.NotRun) as no:
+            self.ext.step_smoke_hold_path(self._j(burst=None), {})
+        self.assertIn("no debug.input late_keys hold counter", str(no.exception))
+        self.assertTrue(self.ext.step_smoke_hold_path(self._j(burst={"creation": 3}), {})["hold_path"])
 
 
 class Loads(unittest.TestCase):
