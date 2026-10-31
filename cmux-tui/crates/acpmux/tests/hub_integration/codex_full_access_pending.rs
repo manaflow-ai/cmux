@@ -17,7 +17,13 @@ async fn codex_hub() -> (Arc<Hub>, TestClient, std::path::PathBuf) {
     let profile = HarnessProfile {
         kind: Default::default(),
         argv: vec![codex.to_string_lossy().into_owned(), "app-server".into()],
-        env: BTreeMap::from([("CODEX_HOME".into(), home.to_string_lossy().into_owned())]),
+        env: BTreeMap::from([
+            ("CODEX_HOME".into(), home.to_string_lossy().into_owned()),
+            ("FIX_DELTAS".into(), "3".into()),
+            ("FIX_REASON".into(), "1".into()),
+            ("FIX_OUT".into(), "1".into()),
+            ("FIX_LOG".into(), root.join("wire.log").to_string_lossy().into_owned()),
+        ]),
         description: None,
         fallback: None,
         family: Some("codex".into()),
@@ -77,6 +83,8 @@ async fn codex_full_access_switch_settles_a_pending_command_approval() {
     assert_eq!(autos[0]["fullAccess"], "agent-full-access");
     assert_eq!(autos[0]["optionId"], "accept");
     assert!(events.iter().any(|event| event.kind == "permission_decision"), "{events:?}");
+    let wire = std::fs::read_to_string(root.join("wire.log")).unwrap();
+    assert!(wire.contains("approval-decision accept\n"), "{wire}");
     hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(root);
 }

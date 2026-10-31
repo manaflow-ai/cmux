@@ -37,6 +37,7 @@ mod auto_resume;
 mod carried_turns;
 #[path = "hub_integration/cursor_requests.rs"]
 mod cursor_requests;
+#[cfg(unix)]
 #[path = "hub_integration/codex_full_access_pending.rs"]
 mod codex_full_access_pending;
 #[path = "hub_integration/drafts.rs"]
