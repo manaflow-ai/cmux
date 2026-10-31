@@ -1851,7 +1851,7 @@ impl ChildAgent {
                 adopted.servers.as_ref().and_then(|s| s.given.clone()),
             ),
             launch: std::sync::Mutex::new(
-                adopted.servers.as_ref().map(crate::hub::LaunchServers::from_host),
+                adopted.servers.as_deref().map(crate::hub::LaunchServers::from_host),
             ),
             retired: std::sync::Mutex::new(false),
             ended_on_purpose: std::sync::atomic::AtomicBool::new(false),
