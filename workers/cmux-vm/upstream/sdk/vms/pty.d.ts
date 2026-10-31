@@ -11,6 +11,15 @@ export type PtyServerMsg = {
 } | {
     type: "error";
     message: string;
+    fatal?: boolean;
+} | {
+    type: "keepalive";
+    intervalMs: number;
+} | {
+    type: "replayStart";
+    exact?: boolean;
+} | {
+    type: "replayEnd";
 };
 /** Text frames the client may send. Binary frames are raw terminal input. */
 export type PtyClientMsg = {
@@ -39,9 +48,8 @@ export interface PtySessionInfo {
      */
     linuxUser?: string | null;
     /**
-     * The name this session was opened with, while it still answers to it.
-     * Released the moment the shell exits, so an exited session reports none and
-     * is addressable only by `sessionId`.
+     * The name this session was opened with. Retained after exit until the
+     * session is explicitly closed or reaped.
      */
     slug?: string | null;
 }
@@ -100,6 +108,16 @@ export interface PtyAttachOptions {
     linuxUser?: string;
 }
 export interface PtySessionEvents {
+    /** Opt in to automatic reattachment after a successful open/attach. */
+    reconnect?: boolean | PtyReconnectOptions;
+    /** Maximum time to receive sessionInfo on each connection. Default: 15 seconds. */
+    connectTimeoutMs?: number;
+    onStateChange?: (state: PtyConnectionState) => void;
+    /** Exact retained-output boundaries, on agents supporting replay events. */
+    onReplayStart?: (info: {
+        exact: boolean;
+    }) => void;
+    onReplayEnd?: () => void;
     onData?: (data: Uint8Array) => void;
     onExit?: (exitCode: number) => void;
     onClose?: (info: {
@@ -116,49 +134,82 @@ interface Socket {
     close(code?: number, reason?: string): void;
     on?(event: "open" | "message" | "close" | "error", listener: (...args: unknown[]) => void): void;
     addEventListener?(event: string, listener: (event: unknown) => void): void;
+    removeEventListener?(event: string, listener: (event: unknown) => void): void;
+    off?(event: string, listener: (...args: unknown[]) => void): void;
 }
-/**
- * One interactive terminal session. Sessions are owned by the guest agent and
- * outlive the connection that opened them: closing this only detaches, so the
- * shell keeps running and a later `attach()` can pick it back up.
- */
-/** Internal-only: lets {@link VmPty.open} learn the session id from the very
- *  same listener that goes on to handle data/exit frames, so there's never a
- *  gap between a throwaway listener and the real one where a fast command's
- *  output (or even its exit) could arrive and be dropped. */
-interface InternalPtySessionEvents extends PtySessionEvents {
-    onSessionInfo?: (sessionId: number) => void;
+export type PtyConnectionState = "connecting" | "connected" | "reconnecting" | "closed" | "exited";
+export interface PtyReconnectOptions {
+    /** Total time to recover one dropped connection. Default: five minutes. */
+    timeoutMs?: number;
+    /** Initial backoff, with 30% jitter. Default: 400ms. */
+    initialDelayMs?: number;
+    /** Backoff ceiling before jitter. Default: 10 seconds. */
+    maxDelayMs?: number;
 }
+interface SessionTransport {
+    reconnect?: boolean | PtyReconnectOptions;
+    connectTimeoutMs?: number;
+    dimensions?: {
+        cols: number;
+        rows: number;
+    };
+    dial: (sessionId: number, signal: AbortSignal) => Promise<Socket>;
+}
+/** A stable handle across reattachments. Input is never retried or buffered. */
 export declare class PtySession {
+    private readonly events;
+    private readonly transport?;
     private _sessionId;
     private _slug;
     private _created;
-    private readonly socket;
-    constructor(socket: Socket, sessionId: number, events?: InternalPtySessionEvents);
-    /** Send raw bytes (or UTF-8 text) to the guest's stdin. */
+    private _state;
+    private socket;
+    private listeners;
+    private retryTimer?;
+    private connectTimer?;
+    private healthTimer?;
+    private controller?;
+    private generation;
+    private attempt;
+    private deadline;
+    private stopped;
+    private exited;
+    private fatal;
+    private established;
+    private closeReported;
+    private lastFrameAt;
+    private silenceMs;
+    private dimensions?;
+    private removeWakeListeners?;
+    private resolveReady;
+    private rejectReady;
+    /** Resolves only once sessionInfo has arrived, including when attaching by slug. */
+    readonly ready: Promise<void>;
+    constructor(socket: Socket, sessionId: number, events?: PtySessionEvents, transport?: SessionTransport | undefined);
+    private setState;
+    private clearConnection;
+    private bind;
+    private lost;
+    private scheduleRetry;
+    private redial;
+    private finish;
+    /** Retry now after a network change or an exhausted retry budget. Never opens a new shell. */
+    reconnect(): void;
+    /** Send input once. Throws while disconnected; uncertain keystrokes are never replayed. */
     write(data: Uint8Array | string): void;
+    /** Remember the latest dimensions and apply them again after recovery. */
     resize(options: {
         cols: number;
         rows: number;
     }): void;
-    signal(sig: "sigint" | "sigkill"): void;
-    private sendControl;
-    /** Close the connection. The shell keeps running; a later `attach()` can reconnect. */
+    signal(signal: "sigint" | "sigkill"): void;
+    /** Cancel recovery and detach. The guest process remains alive. */
     detach(): void;
     get sessionId(): number;
-    /**
-     * The name this session answers to, from the server's `sessionInfo` frame.
-     * `undefined` for a session opened without a slug — reattach to that one by
-     * `sessionId` instead.
-     */
     get slug(): string | undefined;
-    /**
-     * Whether `open()` started this shell, or handed back one that was already
-     * running under the same `slug`. `false` means your `exec` never ran — check
-     * it before waiting on output from a command you thought you started.
-     */
     get created(): boolean;
     get readyState(): number;
+    get state(): PtyConnectionState;
 }
 /** The `vm.pty` surface: open/attach terminal WebSockets, and list/close sessions over REST. */
 export declare class VmPty {
@@ -174,6 +225,7 @@ export declare class VmPty {
     open(options?: PtyOpenOptions & PtySessionEvents): Promise<PtySession>;
     /** Reattach to an existing session; retained scrollback replays first. */
     attach(options: PtyAttachOptions & PtySessionEvents): Promise<PtySession>;
+    private session;
     /** List the VM's terminal sessions, running and recently exited. */
     list(options?: {
         linuxUser?: string;

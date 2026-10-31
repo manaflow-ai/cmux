@@ -16,6 +16,9 @@ public nonisolated struct SidebarItemInfo: Hashable, Sendable {
     public var badge: Int?
     /// The window shows this item (Home, a pinned workspace).
     public var isActive: Bool
+    /// A pinned workspace in the sidebar's multi-selection, not the shown one: drawn with the secondary
+    /// selection fill, as its list row would be. The region sets it (`SidebarRegionView.selectedWorkspaces`).
+    public var isSecondarySelected = false
     /// The reference no longer resolves (a closed workspace): drawn dimmed.
     public var isMissing: Bool
     /// Not drawn at all (a hidden app, D55); the item stays in the layout.
@@ -144,6 +147,7 @@ extension SidebarBuiltIn {
         case .customize: "paintbrush"
         case .searchChats: "magnifyingglass"
         case .chief: "sparkles"
+        case .automations: "clock.badge.checkmark"
         }
     }
 
@@ -163,6 +167,7 @@ extension SidebarBuiltIn {
         case .customize: .theme
         case .searchChats: .search
         case .chief: .agentChief
+        case .automations: .automation
         }
     }
 
@@ -187,6 +192,7 @@ extension SidebarBuiltIn {
         case .customize: SectionStrings.customize
         case .searchChats: SectionStrings.searchChats
         case .chief: SectionStrings.chief
+        case .automations: SectionStrings.automations
         }
     }
 

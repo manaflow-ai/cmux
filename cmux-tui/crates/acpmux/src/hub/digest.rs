@@ -51,6 +51,10 @@ use super::*;
 use cmux_json::JsonSet as _;
 use std::sync::atomic::Ordering;
 
+// `acpmux session inbox NAME --digest`: the agent messages waiting go in as one digest.
+#[path = "inbox_digest.rs"]
+pub(super) mod inbox_digest;
+
 /// Text one turn of agent messages takes at most (the first message always goes in whole).
 pub(super) const DIGEST_MAX_BYTES: usize = 128 * 1024;
 
@@ -148,7 +152,7 @@ pub(super) fn digest_provenance(parts: &[Part]) -> Value {
         .map(|part| {
             let mut m = json!({"promptId": part.prompt_id, "from": part.sender});
             if let Some(class) = part.run.class {
-                m["class"] = json!(class);
+                m.set("class", json!(class));
             }
             if let Some(p) = &part.run.provenance {
                 m.set("provenance", p.clone());
@@ -163,7 +167,9 @@ pub(super) fn digest_provenance(parts: &[Part]) -> Value {
 pub const DIGEST_KIND: &str = "agent_digest";
 
 /// What a joined prompt's `session/prompt` answers: the answer of the turn it joined, under its
-/// own prompt id, naming that turn.
+/// own prompt id, naming that turn: the one the answer names when it names one (an inbox digest
+/// steered into the turn that ran then, or run as a turn of its own when that turn ended first,
+/// `inbox_digest.rs`), else the one it joined.
 pub(super) async fn joined_reply(joined: &Joined, prompt_id: &str) -> Answer {
     let mut answer = joined.answer.clone();
     let answer = match answer.wait_for(Option::is_some).await {
@@ -171,9 +177,11 @@ pub(super) async fn joined_reply(joined: &Joined, prompt_id: &str) -> Answer {
         Err(_) => Err(RpcError::internal("the turn this prompt joined was dropped")),
     };
     answer.map(|mut v| {
+        let ran_in = v.pointer("/_meta/acpmux/turnId").and_then(Value::as_str);
+        let turn_id = ran_in.unwrap_or(&joined.turn_id).to_owned();
         merge_mux_meta(
             &mut v,
-            json!({"promptId": prompt_id, "turnId": joined.turn_id, "joinedPromptId": joined.prompt_id}),
+            json!({"promptId": prompt_id, "turnId": turn_id, "joinedPromptId": joined.prompt_id}),
         );
         v
     })
@@ -186,16 +194,37 @@ impl Hub {
         name.filter(|n| !n.trim().is_empty()).unwrap_or_else(|| id.to_owned())
     }
 
-    /// After a completed turn: the agent messages a failed turn held run again, in place.
-    pub(super) fn release_held_agent_messages(&self, session: &Arc<Session>) {
-        let ids: Vec<String> = session
-            .queue()
-            .iter()
-            .filter(|q| q.held && q.run.agent.is_some())
-            .map(|q| q.prompt_id.clone())
-            .collect();
+    /// After a completed turn: the agent messages a failed turn held run again, in place. It ends
+    /// a person's Stop's hold too (`cancel.rs`), but only `hold`, the one the caller saw (0: none):
+    /// a Stop since then keeps them held. The hold is checked and ended under the queue lock,
+    /// where `hold_agent_messages` begins it, so a Stop is never lost between the two.
+    pub(super) fn release_held_agent_messages(&self, session: &Arc<Session>, hold: u64) {
+        let ids: Vec<String> = {
+            let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            if session
+                .stop_hold
+                .compare_exchange(hold, 0, Ordering::SeqCst, Ordering::SeqCst)
+                .is_err()
+            {
+                return;
+            }
+            queue
+                .iter_mut()
+                .filter(|q| q.held && q.run.agent.is_some())
+                .map(|q| {
+                    q.held = false;
+                    q.prompt_id.clone()
+                })
+                .collect()
+        };
         if !ids.is_empty() {
-            self.resume_held(session, &ids);
+            session.queue_moved.notify_waiters();
+            self.append(
+                session,
+                "mux",
+                "queue_resumed",
+                json!({"queued": session.queued(), "promptIds": ids}),
+            );
         }
     }
 
@@ -266,9 +295,24 @@ impl Hub {
     ) -> Vec<Part> {
         // A slash command (`/compact`) runs only as a turn's first words: it goes in alone. So does
         // a message with uploaded files: its turn reads and checks them (`prompt_uploads.rs`).
+        // An inbox digest goes in as it was made (`inbox_digest.rs`): it leads none.
+        // An inbox digest's turn takes over the messages it took, so a failed turn puts them
+        // back as it puts back any that joined it: held only after its prompt reached the agent.
+        // Also once the person edited it (it is their prompt then, `queue_edit.rs`).
+        let made =
+            session.inbox_digests.lock().unwrap_or_else(|e| e.into_inner()).remove(prompt_id);
+        if let Some(made) = made {
+            let taken = std::mem::take(&mut *made.taken.lock().unwrap_or_else(|e| e.into_inner()));
+            *digest.taken.lock().unwrap_or_else(|e| e.into_inner()) = taken;
+        }
+        if inbox_digest::is_digest(head.provenance.as_ref()) {
+            return Vec::new();
+        }
+        // A review box runs each agent message as its own prompt behind the review (`inbox.rs`).
         if head.agent.is_none()
             || super::forum::slash_command(&head.blocks).is_some()
             || crate::prompt_uploads::any(&head.blocks)
+            || super::inbox::review_box(session)
         {
             return Vec::new();
         }
@@ -294,7 +338,8 @@ impl Hub {
                     && !q.sent_now
                     && q.run.control == head.control
                     && q.run.trust_gate == head.trust_gate
-                    && !super::subsession_guard::is_family_prompt(q.run.provenance.as_ref());
+                    && !super::subsession_guard::is_family_prompt(q.run.provenance.as_ref())
+                    && !inbox_digest::is_digest(q.run.provenance.as_ref());
                 let size = blocks_bytes(&q.run.blocks);
                 if !joins || bytes + size > DIGEST_MAX_BYTES {
                     break;
@@ -342,8 +387,8 @@ impl Hub {
     /// (`hold`) they are held: the chat's next completed turn or the retry wait releases them
     /// (`release_held_agent_messages`, `retry_held_agent_messages`). After a turn that never
     /// reached it (its agent could not start, or it was refused) they are not: like the prompts
-    /// behind it, each gets its own try. An agent that read them before failing may read them
-    /// twice.
+    /// behind it, each gets its own try. A message held before it was taken (an inbox digest
+    /// takes held ones) stays held. An agent that read them before failing may read them twice.
     pub(super) fn requeue_joined(
         self: &Arc<Self>,
         session: &Arc<Session>,
@@ -357,13 +402,16 @@ impl Hub {
         if taken.is_empty() || session.meta().status == SessionStatus::Closed {
             return;
         }
-        let ids: Vec<String> = taken.iter().map(|q| q.prompt_id.clone()).collect();
+        // A person's Stop holds every other agent's message (`cancel.rs`): these come back held
+        // by it, so they never start a turn the moment the stopped one ended.
+        let by_stop = session.stop_hold.load(Ordering::SeqCst) != 0;
+        let hold = hold || by_stop;
         let order: Vec<String> = {
             let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             for (i, mut q) in taken.iter().cloned().enumerate() {
                 *q.joined.lock().unwrap_or_else(|e| e.into_inner()) = None;
                 (q.held, q.steer, q.sent_now, q.restored, q.resume, q.requeued) =
-                    (hold, false, false, false, false, true);
+                    (q.held || hold, false, false, false, false, true);
                 queue.insert(i, q);
                 session.queued.fetch_add(1, Ordering::SeqCst);
             }
@@ -378,7 +426,7 @@ impl Hub {
                 queued.set("fromAgent", json!(agent));
             }
             if let Some(class) = q.run.class {
-                queued["class"] = json!(class);
+                queued.set("class", json!(class));
             }
             let images = super::prompt_images::keep(&q.run.blocks);
             if !images.is_empty() {
@@ -388,12 +436,20 @@ impl Hub {
             let queued = crate::prompt_provenance::marked(queued, q.run.provenance.as_ref());
             self.append(session, "mux", "queued", queued);
         }
-        if hold {
-            self.append(session, "mux", "queue_paused", json!({"held": ids, "requeued": true}));
+        // Held: by this failure, or before an inbox digest took them. Their retry is scheduled
+        // again: the one their hold scheduled may have found none of them while they were out.
+        let held: Vec<&String> =
+            taken.iter().filter(|q| q.held || hold).map(|q| &q.prompt_id).collect();
+        if !held.is_empty() {
+            let mut msg = json!({"held": held, "requeued": true});
+            if by_stop {
+                msg.set("reason", json!("stop"));
+            }
+            self.append(session, "mux", "queue_paused", msg);
         }
         self.append(session, "mux", "queue_order", json!({"order": order}));
         session.queue_moved.notify_waiters();
-        if hold {
+        if !held.is_empty() {
             self.retry_held_agent_messages(session);
         }
     }
@@ -401,6 +457,15 @@ impl Hub {
 
 /// What one prompt's turn hands the agent messages that join it: its answer, and the queue
 /// entries they left, which go back if it fails.
+/// A turn of agent messages a restart cut and handed to the next daemon: that daemon continues
+/// it with the words of every message that joined it (its `user_message` holds them all,
+/// `restart_resume.rs`), so none goes back to this daemon's queue (`requeue_joined`).
+pub(super) fn forget_joined(joined: Option<&DigestTurn>) {
+    if let Some(joined) = joined {
+        joined.taken.lock().unwrap_or_else(|e| e.into_inner()).clear();
+    }
+}
+
 pub(super) struct DigestTurn {
     pub(super) answer: tokio::sync::watch::Sender<Option<Answer>>,
     taken: StdMutex<Vec<QueuedPrompt>>,
@@ -438,6 +503,8 @@ mod tests {
             class: None,
             supersede: None,
             full_access_device: None,
+            message_id: None,
+            message_sender: None,
         })
     }
 
