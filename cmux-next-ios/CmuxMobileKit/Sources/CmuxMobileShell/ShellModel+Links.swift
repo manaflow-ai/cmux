@@ -49,8 +49,10 @@ extension NotificationTarget {
         case .group(_, let id):
             guard let id else { return .workspaces }
             return workspace(id).map { .workspace(id: $0.id, tabID: nil) }
-        case .conversation:
-            return .chief
+        case .conversation(let conversationID, _):
+            // The same destination as a Chief notification, which already
+            // knows how to open a named Cloud or Mac Home conversation.
+            return .chief(conversationID: conversationID)
         }
     }
 
