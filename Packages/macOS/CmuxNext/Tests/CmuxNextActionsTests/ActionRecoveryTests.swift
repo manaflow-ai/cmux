@@ -60,6 +60,18 @@ struct ActionRecoveryTests {
         #expect(!other.menuTarget.validateMenuItem(disabled))
     }
 
+    /// A context menu row shows the recovery's note, never the stale reason.
+    @Test func aContextMenuRowShowsTheRecoveryNote() {
+        let (registry, _, _) = Self.signedOut()
+        let item = NSMenuItem(title: "Open Desktop", action: nil, keyEquivalent: "")
+        ActionTargetTitles.decorate(item, id: Self.id, invocation: ActionInvocation(), in: registry)
+        #expect(item.toolTip == "signs in first")
+        let (other, _, _) = Self.signedOut(reason: "no backend")
+        let disabled = NSMenuItem(title: "Open Desktop", action: nil, keyEquivalent: "")
+        ActionTargetTitles.decorate(disabled, id: Self.id, invocation: ActionInvocation(), in: other)
+        #expect(disabled.toolTip == "no backend")
+    }
+
     /// A key equivalent the key router gave elsewhere still loses, recovery or not.
     @Test func theMenuKeyEquivalentGateStillHolds() throws {
         let (registry, _, _) = Self.signedOut()
