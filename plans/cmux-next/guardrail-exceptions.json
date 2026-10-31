@@ -1,0 +1,25 @@
+{
+  "_doc": "Dated, reviewed exceptions for guardrails.py fact rules (app-size, app-type) on one file each; read by guardrails.excepted at the pushed head. Fields and receipt as arch-ratchet.json's exceptions; an expired or self-reviewed entry allows nothing.",
+  "exceptions": [
+    {
+      "date": "2026-10-31",
+      "rule": "app-size",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudStartChat.swift",
+      "why": "cmux#28111 (cloud.startChat, Leo 2026-10-30: \"like the initial 0 to 1 chat auto it sends to cloud\"): a new App file. It drives CloudService, CloudMove, the machine store and the agent tabs, which all live in CmuxNextApp today, so no domain package can hold it without moving those first. Its logic (the machine pick, the per-send ledger, the account checks) moves to acpmux/cmux-tui in the cloud.startChat Rust move, which deletes this file; the same reason as its app_lines entry in arch-ratchet.json.",
+      "author": "claude lane carry-26791-crash (cmux#28111)",
+      "owner": "the cloud.startChat Rust move (follow-up of cmux#28111)",
+      "receipt": "Review (codex gpt-6-astra, router-review): SHIP at d76a98d8f47f8b85a4c2f8d4e4b644d183978d17",
+      "expiry": "2026-11-21"
+    },
+    {
+      "date": "2026-10-31",
+      "rule": "app-size",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudStartChat+Machine.swift",
+      "why": "cmux#28111 (cloud.startChat, Leo 2026-10-30: \"like the initial 0 to 1 chat auto it sends to cloud\"): a new App file. It drives CloudService, CloudMove, the machine store and the agent tabs, which all live in CmuxNextApp today, so no domain package can hold it without moving those first. Its logic (the machine pick, the per-send ledger, the account checks) moves to acpmux/cmux-tui in the cloud.startChat Rust move, which deletes this file; the same reason as its app_lines entry in arch-ratchet.json.",
+      "author": "claude lane carry-26791-crash (cmux#28111)",
+      "owner": "the cloud.startChat Rust move (follow-up of cmux#28111)",
+      "receipt": "Review (codex gpt-6-astra, router-review): SHIP at d76a98d8f47f8b85a4c2f8d4e4b644d183978d17",
+      "expiry": "2026-11-21"
+    }
+  ]
+}

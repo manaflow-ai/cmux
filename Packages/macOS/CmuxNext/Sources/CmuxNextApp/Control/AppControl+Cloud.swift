@@ -167,15 +167,15 @@ extension AppControl {
         return id
     }
 
-    /// The signed-in Cloud client. The Cloud policy and Labs gate only a new sandboxed run
-    /// (`newRun`): waiting on or cancelling one that exists stays open, so turning either off
-    /// mid-run never strands a billable VM without its receipt or its cancel.
+    /// The signed-in Cloud client. The Cloud policy gates only a new sandboxed run (`newRun`):
+    /// waiting on or cancelling one that exists stays open, so turning it off mid-run never strands
+    /// a billable VM without its receipt or its cancel. Not behind Labs (Leo, 2026-10-30): the CLI's
+    /// `cmux run --sandboxed` is the person's explicit ask for the run.
     nonisolated private static func runsAPI(_ services: AppServices, newRun: Bool) async throws -> CloudAPIClient {
         try await MainActor.run {
             if newRun, let refusal = ControlError.policyRefusal("runs.sandbox.create", disabled: services.registry.disabledFeatures) { throw refusal }
-            guard !newRun || services.settings?.snapshot.previewFeatures == true else {
-                throw ControlError(code: "labs_off", message: String(localized: "runs.error.labsOff", defaultValue: "Sandboxed runs are a preview. Turn on Settings > Advanced > Labs > Show Preview Features.", table: "Runs", bundle: .module))
-            }
+            // A managed team missing or a local-only backend: no new run asks the server (mayCallCloud).
+            guard !newRun || services.cloud.mayCallCloud else { throw ControlError(code: "cloud_disabled", message: String(localized: "runs.error.cloudUnavailable", defaultValue: "cmux Cloud is not available for this account or team.", table: "Runs", bundle: .module)) }
             guard services.cloud.isSignedIn else { throw ControlError(code: "not_signed_in", message: String(localized: "runs.error.notSignedIn", defaultValue: "Sign in to cmux in the cmux app first.", table: "Runs", bundle: .module)) }
             return services.cloud.api
         }

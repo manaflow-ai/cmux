@@ -371,7 +371,15 @@ button.cv-subagent > :last-child {
   outline: 2px solid var(--agent-accent);
   outline-offset: -2px;
 }
+/* The dot's slot: a harness mark (size 9) or the toned dot below, either at the same size. */
+.acpmux-agents-list__mark {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
 .acpmux-agents-list__dot {
+  display: block;
   flex: none;
   width: 9px;
   height: 9px;
@@ -866,6 +874,22 @@ button.cv-subagent > :last-child {
 .acpmux-running-tray {
   --acpmux-tray-enter: cv-enter var(--agent-motion-in, 120ms) var(--agent-ease-out, ease-out) both;
   --acpmux-tray-leave: acpmux-tray-leave var(--agent-motion-out, 80ms) var(--agent-ease-out, ease-out) both;
+  /* A line that joins the open list arrives as a live transcript row does (Leo 2026-10-27: "the
+     bottom running situation still not animating correctly"): the same cv-enter on the same tokens
+     as the card, not the popup's ui-enter (8px on --ui-enter-duration and --ui-enter-ease) that its
+     `data-enter` gives it in ui/popupSurface.css. The attribute stays: SubagentTray.tsx listens for
+     the line's animationend through it, and trayMotion.tsx's leaving copy holds it where it is drawn. */
+  --acpmux-tray-line-enter: cv-enter var(--agent-motion-in, 120ms) var(--agent-ease-out, ease-out) both;
+}
+.acpmux-running-tray__list > li[data-enter] {
+  animation: var(--acpmux-tray-line-enter);
+}
+/* Reduce Motion keeps a transcript row's fade without its rise (conversation.css cv-enter-fade); the
+   tray marks no arrival then (SubagentTray.tsx), so this only keeps the two in step if one is marked. */
+@media (prefers-reduced-motion: reduce) {
+  .acpmux-running-tray__list > li[data-enter] {
+    animation: cv-enter-fade var(--agent-motion-in, 120ms) var(--agent-ease-out, ease-out) both;
+  }
 }
 /* The bottom stack's own rise-on-mount (bottomStack.css) played on every mount, a chat switch too:
    the tray enters only when it appears in a chat that showed without it. */

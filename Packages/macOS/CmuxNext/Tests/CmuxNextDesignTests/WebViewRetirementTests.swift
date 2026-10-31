@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextTestSupport
 import CmuxNextWakeupsTestSupport
 import Testing
 import WebKit
@@ -10,7 +11,7 @@ import WebKit
 /// `WebViewRetirement` takes a closed page's web view out of its window at once and closes its page
 /// only after the scrolling stopped, on its own turn.
 @MainActor
-@Suite(.serialized, .timeLimit(.minutes(1)))
+@Suite(.serialized, .timeLimit(.minutes(1)), .closesItsWindows)
 struct WebViewRetirementTests {
     /// Records the pages it closes; ``waitForCloses(_:)`` waits until it has closed that many.
     @MainActor private final class Closer {
