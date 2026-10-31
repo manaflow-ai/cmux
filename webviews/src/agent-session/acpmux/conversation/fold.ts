@@ -2,8 +2,8 @@
 // settled run) open and close in one motion: the body's height and opacity, over the shared fold
 // duration, easing out, while the chevron turns with it (conversation.css `.cv-rotor`). Reduce
 // Motion, the host's animation switches (`data-agent-motion="off"`, a 0 ms token) and a page with no
-// Web Animations open and close at once. The clicked line itself never moves: VirtualTranscript
-// holds it in place while the fold plays (`FoldAnchor`, App.tsx).
+// Web Animations open and close at once. Away from the bottom, VirtualTranscript holds the clicked
+// line. A tool fold at the bottom lays out at once here and uses one thread transform in App.tsx.
 import { useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { isAgentMotionOff } from "../../shared/motion";
 
