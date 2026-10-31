@@ -244,6 +244,7 @@ public final class GhosttyRuntime {
                                                            ownerPaintsBackground: Self.terminalBackgroundOverridden || Self.seeThroughShown) {
             line.withCString { ghostty_config_load_string(config, $0, UInt(line.utf8.count), "cmux-next") }
         }
+        loadLinkReports(into: config)
         ghostty_config_finalize(config)
         loadImageStorageDefaultIfUnset(into: config)
         let count = ghostty_config_diagnostics_count(config)

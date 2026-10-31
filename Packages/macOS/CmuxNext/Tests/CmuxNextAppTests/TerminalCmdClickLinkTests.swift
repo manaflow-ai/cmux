@@ -13,28 +13,32 @@ import Testing
     /// Mouse modes Codex 0.163 sets (alt screen, button and any-motion tracking in SGR).
     static let mouseModes = "\u{1b}[?1049h\u{1b}[?1000h\u{1b}[?1002h\u{1b}[?1003h\u{1b}[?1006h"
 
-    /// Records link opens; every link the filter asks about is one, answered off the main
-    /// thread as the app's file check is.
+    /// Records link opens. The link check answers off the main thread as the app's file check
+    /// does; by default every text it is asked about is a link.
     final class Opens: TerminalSessionDelegate {
         var texts: [String] = []
+        let accepts: @Sendable (String) -> Bool
+        init(accepts: @escaping @Sendable (String) -> Bool = { _ in true }) { self.accepts = accepts }
         func terminalSession(_ session: TerminalSession, openLink text: String) -> Bool {
             texts.append(text)
             return true
         }
 
         func terminalSessionLinkCheck(_ session: TerminalSession) -> TerminalLinkCheck? {
-            { _, _ in true }
+            let accepts = accepts
+            return { text, _ in accepts(text) }
         }
     }
 
     final class Harness {
         let io = ScriptedTerminalIO()
         let session: TerminalSession
-        let opens = Opens()
+        let opens: Opens
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 640, height: 320), styleMask: [.borderless],
                               backing: .buffered, defer: false)
 
-        @MainActor init(focused: Bool = true) throws {
+        @MainActor init(focused: Bool = true, accepts: @escaping @Sendable (String) -> Bool = { _ in true }) throws {
+            opens = Opens(accepts: accepts)
             _ = NSApplication.shared
             _ = GhosttyRuntime.shared
             session = TerminalSession(io: io)
@@ -181,10 +185,79 @@ import Testing
         try await h.hover(4, 2)
         #expect(h.session.linkPointerStateForTesting.wrapped == url)
         #expect(h.session.linkPointerStateForTesting.pointingHand)
+        // Ghostty finds nothing on the second row: cmux underlines both rows.
+        #expect(h.session.model.hoveredLink == nil)
+        #expect(h.session.linkPointerStateForTesting.underlinedRows == [1, 2])
         h.session.clickLinkForTesting(column: 4, row: 2)
         try await h.hover(10, 1)
+        // Ghostty underlines the first row's piece itself: cmux underlines only the second row.
+        #expect(h.session.model.hoveredLink == first)
+        #expect(h.session.linkPointerStateForTesting.underlinedRows == [2])
         h.session.clickLinkForTesting(column: 10, row: 1)
         #expect(h.opens.texts == [url, url])
+    }
+
+    /// The second row of a broken URL is underlined even when its text also appears in the first
+    /// row's piece, which Ghostty underlines itself (only the pointer's row is Ghostty's).
+    @Test func aShortTailOfABrokenURLIsStillUnderlined() async throws {
+        let h = try Harness()
+        defer { h.close() }
+        let width = h.columns - 2
+        let first = "https://example.com/v1/" + String(repeating: "a", count: width - 23)
+        let url = first + "1"
+        try await h.output(Self.mouseModes + "\u{1b}[2;3H\(first)\u{1b}[3;3H1", showing: "v1")
+        try await h.hover(10, 1)
+        try await h.hover(11, 1)
+        #expect(h.session.model.hoveredLink == first)
+        #expect(h.session.linkPointerStateForTesting.wrapped == url)
+        #expect(h.session.linkPointerStateForTesting.underlinedRows == [2])
+    }
+
+    /// A URL the terminal wrapped, or an OSC 8 link on several rows, Ghostty finds and underlines on
+    /// every row itself: cmux adds no line of its own (two lines under each row before), and the click
+    /// is Ghostty's, which opens the whole link.
+    @Test func aLinkGhosttyUnderlinesGetsNoSecondUnderline() async throws {
+        let h = try Harness()
+        defer { h.close() }
+        let url = "https://example.com/terminal-wrapped/" + String(repeating: "part-", count: h.columns / 5 + 2) + "end"
+        try await h.output(Self.mouseModes + "\u{1b}[2;1H\u{1b}]8;;\(url)\u{1b}\\\(url)\u{1b}]8;;\u{1b}\\", showing: "end")
+        try await h.hover(4, 2)
+        #expect(h.session.model.hoveredLink == url)
+        #expect(h.session.linkPointerStateForTesting.wrapped == nil)
+        #expect(h.session.linkPointerStateForTesting.underlinedRows.isEmpty)
+        h.session.clickLinkForTesting(column: 4, row: 2)
+        #expect(h.opens.texts == [url])
+    }
+
+    /// A bare file name (`index.js:57:1`) has no folder part, so Ghostty's path pattern misses it.
+    /// One that names a file is underlined with the hand, and a Cmd-click opens it with its line,
+    /// also in a program that reads the mouse, which never sees the click. One that names nothing
+    /// stays plain text.
+    @Test func aBareFileNameThatExistsIsALink() async throws {
+        let h = try Harness(accepts: { $0 == "./index.js:57:1" })
+        defer { h.close() }
+        // The shell reports its folder (OSC 7), as cmux's shell integration does; a bare name is a
+        // path in it.
+        try await h.output("\u{1b}]7;file://localhost/tmp\u{7}" + Self.mouseModes
+            + "\u{1b}[2;3HAnswer: index.js:57:1.\u{1b}[3;3HNot here: missing.py:3", showing: "missing")
+        try await h.wait { h.session.surfaceView.surface.map(ghostty_surface_mouse_captured) == true && h.session.model.workingDirectory != nil }
+        try await h.hover(14, 1)
+        try await h.hover(15, 1)
+        #expect(h.session.model.hoveredLink == nil, "Ghostty matched a bare file name")
+        #expect(h.session.linkPointerStateForTesting.wrapped == "./index.js:57:1")
+        #expect(h.session.linkPointerStateForTesting.underlinedRows == [1])
+        #expect(h.session.linkPointerStateForTesting.pointingHand)
+        let start = h.io.writes.count
+        h.session.clickLinkForTesting(column: 15, row: 1)
+        #expect(h.opens.texts == ["./index.js:57:1"])
+        let click = try await h.clicks(since: start)
+        #expect(click.presses == 0 && click.releases == 0, "the program saw the Cmd-click: \(click)")
+
+        try await h.hover(16, 2)
+        try await h.hover(17, 2)
+        #expect(h.session.linkPointerStateForTesting.wrapped == nil)
+        h.session.clickLinkForTesting(column: 17, row: 2)
+        #expect(h.opens.texts == ["./index.js:57:1"])
     }
 
     @Test func aPrintedPathKeepsItsLineAndColumn() {
@@ -219,14 +292,6 @@ import Testing
         let margin = ["  see https://example.com/abcd", "  efg/h?i=1"]
         #expect(TerminalWrappedLink.find(rows: margin, firstRow: 0, columns: 32, column: 3, row: 1)?.text
             == "https://example.com/abcdefg/h?i=1")
-        // Ghostty's own link (rows the terminal wrapped) joins rows whatever their edges, and only
-        // as far as that link goes.
-        let soft = ["  1: https://example.com/abc-", "  def-ghi end. Line 2", "  next"]
-        let joined = TerminalWrappedLink.find(rows: soft, firstRow: 0, columns: 40, column: 4, row: 1,
-                                              hint: "https://example.com/abc-def-ghi")
-        #expect(joined?.text == "https://example.com/abc-def-ghi")
-        #expect(joined?.segments.map(\.row) == [0, 1])
-        #expect(TerminalWrappedLink.find(rows: soft, firstRow: 0, columns: 40, column: 4, row: 1) == nil)
         // A table's column border is not the row's frame: the next row's first word stays out.
         let table = ["│ docs │ https://example.com/a │ ok │", "│ more │ text                  │    │"]
         #expect(TerminalWrappedLink.find(rows: table, firstRow: 0, columns: 37, column: 12, row: 0) == nil)
@@ -234,5 +299,25 @@ import Testing
         let emoji = ["⚠️ https://example.com/aaaaaaaa", "bbb/c"]
         #expect(TerminalWrappedLink.find(rows: emoji, firstRow: 0, columns: 31, column: 1, row: 1)?.text
             == "https://example.com/aaaaaaaabbb/c")
+    }
+
+    @Test func aBareFileNameIsReadAsAPathInTheTerminalsFolder() {
+        let row = "  see index.js:57:1. or (main.c:3), README.md, app.py:12 and src/x.ts v1.2 e.g. https://a.io"
+        func word(at needle: String, _ offset: Int = 1) -> String? {
+            guard let range = row.range(of: needle) else { return nil }
+            let column = row.distance(from: row.startIndex, to: range.lowerBound) + offset
+            return TerminalWrappedLink.pathWord(in: row, columns: 120, column: column, row: 4)?.text
+        }
+        #expect(word(at: "index.js") == "./index.js:57:1")
+        #expect(word(at: "main.c") == "./main.c:3")
+        #expect(word(at: "README") == "./README.md")
+        #expect(word(at: "app.py") == "./app.py:12")
+        // A folder part, a version number and a scheme are Ghostty's, or no file name at all.
+        #expect(word(at: "src/x.ts") == nil)
+        #expect(word(at: "src/x.ts", 5) == nil)
+        #expect(word(at: "v1.2") == nil)
+        #expect(word(at: "https") == nil)
+        let segment = TerminalWrappedLink.pathWord(in: row, columns: 120, column: 7, row: 4)?.segments.first
+        #expect(segment == TerminalWrappedLink.Segment(row: 4, start: 6, end: 18, text: "index.js:57:1"))
     }
 }
