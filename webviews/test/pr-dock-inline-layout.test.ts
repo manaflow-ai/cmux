@@ -375,4 +375,130 @@ await requireBrowserLane("pr-dock-inline-layout.test.ts", () => {
         await page.close();
       }
     });
+  // Many PRs (Leo's "+53" row): stills at 2x for the PR body, before and after. Captures only;
+  // the assertions are the tests below, so this also runs on the base renderer.
+  for (const theme of ["Apple System Colors", "Apple System Colors Light"])
+    for (const variant of ["readable-titles", "numbers-only", "inline-last-line"])
+      test(`${variant} still in ${theme}`, async () => {
+        const page = await browser.newPage({ viewport: { width: 760, height: 420 }, deviceScaleFactor: 2 });
+        const tone = theme.endsWith("Light") ? "light" : "dark";
+        try {
+          const { port } = vite.httpServer!.address() as { port: number };
+          await page.goto(`http://127.0.0.1:${port}${galleryFrame("agent-pane.pr-dock", { variant, width: 760, theme })}`);
+          await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
+          await page.locator(".acpmux-pr-dock").waitFor();
+          await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+          await page.screenshot({ path: `${captures}/many-${variant}-${tone}.png` });
+          const more = page.locator(".acpmux-pr-dock__more").last();
+          if (await more.count()) {
+            await more.click();
+            await page.locator(".acpmux-pr-dock__popover").waitFor();
+            await page.screenshot({ path: `${captures}/many-${variant}-${tone}-open.png` });
+          }
+        } finally {
+          await page.close();
+        }
+      });
+
+  /// Every drawn chip's title, its drawn width and whole width, and the least readable width (12ch).
+  const chips = (page: import("playwright").Page, scope: string) =>
+    page.evaluate((scope) => {
+      const probe = document.createElement("span");
+      probe.style.cssText = "position:absolute;visibility:hidden;width:12ch";
+      const host = document.querySelector(scope)!;
+      host.appendChild(probe);
+      const readable = probe.getBoundingClientRect().width;
+      probe.remove();
+      return [...host.querySelectorAll<HTMLElement>(".acpmux-pr-dock__bar")].map((bar) => {
+        const title = bar.querySelector<HTMLElement>(".acpmux-pr-dock__title");
+        return {
+          number: bar.querySelector(".acpmux-pr-dock__number")?.textContent ?? "",
+          title: title?.textContent ?? null,
+          drawn: title?.getBoundingClientRect().width ?? 0,
+          whole: title?.scrollWidth ?? 0,
+          readable,
+        };
+      });
+    }, scope);
+
+  for (const theme of ["Apple System Colors", "Apple System Colors Light"])
+    for (const width of [760, 420, 320])
+      test(`${width}px in ${theme}: 55 PRs read as numbers or readable titles, on their own right-aligned line`, async () => {
+        const page = await browser.newPage({ viewport: { width, height: 660 } });
+        try {
+          const { port } = vite.httpServer!.address() as { port: number };
+          await page.goto(
+            `http://127.0.0.1:${port}${galleryFrame("agent-pane.pr-dock", { variant: "readable-titles", width, theme })}`,
+          );
+          await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
+          const dock = page.locator(".acpmux-pr-dock");
+          await dock.waitFor();
+          expect(await dock.count()).toBe(1);
+          const drawn = await chips(page, ".acpmux-pr-dock");
+          expect(drawn.length).toBeGreaterThanOrEqual(1);
+          expect(drawn.length).toBeLessThanOrEqual(2);
+          for (const chip of drawn) {
+            expect(chip.number).toMatch(/^#\d+$/);
+            // A title is whole, or cut no shorter than 12 characters: never "cm…".
+            if (chip.title !== null) expect(chip.drawn + 1).toBeGreaterThanOrEqual(Math.min(chip.whole, chip.readable));
+          }
+          if (width === 760) expect(drawn.every((chip) => chip.title)).toBe(true);
+          // Its own line, right-aligned under the reply's last words.
+          const place = await dock.evaluate((node) => {
+            const paragraph = node.closest(".cv-p, p, li") ?? node.parentElement!.parentElement!;
+            const text = document.createRange();
+            text.selectNodeContents(paragraph);
+            text.setEndBefore(node.parentElement!);
+            const lines = [...text.getClientRects()].filter((rect) => rect.width > 0);
+            const last = lines.at(-1)!;
+            const dockBox = node.getBoundingClientRect();
+            const row = paragraph.getBoundingClientRect();
+            return { lastBottom: last.bottom, dockTop: dockBox.top, dockRight: dockBox.right, rowRight: row.right, line: !!node.closest(".cv-tail-line") };
+          });
+          expect(place.line).toBe(true);
+          expect(place.dockTop).toBeGreaterThanOrEqual(place.lastBottom - 1);
+          expect(Math.abs(place.dockRight - place.rowRight)).toBeLessThanOrEqual(2);
+          // The overflow lists every PR the row left out, each with its title, inside the viewport.
+          const more = dock.locator(".acpmux-pr-dock__more");
+          expect(await more.innerText()).toBe(`+${55 - drawn.length}`);
+          await more.click();
+          const list = page.locator(".acpmux-pr-dock__popover .acpmux-pr-dock__list");
+          await list.waitFor();
+          expect(await more.getAttribute("aria-expanded")).toBe("true");
+          const listed = await chips(page, ".acpmux-pr-dock__popover");
+          expect(listed.length).toBe(55 - drawn.length);
+          expect(listed.every((chip) => chip.title && chip.title.length > 12)).toBe(true);
+          const numbers = new Set([...drawn, ...listed].map((chip) => chip.number));
+          expect(numbers.size).toBe(55);
+          const box = await list.evaluate((node) => {
+            const rect = node.getBoundingClientRect();
+            return { top: rect.top, bottom: rect.bottom, scrolls: node.scrollHeight > node.clientHeight };
+          });
+          expect(box.top).toBeGreaterThanOrEqual(0);
+          expect(box.bottom).toBeLessThanOrEqual(660);
+          expect(box.scrolls).toBe(true);
+          await page.keyboard.press("Escape");
+          expect(await more.getAttribute("aria-expanded")).toBe("false");
+        } finally {
+          await page.close();
+        }
+      });
+
+  test("a chip's hover card gives its whole title", async () => {
+    const page = await browser.newPage({ viewport: { width: 320, height: 660 } });
+    try {
+      const { port } = vite.httpServer!.address() as { port: number };
+      await page.goto(`http://127.0.0.1:${port}${galleryFrame("agent-pane.pr-dock", { variant: "numbers-only", width: 320 })}`);
+      await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
+      const chip = page.locator(".acpmux-pr-dock .acpmux-pr-dock__bar").first();
+      await chip.waitFor();
+      expect(await chip.locator(".acpmux-pr-dock__title").count()).toBe(0);
+      await chip.hover();
+      const card = page.locator(".acpmux-pr-card");
+      await card.waitFor({ timeout: 5_000 });
+      expect(await card.innerText()).toContain("Retry uploads on transient failures");
+    } finally {
+      await page.close();
+    }
+  });
 });
