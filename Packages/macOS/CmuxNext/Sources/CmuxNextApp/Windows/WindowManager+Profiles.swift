@@ -106,7 +106,7 @@ extension WindowManager {
             throw ActionFailure.invalidTarget(RefusalStrings.incognitoMismatch)
         }
         let machines = services.machines
-        let sources = value.windows.filter { $0.id != state.id && !value.isIncognito($0.id) }
+        let sources = value.windows.filter { $0.id != state.id && !value.isIncognito($0.id) && incognitoSpaces[$0.id] == nil }
         // Only workspaces whose space is known move (one no session reports yet shows in every space); window Homes stay.
         let moving = sources.flatMap { WindowProfiles.visible($0.workspaceIDs, profile: profile, machines: machines) }
             .filter { WindowProfiles.qualified($0, machines: machines) != nil && !isWindowHome($0) }
@@ -136,7 +136,7 @@ extension WindowManager {
         guard !value.isIncognito(state.id), incognitoSpaces[state.id] == nil else {
             throw ActionFailure.invalidTarget(RefusalStrings.incognitoMismatch)
         }
-        let sources = value.openWindows.filter { $0.id != state.id && !value.isIncognito($0.id) }
+        let sources = value.openWindows.filter { $0.id != state.id && !value.isIncognito($0.id) && incognitoSpaces[$0.id] == nil }
         // A window's own Home stays in its window, which closes (as Close Other Windows), never as a surplus Home here.
         let moving = sources.flatMap(\.workspaceIDs).filter { !isWindowHome($0) }
         guard !sources.isEmpty else { return }
