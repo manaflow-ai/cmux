@@ -138,8 +138,9 @@ test("a running workflow and a background agent show what they do and what they 
     },
   ]);
   expect(await openRows(fold)).toEqual([
-    ["probeworkflow", "Count: n2 · 1/3 agents · 19.7K tokens"],
-    ["Watch the buildgeneral-purpose", "Bash · 38.3K tokens · 1 tool use"],
+    // The kind is no subtitle beside the name (design/chat-transcript.md "Subagent row anatomy").
+    ["probe", "Count: n2 · 1/3 agents · 19.7K tokens"],
+    ["Watch the build", "Bash · 38.3K tokens · 1 tool use"],
   ]);
 });
 
