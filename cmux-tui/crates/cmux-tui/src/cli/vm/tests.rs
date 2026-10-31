@@ -241,10 +241,12 @@ fn an_idempotency_key_reaches_cmux_vm_wherever_it_was_typed() {
         forwarded(&["vm", "snapshot", "create", "vm_1", "--idempotency-key", "k-2"]),
         args(&["snapshot", "create", "vm_1", "--idempotency-key", "k-2"])
     );
-    assert_eq!(
-        forwarded(&["vm", "creation", "get", "--idempotency-key", "k-3"]),
-        args(&["creation", "get", "--idempotency-key", "k-3"])
-    );
+    for verb in ["get", "reconcile", "cancel"] {
+        assert_eq!(
+            forwarded(&["vm", "creation", verb, "--idempotency-key", "k-3"]),
+            args(&["creation", verb, "--idempotency-key", "k-3"])
+        );
+    }
 }
 
 #[test]
@@ -265,5 +267,25 @@ fn a_key_on_a_verb_that_takes_none_is_dropped_as_before() {
     assert_eq!(
         forwarded(&["vm", "fork", "vm_1", "--idempotency-key", "k"]),
         args(&["fork", "vm_1", "--idempotency-key", "k"])
+    );
+}
+
+#[test]
+fn creation_list_takes_no_key() {
+    assert_eq!(
+        forwarded(&["vm", "creation", "list", "--idempotency-key", "k"]),
+        args(&["creation", "list"])
+    );
+    assert_eq!(
+        forwarded(&["--idempotency-key", "k", "vm", "creation", "list", "--pending"]),
+        args(&["creation", "list", "--pending"])
+    );
+}
+
+#[test]
+fn a_key_without_a_value_never_takes_the_double_dash() {
+    assert_eq!(
+        forwarded(&["vm", "run", "--idempotency-key", "--", "echo", "hi"]),
+        args(&["run", "--idempotency-key", "--", "echo", "hi"])
     );
 }
