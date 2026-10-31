@@ -13,6 +13,7 @@ import {
   NEW_TAB_TEMPLATES,
   PAGE_STYLES,
   parseNewTabTemplate,
+  pageStyle,
   screenSections,
   screenTemplate,
   shownTemplate,
@@ -90,6 +91,13 @@ test("Cards is a template and a style", () => {
   expect(shownTemplate({ layout: "b" })).toBe("minimal");
   expect(shownTemplate({ layout: "a" })).toBe("classic");
   expect(shownTemplate({ layout: "b", template: "default" })).toBe("default");
+});
+
+test("the retired Composer id migrates to Minimal without a selectable Composer style", () => {
+  expect(parseNewTabTemplate("composer")).toBe("composer");
+  expect(pageStyle("composer")).toBe("minimal");
+  expect(PAGE_STYLES).not.toContain("composer");
+  expect(shownTemplate({ layout: "b", template: "composer" })).toBe("minimal");
 });
 
 test("the Cards page: one field, a chip row under it, three chat cards", async () => {
