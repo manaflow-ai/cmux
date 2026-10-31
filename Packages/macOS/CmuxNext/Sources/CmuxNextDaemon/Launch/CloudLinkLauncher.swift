@@ -303,9 +303,8 @@ public nonisolated struct CloudLinkLauncher: Sendable {
         self.stateRoot = stateRoot
         self.runtimeBase = runtimeBase
         self.tagged = tagged
-        if let relay, let stateRoot {
-            let base = Self.credentialSocketPath(stateRoot: stateRoot, runtimeBase: runtimeBase)
-            let unique = base.replacingOccurrences(of: ".sock", with: "-\(UUID().uuidString.lowercased()).sock")
+        if let relay, stateRoot != nil {
+            let unique = Self.credentialSocketPath(runtimeBase: runtimeBase)
             self.credentialServer = CloudLinkCredentialServer(path: unique, executable: binary, relay: relay)
             self.credentialSocketValue = URL(fileURLWithPath: unique)
         } else {
@@ -353,15 +352,11 @@ public nonisolated struct CloudLinkLauncher: Sendable {
         credentialSocketValue
     }
 
-    /// Unix-domain sockets have a 104-byte path limit on Darwin. Keep this
-    /// private carrier under the same per-user runtime directory as cmux-tui,
-    /// and identify the build's state root with a stable short digest.
-    static func credentialSocketPath(stateRoot: URL, runtimeBase: URL) -> String {
-        var hash: UInt64 = 14695981039346656037
-        for byte in stateRoot.standardizedFileURL.path.utf8 {
-            hash ^= UInt64(byte); hash &*= 1099511628211
-        }
-        return runtimeBase.appendingPathComponent(String(format: "cmux-link-%016llx.sock", hash)).path
+    /// A unique, short endpoint per launcher instance. Darwin's usual per-user
+    /// temporary directory plus this name fits its 104-byte socket path limit.
+    static func credentialSocketPath(runtimeBase: URL) -> String {
+        let instance = UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
+        return runtimeBase.appendingPathComponent("cl-\(instance).sock").path
     }
 
     static func credentialRequestAcceptedForTesting(_ data: Data) -> Bool {
