@@ -3115,6 +3115,7 @@ export function VirtualTranscript({
     row: HTMLElement;
     beforeTop: number;
     delta: number;
+    from: number;
     animation?: Animation;
     cleanupTimer?: ReturnType<typeof setTimeout>;
   };
@@ -3671,10 +3672,18 @@ export function VirtualTranscript({
       const delta = layoutScrollTop(node) - stack.beforeTop;
       const host = thread.current;
       if (host && Math.abs(delta - stack.delta) > 0.5) {
-        stack.delta = delta;
-        const frames = [{ translate: `0 ${delta}px` }, { translate: "0 0" }];
-        if (stack.animation) (stack.animation.effect as KeyframeEffect).setKeyframes(frames);
-        else {
+        if (stack.animation) {
+          const effect = stack.animation.effect as KeyframeEffect;
+          const progress = effect.getComputedTiming().progress;
+          // The new layout moved the thread by -(delta - previousDelta). Add exactly that
+          // displacement to its current transform without restarting the original animation clock.
+          if (typeof progress === "number" && progress < 1) {
+            stack.from += (delta - stack.delta) / (1 - progress);
+            effect.setKeyframes([{ translate: `0 ${stack.from}px` }, { translate: "0 0" }]);
+          }
+        } else {
+          stack.from = delta;
+          const frames = [{ translate: `0 ${delta}px` }, { translate: "0 0" }];
           const duration = foldMs(host);
           if (duration > 0) {
             stack.animation = host.animate(frames, { duration, easing: foldMotion.easing(host) });
@@ -3684,6 +3693,7 @@ export function VirtualTranscript({
             stack.animation.oncancel = stack.animation.onfinish;
           } else stopBottomStackFold();
         }
+        stack.delta = delta;
       }
       scrollPacer.current?.cancel();
       setScrollAt(node.scrollTop);
@@ -4535,7 +4545,10 @@ export function VirtualTranscript({
     const beginBottomStackFold = (toggle: HTMLElement, line: HTMLElement): boolean => {
       // This ask is for tool/work disclosures. Message Show more/less and other controls retain
       // their established row anchor, including the room they need when closing at the end.
-      if (!toggle.matches(".cv-tool.is-toggle, .cv-worked, .cv-subagents")) return false;
+      if (!toggle.matches(".cv-tool.is-toggle, .cv-worked, .cv-subagents")) {
+        stopBottomStackFold();
+        return false;
+      }
       if (!atFoldBottom(node.scrollTop, node.clientHeight, node.scrollHeight, FOLLOW_BOTTOM_DEADBAND_PX)) {
         stopBottomStackFold();
         return false;
@@ -4546,7 +4559,7 @@ export function VirtualTranscript({
       followGlide.current?.stop();
       stopJump();
       dropFoldRoom();
-      const stack: BottomStackFold = { toggle: line, row, beforeTop: layoutScrollTop(node), delta: 0 };
+      const stack: BottomStackFold = { toggle: line, row, beforeTop: layoutScrollTop(node), delta: 0, from: 0 };
       bottomStackFold.current = stack;
       row.setAttribute("data-bottom-fold", "");
       // The explicit toggle reacquires follow even a few pixels from the end. Streaming never does.
