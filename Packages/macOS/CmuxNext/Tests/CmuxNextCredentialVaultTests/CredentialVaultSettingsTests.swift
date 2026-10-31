@@ -49,6 +49,26 @@ import Testing
         #expect(board.hostJSON == .null)
     }
 
+    @Test func reEnablingRefreshesChangesThatFinishedWhileDisabled() async throws {
+        let store = TunableStore()
+        store.register([CredentialVault.rolloutEnabled.descriptor])
+        store.activate(file: nil)
+        store.set(CredentialVault.rolloutEnabled.key, .bool(true))
+        let vault = vault()
+        let board = CredentialVaultBoard(vault: vault, enabled: { CredentialVault.rolloutEnabled.value(in: store) })
+        await board.reload().value
+        #expect(secrets(board).isEmpty)
+
+        store.set(CredentialVault.rolloutEnabled.key, .bool(false))
+        // A request admitted before switching off may complete after it. Its reload is refused.
+        try vault.set("GH_TOKEN", value: Self.secret, scope: [.user], note: nil, by: Self.person)
+        await board.reload().value
+        #expect(board.hostJSON == .null)
+        store.set(CredentialVault.rolloutEnabled.key, .bool(true))
+        for _ in 0..<200 where secrets(board).isEmpty { await Task.yield() }
+        #expect(secrets(board).first?.objectValue?["name"] == "GH_TOKEN")
+    }
+
     @Test func theBoardListsNamesAndScopesAndFollowsEveryChangeWithoutAValue() async throws {
         let vault = vault()
         try vault.set("GH_TOKEN", value: Self.secret, scope: [.user], note: "work", by: Self.person)
