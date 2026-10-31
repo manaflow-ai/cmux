@@ -240,14 +240,17 @@ def fmt(ms):
     return "missing" if ms is None else f"{ms:.0f} ms"
 
 
-def exec_floor(runs=5):
-    """Spawn -> exit of /usr/bin/true with the bench's Popen shape (new session, a passed pipe, Finder limits): the
-    launcher's own share of any spawn -> main time."""
+def exec_floor(runs=5, limits=True):
+    """Spawn -> exit of /usr/bin/true with the bench's Popen shape (new session, a passed pipe, and with `limits` the
+    Finder limits): the launcher's own share of any spawn -> main time. The kernel's p_starttime (the app's reference)
+    is the FORK, so a child that spends seconds between fork and exec (CPython's close_fds loop runs up to the soft
+    RLIMIT_NOFILE) shows up as time before main."""
+    import contextlib
     times = []
     for _ in range(runs):
         read_fd, write_fd = os.pipe()
         start = time.monotonic()
-        with bs.finder_limits():
+        with (bs.finder_limits() if limits else contextlib.nullcontext()):
             proc = subprocess.Popen(["/usr/bin/true"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                                     start_new_session=True, pass_fds=(write_fd,))
         proc.wait()
@@ -426,8 +429,15 @@ def main():
         report["purge"] = ("run before each A, B and C launch (not before D, dyld-print or xctrace)" if purged
                            else f"purge not run ({why}): each copy's files are in the page cache (just written or run)")
         log(report["purge"])
+        import resource
+        report["python"] = sys.version.split()[0]
+        report["nofile_rlimit"] = list(resource.getrlimit(resource.RLIMIT_NOFILE))
+        report["launchctl_maxfiles"] = run(["/bin/launchctl", "limit", "maxfiles"])[1].strip()
         report["exec_floor_ms"] = exec_floor()
-        log(f"exec floor (/usr/bin/true, same Popen shape): {report['exec_floor_ms']} ms")
+        report["exec_floor_inherit_limits_ms"] = exec_floor(limits=False)
+        log(f"exec floor (/usr/bin/true, same Popen shape): Finder limits {report['exec_floor_ms']} ms, the caller's "
+            f"{report['exec_floor_inherit_limits_ms']} ms (python {report['python']}, nofile {report['nofile_rlimit']}, "
+            f"launchctl {report['launchctl_maxfiles']})")
         save()
         copy_b = fresh_copy(app, root, "B")
         copies.append(copy_b)
