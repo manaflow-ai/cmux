@@ -13,14 +13,17 @@
 //! |---|---|---|---|
 //! | [`Tier::Serving`] | the daemon | disk I/O at `IOPOL_UTILITY`; CPU unchanged | unchanged |
 //! | [`Tier::Agent`] | agent hosts, background-task runners, and everything they start | CPU clamped to utility (priority 20) and disk I/O at `IOPOL_UTILITY` | nice +5 |
-//! | [`Tier::Background`] | housekeeping inside the daemon that holds no lock other work waits on (probe cleanup at start) | the thread at `QOS_CLASS_BACKGROUND` for the pass (CPU and I/O throttled), then back | unchanged |
-//! | [`Tier::OnScreen`] | the daemon's reads for a chat being opened on screen (a visible `_acpmux/attach`: its log load and its first page) | the thread at `QOS_CLASS_USER_INITIATED` for the read (its disk I/O tier follows the QoS), then back | unchanged |
+//! | [`Tier::Background`] | housekeeping inside the daemon that holds no lock other work waits on (probe cleanup at start) | the thread at `QOS_CLASS_BACKGROUND` for the pass (CPU throttled; its disk I/O stays at the daemon's utility tier), then back | unchanged |
+//! | [`Tier::OnScreen`] | the daemon's reads for a chat being opened on screen (a visible `_acpmux/attach`: its log load and its first page) | the thread at `QOS_CLASS_USER_INITIATED` for the read (CPU only: its disk I/O stays at the daemon's utility tier), then back | unchanged |
 //!
 //! The daemon keeps its CPU priority: the app waits on it for every streamed
 //! frame, so demoting it would put a person's own stream behind agent
-//! compiles. Its disk work (journals, the store) still yields to the app's,
-//! except the reads a person is waiting on to open a chat ([`on_screen`]):
-//! those would otherwise queue behind agent compiles at the utility I/O tier.
+//! compiles. Its disk work (journals, the store) yields to the app's, the
+//! reads a person is waiting on to open a chat ([`on_screen`]) too: a thread's
+//! disk I/O tier is the most throttled of the process's, its own and its QoS
+//! class's (xnu `thread_policy.c`), and the process is at utility, so only the
+//! CPU of those reads is raised. A per-thread I/O policy cannot lift it either,
+//! and it drops the thread out of QoS (`imp::ThreadOnScreen`).
 //!
 //! macOS gives no call that clamps a running process, and a thread's QoS does
 //! not survive exec into another program (a probe on a fleet mini: a child's
@@ -275,8 +278,8 @@ mod imp {
         unsafe { libc::setpriority(PRIO_DARWIN_PROCESS, 0, PRIO_DARWIN_BG) };
     }
 
-    /// This thread at background QoS until dropped (CPU and disk I/O throttled: the I/O tier
-    /// follows the QoS), then back to the class it had. Not the per-thread
+    /// This thread at background QoS until dropped (CPU throttled; its disk I/O stays at the
+    /// process's utility tier), then back to the class it had. Not the per-thread
     /// `setpriority(PRIO_DARWIN_THREAD, BG)`: like a thread-scope `setiopolicy_np`, it drops the
     /// thread out of QoS for good (see [`ThreadOnScreen`]).
     pub(super) struct ThreadBackground {
@@ -306,8 +309,9 @@ mod imp {
         }
     }
 
-    /// This thread at user-initiated QoS until dropped, then back to the class it had. Its disk
-    /// I/O tier follows its QoS. No thread-scope `setiopolicy_np`: on macOS 26 and 27 that call
+    /// This thread at user-initiated QoS until dropped, then back to the class it had. CPU only:
+    /// its disk I/O tier stays at the process's utility tier, the most throttled of the
+    /// process's, its QoS's and its own (xnu `thread_policy.c`). No thread-scope `setiopolicy_np`: on macOS 26 and 27 that call
     /// drops the thread out of QoS (it reads unspecified) and makes every later
     /// `pthread_set_qos_class_self_np` on the thread fail with EPERM, so a reused pool thread
     /// could never be raised again (fleet probes 01949bb5 and 3b349221, 2026-10-31).
@@ -431,8 +435,8 @@ mod tests {
         assert_eq!(on_screen(|| 7), 7);
     }
 
-    /// The read runs at user-initiated QoS with important disk I/O, and the
-    /// thread goes back to what it had: tokio reuses it for other work.
+    /// The read runs at user-initiated QoS, and the thread goes back to what it had: tokio
+    /// reuses it for other work, and the next on-screen read on it is raised again.
     #[cfg(target_os = "macos")]
     #[test]
     fn an_on_screen_read_raises_the_thread_and_puts_it_back() {
@@ -444,7 +448,7 @@ mod tests {
         let (qos, io) = (imp::thread_qos(), imp::thread_io());
         // The thread's own I/O policy is left alone: a thread-scope `setiopolicy_np` drops the
         // thread out of QoS (it read 0, unspecified, on macOS 26 and 27) and makes every later
-        // `pthread_set_qos_class_self_np` on it fail with EPERM. Its I/O tier follows its QoS.
+        // `pthread_set_qos_class_self_np` on it fail with EPERM.
         let inside = on_screen(|| (class(imp::thread_qos()), imp::thread_io()));
         assert_eq!(inside, (class(libc::qos_class_t::QOS_CLASS_USER_INITIATED), io));
         let after = (class(imp::thread_qos()), imp::thread_io());
