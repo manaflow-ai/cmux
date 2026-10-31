@@ -6786,7 +6786,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
         if let debugCloseMainWindowConfirmationHandler {
             let accepted = debugCloseMainWindowConfirmationHandler(window)
-            if debugCloseMainWindowDontAskAgainHandler?(dontAskAgain) == true {
+            if !dontAskAgain.subtracting(.safety).isEmpty,
+               debugCloseMainWindowDontAskAgainHandler?(dontAskAgain) == true {
                 CloseTabWarningStore(defaults: warningDefaults).disableWarnings(dontAskAgain)
             }
             return accepted
@@ -6841,7 +6842,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 || context.tabManager.tabs.contains(where: {
                     context.tabManager.workspaceNeedsConfirmClose($0)
                 }) {
-                dontAskAgain.insert(.safety)
+                // The live-process prompt ignores the window setting, so offer
+                // no checkbox that could not stop it (#20517).
+                dontAskAgain = .safety
             }
         } else {
             warningDefaults = .standard

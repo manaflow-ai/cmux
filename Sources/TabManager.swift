@@ -3169,7 +3169,7 @@ class TabManager: ObservableObject {
         } ?? CmuxAlertContent(informativeText: message)
         if let confirmCloseHandler {
             let accepted = confirmCloseHandler(title, content.flattenedText, acceptCmdD)
-            if !dontAskAgain.isEmpty, confirmCloseDontAskAgainHandler?(dontAskAgain) == true {
+            if !dontAskAgain.subtracting(.safety).isEmpty, confirmCloseDontAskAgainHandler?(dontAskAgain) == true {
                 CloseTabWarningStore(defaults: closeTabWarningDefaults).disableWarnings(dontAskAgain)
             }
             return accepted
@@ -3446,6 +3446,9 @@ class TabManager: ObservableObject {
         ordinaryWarns: Bool,
         alwaysConfirm: Bool
     ) -> CloseWarningKinds {
+        // A running process asks regardless of either setting (#15613), so
+        // offer no checkbox that could not stop this prompt (#20517).
+        guard !ordinary.contains(.safety) else { return .safety }
         guard alwaysConfirm else { return ordinary }
         guard ordinaryWarns else { return .alwaysConfirmWorkspace }
         return ordinary.union(.alwaysConfirmWorkspace)
@@ -7596,7 +7599,19 @@ enum CloseDontAskAgainCheckbox {
     static func add(to alert: NSAlert, offering kinds: CloseWarningKinds) {
         guard !kinds.subtracting(.safety).isEmpty else { return }
         alert.showsSuppressionButton = true
-        alert.suppressionButton?.title = String(
+        alert.suppressionButton?.title = title(offering: kinds)
+    }
+
+    /// Workspace and window warnings only cover idle closes; a running
+    /// process still asks, so their checkbox says so.
+    static func title(offering kinds: CloseWarningKinds) -> String {
+        if !kinds.isDisjoint(with: [.workspace, .window, .alwaysConfirmWorkspace]) {
+            return String(
+                localized: "dialog.close.dontAskAgainWhenIdle",
+                defaultValue: "Don’t ask again when nothing is running"
+            )
+        }
+        return String(
             localized: "dialog.close.dontAskAgain",
             defaultValue: "Don’t ask again"
         )
