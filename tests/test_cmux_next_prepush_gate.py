@@ -180,6 +180,7 @@ class PrePushGateTests(unittest.TestCase):
             "scripts/ci/test_execution_registry.py",
             "scripts/ci/workload_entrypoints.py",
             "scripts/normalize-pbxproj.py",
+            "scripts/swift_source_mask.py",
             *checks,
         ):
             source, target = SOURCE / relative, self.repo / relative
@@ -530,6 +531,25 @@ let package = Package(
         self.commit("declare it")
         declared = self.push()
         self.assertEqual(declared.returncode, 0, declared.stdout + declared.stderr)
+
+    def test_a_direct_gate_run_refuses_an_undeclared_local_import(self):
+        # Review of #28365: the gate's own trees (a direct `prepush-gate.py` run, as agents and CI's "Pushed commits
+        # add no violations" step do) held scripts/cmux-next only, so the checker could not import the Swift source
+        # masker from scripts/, did not run, and the gate passed an undeclared import with a warning.
+        self.write(f"{PKG}/Package.swift", self.DEPS_PACKAGE)
+        self.write(f"{PKG}/Tests/CmuxNextKitTests/KitTests.swift", "import CmuxNextKit\n")
+        self.commit("a test target")
+        self.write(f"{PKG}/Tests/CmuxNextKitTests/AppTests.swift", "import CmuxNextKit\n@testable import CmuxNextApp\n")
+        self.commit("a test that imports the app")
+
+        result = subprocess.run(["python3", "-I", str(self.repo / GATE), "--repo", str(self.repo), "--base", "HEAD~1",
+                                 "--head", "HEAD", "--only", "scanners"],
+                                cwd=self.repo, env=self.env, text=True, capture_output=True)
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertNotIn("Package dependency lists sorted did not run cleanly", output)
+        self.assertIn('Fix: add "CmuxNextApp" to the dependencies of CmuxNextKitTests', output)
 
     def test_push_that_drops_a_dependency_an_unchanged_file_imports_is_refused(self):
         # Review of 6d8b96f: the gate's trees held only the changed files, so a manifest edit that dropped a
