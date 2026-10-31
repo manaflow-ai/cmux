@@ -69,7 +69,7 @@ extension SettingsSchema {
         "tabs.newTabPosition",
         "newTerminal.opensWorkspace",
         "tabs.cmdWClosesPinnedTabs",
-        "tabs.terminalFirst",
+        "tabs.nativeNewTabPage", // which New Tab page opens; ends no work
         "app.hideDockIconWithoutWindows", // Dock icon and Cmd-Tab entry with no window open; ends no work
         "app.showMenuBarIcon", // the menu bar item; looks only, ends no work
         "tabs.overflow",
@@ -186,19 +186,21 @@ extension SettingsSchema {
         "sidebar.sectionLook",
         "sidebar.topBandMaxShare",
         "sidebar.bottomBandMaxShare",
-        "sidebar.pinnedBandsScroll", "sidebar.showWorkspaceTabs", "sidebar.noFade", "sidebar.showChats", "sidebar.sessionTree",
+        "sidebar.pinnedBandsScroll", "sidebar.noFade", "sidebar.showChats", "sidebar.sessionTree",
         "sidebar.cards.tips", "sidebar.hoverCards.enabled", "sidebar.hoverCards.delay", "sidebar.hoverCards.layout", "sidebar.hoverCards.maxRows",
         "sidebar.hoverCards.sections.timings", "sidebar.hoverCards.sections.prompts", "sidebar.hoverCards.sections.waiting",
         "sidebar.hoverCards.sections.git", "sidebar.hoverCards.sections.ports", "sidebar.hoverCards.groups.workspaceGroups", "sidebar.hoverCards.groups.tabGroups",
         "sidebar.hoverCards.groups.delay", "sidebar.hoverCards.groups.order", "sidebar.hoverCards.groups.maxMembers",
         "sidebar.hoverCards.groups.sections.status", "sidebar.hoverCards.groups.sections.members",
         "sidebar.hoverCards.groups.sections.activity", "sidebar.hoverCards.groups.sections.git",
-        "sidebar.hoverCards.groups.sections.ports", "sidebar.nowPlaying.enabled", "tabs.newTabNowPlaying", "media.pictureInPicture.enabled", "tabs.newTabWidgets.greeting", "tabs.newTabWidgets.projects", "tabs.newTabWidgets.actions", "tabs.newTabWidgets.chats", "tabs.newTabWidgets.styleDots", "tabs.newTabWidgets.order", "tabs.newTabWidgets.machines", "tabs.newTabWidgets.clock", "tabs.newTabWidgets.timer", "tabs.newTabWidgets.warmGreeting", "tabs.newTabWidgets.quote", "sidebar.showProjects", "sidebar.showSpaces", "sidebar.showProfileControl", "sidebar.showSearchButton", "sidebar.groupBy",
+        "sidebar.hoverCards.groups.sections.ports", "sidebar.nowPlaying.enabled", "tabs.newTabNowPlaying", "media.pictureInPicture.enabled", "tabs.newTabWidgets.greeting", "tabs.newTabWidgets.projects", "tabs.newTabWidgets.actions", "tabs.newTabWidgets.chats", "tabs.newTabWidgets.styleDots", "tabs.newTabWidgets.order", "tabs.newTabWidgets.machines", "tabs.newTabWidgets.clock", "tabs.newTabWidgets.timer", "tabs.newTabWidgets.warmGreeting", "tabs.newTabWidgets.quote", "sidebar.showProjects", "sidebar.showSpaces", "sidebar.showProfileControl", "sidebar.showSearchButton", "sidebar.showNewWorkspaceChooser", "sidebar.groupBy",
         "sidebar.priorityView.enabled", "sidebar.priorityView.shown",
         "browser.defaultEngine",
         "browser.siteEngines",
         "browser.newTabPage",
         "browser.showBookmarksBar",
+        // Whether browser tabs offer to import cookies: the card reads nothing until the person clicks Import.
+        "browser.import.cookieBanner",
         "browser.toolbarButtons",
         "browser.hibernation",
         "browser.hibernationExclusions",

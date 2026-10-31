@@ -63,7 +63,7 @@ pub(super) fn ask<'a>(conn: &Conn, params: &Value, who: &'a str) -> crate::hub::
 /// without one.
 fn with_wait(mut reply: Value, waited: Value) -> Value {
     if !waited.is_null() {
-        reply["wait"] = waited;
+        reply.set("wait", waited);
     }
     reply
 }
