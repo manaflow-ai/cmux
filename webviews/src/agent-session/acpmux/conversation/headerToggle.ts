@@ -11,8 +11,11 @@
 import type { MouseEvent } from "react";
 
 /// The controls inside a header that keep their own click.
+/// `data-own-click` marks a part that keeps the click without being a control: a received message's
+/// sender, which sits before the line's toggle and outside it (Leo, 2026-10-29: "make the left side
+/// identifier like it was before and you can click it to go to that session").
 export const HEADER_INNER_CONTROL =
-  'button, a[href], [role="button"], [role="link"], [role="menuitem"], summary, input, textarea, select, label, [contenteditable="true"]';
+  'button, a[href], [role="button"], [role="link"], [role="menuitem"], summary, input, textarea, select, label, [contenteditable="true"], [data-own-click]';
 
 /// The header's attribute: foldAnchor.ts holds a click anywhere on it.
 export const HEADER_TOGGLE_ATTRIBUTE = "data-header-toggle";
