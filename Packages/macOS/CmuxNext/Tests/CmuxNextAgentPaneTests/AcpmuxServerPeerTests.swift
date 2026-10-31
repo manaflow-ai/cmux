@@ -98,13 +98,13 @@ struct AcpmuxServerPeerTests {
                                          process: { _ in nil }, path: noPath) == .noPeer)
     }
 
-    /// A process as ``AcpmuxUnresponsiveWatch/kernelProcess(pid:)`` reads it: `version` is the
+    /// A process as ``AcpmuxDaemonStop/kernelProcess(pid:)`` reads it: `version` is the
     /// audit token's pid version (`val.7`).
-    private static func process(pid: pid_t, start: UInt64, version: UInt32) -> AcpmuxUnresponsiveWatch.Daemon {
+    private static func process(pid: pid_t, start: UInt64, version: UInt32) -> AcpmuxDaemonStop.Daemon {
         var token = audit_token_t()
         token.val.5 = UInt32(bitPattern: pid)
         token.val.7 = version
-        return AcpmuxUnresponsiveWatch.Daemon(pid: pid, startSeconds: start, startMicroseconds: 0, token: token)
+        return AcpmuxDaemonStop.Daemon(pid: pid, startSeconds: start, startMicroseconds: 0, token: token)
     }
 
     /// End to end on a real process: a listener whose executable file was deleted while it runs,
@@ -121,7 +121,7 @@ struct AcpmuxServerPeerTests {
         let listener = Process()
         listener.executableURL = URL(fileURLWithPath: "/bin/bash")
         // macOS 27 kills a copied system binary at exec; signed ad hoc, the copy runs
-        // (AcpmuxUnresponsiveWatchTests' hung daemon). `exec` keeps the pid.
+        // (AcpmuxDaemonStopTests' daemon). `exec` keeps the pid.
         listener.arguments = ["-c", #"/usr/bin/codesign -f -s - "$0" 2>/dev/null; exec "$0" -dklU "$1""#, copy.path, socket]
         listener.standardInput = FileHandle.nullDevice
         listener.standardOutput = FileHandle.nullDevice
@@ -130,11 +130,11 @@ struct AcpmuxServerPeerTests {
         defer { kill(listener.processIdentifier, SIGKILL) }
         // wakeup-allow: bounded wait (60 s, codesign and the first exec are slow on a loaded runner) for the bind.
         let deadline = ContinuousClock.now + .seconds(60)
-        while AcpmuxUnresponsiveWatch.listenerPID(socketPath: socket) != listener.processIdentifier,
+        while AcpmuxDaemonStop.listenerPID(socketPath: socket) != listener.processIdentifier,
               listener.isRunning, ContinuousClock.now < deadline {
             try await Task.sleep(for: .milliseconds(20))
         }
-        try #require(AcpmuxUnresponsiveWatch.listenerPID(socketPath: socket) == listener.processIdentifier)
+        try #require(AcpmuxDaemonStop.listenerPID(socketPath: socket) == listener.processIdentifier)
         try FileManager.default.removeItem(at: copy)
         // The field case: the running process's path cannot be read at all (not a path to a
         // missing file, which base already took as another install's).

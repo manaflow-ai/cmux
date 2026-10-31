@@ -79,7 +79,7 @@ nonisolated enum AcpmuxServerPeer {
     /// Another install's daemons that passed rules 1 and 2 (their WebSocket may be used), each
     /// by its pid and the process the pid named then (start time and audit token): a pid the
     /// kernel gives to another process after the daemon exits is not one of them.
-    private static let foreignDaemons = Mutex<[pid_t: AcpmuxUnresponsiveWatch.Daemon]>([:])
+    private static let foreignDaemons = Mutex<[pid_t: AcpmuxDaemonStop.Daemon]>([:])
 
     /// `LOCAL_PEERTOKEN` (sys/un.h), as ``UnixSocketPeer`` reads it.
     private static let localPeerToken: Int32 = 0x006
@@ -158,7 +158,7 @@ nonisolated enum AcpmuxServerPeer {
     /// Every owner passes the executable rule, or is another install's daemon that passed rules
     /// 1 and 2 on its unix socket; none refuses. The scan lists only this user's processes.
     private static func judge(_ owners: [pid_t], executable: URL, what: String) -> Bool {
-        let process = AcpmuxUnresponsiveWatch.kernelProcess(pid:)
+        let process = AcpmuxDaemonStop.kernelProcess(pid:)
         let known = foreignDaemons.withLock { $0 }
         // Forget a daemon whose pid now names another process, or none.
         let gone = known.filter { process($0.key) != $0.value }
@@ -183,8 +183,8 @@ nonisolated enum AcpmuxServerPeer {
     /// update deleted the file of has no path, and it serves the chats it served on the unix socket.
     /// It passes only while its pid still names that process (`process`, its start time and audit
     /// token now): a pid reused by another process is checked by its path like any other owner.
-    static func refusal(_ owners: [pid_t], executable: URL, foreign: [pid_t: AcpmuxUnresponsiveWatch.Daemon],
-                        process: (pid_t) -> AcpmuxUnresponsiveWatch.Daemon?,
+    static func refusal(_ owners: [pid_t], executable: URL, foreign: [pid_t: AcpmuxDaemonStop.Daemon],
+                        process: (pid_t) -> AcpmuxDaemonStop.Daemon?,
                         path: (pid_t) -> String?) -> Refusal? {
         guard !owners.isEmpty else { return .noPeer }
         let wanted = executable.resolvingSymlinksInPath().path
@@ -377,11 +377,11 @@ nonisolated enum AcpmuxServerPeer {
         return getsockopt(descriptor, SOL_LOCAL, LOCAL_PEERPID, &pid, &size) == 0 && pid > 1 ? pid : nil
     }
 
-    /// The peer process of `descriptor` (``AcpmuxUnresponsiveWatch/kernelProcess(pid:)``), nil
+    /// The peer process of `descriptor` (``AcpmuxDaemonStop/kernelProcess(pid:)``), nil
     /// unless its audit token is the socket's own peer token (`LOCAL_PEERTOKEN`): the pid then
     /// names that very process, not one that took the pid after the peer exited.
-    private static func peerProcess(_ descriptor: Int32) -> AcpmuxUnresponsiveWatch.Daemon? {
-        guard let pid = peerPID(descriptor), let process = AcpmuxUnresponsiveWatch.kernelProcess(pid: pid) else {
+    private static func peerProcess(_ descriptor: Int32) -> AcpmuxDaemonStop.Daemon? {
+        guard let pid = peerPID(descriptor), let process = AcpmuxDaemonStop.kernelProcess(pid: pid) else {
             return nil
         }
         var token = audit_token_t()
