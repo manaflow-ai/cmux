@@ -4,19 +4,22 @@ use super::*;
 impl Hub {
     pub(in crate::hub) async fn approve_pending_tools(&self, session: &Session) {
         let off = self.off_latch();
-        if !off.allows_full_access() {
-            return;
-        }
+        // The local switch limits modes, not an explicit approve-all policy. MDM's forced
+        // off still caps both, as it does when a new permission arrives.
+        let mode_allowed = off.allows_full_access();
         let cfg = self.config.read().await;
         let replies = {
             let mut state = session.permissions.lock().unwrap_or_else(|e| e.into_inner());
+            // Turn attestations take turn before meta; do not invert that order here.
+            if Self::web_turn(session) {
+                return;
+            }
             // Use the same locks as a new permission request and policy edits. Keep the mode
             // locked through selection, so a concurrent harness drift cannot lend stale bypass.
             let policy = Self::stored_policy_for(session, cfg.permission_policy);
             let meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
-            let mode = full_access_mode(&meta);
+            let mode = full_access_mode(&meta).filter(|_| mode_allowed);
             if off.off()
-                || Self::web_turn(session)
                 || policy == PermissionPolicy::DenyAll
                 || (mode.is_none() && policy != PermissionPolicy::ApproveAll)
             {
