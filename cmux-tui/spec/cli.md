@@ -588,6 +588,7 @@ browser profile open <url> | --url <url> --profile <id-or-name> [--engine chromi
 browser <selector> show|navigate|back|forward|reload|activate
 browser <selector> key|text|attach|close
 browser <selector> mouse|wheel --pointer-frame-seq <decimal>
+browser <tab_…|page|right> fill-login [--submit] [--agent <name>]
 
 notification list
 notification create --title <text> --body <text> [--subtitle <text>] [--level <level>] [--terminal <term_id>]
@@ -705,6 +706,23 @@ token, the current global revision, and pane IDs. A confirmed retry sends that
 exact token and revision with a new idempotency key. The server revalidates the
 token under the mutation lock, so tab or layout changes make it stale and
 close nothing.
+
+`browser <tab_…|page|right> fill-login` (app method `browser.page.fill_login`) fills the
+login the person saved in the app's Secure Store for the tab's site into the page's username
+and password fields; `--submit` then submits the form. It is a write verb (on `right`, the
+agent's own tab or a handed-over one). The answer is `{filled, site, username_filled,
+password_filled, submitted}` and never contains the username or password; with no saved login
+it is `{filled: false, site: null, reason: "no_saved_login"}`. It is off until the person turns on
+`browser.agentSecureStoreFill` (else `reason: "disabled"`). It fills only an agent-profile tab
+over https that no page opened and that never had a raw DevTools relay, only on a site (origin,
+per browser profile) no agent code (`eval`, `wait --function`, storage and cookie writes, the
+browser host's `frame.evaluate` and raw DevTools) ever ran on (else `reason:
+"scripted_origin"`); once a site's sign-in is filled, that code is refused on that site in every
+tab (error code `login_filled`), and so are screenshots and PDFs of it. While a browser profile
+holds any filled sign-in, no raw DevTools relay attaches to its tabs and no raw message passes;
+while a relay is attached, no tab of its profile gets a fill (`raw_devtools_attached`). Both
+marks persist across app restarts; an unreadable guard file refuses every fill
+(`guard_unreadable`). Never eval on a site you will sign into.
 
 Terminal and sidebar attachments stream styled render snapshots and patches.
 Browser attachments stream browser state and frames. Public attachments never

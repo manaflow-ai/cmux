@@ -4,6 +4,26 @@
 #[allow(unused_imports)]
 use super::*;
 
+/// A screenshot the agent uploaded to this conversation (intent, then PUT; image/png, image/jpeg or image/webp, at most 4 MiB); the owner refuses a hash it does not hold with the same type and size. Fetch it with POST /v1/home/attachments/url {hash: image.hash}.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HomeCardImage {
+    pub hash: HomeSha256,
+    pub mime_type: HomeCardImageMimeType,
+    pub byte_count: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
+    pub width: Option<Option<i64>>,
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
+    pub height: Option<Option<i64>>,
+}
+
+wire_enum! {
+    HomeCardImageMimeType {
+        ImagePng = "image/png",
+        ImageJpeg = "image/jpeg",
+        ImageWebp = "image/webp",
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct HomeChief {
     pub id: ChiefId,
@@ -263,6 +283,9 @@ pub enum HomePart {
     Work(HomePartWork),
     Attachment(HomePartAttachment),
     LinkPreview(HomePartLinkPreview),
+    HomePartCardBrowser(HomePartCardBrowser),
+    HomePartCardSignIn(HomePartCardSignIn),
+    HomePartCardNextSteps(HomePartCardNextSteps),
     /// A member this build does not know (a newer backend), kept verbatim.
     Unknown(Value),
 }
@@ -324,6 +347,48 @@ pub struct HomePartLinkPreview {
     pub site: Option<Option<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
     pub image: Option<Option<HomeLinkPreviewImage>>,
+}
+
+/// A live browser or computer-use card. step is the current step (no control characters); live (default false) is true while the agent still drives; target is what Open opens (browser:right, or machine:<id> for a Cloud machine's desktop); the agent edits the card (message.edit) as steps change. Text fallback: "Browser: <step>" or "Computer: <step>".
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HomePartCardBrowser {
+    pub r#type: LitCard,
+    pub kind: LitBrowser,
+    pub surface: HomePartCardBrowserSurface,
+    pub step: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub live: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
+    pub target: Option<Option<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
+    pub url: Option<Option<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
+    pub image: Option<Option<HomeCardImage>>,
+}
+
+wire_enum! {
+    HomePartCardBrowserSurface {
+        Browser = "browser",
+        Computer = "computer",
+    }
+}
+
+/// Suggested next steps (1 to 3 distinct choices, no control characters). Tapping one sends a person message whose text is the choice. Text fallback: each choice on its own line after "→ ".
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HomePartCardNextSteps {
+    pub r#type: LitCard,
+    pub kind: LitNextSteps,
+    pub choices: Vec<String>,
+}
+
+/// A Secure Store card: the agent asks the person to save a sign-in for site (a lowercase DNS name) on their Mac; the password never enters the conversation. Text fallback: "Secure Store: sign in to <site>".
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HomePartCardSignIn {
+    pub r#type: LitCard,
+    pub kind: LitSignIn,
+    pub site: String,
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
+    pub url: Option<Option<String>>,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -831,71 +896,4 @@ wire_enum! {
         Skipped = "skipped",
         Dead = "dead",
     }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct RunWithBody {
-    pub id: RunId,
-    pub automation: AutomationId,
-    pub automation_version: i64,
-    pub owner: TeamId,
-    pub trigger: RunWithBodyTrigger,
-    pub state: RunState,
-    pub step: i64,
-    pub created_at: i64,
-    pub started_at: Option<i64>,
-    pub finished_at: Option<i64>,
-    pub error: Option<RunError>,
-    pub outcome: Option<RunWithBodyOutcome>,
-    pub body: Body,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct RunWithBodyTrigger {
-    pub id: Option<TriggerId>,
-    pub r#type: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub scheduled_at: Option<i64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub delivery_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub parent_run: Option<RunId>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub root_run: Option<RunId>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub depth: Option<i64>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct RunWithBodyOutcome {
-    pub goal_met: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub summary: Option<String>,
-}
-
-pub type ServerCapability = String;
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ServerNetworkBinding {
-    pub state: LitConfirmed,
-    pub tenant: NativeTenantId,
-    pub mesh: NativeMeshId,
-    pub device: NativeDeviceId,
-    pub confirmed_at: i64,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ServerNetworkProof {
-    #[serde(rename = "signedAt")]
-    pub signed_at: i64,
-    pub nonce: String,
-    pub signature: String,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ServerNetworkReservation {
-    pub state: LitReserved,
-    pub tenant: NativeTenantId,
-    pub mesh: NativeMeshId,
-    pub device: NativeDeviceId,
 }

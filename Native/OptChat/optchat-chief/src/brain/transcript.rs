@@ -95,6 +95,7 @@ fn part_visible(part: &Part) -> bool {
         Part::Attachment { .. }
         | Part::LinkPreview { .. }
         | Part::Question(_)
+        | Part::Card(_)
         | Part::Unknown(_) => true,
     }
 }
@@ -195,6 +196,11 @@ fn part_lines(part: &Part, out: &mut Vec<String>) {
         Part::Question(q) => {
             let asks: Vec<&str> = q.items.iter().map(|i| i.prompt.as_str()).collect();
             out.push(format!("  [question: {}]", asks.join(" / ")));
+        }
+        Part::Card(card) => {
+            for line in card.text().lines() {
+                out.push(format!("  [card {line}]"));
+            }
         }
         Part::Unknown(value) => {
             let kind = value.get("type").and_then(|t| t.as_str()).unwrap_or("?");

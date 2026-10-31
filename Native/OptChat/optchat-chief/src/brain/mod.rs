@@ -22,6 +22,8 @@
 //! `Settings::turn_limit`.
 
 mod approvals;
+mod browser_card;
+mod cards;
 mod children;
 mod control;
 mod drafts;
@@ -42,6 +44,7 @@ mod recover;
 mod replies;
 mod reply_ledger;
 mod screen;
+pub(crate) use browser_card::is_card_key;
 pub use outcome_ledger::UNTOLD_TAG;
 pub use reply_ledger::{MAX_REPLY_TRIES, NO_REPLY_TAG, REPLY_RETRY_WAITS};
 mod send;
@@ -745,6 +748,8 @@ pub struct Brain {
     /// The attachments uploaded for the running turn's steps (turn key, step id):
     /// every later append of the step names them again (a step is replaced whole).
     run_attachments: HashMap<(String, String), Vec<serde_json::Value>>,
+    /// The owner refused a browser card once: no more are posted (browser_card.rs).
+    browser_cards_refused: bool,
     /// The owner said once that it takes no typing indicator (cloud).
     typing_unsupported: bool,
     after_turn: Option<TurnHook>,
@@ -980,6 +985,7 @@ impl Brain {
             live_failed: false,
             live_streams: Default::default(),
             run_attachments: HashMap::new(),
+            browser_cards_refused: false,
             typing_unsupported: false,
             marker_refused: crate::prompt::MarkLatch::default(),
             ttl_refused: Arc::new(std::sync::atomic::AtomicBool::new(false)),
@@ -1623,6 +1629,7 @@ impl Brain {
 
     /// The owner confirmed the message sent under `key`.
     pub(super) fn sent(&mut self, key: &str, message_id: &str) {
+        self.browser_card_sent(key, message_id);
         if let Some(posted) = self.state.compactor_notice.as_mut()
             && posted.key == key
         {
@@ -1894,6 +1901,7 @@ fn op_entry(conversation: String, key: &str, op: Op) -> OutboxEntry {
         rate_attempts: 0,
         previews_until: None,
         plain_text: None,
+        cards: Vec::new(),
     }
 }
 
@@ -1911,6 +1919,14 @@ fn answer_entry(
     answers: Vec<String>,
     answers_pending: Vec<String>,
 ) -> OutboxEntry {
+    // Trailing `[next: …]` lines become the reply's next-steps card (cards.rs).
+    let (text, choices) = cards::split_next_steps(text);
+    let text = text.as_str();
+    let cards = if choices.is_empty() {
+        Vec::new()
+    } else {
+        vec![cmux_conversation::Card::NextSteps { choices }]
+    };
     let text = if text.len() > REPLY_BYTES {
         let mut cut = REPLY_BYTES;
         while !text.is_char_boundary(cut) {
@@ -1941,6 +1957,7 @@ fn answer_entry(
         rate_attempts: 0,
         previews_until: None,
         plain_text: None,
+        cards,
     }
 }
 

@@ -9,6 +9,7 @@
 
 mod attachments;
 mod budget;
+mod card;
 mod home;
 mod id;
 mod link;
@@ -27,6 +28,11 @@ pub use attachments::{
 pub use budget::{
     BUDGET_WINDOW, MAX_AGENT_TURNS, MIN_AGENT_GAP_MS, check_agent_budget, check_agent_streak,
     in_thread, parse_rfc3339_millis, streak_of, thread_agent_streak, with_turn,
+};
+pub use card::{
+    Card, CardImage, CardSurface, MAX_CARD_CHOICE_CHARS, MAX_CARD_CHOICES, MAX_CARD_IMAGE_BYTES,
+    MAX_CARD_IMAGE_DIMENSION, MAX_CARD_SITE_CHARS, MAX_CARD_STEP_CHARS, valid_card,
+    valid_card_site, valid_card_target,
 };
 pub use home::{
     CHIEF_NAME, ChiefState, CloudInboxEntry, HomeInboxInput, HomeKind, HomeListState, HomeRow,

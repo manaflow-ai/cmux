@@ -16,13 +16,17 @@ extension BrowserPageService {
 
     func waitAndCaptureMethods() -> [ControlMethod] {
         let engine = engine
+        let guards = loginGuards
         let allowsUnsafeCapture = allowsUnsafeCapture
         return [
             .async("browser.page.wait") { call in
                 let tab = try Self.tab(call)
                 let condition = try Self.waitCondition(call)
                 let timeoutMs = try Self.waitTimeout(call)
-                try await Self.waitUntil(engine, tab, condition, timeoutMs: timeoutMs, method: call.method)
+                // `--function` is the agent's own script: guarded like `eval` (``BrowserLoginGuards``).
+                var scripted: BrowserLoginGuards?
+                if case .function = condition { scripted = guards }
+                try await Self.waitUntil(engine, tab, condition, timeoutMs: timeoutMs, method: call.method, guards: scripted)
                 var result = Self.base(tab)
                 result["waited"] = true
                 return .object(result)
@@ -47,6 +51,8 @@ extension BrowserPageService {
                     guard allowsUnsafeCapture else { throw Self.unguardedCaptureRefusal() }
                     capture = .viewport
                 }
+                // A site holding a filled sign-in is never captured (BrowserLoginGuards).
+                try await Self.refuseCaptureOfFilledSite(engine, tab, guards)
                 let shot = try await Self.run(engine, .screenshot(capture), tab)
                 var result = Self.base(tab)
                 for key in ["path", "png_base64", "width", "height"] { result.updateValue(shot[key] ?? .null, forKey: key) }
@@ -91,15 +97,36 @@ extension BrowserPageService {
     /// Waits in the page until `condition` holds, in page waits of at most
     /// ``pageWaitChunkMilliseconds``. A navigation ends the page's wait with
     /// an engine error; the wait then starts again in the new page, spaced
-    /// by ``Backoff``, for the rest of the time.
+    /// by ``Backoff``, for the rest of the time. With `guards` (a `--function`, the agent's own
+    /// script) the login guard admits the page once, and again only after a navigation, then
+    /// marks the site it ended on (``BrowserLoginGuards``).
     static func waitUntil(_ engine: any BrowserPageEngine, _ tab: Tab, _ condition: BrowserPageScripts.WaitCondition,
-                          timeoutMs: Int, method: String) async throws {
+                          timeoutMs: Int, method: String, guards: BrowserLoginGuards? = nil) async throws {
+        guard let guards else {
+            return try await waitLoop(engine, tab, condition, timeoutMs: timeoutMs, method: method, admit: nil)
+        }
+        do {
+            try await waitLoop(engine, tab, condition, timeoutMs: timeoutMs, method: method) {
+                try await Self.beginAgentScript(engine, tab, guards)
+            }
+        } catch {
+            await endAgentScript(engine, tab, guards)
+            throw error
+        }
+        await endAgentScript(engine, tab, guards)
+    }
+
+    private static func waitLoop(_ engine: any BrowserPageEngine, _ tab: Tab, _ condition: BrowserPageScripts.WaitCondition,
+                                 timeoutMs: Int, method: String, admit: (() async throws -> String?)?) async throws {
         let deadline = ContinuousClock.now + .milliseconds(timeoutMs)
         var backoff = Backoff(initial: .milliseconds(50), maximum: .milliseconds(500))
         var lastError: String?
         while ContinuousClock.now < deadline {
             // A disconnected client cancels the handler; the chunk deadline does not see it.
             try Task.checkCancellation()
+            // Navigation can occur even between successful chunks. Admit and pin each actual
+            // execution, rather than infer document identity from an earlier chunk's result.
+            let origin = try await admit?()
             // A whole, finite number of milliseconds; anything else (no case today) waits one full chunk.
             let remaining = Int(exactly: ((deadline - .now).inSeconds * 1000).rounded(.up)) ?? pageWaitChunkMilliseconds
             let chunk = min(remaining, pageWaitChunkMilliseconds)
@@ -107,7 +134,8 @@ extension BrowserPageService {
             do {
                 // The page's own timer ends the wait; this bounds an engine that never answers.
                 let value = try await ControlDeadline.shared.run(method: method, deadline: .now + .milliseconds(chunk) + .seconds(1)) {
-                    try await Self.run(engine, .evaluateAsync(BrowserPageScripts.waitScript(condition, timeoutMs: chunk)), tab)
+                    let body = BrowserPageScripts.waitScript(condition, timeoutMs: chunk)
+                    return try await Self.run(engine, .evaluateAsync(BrowserPageScripts.pinnedAgentBody(body, origin: origin)), tab)
                 }["value"]
                 if value?["met"]?.boolValue == true { return }
                 lastError = value?["error"]?.stringValue ?? lastError

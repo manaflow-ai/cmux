@@ -1345,6 +1345,12 @@
       "title" : "Agent Pointer Motion",
       "type" : "string"
     },
+    "browser.agentSecureStoreFill" : {
+      "default" : false,
+      "description" : "When an agent's page needs a sign-in you saved in the Secure Store, cmux fills it into the agent's own tab. The agent never sees the password, and its scripts are refused on that site from then on.",
+      "title" : "Let Agents Sign In from the Secure Store",
+      "type" : "boolean"
+    },
     "browser.builtInAdBlocker" : {
       "default" : true,
       "description" : "The full uBlock Origin blocks ads and trackers in Chromium tabs. Takes effect after cmux restarts.",

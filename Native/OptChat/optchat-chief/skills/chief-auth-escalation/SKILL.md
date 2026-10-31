@@ -40,7 +40,25 @@ password) or `oauth` (a "Sign in with ..." page).
   2. the password manager's autofill (the browser's saved password or the
      user's password manager extension), which the user confirms with
      Touch ID;
-  3. the user types it: post one line and wait.
+  3. the Secure Store: post the card with `send(sign_in: {"site": SITE,
+     "url": LOGIN_URL})` (SITE is the host name, such as `linkedin.com`),
+     then stop and wait. The user taps Add on their Mac and saves the
+     login there; it never reaches you. When their message says they added
+     it, run `cmux browser right fill-login --submit --agent "<your name>"`:
+     the app fills the saved login into the page itself and answers only
+     what it filled (`filled`, `username_filled`, `password_filled`,
+     `submitted`). A two-step login fills the user name first
+     (`password_filled: false`): run it again on the password page.
+     `reason: "no_saved_login"` means nothing is saved for that site yet;
+     `disabled` means the person has not turned on Settings > Browser >
+     Let Agents Sign In from the Secure Store: say so in one line and wait.
+     Never `eval` (or `wait --function`) on a site you will sign into:
+     after one, the app refuses to fill it (`scripted_origin`), for good.
+     Once a site's sign-in is filled, agent scripts on that site are
+     refused (`login_filled`) on every path, the browser REPL and raw
+     DevTools too; use snapshot, click and fill there instead.
+     It fills only your own tab.
+     Then continue the task.
 - Never import cookies or sign-ins from another browser without the
   user's Allow (`cmux browser import-cookies ... --reason`).
 
@@ -73,8 +91,9 @@ Post one short line, nothing more:
 it is `pending`
 
 Do not explain the flow, and do not ask "should I". If the site has no
-passkey or security key step and needs a password or code typed by hand,
-the line is `Needs you: sign in to SITE in the right pane` instead.
+passkey or security key step and needs a password, post the Secure Store
+card (step 3) instead; for a code typed by hand the line is
+`Needs you: sign in to SITE in the right pane`.
 
 ## 6. Watch, then hand back
 

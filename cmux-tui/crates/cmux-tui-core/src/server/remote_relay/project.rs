@@ -115,6 +115,9 @@ fn part(part: &Part) -> Option<RemotePart> {
         // A paired install cannot fetch the picture (no relay read of
         // attachment bytes yet), so a link preview reaches it as its URL.
         Part::LinkPreview { url, .. } => Some(RemotePart::Text { text: url.clone(), runs: None }),
+        // Cards reach a paired install as their text (no relay read of a
+        // screenshot yet).
+        Part::Card(card) => Some(RemotePart::Text { text: card.text(), runs: None }),
         // Paired installs cannot fetch attachment bytes yet (no relay read).
         // Questions are not projected to paired installs yet.
         Part::Work { .. } | Part::Attachment { .. } | Part::Question(_) | Part::Unknown(_) => None,

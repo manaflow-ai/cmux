@@ -176,6 +176,7 @@ fn a_send_to_a_report_line_goes_into_the_thread_of_the_message_that_started_it()
     let line = report_line(&mut h);
     let sp = spawner(&h);
     let call = SendCall {
+        sign_in: None,
         text: Some("a1 landed the sidebar fix.".into()),
         attachments: Vec::new(),
         reply_to: Some(line),
@@ -213,6 +214,7 @@ fn a_send_to_a_line_with_no_message_behind_it_goes_to_the_top_level() {
         .unwrap();
     let sp = spawner(&h);
     let call = SendCall {
+        sign_in: None,
         text: Some("Top level instead.".into()),
         attachments: Vec::new(),
         reply_to: Some(line),

@@ -42,6 +42,8 @@ pub(super) fn resume_prompt(cut: &[String]) -> String {
 /// saved; a session whose id is known becomes an orphan instead, so what it
 /// did after the last fold still reaches the log (section 7).
 pub(super) fn recover(chat: &OptChat, state: &mut HostState, acpmux: bool) -> Vec<String> {
+    // No turn runs after a restart: a live browser card ends.
+    super::browser_card::end_on_recover(state);
     let Some(turn) = state.turn.take() else {
         return Vec::new();
     };

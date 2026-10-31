@@ -45,12 +45,13 @@ export type SearchResult = { readonly ok: true; readonly hits: ReadonlyArray<Sea
 /** One code point to its lower case (may be more than one code point, for example "İ"). */
 const fold = (ch: string) => ch.toLowerCase()
 
-/** Text of a message for matching and snippets (text parts, question prompts and link preview titles joined by one space). */
+/** Text of a message for matching and snippets (text parts, question prompts, link preview titles and card steps, sites and choices joined by one space). */
 export const messageText = (message: Message): string =>
   message.parts
     .flatMap((part) => {
       if (part.type === "text") return [part.text]
       if (part.type === "link_preview") return part.title === undefined ? [] : [part.title]
+      if (part.type === "card") return part.kind === "browser" ? [part.step] : part.kind === "sign_in" ? [part.site] : [...part.choices]
       const prompt = part.type === "question" ? questionText(part) : undefined
       return prompt === undefined ? [] : [prompt]
     })

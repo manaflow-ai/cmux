@@ -1154,6 +1154,7 @@ impl Brain {
             return;
         }
         self.cuts = 0;
+        self.browser_turn_ended(key);
         self.steer_due.take_if(|(_, turn)| turn == key);
         let outcome_done = outcome.done_draft.take();
         self.keep_turn_session(key, &mut outcome);
@@ -1568,6 +1569,7 @@ impl Brain {
 
     fn turn_cut(&mut self, key: &str, outcome: TurnOutcome, cut: Cut) {
         self.cuts += 1;
+        self.browser_turn_ended(key);
         let error = outcome.error.clone().unwrap_or_default();
         let wait = self
             .upstream_backoff

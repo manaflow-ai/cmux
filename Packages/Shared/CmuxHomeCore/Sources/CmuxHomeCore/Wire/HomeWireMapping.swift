@@ -59,6 +59,11 @@ struct HomeWireMapping: Sendable {
                 return .question(question)
             }
             return .text("question")
+        case "card":
+            // A Chief's card (cmux issue 25830); a kind this build does not know shows as its text.
+            if let card = try? JSONDecoder().decode(ChiefCard.self, from: json.data) { return .card(card) }
+            if let url = json["url"].string, !url.isEmpty { return .text(url) }
+            return .text(json["step"].string ?? json["site"].string ?? "card")
         default:
             // A part type this build does not know: its link when it has one, else its type.
             if let url = json["url"].string, !url.isEmpty { return .text(url) }
@@ -226,9 +231,9 @@ struct HomeWireMapping: Sendable {
             var fields = (try? JSONEncoder().encode(link)).flatMap(HomeWireJSON.parse)?.object ?? [:]
             fields["type"] = "link_preview"
             return .object(fields)
-        case .approval, .location, .question:
+        case .approval, .location, .question, .card:
             // The owners take no approval or location parts from a person, and
-            // a person never sends a question (agents post them).
+            // a person never sends a question or a card (agents post them).
             return ["type": "text", "text": .string(part.plainText)]
         }
     }

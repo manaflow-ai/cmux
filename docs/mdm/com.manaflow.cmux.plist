@@ -6581,6 +6581,18 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>When an agent's page needs a sign-in you saved in the Secure Store, cmux fills it into the agent's own tab. The agent never sees the password, and its scripts are refused on that site from then on.</string>
+			<key>pfm_name</key>
+			<string>browser.agentSecureStoreFill</string>
+			<key>pfm_title</key>
+			<string>Let Agents Sign In from the Secure Store</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<string>human</string>
 			<key>pfm_description</key>
 			<string>How an agent moves the pointer in browser tabs. Human moves along a curved path and rests before each click, as a person does, so pages see hover and timing like a person's. Instant jumps to the target and clicks at once.</string>

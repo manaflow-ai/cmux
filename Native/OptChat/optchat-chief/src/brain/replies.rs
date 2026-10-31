@@ -114,6 +114,7 @@ fn tapback_name(t: Tapback) -> &'static str {
 /// not move the Chief's reply off its message, so threading skips it.
 fn aside(message: &Message) -> bool {
     crate::voice::of(&message.client_msg_id).is_some()
+        || super::browser_card::is_card_key(&message.client_msg_id)
 }
 
 impl Brain {
@@ -208,6 +209,7 @@ impl Brain {
     pub(super) fn note_posted(&mut self, conversation: &str, key: &str, message: &Message) {
         if self.state.conversation.as_deref() == Some(conversation)
             && crate::voice::of(key).is_none()
+            && !super::browser_card::is_card_key(key)
         {
             self.newest_seq = self.newest_seq.max(message.seq);
         }
@@ -239,6 +241,7 @@ impl Brain {
                     e.conversation == conversation
                         && matches!(e.op, Op::MessageSend { .. })
                         && crate::voice::of(&e.idempotency_key).is_none()
+                        && !super::browser_card::is_card_key(&e.idempotency_key)
                 });
                 let adjacent = !waiting
                     && self
@@ -445,6 +448,7 @@ fn op_entry(conversation: String, key: String, op: Op) -> OutboxEntry {
         rate_attempts: 0,
         previews_until: None,
         plain_text: None,
+        cards: Vec::new(),
     }
 }
 
