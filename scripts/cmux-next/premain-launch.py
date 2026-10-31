@@ -172,6 +172,7 @@ def launch_once(path, label, extra_env=None, sample_to=None, logs=True):
     with open(os.path.join(scratch, "cmux.json"), "w") as out:
         out.write("{}\n")
     teardown = teardown_for(path)
+    teardown.remember()  # re-arms end() for this launch, so a cancel during it still ends its hosts and holders
     checkers = checker_pids()
     t0, spawn_t = time.time(), time.monotonic()
     launch = bs.Launch(tag, scratch, extra_env)
@@ -331,15 +332,17 @@ def xctrace_launch(app, label):
     for item in env:
         cmd += ["--env", item]
     cmd += ["--launch", "--", bs.app_binary(tag)]
+    teardown = teardown_for(app)
+    teardown.remember()  # re-arms end() before the traced launch (a cancel during it ends its hosts)
     start = time.monotonic()
     code, out, err = run(cmd, timeout=180)
-    teardown = teardown_for(app)
     teardown.remember()  # the daemon outlives the traced app: read its state root before ending it
     teardown.end()
     bs.stop(bs.tag_pids(tag))
     result = {"label": label, "exit": code, "seconds": round(time.monotonic() - start, 1),
               "stderr": (err or out).strip()[-600:]}
     if not os.path.exists(trace):
+        shutil.rmtree(scratch, ignore_errors=True)
         return result
     _, toc, _ = run(["xcrun", "xctrace", "export", "--input", trace, "--toc"], timeout=180)
     schemas = sorted(set(re.findall(r'schema="([^"]+)"', toc)))
