@@ -153,6 +153,18 @@ class PickerTests(unittest.TestCase):
         self.assertEqual(place.overflow_label(large, broken, now)[0], large)
         self.assertEqual(place.overflow_label("macos-26", lambda: snap({}), now), ("macos-26", ""))
 
+    def test_the_overflow_skips_a_dead_label_a_stale_snapshot_shows(self):
+        # 2026-10-30: blacksmith-12vcpu-macos-26 started nothing for about a day; the janitor's snapshot is
+        # often older than the stall rule's 15 minutes, and the overflow then took OVERFLOW_LABEL unchecked.
+        now = place.dt.datetime(2026, 10, 30, 19, 0, tzinfo=place.dt.timezone.utc)
+        large, small = "blacksmith-12vcpu-macos-26", "blacksmith-6vcpu-macos-26"
+        stale = {"generated_at": "2026-10-30T18:22:00Z",
+                 "pools": {large: {"queued": 0, "running": 0}, small: {"queued": 0, "running": 5}},
+                 "label_started": {small: "2026-10-30T18:21:00Z"}}
+        self.assertEqual(place.overflow_label(large, lambda: stale, now)[0], small)
+        older = {key: value for key, value in stale.items() if key != "label_started"}
+        self.assertEqual(place.overflow_label(large, lambda: older, now)[0], large)
+
     def test_a_mac_freed_during_the_wait_is_taken(self):
         def runners(read):
             return [runner("cmux13-glaeda-4", SIDE, busy=read < 3)]
@@ -297,9 +309,19 @@ class DailyPickerTests(unittest.TestCase):
         self.assertEqual((json.loads(result["runs_on"]), result["pool"], result["host"]), (FRESH, "owned", ""))
         result = self.daily([slot("cmux8s-glaeda-2", busy=True), runner("cmux13s-glaeda-9", SIDE)], self.records(cmux8s=1))
         self.assertEqual((json.loads(result["runs_on"]), result["pool"]), (SIDE, "owned"))
-        result = self.daily([slot("cmux8s-glaeda-2", busy=True), slot("cmux9s-glaeda-2", status="offline")],
-                            self.records(cmux8s=1, cmux9s=0))
+        result = self.daily([slot("cmux8s-glaeda-2", status="offline"), runner("cmux13s-glaeda-9", SIDE, busy=True)],
+                            self.records(cmux8s=1))
         self.assertEqual((result["runs_on"], result["runner_label"], result["pool"]), ("", "", ""))
+
+    def test_with_nothing_idle_it_waits_on_a_busy_dev_slot_not_behind_the_side_queue(self):
+        # 2026-10-30: five DEV daily compiles queued on glaeda-side-std-xcode-26.6 from 13:55Z behind about 184 PR
+        # and side jobs (GitHub hands a label's queue out oldest first), while the DEV slots, which admit only feed
+        # work, ran DEV compiles. Waiting on the slot label puts it behind DEV work only.
+        result = self.daily([slot("cmux8s-glaeda-2", busy=True), slot("cmux9s-glaeda-2", status="offline"),
+                             runner("cmux13s-glaeda-9", SIDE, busy=True)], self.records(cmux8s=1, cmux9s=0))
+        self.assertEqual((json.loads(result["runs_on"]), result["runner_label"], result["pool"], result["host"]),
+                         (FRESH, FRESH, "owned", ""))
+        self.assertIn("DEV slot", result["reason"])
 
     def test_unreadable_runners_or_owned_pools_off_keep_the_route(self):
         def refused():

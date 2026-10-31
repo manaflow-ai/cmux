@@ -213,3 +213,139 @@ fn the_list_answers_only_what_info_cannot() {
     );
     assert_eq!(lists(), 4);
 }
+
+/// A daemon whose session list is too large for one reply (acpmux pages a
+/// list with no `limit` past its largest message): the first page holds `s-1`
+/// and the `nextCursor` of the rest, read by `_acpmux/sessions` from it; the
+/// rest holds `p-2`, a peer's session whose link is down, so `_acpmux/info`
+/// refuses it and only the list knows it. With `cursor_repeats`, the rest
+/// answers with its own cursor again (a list that would never end) and the
+/// watch answers with the first page alone and no cursor, as a list that fits.
+fn serve_pages(listener: UnixListener, requests: Arc<Mutex<Vec<Value>>>, cursor_repeats: bool) {
+    std::thread::spawn(move || {
+        for conn in listener.incoming().flatten() {
+            let requests = requests.clone();
+            std::thread::spawn(move || {
+                let mut out = conn.try_clone().unwrap();
+                for line in BufReader::new(conn).lines() {
+                    let Ok(line) = line else { return };
+                    let req: Value = serde_json::from_str(&line).unwrap();
+                    requests.lock().unwrap().push(req.clone());
+                    let id = req["id"].clone();
+                    let ok = |result: Value| json!({"jsonrpc": "2.0", "id": id, "result": result});
+                    let row = |id: &str, name: &str| json!({"sessionId": id, "name": name, "harness": "codex", "status": "idle"});
+                    let first = json!({"sessions": [row("s-1", "one")], "nextCursor": "c1"});
+                    let mut rest = json!({"sessions": [row("p-2", "builder/two")]});
+                    if cursor_repeats {
+                        rest["nextCursor"] = json!("c1");
+                    }
+                    let reply = match req["method"].as_str().unwrap() {
+                        "_acpmux/watch" if cursor_repeats => {
+                            ok(json!({"sessions": [row("s-1", "one")]}))
+                        }
+                        "_acpmux/watch" => ok(first),
+                        "_acpmux/sessions" => match req["params"]["cursor"].as_str() {
+                            None => ok(first),
+                            Some("c1") => ok(rest),
+                            Some(other) => {
+                                json!({"jsonrpc": "2.0", "id": id, "error": {"code": -32602, "message": format!("no cursor {other:?}")}})
+                            }
+                        },
+                        "_acpmux/info" => {
+                            json!({"jsonrpc": "2.0", "id": id, "error": {"code": -32000, "message": "peer builder is not connected"}})
+                        }
+                        "_acpmux/harnesses" => ok(common::catalog()),
+                        _ => ok(json!({})),
+                    };
+                    if req.get("id").is_some() {
+                        writeln!(out, "{reply}").unwrap();
+                    }
+                }
+            });
+        }
+    });
+}
+
+/// `serve_pages` linked: the link's acpmux once it is up, the list it came up
+/// on, and every request the daemon read.
+fn link_pages(
+    dir: &std::path::Path,
+    cursor_repeats: bool,
+) -> (Arc<Acpmux>, Vec<String>, Arc<Mutex<Vec<Value>>>) {
+    let socket = dir.join("acpmux.sock");
+    let requests = Arc::new(Mutex::new(Vec::new()));
+    serve_pages(
+        UnixListener::bind(&socket).unwrap(),
+        requests.clone(),
+        cursor_repeats,
+    );
+    let acpmux = Acpmux::new(socket, None, Vec::new());
+    let (tx, rx) = channel();
+    let sink_tx = Mutex::new(tx);
+    acpmux.spawn_link(
+        Arc::new(move |e| {
+            let _ = sink_tx.lock().unwrap().send(e);
+        }),
+        Arc::new(|_: &str| {}),
+    );
+    let up = loop {
+        if let AgentEvent::Up(list) = rx.recv_timeout(common::WAIT).unwrap() {
+            break list;
+        }
+    };
+    let ids = up.into_iter().map(|s| s.session_id).collect();
+    (acpmux, ids, requests)
+}
+
+/// The `_acpmux/sessions` requests the daemon read, by their params.
+fn list_params(requests: &Mutex<Vec<Value>>) -> Vec<Value> {
+    requests
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|r| r["method"] == "_acpmux/sessions")
+        .map(|r| r["params"].clone())
+        .collect()
+}
+
+/// A watch list too large for one reply: the link comes up on every page of
+/// it, the rest read from the watch's cursor with the watch's params less
+/// `enabled`.
+#[test]
+fn the_link_comes_up_on_every_page_of_the_watch_list() {
+    let dir = tempfile::tempdir().unwrap();
+    let (_acpmux, up, requests) = link_pages(dir.path(), false);
+    assert_eq!(up, ["s-1", "p-2"]);
+    assert_eq!(list_params(&requests), [json!({"cursor": "c1"})]);
+}
+
+/// A session on a later page of the list is found when only the list knows it.
+#[test]
+fn a_session_on_a_later_page_of_the_list_is_found() {
+    let dir = tempfile::tempdir().unwrap();
+    let (acpmux, _, requests) = link_pages(dir.path(), false);
+    requests.lock().unwrap().clear();
+    let two = acpmux.session("p-2").unwrap().expect("listed on page two");
+    assert_eq!(two.name, "builder/two");
+    assert_eq!(acpmux.find("builder/two").unwrap().as_deref(), Some("p-2"));
+    assert_eq!(
+        list_params(&requests),
+        [
+            json!({}),
+            json!({"cursor": "c1"}),
+            json!({}),
+            json!({"cursor": "c1"})
+        ]
+    );
+}
+
+/// A cursor the daemon answers with again is refused, never read in a loop.
+#[test]
+fn a_cursor_that_comes_again_is_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    let (acpmux, up, requests) = link_pages(dir.path(), true);
+    assert_eq!(up, ["s-1"]);
+    let error = acpmux.session("p-2").unwrap_err();
+    assert!(error.contains("c1"), "{error}");
+    assert_eq!(list_params(&requests), [json!({}), json!({"cursor": "c1"})]);
+}

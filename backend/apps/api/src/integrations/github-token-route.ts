@@ -1,5 +1,5 @@
 import type { Principal } from "@cmux/ownership"
-import { GitHubTokenRequest, GitHubTokenRevokeRequest, TeamId } from "@cmux/protocol"
+import { GitHubMachineTokenRequest, GitHubTokenRequest, GitHubTokenRevokeRequest, TeamId } from "@cmux/protocol"
 import { Exit, Schema } from "effect"
 import { authenticate } from "../auth.ts"
 import { roleHas } from "../domains/team-roles.ts"
@@ -7,7 +7,7 @@ import { personalTeamIdFor } from "../domains/user.ts"
 import type { Env } from "../env.ts"
 import { ssoGate } from "../policy-gate.ts"
 import { principalForOwner, selectTeam } from "../team-select.ts"
-import type { TokenAsk, TokenReply } from "./github-tokens.ts"
+import type { RepoListReply, TokenAsk, TokenReply } from "./github-tokens.ts"
 
 /**
  * The GitHub token routes (gh-app-product contract; the work is in github-tokens.ts): POST /token
@@ -16,7 +16,7 @@ import type { TokenAsk, TokenReply } from "./github-tokens.ts"
  * `daemon`, `cli` or `mac` install, or a member's session; chief tokens (`agent`), team VMs, phone
  * and web installs are refused. Errors are `{error: {code, message}}` and never carry a token.
  */
-export const GITHUB_TOKEN_PATH = /^\/v1\/integrations\/github\/(token|token\/revoke|status)$/
+export const GITHUB_TOKEN_PATH = /^\/v1\/integrations\/github\/(token|machine-token|token\/revoke|status|repos)$/
 
 const TOKEN_INSTALL_KINDS: ReadonlySet<string> = new Set(["vm", "daemon", "cli", "mac"])
 const NO_STORE = { "cache-control": "no-store" }
@@ -30,6 +30,7 @@ interface ConnectionStub {
   githubToken(entity: string, p: Principal, ask: TokenAsk): Promise<TokenReply>
   githubRevoke(entity: string, who: { principal: string } | { install: string }): Promise<number>
   githubStatus(entity: string, p: Principal): Promise<unknown>
+  githubRepos(entity: string, p: Principal, query: { readonly query?: string; readonly cursor?: string }): Promise<RepoListReply>
 }
 const connections = (env: Env, team: string) => env.CONNECTION_DO.get(env.CONNECTION_DO.idFromName(team)) as unknown as ConnectionStub
 
@@ -56,6 +57,7 @@ const caller = async (request: Request, env: Env, team: string | undefined): Pro
   if (p.kind !== "session" && !(p.kind === "install" && TOKEN_INSTALL_KINDS.has(p.install_kind ?? ""))) return no(403, "auth.forbidden", `a ${p.install_kind ?? p.kind} install cannot get GitHub tokens`)
   if (p.install_kind !== "vm") return { p, team: p.team! }
   // vmGate (cloud-vm.ts): its own bound machine, still naming this install, not deleting or failed.
+  // This live-machine ownership check gates the VM's existing vm-self read and write access.
   const cloud = env.CLOUD_DO.get(env.CLOUD_DO.idFromName(p.team!)) as unknown as { readOp(e: string, p: Principal, op: string, params: unknown): Promise<{ ok: boolean }> }
   const self = await cloud.readOp(p.team!, p, "cloud.vm.self.get", { machine: p.bound_machine ?? "" }).catch(() => null)
   return self === null ? unreachable("the VM's machine") : self.ok ? { p, team: p.team!, machine: p.bound_machine! } : no(403, "auth.forbidden", "a VM install speaks only for its own live machine")
@@ -75,6 +77,21 @@ const teamAdmin = async (env: Env, p: Principal, team: string): Promise<boolean 
 }
 
 export const handleGithubToken = async (request: Request, env: Env, sub: string): Promise<Response> => {
+  // Repository enumeration and the machine-only seam are development surfaces until the hosted
+  // connector rollout. Existing token/status/revoke routes retain their normal environments.
+  if ((sub === "repos" || sub === "machine-token") && env.ENVIRONMENT !== "development") return new Response("not found", { status: 404 })
+  if (sub === "repos") {
+    if (request.method !== "GET") return failed(no(405, "request.invalid", "GET"))
+    const url = new URL(request.url)
+    const raw = url.searchParams.get("team") ?? undefined
+    const team = raw === undefined ? undefined : decode(TeamId as unknown as Schema.Codec<string, unknown>, raw)
+    if (isFail(team)) return failed(team)
+    const who = await caller(request, env, team)
+    if (isFail(who)) return failed(who)
+    const query = { ...(url.searchParams.get("query") === null ? {} : { query: url.searchParams.get("query")! }), ...(url.searchParams.get("cursor") === null ? {} : { cursor: url.searchParams.get("cursor")! }) }
+    const listed = await connections(env, who.team).githubRepos(who.team, who.p, query).catch(() => null)
+    return listed === null ? failed(unreachable("the team's GitHub repositories")) : listed.ok ? Response.json(listed.value, { headers: NO_STORE }) : failed(listed)
+  }
   if (sub === "status") {
     if (request.method !== "GET") return failed(no(405, "request.invalid", "GET"))
     const raw = new URL(request.url).searchParams.get("team") ?? undefined
@@ -85,15 +102,27 @@ export const handleGithubToken = async (request: Request, env: Env, sub: string)
   }
   if (request.method !== "POST") return failed(no(405, "request.invalid", "POST"))
   const json = (await request.json().catch(() => undefined)) as unknown
-  if (sub === "token") {
-    const body = decode(GitHubTokenRequest as unknown as Schema.Codec<typeof GitHubTokenRequest.Type, unknown>, json)
+  if (sub === "token" || sub === "machine-token") {
+    const body = sub === "machine-token"
+      ? decode(GitHubMachineTokenRequest as unknown as Schema.Codec<typeof GitHubMachineTokenRequest.Type, unknown>, json)
+      : decode(GitHubTokenRequest as unknown as Schema.Codec<typeof GitHubTokenRequest.Type, unknown>, json)
     if (isFail(body)) return failed(body)
     if (Object.keys(body.permissions).length === 0) return failed(no(400, "request.invalid", "permissions must name at least one permission"))
     const who = await caller(request, env, body.team)
     if (isFail(who)) return failed(who)
-    // A person's install needs at least the read class (paired daemons hold read and mutate-own); the VM's vm-self grant is its machine's.
-    if (who.p.kind === "install" && who.p.install_kind !== "vm" && !who.p.grant_classes?.includes("read")) return failed(no(403, "auth.forbidden", "this install's grant does not cover read"))
-    const ask: TokenAsk = { repo: body.repo, permissions: body.permissions as Record<string, "read" | "write">, ...(body.label ? { label: body.label } : {}), ...(who.machine ? { machine: who.machine } : {}) }
+    if (sub === "machine-token" && (who.p.kind !== "install" || who.p.install_kind !== "vm" || !who.machine)) return failed(no(403, "auth.forbidden", "a machine install is required"))
+    if (who.p.kind === "install" && who.p.install_kind !== "vm" && !who.p.grant_classes?.includes("read")) {
+      return failed(no(403, "auth.forbidden", "this install's grant does not cover read"))
+    }
+    // A person's install writes only with mutate-own. On /token a vm install's vm-self grant covers its
+    // own machine's git (the existing Cloud machine contract); the machine-token seam stays read-only for it.
+    const writes = Object.values(body.permissions).some((access) => access === "write")
+    const vmSelf = sub === "token" && who.p.kind === "install" && who.p.install_kind === "vm"
+    if (writes && who.p.kind === "install" && !vmSelf && !who.p.grant_classes?.includes("mutate-own")) {
+      return failed(no(403, "auth.forbidden", "this install's grant does not cover write access"))
+    }
+    const ttlSec = sub === "machine-token" ? (body as typeof GitHubMachineTokenRequest.Type).ttlSec : undefined
+    const ask: TokenAsk = { repo: body.repo, permissions: body.permissions as Record<string, "read" | "write">, ...(body.label ? { label: body.label } : {}), ...(ttlSec === undefined ? {} : { ttlSec }), ...(who.machine ? { machine: who.machine } : {}) }
     const r = await connections(env, who.team).githubToken(who.team, who.p, ask).catch(() => null)
     return r === null ? failed(unreachable("the team's GitHub connection")) : r.ok ? Response.json(r.value, { headers: NO_STORE }) : failed(r)
   }

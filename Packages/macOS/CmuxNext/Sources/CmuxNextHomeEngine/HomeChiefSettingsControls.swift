@@ -36,10 +36,6 @@ final class HomeChiefAvatarButton: NSButton {
     @available(*, unavailable)
     required init?(coder: NSCoder) { nil }
 
-    override func resetCursorRects() {
-        addCursorRect(bounds, cursor: .pointingHand)
-    }
-
     /// The one picture file a drag carries; nil for none, several, or another type.
     private func picture(in drag: any NSDraggingInfo) -> URL? {
         let options: [NSPasteboard.ReadingOptionKey: Any] = [.urlReadingFileURLsOnly: true,
@@ -127,10 +123,6 @@ final class HomeChiefLinkButton: NSButton {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { nil }
-
-    override func resetCursorRects() {
-        addCursorRect(bounds, cursor: .pointingHand)
-    }
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
