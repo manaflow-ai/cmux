@@ -74,3 +74,18 @@ test("text is counted as the UTF-8 JSON it goes as", () => {
   expect(inlineBytes([{ type: "text", text: "é".repeat(1000) }])).toBeGreaterThanOrEqual(2000);
   expect(inlineBytes([{ type: "text", text: '"'.repeat(1000) }])).toBeGreaterThanOrEqual(2000);
 });
+
+test("copies of one image go together: a link never shares its original with a preview that stays", () => {
+  // An inline image copied in the draft keeps its original (attachments.ts inlineCopyId); the sent
+  // bubble draws a link whose path a kept preview names as that preview's original, so it would hide.
+  const one = screenshot(1, 1.5 * MIB);
+  const copies = Array.from({ length: 7 }, (_, index) => ({ ...one, id: `copy-${index}` }));
+  const others = Array.from({ length: 2 }, (_, index) => screenshot(10 + index, 1.4 * MIB));
+  const fitted = fitPromptBudget("hi", [...copies, ...others]);
+  expect(inlineBytes(promptBlocks("hi", fitted))).toBeLessThanOrEqual(PROMPT_INLINE_BUDGET);
+  const linked = new Set(fitted.flatMap((chip) => (chip.kind === "link" ? [chip.path] : [])));
+  const kept = fitted.filter((chip) => chip.kind === "image" && linked.has(chip.originalPath));
+  expect(kept).toHaveLength(0);
+  // The smaller screenshots keep their previews.
+  expect(fitted.filter((chip) => chip.kind === "image")).toHaveLength(2);
+});
