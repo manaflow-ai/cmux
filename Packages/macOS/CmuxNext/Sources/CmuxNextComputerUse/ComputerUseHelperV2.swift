@@ -73,49 +73,6 @@ public final class ComputerUseHelperV2 {
     /// Only explicit setup clicks; never persisted across app launches.
     private var pendingPermissions: Set<String> = []
 
-    /// This app's signing team. Ad-hoc development builds have no team and
-    /// retain the same-executable-path peer rule.
-    nonisolated static let ownTeam: String? = {
-        var code: SecCode?
-        guard SecCodeCopySelf([], &code) == errSecSuccess, let code else { return nil }
-        var staticCode: SecStaticCode?
-        guard SecCodeCopyStaticCode(code, [], &staticCode) == errSecSuccess, let staticCode else { return nil }
-        var info: CFDictionary?
-        guard SecCodeCopySigningInformation(staticCode, SecCSFlags(rawValue: kSecCSSigningInformation), &info)
-                == errSecSuccess, let info = info as? [String: Any] else { return nil }
-        let team = info[kSecCodeInfoTeamIdentifier as String] as? String
-        return team?.isEmpty == false ? team : nil
-    }()
-
-    /// The code-signing identifier read from an executable. A raced path can
-    /// at worst produce a requirement the real helper does not satisfy: the
-    /// live audit-token check still requires this app's team.
-    nonisolated static func codeIdentifier(_ executable: URL) -> String? {
-        var code: SecStaticCode?
-        guard SecStaticCodeCreateWithPath(executable as CFURL, [], &code) == errSecSuccess, let code else { return nil }
-        var info: CFDictionary?
-        guard SecCodeCopySigningInformation(code, SecCSFlags(rawValue: kSecCSSigningInformation), &info)
-                == errSecSuccess, let info = info as? [String: Any] else { return nil }
-        return info[kSecCodeInfoIdentifier as String] as? String
-    }
-
-    /// Release helpers check every bridge's live audit token against its exact
-    /// identifier and this app's team. Only ad-hoc development uses a
-    /// mutable-path cdhash.
-    nonisolated static func acpmuxAdmission(executable: URL, teamIdentifier: String? = ownTeam,
-                                            identifier: (URL) -> String? = codeIdentifier,
-                                            hash: (URL) -> Data? = cdhash)
-        -> (hashes: [String], requirement: String?) {
-        if let teamIdentifier {
-            let plain = { (text: String) in
-                !text.isEmpty && text.allSatisfy { $0.isLetter || $0.isNumber || $0 == "." || $0 == "-" || $0 == "_" }
-            }
-            guard plain(teamIdentifier), let identifier = identifier(executable), plain(identifier) else { return ([], nil) }
-            return ([], "identifier \"\(identifier)\" and anchor apple generic and certificate leaf[subject.OU] = \"\(teamIdentifier)\"")
-        }
-        return (hash(executable).map { [hex($0)] } ?? [], nil)
-    }
-
     init(directory: String = ComputerUseHelperV2.defaultDirectory(),
          helperApp: @escaping @Sendable () -> URL? = { ComputerUseHelperV2.embeddedHelperApp() },
          acpmux: @escaping @Sendable () -> (executable: URL, socketPath: String)? = { nil },
@@ -234,13 +191,8 @@ public final class ComputerUseHelperV2 {
         // The host link's own secret: sent only on the helper's stdin, never written to disk.
         let hostSecret = Self.makeSecret()
         let acpmux = self.acpmux()
-        let admission: (hashes: [String], requirement: String?) = acpmux.map {
-            Self.acpmuxAdmission(executable: $0.executable)
-        } ?? (hashes: [], requirement: nil)
-        await spawned.send(Self.line(["type": "configure", "socket": socketPath, "host_socket": hostSocketPath,
-                                "host_secret": Self.hex(hostSecret), "secret": Self.hex(secret),
-                                "acpmux_cdhashes": admission.hashes,
-                                "acpmux_requirement": admission.requirement.map { $0 as Any } ?? NSNull()]))
+        await spawned.send(Self.configureLine(socket: socketPath, hostSocket: hostSocketPath, hostSecret: hostSecret,
+                                              secret: secret, acpmuxExecutable: acpmux?.executable))
         let readySocket = await Self.readySocket(of: spawned, within: readyTimeout, clock: clock)
         guard current == generation else {
             spawned.closeInput()
@@ -306,8 +258,7 @@ public final class ComputerUseHelperV2 {
     public func registerAcpmuxDaemon(acpmuxSocket: String) async {
         guard let child, let executable = acpmux()?.executable,
               let stamp = await Self.daemonStamp(socketPath: acpmuxSocket, executable: executable) else { return }
-        await child.send(Self.line(["type": "register_acpmux", "pid": Int(stamp.pid),
-                              "start_sec": Int(stamp.startSeconds), "start_usec": Int(stamp.startMicroseconds)]))
+        await child.send(Self.registerLine(stamp))
     }
 
     /// A person's permission button in Computer Use setup. Startup and agent
@@ -403,84 +354,6 @@ public final class ComputerUseHelperV2 {
         var data = (try? JSONSerialization.data(withJSONObject: fields, options: [.sortedKeys])) ?? Data()
         data.append(0x0A)
         return data
-    }
-
-    nonisolated static func makeSecret() -> Data {
-        var bytes = [UInt8](repeating: 0, count: 32)
-        _ = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
-        return Data(bytes)
-    }
-
-    nonisolated static func hex(_ data: Data) -> String { data.map { String(format: "%02x", $0) }.joined() }
-
-    /// The cdhash of a signed executable on disk.
-    nonisolated static func cdhash(_ url: URL) -> Data? {
-        var code: SecStaticCode?
-        guard SecStaticCodeCreateWithPath(url as CFURL, [], &code) == errSecSuccess, let code else { return nil }
-        var info: CFDictionary?
-        guard SecCodeCopySigningInformation(code, [], &info) == errSecSuccess,
-              let dictionary = info as? [String: Any] else { return nil }
-        return dictionary[kSecCodeInfoUnique as String] as? Data
-    }
-
-    /// endpoint.json for acpmux: 0600, written to a temporary name and renamed.
-    /// `owner` is the helper's pid, with its start time, so an acpmux daemon
-    /// that outlives a crash of this app sees the file is stale (cx-zgk0).
-    @concurrent nonisolated static func writeEndpoint(path: String, socket: String, secret: Data, owner: pid_t) async -> Bool {
-        var fields: [String: Any] = ["protocol": 1, "socket": socket, "secret": hex(secret), "pid": Int(owner)]
-        var info = proc_bsdinfo()
-        let infoSize = Int32(MemoryLayout<proc_bsdinfo>.size)
-        if proc_pidinfo(owner, PROC_PIDTBSDINFO, 0, &info, infoSize) == infoSize {
-            fields["start_sec"] = Int(info.pbi_start_tvsec)
-            fields["start_usec"] = Int(info.pbi_start_tvusec)
-        }
-        let body = line(fields)
-        let temporary = path + ".tmp"
-        unlink(temporary)
-        let descriptor = open(temporary, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o600)
-        guard descriptor >= 0 else { return false }
-        // concurrency-allow: @concurrent, never on the main actor; one small local file.
-        let written = body.withUnsafeBytes { write(descriptor, $0.baseAddress, $0.count) }
-        close(descriptor)
-        guard written == body.count, rename(temporary, path) == 0 else {
-            unlink(temporary)
-            return false
-        }
-        return true
-    }
-
-    /// pid + start time of the process listening on `socketPath`, when the
-    /// connected peer runs as this user and runs `executable`. No team gate on
-    /// a same-user acpmux socket ("acpmux is too belt and suspenders there", Leo).
-    @concurrent nonisolated static func daemonStamp(socketPath: String, executable: URL) async
-        -> (pid: pid_t, startSeconds: UInt64, startMicroseconds: UInt64)? {
-        var address = sockaddr_un()
-        address.sun_family = sa_family_t(AF_UNIX)
-        guard socketPath.utf8.count < MemoryLayout.size(ofValue: address.sun_path) else { return nil }
-        withUnsafeMutableBytes(of: &address.sun_path) { buffer in
-            buffer.copyBytes(from: socketPath.utf8)
-            buffer[socketPath.utf8.count] = 0
-        }
-        let descriptor = socket(AF_UNIX, SOCK_STREAM, 0)
-        guard descriptor >= 0 else { return nil }
-        defer { close(descriptor) }
-        // This probe only connects and reads the peer; it never writes. Still no SIGPIPE.
-        var noSigPipe: Int32 = 1
-        _ = setsockopt(descriptor, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, socklen_t(MemoryLayout<Int32>.size))
-        let connected = withUnsafePointer(to: &address) {
-            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                // concurrency-allow: @concurrent, never on the main actor; a local Unix socket connect.
-                connect(descriptor, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
-            }
-        }
-        guard connected == 0 else { return nil }
-        guard let peer = UnixSocketPeer(descriptor: descriptor), peer.uid == getuid(), peer.runs(executable) else {
-            return nil
-        }
-        var info = proc_bsdinfo()
-        let infoSize = Int32(MemoryLayout<proc_bsdinfo>.size)
-        guard proc_pidinfo(peer.pid, PROC_PIDTBSDINFO, 0, &info, infoSize) == infoSize else { return nil }
-        return (peer.pid, info.pbi_start_tvsec, info.pbi_start_tvusec)
     }
 
     /// Logs each control line the helper writes after `ready` (the

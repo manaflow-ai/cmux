@@ -67,6 +67,7 @@ extension PaletteModel {
             guard query.isEmpty else { return false }
             // A tree page goes up first; at its top Backspace pops it.
             if leaveLevel() { return true }
+            if removeLastToken() { return true }
             send(.backspaceOnEmpty)
         case .enterRow:
             _ = enterSelectedRow()

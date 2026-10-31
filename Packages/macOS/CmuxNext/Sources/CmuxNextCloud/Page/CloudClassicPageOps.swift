@@ -136,7 +136,8 @@ public final class CloudClassicPageOps {
             case .destroyed: "deleting"
             case .unknown: "unknown"
             }
-            name = machine.displayName
+            // The sidebar's name (the generated slug when the user gave none), never a second rule.
+            name = machine.shownName
             size = machine.size.map { Size(cpu: $0.cpu, memory_mb: $0.memoryMb, disk_mb: $0.storageMb) }
             image = machine.image.map(Image.init(id:))
             created_at = machine.createdAt.map { ($0.timeIntervalSince1970 * 1000).rounded() }
