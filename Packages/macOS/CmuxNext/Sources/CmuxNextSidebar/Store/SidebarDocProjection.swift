@@ -87,6 +87,12 @@ public nonisolated struct SidebarDocProjection: Hashable, Sendable {
     /// `sidebar.groupPinMark`.
     public var pinnedInGroup: Set<String> = []
 
+    /// What `arrange` marks on rows beyond their order: a change here redraws rows that did not move.
+    public struct RowMarks: Hashable, Sendable {
+        public var archived: Set<String>, pinnedInGroup: Set<String>
+    }
+    public var rowMarks: RowMarks { RowMarks(archived: archived, pinnedInGroup: pinnedInGroup) }
+
     /// The layout item kind of a group placed in Pinned or a custom section.
     public static let groupKind = "group"
 

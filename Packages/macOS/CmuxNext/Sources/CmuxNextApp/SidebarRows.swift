@@ -41,6 +41,9 @@ final class SidebarRows {
     /// removed from every rendered placement, including machine and group
     /// projections that do not come from `layout.sections`.
     private var showAppStore = true
+    /// The sidebar document's row marks the rows were last shown with (archived, pinned inside a group): a change that
+    /// moves no row (a member pinned where it already sits) still has to reach the rows (`sidebar.groupPinMark`).
+    private var docMarks: SidebarDocProjection.RowMarks?
 
     #if DEBUG
     /// The rows `debug.sidebar_nested_fixture` shows instead of the live ones (nested-groups prototype captures).
@@ -104,7 +107,10 @@ final class SidebarRows {
         if let showAppStore { self.showAppStore = showAppStore }
         let sameElsewhere = elsewhere == nil || elsewhere == self.elsewhere
         if let elsewhere { self.elsewhere = elsewhere }
-        if unlessShown, let live, let creating, live == self.live, creating == self.creating, sameElsewhere, sameVisibility { return }
+        let marks = SidebarDocStore.current?.shown?.rowMarks
+        let sameMarks = marks == docMarks
+        docMarks = marks
+        if unlessShown, let live, let creating, live == self.live, creating == self.creating, sameElsewhere, sameVisibility, sameMarks { return }
         if let live { self.live = live }
         if let creating { self.creating = creating }
         #if DEBUG
