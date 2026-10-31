@@ -2,9 +2,534 @@
   "sourceLanguage": "en",
   "strings": {
     "cloudStart.title": {"comment":"Agent pane: a new chat starting in Cloud, the line under the person's message while the start runs","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"جارٍ البدء في السحابة"}},"bs":{"stringUnit":{"state":"needs_review","value":"Pokretanje u Cloudu"}},"da":{"stringUnit":{"state":"needs_review","value":"Starter i Cloud"}},"de":{"stringUnit":{"state":"translated","value":"Wird in der Cloud gestartet"}},"en":{"stringUnit":{"state":"translated","value":"Starting in Cloud"}},"es":{"stringUnit":{"state":"translated","value":"Iniciando en la nube"}},"fr":{"stringUnit":{"state":"translated","value":"Démarrage dans le cloud"}},"it":{"stringUnit":{"state":"needs_review","value":"Avvio nel cloud"}},"ja":{"stringUnit":{"state":"translated","value":"クラウドで開始しています"}},"km":{"stringUnit":{"state":"needs_review","value":"កំពុងចាប់ផ្ដើមក្នុង Cloud"}},"ko":{"stringUnit":{"state":"translated","value":"클라우드에서 시작하는 중"}},"nb":{"stringUnit":{"state":"needs_review","value":"Starter i skyen"}},"pl":{"stringUnit":{"state":"needs_review","value":"Uruchamianie w chmurze"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Iniciando na nuvem"}},"ru":{"stringUnit":{"state":"needs_review","value":"Запуск в облаке"}},"th":{"stringUnit":{"state":"needs_review","value":"กำลังเริ่มบนคลาวด์"}},"tr":{"stringUnit":{"state":"needs_review","value":"Bulutta başlatılıyor"}},"uk":{"stringUnit":{"state":"needs_review","value":"Запуск у хмарі"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đang khởi động trên đám mây"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"正在云端启动"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"正在雲端啟動"}}}},
-    "cloudStart.step.machine": {"comment":"Agent pane: a new chat starting in Cloud, the step that takes or boots a Cloud machine","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"جارٍ تجهيز جهاز"}},"bs":{"stringUnit":{"state":"needs_review","value":"Dobavljanje mašine"}},"da":{"stringUnit":{"state":"needs_review","value":"Henter en maskine"}},"de":{"stringUnit":{"state":"translated","value":"Maschine wird bereitgestellt"}},"en":{"stringUnit":{"state":"translated","value":"Getting a machine"}},"es":{"stringUnit":{"state":"translated","value":"Obteniendo una máquina"}},"fr":{"stringUnit":{"state":"translated","value":"Obtention d'une machine"}},"it":{"stringUnit":{"state":"needs_review","value":"Recupero di una macchina"}},"ja":{"stringUnit":{"state":"translated","value":"マシンを準備しています"}},"km":{"stringUnit":{"state":"needs_review","value":"កំពុងរកម៉ាស៊ីន"}},"ko":{"stringUnit":{"state":"translated","value":"머신을 준비하는 중"}},"nb":{"stringUnit":{"state":"needs_review","value":"Henter en maskin"}},"pl":{"stringUnit":{"state":"needs_review","value":"Pobieranie maszyny"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Obtendo uma máquina"}},"ru":{"stringUnit":{"state":"needs_review","value":"Получение машины"}},"th":{"stringUnit":{"state":"needs_review","value":"กำลังเตรียมเครื่อง"}},"tr":{"stringUnit":{"state":"needs_review","value":"Makine alınıyor"}},"uk":{"stringUnit":{"state":"needs_review","value":"Отримання машини"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đang lấy máy"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"正在获取机器"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"正在取得機器"}}}},
-    "cloudStart.step.folder": {"comment":"Agent pane: a new chat starting in Cloud, the step that copies the chat's folder to the machine","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"جارٍ نسخ المجلد"}},"bs":{"stringUnit":{"state":"needs_review","value":"Kopiranje foldera"}},"da":{"stringUnit":{"state":"needs_review","value":"Kopierer mappen"}},"de":{"stringUnit":{"state":"translated","value":"Ordner wird kopiert"}},"en":{"stringUnit":{"state":"translated","value":"Copying the folder"}},"es":{"stringUnit":{"state":"translated","value":"Copiando la carpeta"}},"fr":{"stringUnit":{"state":"translated","value":"Copie du dossier"}},"it":{"stringUnit":{"state":"needs_review","value":"Copia della cartella"}},"ja":{"stringUnit":{"state":"translated","value":"フォルダをコピーしています"}},"km":{"stringUnit":{"state":"needs_review","value":"កំពុងចម្លងថត"}},"ko":{"stringUnit":{"state":"translated","value":"폴더를 복사하는 중"}},"nb":{"stringUnit":{"state":"needs_review","value":"Kopierer mappen"}},"pl":{"stringUnit":{"state":"needs_review","value":"Kopiowanie folderu"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Copiando a pasta"}},"ru":{"stringUnit":{"state":"needs_review","value":"Копирование папки"}},"th":{"stringUnit":{"state":"needs_review","value":"กำลังคัดลอกโฟลเดอร์"}},"tr":{"stringUnit":{"state":"needs_review","value":"Klasör kopyalanıyor"}},"uk":{"stringUnit":{"state":"needs_review","value":"Копіювання папки"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đang sao chép thư mục"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"正在复制文件夹"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"正在複製資料夾"}}}},
-    "cloudStart.step.opening": {"comment":"Agent pane: a new chat starting in Cloud, the step that opens the chat on the machine","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"جارٍ فتح الدردشة"}},"bs":{"stringUnit":{"state":"needs_review","value":"Otvaranje chata"}},"da":{"stringUnit":{"state":"needs_review","value":"Åbner chatten"}},"de":{"stringUnit":{"state":"translated","value":"Chat wird geöffnet"}},"en":{"stringUnit":{"state":"translated","value":"Opening the chat"}},"es":{"stringUnit":{"state":"translated","value":"Abriendo el chat"}},"fr":{"stringUnit":{"state":"translated","value":"Ouverture du chat"}},"it":{"stringUnit":{"state":"needs_review","value":"Apertura della chat"}},"ja":{"stringUnit":{"state":"translated","value":"チャットを開いています"}},"km":{"stringUnit":{"state":"needs_review","value":"កំពុងបើកការជជែក"}},"ko":{"stringUnit":{"state":"translated","value":"채팅을 여는 중"}},"nb":{"stringUnit":{"state":"needs_review","value":"Åpner chatten"}},"pl":{"stringUnit":{"state":"needs_review","value":"Otwieranie czatu"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Abrindo o chat"}},"ru":{"stringUnit":{"state":"needs_review","value":"Открытие чата"}},"th":{"stringUnit":{"state":"needs_review","value":"กำลังเปิดแชต"}},"tr":{"stringUnit":{"state":"needs_review","value":"Sohbet açılıyor"}},"uk":{"stringUnit":{"state":"needs_review","value":"Відкриття чату"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đang mở cuộc trò chuyện"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"正在打开聊天"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"正在開啟聊天"}}}},
+    "cloudStart.step.machine": {
+      "comment": "Agent pane: a new chat starting in Cloud, the step that takes or boots a Cloud machine",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "جارٍ تشغيل جهازك السحابي…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pokretanje vaše Cloud mašine…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Starter din Cloud-maskine…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Deine Cloud-Maschine wird gestartet…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Starting your Cloud machine…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Iniciando tu máquina Cloud…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Démarrage de ta machine Cloud…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Avvio della tua macchina Cloud…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud マシンを起動しています…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កំពុងចាប់ផ្តើមម៉ាស៊ីន Cloud របស់អ្នក…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud 머신을 시작하는 중…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Starter Cloud-maskinen din…"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uruchamianie Twojej maszyny Cloud…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Iniciando sua máquina Cloud…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Запуск вашей машины Cloud…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "กำลังเริ่มเครื่อง Cloud ของคุณ…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud makinen başlatılıyor…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Запуск вашої машини Cloud…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đang khởi động máy Cloud của bạn…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "正在启动你的 Cloud 机器…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "正在啟動你的 Cloud 機器…"
+          }
+        }
+      }
+    },
+    "cloudStart.step.folder": {
+      "comment": "Agent pane: a new chat starting in Cloud, the step that copies the chat's folder to the machine",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "جارٍ نسخ مشروعك…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kopiranje vašeg projekta…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kopierer dit projekt…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dein Projekt wird kopiert…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copying your project…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Copiando tu proyecto…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Copie de ton projet…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Copia del progetto…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "プロジェクトをコピーしています…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កំពុងចម្លងគម្រោងរបស់អ្នក…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "프로젝트를 복사하는 중…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kopierer prosjektet ditt…"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kopiowanie projektu…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Copiando seu projeto…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Копирование проекта…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "กำลังคัดลอกโปรเจกต์ของคุณ…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Projen kopyalanıyor…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Копіювання проєкту…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đang sao chép dự án của bạn…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "正在复制你的项目…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "正在複製你的專案…"
+          }
+        }
+      }
+    },
+    "cloudStart.step.opening": {
+      "comment": "Agent pane: a new chat starting in Cloud, the step that opens the chat on the machine",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "جارٍ تشغيل الوكيل…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pokretanje agenta…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Starter agenten…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agent wird gestartet…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Starting the agent…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Iniciando el agente…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Démarrage de l'agent…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Avvio dell'agente…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "エージェントを起動しています…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កំពុងចាប់ផ្តើមភ្នាក់ងារ…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "에이전트를 시작하는 중…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Starter agenten…"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uruchamianie agenta…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Iniciando o agente…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Запуск агента…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "กำลังเริ่มเอเจนต์…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ajan başlatılıyor…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Запуск агента…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đang khởi động tác tử…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "正在启动代理…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "正在啟動代理…"
+          }
+        }
+      }
+    },
+    "cloudStart.step.openingAgent": {
+      "comment": "Agent pane: a new chat starting in Cloud, the step that starts the chat's agent on the machine. {agent} is the agent's name, such as Claude Code",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "جارٍ تشغيل {agent}…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pokretanje {agent}…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Starter {agent}…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{agent} wird gestartet…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Starting {agent}…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Iniciando {agent}…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Démarrage de {agent}…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Avvio di {agent}…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{agent} を起動しています…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កំពុងចាប់ផ្តើម {agent}…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{agent} 시작하는 중…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Starter {agent}…"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uruchamianie {agent}…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Iniciando {agent}…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Запуск {agent}…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "กำลังเริ่ม {agent}…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{agent} başlatılıyor…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Запуск {agent}…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đang khởi động {agent}…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "正在启动 {agent}…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "正在啟動 {agent}…"
+          }
+        }
+      }
+    },
     "cloudStart.secrets": {"comment":"Agent pane: a new chat starting in Cloud, the label of how many of the account's secrets the machine gets","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"الأسرار"}},"bs":{"stringUnit":{"state":"needs_review","value":"Tajne"}},"da":{"stringUnit":{"state":"needs_review","value":"Hemmeligheder"}},"de":{"stringUnit":{"state":"translated","value":"Geheimnisse"}},"en":{"stringUnit":{"state":"translated","value":"Secrets"}},"es":{"stringUnit":{"state":"translated","value":"Secretos"}},"fr":{"stringUnit":{"state":"translated","value":"Secrets"}},"it":{"stringUnit":{"state":"needs_review","value":"Segreti"}},"ja":{"stringUnit":{"state":"translated","value":"シークレット"}},"km":{"stringUnit":{"state":"needs_review","value":"អាថ៌កំបាំង"}},"ko":{"stringUnit":{"state":"translated","value":"시크릿"}},"nb":{"stringUnit":{"state":"needs_review","value":"Hemmeligheter"}},"pl":{"stringUnit":{"state":"needs_review","value":"Sekrety"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Segredos"}},"ru":{"stringUnit":{"state":"needs_review","value":"Секреты"}},"th":{"stringUnit":{"state":"needs_review","value":"ข้อมูลลับ"}},"tr":{"stringUnit":{"state":"needs_review","value":"Gizli bilgiler"}},"uk":{"stringUnit":{"state":"needs_review","value":"Секрети"}},"vi":{"stringUnit":{"state":"needs_review","value":"Bí mật"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"密钥"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"密鑰"}}}},
     "cloudStart.network": {"comment":"Agent pane: a new chat starting in Cloud, the label of the machine's network access","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"الشبكة"}},"bs":{"stringUnit":{"state":"needs_review","value":"Mreža"}},"da":{"stringUnit":{"state":"needs_review","value":"Netværk"}},"de":{"stringUnit":{"state":"translated","value":"Netzwerk"}},"en":{"stringUnit":{"state":"translated","value":"Network"}},"es":{"stringUnit":{"state":"translated","value":"Red"}},"fr":{"stringUnit":{"state":"translated","value":"Réseau"}},"it":{"stringUnit":{"state":"needs_review","value":"Rete"}},"ja":{"stringUnit":{"state":"translated","value":"ネットワーク"}},"km":{"stringUnit":{"state":"needs_review","value":"បណ្ដាញ"}},"ko":{"stringUnit":{"state":"translated","value":"네트워크"}},"nb":{"stringUnit":{"state":"needs_review","value":"Nettverk"}},"pl":{"stringUnit":{"state":"needs_review","value":"Sieć"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Rede"}},"ru":{"stringUnit":{"state":"needs_review","value":"Сеть"}},"th":{"stringUnit":{"state":"needs_review","value":"เครือข่าย"}},"tr":{"stringUnit":{"state":"needs_review","value":"Ağ"}},"uk":{"stringUnit":{"state":"needs_review","value":"Мережа"}},"vi":{"stringUnit":{"state":"needs_review","value":"Mạng"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"网络"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"網路"}}}},
     "cloudStart.networkFull": {"comment":"Agent pane: a new chat starting in Cloud, the machine's network: the open internet","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"كامل"}},"bs":{"stringUnit":{"state":"needs_review","value":"Potpuna"}},"da":{"stringUnit":{"state":"needs_review","value":"Fuld"}},"de":{"stringUnit":{"state":"translated","value":"Vollständig"}},"en":{"stringUnit":{"state":"translated","value":"Full"}},"es":{"stringUnit":{"state":"translated","value":"Completo"}},"fr":{"stringUnit":{"state":"translated","value":"Complet"}},"it":{"stringUnit":{"state":"needs_review","value":"Completa"}},"ja":{"stringUnit":{"state":"translated","value":"フル"}},"km":{"stringUnit":{"state":"needs_review","value":"ពេញលេញ"}},"ko":{"stringUnit":{"state":"translated","value":"전체"}},"nb":{"stringUnit":{"state":"needs_review","value":"Full"}},"pl":{"stringUnit":{"state":"needs_review","value":"Pełna"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Completa"}},"ru":{"stringUnit":{"state":"needs_review","value":"Полный"}},"th":{"stringUnit":{"state":"needs_review","value":"เต็มรูปแบบ"}},"tr":{"stringUnit":{"state":"needs_review","value":"Tam"}},"uk":{"stringUnit":{"state":"needs_review","value":"Повний"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đầy đủ"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"完整"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"完整"}}}},
