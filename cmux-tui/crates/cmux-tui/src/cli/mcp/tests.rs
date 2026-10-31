@@ -1922,6 +1922,45 @@ fn a_tab_moves_to_a_pane_named_alone() {
     assert!(!sent.iter().any(|s| s["request"]["operation"] == "tab.move"), "{sent:?}");
 }
 
+/// `open` puts a file in one call: below this chat it splits this pane down and opens the
+/// file with that pane as the target; without the app it says so instead of opening
+/// nothing (tests/tool-evals open-r16b: 2 to 4 steps an open before).
+#[test]
+fn open_splits_and_opens_in_one_call() {
+    let pane = "pane_00000000000000000000000000000007";
+    let mut actions = fixture_actions();
+    actions["actions"].as_array_mut().unwrap().push(json!({
+        "id": "file.open", "title": "Open File", "cli_name": "file open", "cli": true,
+        "targets": ["pane"], "arguments": [{"name": "path", "kind": "string", "required": false}],
+        crate::app_identity::ACTION_SURFACE_PLAN: {"cli": "offered", "mcp": "offered"},
+    }));
+    let created = json!({"pane_id": pane, "id": pane});
+    let fake = Fake { actions, resource_result: Some(created), ..Fake::default() };
+    let mut server = Server::new(fake, None);
+    let result = server
+        .call(&json!({"name": "open",
+                       "arguments": {"kind": "file", "path": "notes.md", "where": "below"}}))
+        .expect("a tool result");
+    assert_ne!(result["isError"], true, "{result}");
+    let sent = server.backend.sent.borrow();
+    let split = sent.iter().find(|s| s["request"]["operation"] == "pane.split");
+    let split = split.unwrap_or_else(|| panic!("{sent:?}"));
+    assert_eq!(split["request"]["params"]["direction"], "down", "{split}");
+    let run = sent.iter().find(|s| s["method"] == "action.run");
+    let run = run.unwrap_or_else(|| panic!("{sent:?}"));
+    assert_eq!(run["params"]["target"], pane, "{run}");
+    assert!(run["params"].to_string().contains("notes.md"), "{run}");
+    drop(sent);
+
+    // No app: `open` says so, where an agent would otherwise try a terminal.
+    let mut server = Server::new(Fake { fail_apps: true, ..Fake::default() }, None);
+    let result = server
+        .call(&json!({"name": "open", "arguments": {"kind": "page", "url": "https://example.com"}}))
+        .expect("a tool result");
+    assert_eq!(result["isError"], true, "{result}");
+    assert!(result.to_string().contains("needs the cmux app"), "{result}");
+}
+
 /// A history read answers the scrollback as lines of plain text, unstyled, where the
 /// daemon's rows of styled runs were 88k characters for 300 lines (tests/tool-evals
 /// r13a). Asked for `styled`, it answers the rows as the daemon sends them.

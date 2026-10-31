@@ -295,7 +295,7 @@ impl<B: Backend> Server<B> {
 
     /// One read through the same path as a direct call (`current`, prefixes and the
     /// `<session>:` qualifier resolve as there): its record, or the failed call's answer.
-    fn read(
+    pub(super) fn read(
         &self,
         tool: Option<&v2_tools::V2Tool>,
         arguments: &Map<String, Value>,

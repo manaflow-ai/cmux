@@ -179,14 +179,10 @@ pub(super) fn descriptors(tools: &[Value]) -> Vec<Value> {
              {{terminal, keys: [\"ctrl+c\"]}} presses keys (enter, escape, up).\n\
              - Groups: tab_group_create {{tabs: [ids], name}}; workspace_group_create {{name}}, \
              then workspace_place {{workspace, group: <its id>}} for each member.\n\
-             - Open a file, diff or page in cmux (not a terminal): app_file_open {{path, \
-             target}}, app_browser_open_diff_viewer {{path, target}}, app_tab_new_browser \
-             {{url, target}}. target is the pane it opens in (default: the focused pane, often \
-             this chat's): on the right, the pane from pane_neighbor_get; left, below or above, \
-             pane_split {{pane: \"current\", direction}} then target: value.pane_id. \
-             workspace_open_url {{url}} opens a page beside this chat. A sticky column: \
-             column_update {{screen, column, dock: true, edge}} (column: its column_id in \
-             screen_layout_export).\n\
+             - Open a file, diff or page in cmux (not a terminal): open {{kind: \"file\" | \
+             \"diff\" | \"page\", path | url, where}} in one call; where: right (default), \
+             left, below, above, here, sticky (a docked column; edge), pane {{pane}}, workspace \
+             {{workspace}}. Several opens with where: right share one column.\n\
              - workspace_status_set {{workspace, key, text}} (a sidebar status pill); \
              workspace_status_clear {{workspace, key}} removes it (an empty text leaves an empty \
              pill); \
