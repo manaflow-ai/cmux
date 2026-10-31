@@ -82,6 +82,17 @@
         "webviews/src/pages/settings/styles.css",
         "webviews/src/ui/Select.tsx"
       ]
+    },
+    "session-info": {
+      "spec": "leo-workspace design/session-info.md",
+      "aliases": [
+        "session info",
+        "inspector",
+        "session panel"
+      ],
+      "paths": [
+        "webviews/src/agent-session/acpmux/inspector"
+      ]
     }
   }
 }

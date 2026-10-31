@@ -134,8 +134,7 @@ enum TabMoves {
         guard !refusesIncognitoCrossing(tab, to: pane, services: services) else { return completion(false) }
         let surface = tab.surface, paneHandle = pane.handle
         let echoes = daemon.supports(DaemonCapability.tabDrag.rawValue)
-        let spawn = services.newColumnWidth(nextTo: pane, movingFrom: services.locateTab(model: tab)?.1)
-        let width = spawn.width
+        let width = services.newColumnWidth(nextTo: pane, movingFrom: services.locateTab(model: tab)?.1)
         services.registry.track(Task {
             // The daemon's reason reaches the caller (a CLI run's reply, the sweep's row), not only the log.
             let failure = await daemon.failure("move-tab-to-column") { connection in
@@ -147,7 +146,6 @@ enum TabMoves {
                     _ = try await adopt(surface, into: created, connection: connection)
                 }
             }
-            if failure == nil { spawn.commit() }
             completion(failure == nil)
             return failure
         })
@@ -183,9 +181,9 @@ enum TabMoves {
         // default"); a resize is the column's own width and stays. A right dock takes the width a
         // new column next to the anchor would take.
         let half = edge == .left && width == nil ? Self.leftDockWidth : nil
-        let spawn = edge.isBand || width != nil || half != nil ? nil
+        let beside = edge.isBand || width != nil || half != nil ? nil
             : services.newColumnWidth(nextTo: pane, movingFrom: services.locateTab(model: tab)?.1)
-        let width = width ?? half ?? spawn?.width ?? 0.3
+        let width = width ?? half ?? beside ?? 0.3
         services.registry.track(Task {
             let ok = await daemon.request("move-tab-to-column") { connection -> Void in
                 if let respawn {
@@ -197,7 +195,6 @@ enum TabMoves {
                                                              transaction: transaction)
                 }
             } != nil
-            if ok { spawn?.commit() }
             completion(ok)
             return ok ? nil : "move-tab-to-column failed (see the app log)"
         })
