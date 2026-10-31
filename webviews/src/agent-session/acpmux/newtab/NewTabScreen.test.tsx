@@ -227,6 +227,31 @@ test("cancelling a saved environment browse keeps the New Tab project", async ()
   expect(container.querySelector(".nt-location")?.textContent).toBe(before);
 });
 
+// Leo, 2026-10-31: "who the f*** put worktree on there". The bar above the composer holds
+// the folder and the machine only; New Worktree is an action in the folder menu.
+test("the location bar has no New Worktree control; the folder menu still offers it", async () => {
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        {...firstRunProps}
+        cwd="/Users/you/src/cmux"
+        projects={[{ cwd: "/Users/you/src/cmux", label: "cmux" }]}
+        environments
+        onNewWorktree={async () => undefined}
+      />,
+    );
+  });
+  const strip = container.querySelector(".acpmux-composer-context");
+  expect(strip).toBeTruthy();
+  const buttons = [...strip!.querySelectorAll("button")].map((button) => button.textContent?.trim());
+  expect(buttons.some((text) => text?.includes("New Worktree"))).toBe(false);
+  const folder = strip!.querySelector<HTMLButtonElement>('[aria-label="Folder"]');
+  expect(folder).toBeTruthy();
+  await act(async () => folder!.click());
+  const options = [...document.querySelectorAll<HTMLElement>('[role="option"]')].map((o) => o.textContent?.trim());
+  expect(options).toContain("New Worktree");
+});
+
 test("a fresh New Tab exposes the no-project path in its environment card", async () => {
   let browsed = 0;
   await act(async () => {
