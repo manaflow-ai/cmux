@@ -49,7 +49,12 @@ struct HomeAgentMessages {
     }
 
     /// Insert by the owner's reply/answer keys, never by sorting committed messages on a clock.
-    func inserting(into items: [TranscriptItem], summary: ConversationSummary?) -> [TranscriptItem] {
+    ///
+    /// Two or more messages one Chief sent or got after the same row fold into one row that names
+    /// their agents (``HomeAgentMessageRow/Kind/fold(count:peers:expanded:)``); a group in `expanded`
+    /// keeps that row first and shows every message after it. A lone message shows as itself.
+    func inserting(into items: [TranscriptItem], summary: ConversationSummary?,
+                   expanded: Set<String> = []) -> [TranscriptItem] {
         guard !runs.isEmpty else { return items }
         var byKey: [IdempotencyKey: Int] = [:]
         var byMessageID: [MessageID: Int] = [:]
@@ -79,6 +84,9 @@ struct HomeAgentMessages {
                     author: run.author, parts: [.text("[\(from) → \(to)]\n\(message.text)")], createdAt: message.date,
                     delivery: .committed, replyTo: parent, threadRoot: run.threadRoot)
                 item.isReadOnly = true
+                item.agentMessage = HomeAgentMessageRow(
+                    group: HomeAgentMessageRow.groupID(author: run.author, anchor: items[anchor].key),
+                    kind: .message(from: from, to: to, outgoing: message.outgoing, text: message.text))
                 after[anchor, default: []].append(item)
             }
         }
@@ -86,7 +94,37 @@ struct HomeAgentMessages {
             // Stable sorting keeps the run's numeric step sequence when fragments
             // share a timestamp; their opaque IDs are not a chronological key.
             let messages = (after[index] ?? []).sorted { $0.createdAt < $1.createdAt }
-            return [item] + messages
+            return [item] + Self.folded(messages, expanded: expanded)
+        }
+    }
+
+    /// `messages` (one row's, in order) with each Chief's two or more messages behind one fold row.
+    private static func folded(_ messages: [TranscriptItem], expanded: Set<String>) -> [TranscriptItem] {
+        guard messages.count > 1 else { return messages }
+        var groups: [String] = []
+        var byGroup: [String: [TranscriptItem]] = [:]
+        for message in messages {
+            guard let group = message.agentMessage?.group else { continue }
+            if byGroup[group] == nil { groups.append(group) }
+            byGroup[group, default: []].append(message)
+        }
+        return groups.flatMap { group -> [TranscriptItem] in
+            let members = byGroup[group] ?? []
+            guard members.count > 1, let first = members.first else { return members }
+            var peers: [String] = []
+            for member in members {
+                guard case let .message(from, to, outgoing, _)? = member.agentMessage?.kind else { continue }
+                let peer = outgoing ? to : from
+                if !peers.contains(peer) { peers.append(peer) }
+            }
+            let open = expanded.contains(group)
+            var fold = TranscriptItem(
+                key: IdempotencyKey("agent-messages:\(group)"), seq: nil, author: first.author,
+                parts: [.text("\(open ? "▾" : "▸") \(peers.joined(separator: " · "))")], createdAt: first.createdAt,
+                delivery: .committed, replyTo: first.replyTo, threadRoot: first.threadRoot)
+            fold.isReadOnly = true
+            fold.agentMessage = HomeAgentMessageRow(group: group, kind: .fold(count: members.count, peers: peers, expanded: open))
+            return open ? [fold] + members : [fold]
         }
     }
 }
