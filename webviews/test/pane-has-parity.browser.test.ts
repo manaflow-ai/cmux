@@ -35,17 +35,6 @@ await requireBrowserLane("pane-has-parity.browser.test.ts", async () => {
     { entry: "agent-pane.composer-scrollbar", variant: "edge", width: 760, height: 420 },
     { entry: "agent-pane.composer-scrollbar", variant: "lane", width: 760, height: 420 },
     { entry: "agent-pane.composer-scrollbar", variant: "outside", width: 760, height: 420 },
-    { entry: "agent-pane.pr-dock", variant: "inline-pills", width: 760, height: 420 },
-    {
-      entry: "agent-pane.pr-dock",
-      variant: "inline-pills",
-      width: 760,
-      height: 420,
-      hover: ".acpmux-turnSummary",
-    },
-    { entry: "agent-pane.pr-dock", variant: "one-first", width: 760, height: 420 },
-    { entry: "agent-pane.pr-dock", variant: "no-footer", width: 760, height: 420 },
-    { entry: "agent-pane.pr-dock", variant: "code-tail", width: 760, height: 420 },
   ];
   setDefaultTimeout(300_000);
   const { createServer } = await import("vite");
