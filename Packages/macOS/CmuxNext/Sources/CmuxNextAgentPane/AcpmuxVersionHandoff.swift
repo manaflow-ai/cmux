@@ -169,9 +169,12 @@ nonisolated enum AcpmuxVersionHandoff {
         return (isReplaced, !handedOff.withLock { $0.contains(key) })
     }
 
-    /// The once-per-socket key of a handoff (``handedOff``).
+    /// The once-per-socket key of a handoff (``handedOff``), per launch policy too: a handoff to
+    /// the bundled build must not use up the one that later takes a daemon a GUI test restarted
+    /// with launches off (cmuxterm-hq#5545).
     private static func handOffKey(_ environment: AcpmuxEnvironment, bundled: String?, pid: Int32) -> String {
-        "\(environment.socketPath) \(bundled ?? "pid \(pid)")"
+        let policy = AcpmuxEnvironment.agentLaunchDisabled(environment.childEnvironment) ? "deny" : "allow"
+        return "\(environment.socketPath) \(bundled ?? "pid \(pid)") launch=\(policy)"
     }
 
     /// Whether the daemon `status` describes runs an executable an update replaced, or (DEBUG)

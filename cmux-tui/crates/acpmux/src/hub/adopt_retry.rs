@@ -9,7 +9,14 @@ impl Hub {
     /// missed the start's pass. A host that is only slow (a loaded Mac) was otherwise left running
     /// with its agent and every MCP server under it, and no daemon controlling it, until a prompt
     /// reached its chat (cmuxterm-hq#5545: 9 of 85 hosts at load 118).
+    ///
+    /// Each attempt holds the full-access family gate through its hello (`adopt_one`), so an MDM
+    /// off pushed while a host stays silent waits up to that budget, not 5 s. Accepted: the off
+    /// still ends that host once the hello settles, and only a wedged host costs the full 30 s.
     pub(super) async fn retry_missed_adoptions(self: &Arc<Self>, sessions: Vec<String>) {
+        if self.shutting_down() {
+            return;
+        }
         let dir = agent_host::hosts_dir();
         let Ok((good, _)) = agent_host::load_records(&dir) else { return };
         let off = self.off_latch();
@@ -20,6 +27,9 @@ impl Hub {
             .for_each_concurrent(8, |(_, record)| {
                 let (dir, off) = (&dir, &off);
                 async move {
+                    if self.shutting_down() {
+                        return;
+                    }
                     let session = record.session_id.clone();
                     let late = agent_host::link::with_hello_budget(
                         agent_host::link::ADOPT_HELLO_BUDGET,

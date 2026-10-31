@@ -204,7 +204,9 @@ impl Hub {
         let (good, _) = agent_host::load_records(&dir).ok()?;
         let (_, record) = good.into_iter().find(|(_, r)| r.session_id == session.id)?;
         // A host that runs and was adopted before is slow on a loaded Mac, not wedged: a missed
-        // 5 s hello here ended a live agent and started a second one (cmuxterm-hq#5545).
+        // 5 s hello here ended a live agent and started a second one (cmuxterm-hq#5545). The
+        // cost: a truly wedged host holds this chat's spawn lock (its prompt, a mode change) and
+        // an MDM off's family gate for up to 30 s before it is ended.
         let adopted = agent_host::link::with_hello_budget(
             agent_host::link::ADOPT_HELLO_BUDGET,
             self.adopt_one(session, record, &off),
