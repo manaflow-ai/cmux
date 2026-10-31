@@ -62,7 +62,12 @@ function GalleryChat({ target, look, live, Header, Tip, Live }: Props & Loaded) 
           onBrowser={noop}
           onSplitDown={noop}
           onFiles={noop}
-          summary={createElement(PanelToggle, { label: "Inspector", shown: false, icon: "view.list", onToggle: noop })}
+          summary={createElement(PanelToggle, {
+            label: "Session Info",
+            shown: false,
+            icon: "view.list",
+            onToggle: noop,
+          })}
           menu={() => []}
           onMenuOpen={async () => undefined}
         />

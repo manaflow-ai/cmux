@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextLayout
 import CmuxNextWakeups
 
 /// Pending window record saves: at most one in flight and one after it, in order.
