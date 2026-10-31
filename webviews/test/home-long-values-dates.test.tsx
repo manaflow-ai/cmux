@@ -164,3 +164,13 @@ test("Home's folder name cuts with an ellipsis instead of pushing the age and ch
   await act(async () => root.unmount());
   host.remove();
 });
+
+test("New Tab's relative ages keep rounding to the nearest minute, as before the date switch", () => {
+  // Base's ageLabel rounded: a chat 59.9 s old read "1m", 90 s read "2m". The date switch must not
+  // turn those into "now" and "1m".
+  expect(ageLabel(NOW - 59_900, NOW)).toBe("1m");
+  expect(ageLabel(NOW - 90_000, NOW)).toBe("2m");
+  expect(ageLabel(NOW - 20_000, NOW)).toBe("now");
+  // Home's age floors, as it always did.
+  expect(age(NOW - 59_900, NOW)).toBe("now");
+});
