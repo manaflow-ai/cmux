@@ -203,6 +203,16 @@ rustfmt. The pre-commit hook does the same for staged files and restages them.
 Both touch only those files, so agents sharing a checkout never reformat each
 other's work. `CMUX_SKIP_FORMAT_HOOKS=1` skips both in an emergency.
 
+## macOS and iOS parity
+
+Every new feature or capability built on cmux-next macOS, however small or big, must also be
+supported in the cmux-next iPhone app (`cmux-next-ios/`), with a row in
+[cmux-next-ios/verify/parity-mac.md](cmux-next-ios/verify/parity-mac.md). Two exceptions, each
+recorded there as "not from a phone" with its reason: Mac-only chrome (windows, menu bar, Dock),
+and anything a paired phone may not do under [cmux-next-ios/SECURITY.md](cmux-next-ios/SECURITY.md)
+and "Remote CLI relay" below. A phone path that needs a new trust or security policy goes to
+https://github.com/manaflow-ai/cmux/issues/13742 with a recommendation first.
+
 ## Area instructions
 
 Read these before working in their scope; nested files may not load automatically:
@@ -210,6 +220,7 @@ Read these before working in their scope; nested files may not load automaticall
 - `ios/` or `Packages/iOS/`: [ios/AGENTS.md](ios/AGENTS.md).
 - `web/` or any cmux Cloud database work: [web/AGENTS.md](web/AGENTS.md).
 - `cmux-tui/`: [cmux-tui/AGENTS.md](cmux-tui/AGENTS.md).
+- `cmux-next-ios/`: [cmux-next-ios/SECURITY.md](cmux-next-ios/SECURITY.md) and the parity rule above.
 
 ## Contributions and publication
 
