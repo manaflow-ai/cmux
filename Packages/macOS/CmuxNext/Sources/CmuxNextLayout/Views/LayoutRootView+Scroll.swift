@@ -112,6 +112,10 @@ extension LayoutRootView: ScrollGestureOwning {
         // gives the press to takes the focus (cmux-ad P0 2026-10-31): a press the window frame keeps (a resize
         // at an edge or corner, inside the frame too), a divider's hit area, the sidebar's resize band or the
         // titlebar's buttons reaches no pane, although it lies over one, so the focus stays where the person typed.
+        // Both must name the same pane. Mid render-server spring the pane drawn under the press and the model's
+        // pane there can differ: `pressedPane` reads the drawn layers, and the frame view's hit test reaches the
+        // drawn view only through `ScreenContentView.hitTest`. A press that the two answers do not agree on
+        // focuses nothing, so a spring never moves the keys to a pane the press did not reach.
         if let pane = view.pressedPane(at: view.convert(locationInWindow, from: nil)),
            paneReceivingPress(at: locationInWindow, in: view) == pane {
             model.focus(pane, source: .pointer)
