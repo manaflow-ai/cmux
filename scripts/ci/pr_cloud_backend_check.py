@@ -32,6 +32,8 @@ ANSWER = re.compile(r"^[ \t]*(?:[-*][ \t]*)?\**cmux-platform[ \t]*(?::\**|\**:)[
 
 def load_map(path: Path) -> tuple[list[str], list[str]]:
     data = json.loads(path.read_text())
+    if not isinstance(data, dict):
+        raise ValueError(f"{path}: the map must be a JSON object")
     backend, stays = data.get("backend"), data.get("stays", [])
     for key, value in (("backend", backend), ("stays", stays)):
         if not isinstance(value, list) or not all(isinstance(p, str) and p.strip() for p in value):

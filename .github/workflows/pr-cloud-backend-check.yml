@@ -20,12 +20,18 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # The capability map from .github/runners.json (fleet Linux first, Blacksmith as overflow), as ci-web.yml
+  # resolves it; a fork gets the hosted fleet with no configuration.
+  runners:
+    uses: ./.github/workflows/resolve-runners.yml
+    permissions:
+      contents: read
+
   cloud-backend:
     name: pr-cloud-backend-check
-    # A path check that needs no Linux kernel (git, bash, python3): an owned mini's light or side lane first,
-    # as auth-refresh-tests.yml resolves it; Blacksmith Linux only as overflow (a retry, the owned pool off)
-    # and for fork pull requests, which never reach an owned mini.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","schedule","workflow_dispatch"]'), github.event_name) && (github.run_attempt == 1 && (vars.CI_LIGHT_LANE_RUNNER || vars.CI_SIDE_LANE_RUNNER)) || 'blacksmith-2vcpu-ubuntu-2404') }}
+    needs: runners
+    # A Linux-class path check (git, bash, python3), so it runs on the map's Linux runner.
+    runs-on: ${{ fromJSON(needs.runners.outputs.map).linux }}
     timeout-minutes: 5
     continue-on-error: true
     permissions:

@@ -60,9 +60,10 @@ class Check(unittest.TestCase):
             with redirect_stdout(out):
                 self.assertEqual(check.main(["--body-file", str(body), "--status-file", str(status), "--map", str(m)]), 0)
             self.assertIn("::warning title=Cloud backend belongs in cmux-platform::", out.getvalue())
-            m.write_text(json.dumps({"backend": "web/services"}))
-            with redirect_stdout(io.StringIO()):
-                self.assertEqual(check.main(["--body-file", str(body), "--status-file", str(status), "--map", str(m)]), 2)
+            for bad in ({"backend": "web/services"}, [], None):
+                m.write_text(json.dumps(bad))
+                with redirect_stdout(io.StringIO()):
+                    self.assertEqual(check.main(["--body-file", str(body), "--status-file", str(status), "--map", str(m)]), 2)
 
     def test_the_repository_map_is_valid_and_its_paths_exist(self):
         backend, stays = check.load_map(ROOT / check.DEFAULT_MAP)
