@@ -136,6 +136,7 @@ class App:
         self.tag = self.info.get("tag")
         self.bundle_id = self.info.get("bundle_id") or ""
         self.env = self.environment(self.pid)
+        self.full_env = self.environment(self.pid, every=True)  # for an exec relaunch: the whole launch environment
         self.check_target()
         try:
             names = build_names.of_app(self.bundle)
@@ -167,14 +168,29 @@ class App:
             sys.exit("restore-fuzz refuses this app: " + "; ".join(problems))
 
     @staticmethod
-    def environment(pid):
+    def environment(pid, every=False):
+        """The app's launch variables from `ps eww` (same user): CMUX_*, HOME and TMPDIR, or (every) each KEY=VALUE word."""
         out = subprocess.run(["ps", "eww", "-o", "command=", "-p", str(pid)], capture_output=True, text=True).stdout
         env = {}
         for word in out.split():
             key, sep, value = word.partition("=")
-            if sep and (key.startswith("CMUX_") or key in ("HOME", "TMPDIR")):
+            if not sep:
+                continue
+            if key.startswith("CMUX_") or key in ("HOME", "TMPDIR") or (every and re.fullmatch(r"[A-Z_][A-Z0-9_]*", key)):
                 env[key] = value
         return env
+
+    def state_outside_slot(self):
+        """A daemon of this build whose state dir (CMUX_TUI_STATE_DIR) or chief home is not under the slot's HOME, or
+        None. An exec relaunch that lost part of the slot environment (2026-10-31, C4) made the next daemon keep its
+        state in the mini account's home: a false restore loss, and writes outside the slot."""
+        home = (self.env.get("HOME") or "").rstrip("/") + "/"
+        for pid in self.daemon_pids():
+            env = self.environment(pid, every=True)
+            for key in ("CMUX_TUI_STATE_DIR", "CMUX_CHIEF_HOME"):
+                if env.get(key) and not env[key].startswith(home):
+                    return f"daemon {pid} {key}={env[key]} is not under the slot HOME {home}"
+        return None
 
     child = None  # the Popen of an app this run started itself (fd, slowdisk): reaped, so a killed one is not a zombie
 
@@ -222,7 +238,7 @@ class App:
             # disk I/O throttle (inherited by the daemon the app starts); no host setting changes.
             with open(os.path.join(self.bundle, "Contents", "Info.plist"), "rb") as f:
                 exe = plistlib.load(f).get("CFBundleExecutable")
-            env = dict(os.environ, **self.env)
+            env = dict(os.environ, **self.full_env, **self.env)
 
             def lower():
                 # fd: soft and hard 256 (the app cannot raise it); fdsoft: soft 256 with the hard limit kept, as
@@ -770,6 +786,11 @@ def iteration(seed, targets, keep=None, label="i"):
     state, timings, problem = restore(target, killed_at, old_daemons)
     rec["timings"] = timings
     log_daemon_env(f"after-restore-{target}")
+    outside = APP.state_outside_slot()
+    if outside:
+        say(f"RESTORE-FUZZ SUMMARY seed=none chaos={opts.chaos} iterations=0 judged=0 not_run=0 violations=0 chaos_lost=0 "
+            f"harness_invalid=1 ({outside})")
+        sys.exit(75)
     if problem:
         rec["problems"].append(problem)
         rec["crash_reports"] = evidence(f"{label}-{seed}")
