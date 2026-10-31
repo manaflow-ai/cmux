@@ -1402,10 +1402,11 @@ impl Hub {
             let supersede = crate::author::restored_supersede(&e.msg).map(str::to_owned);
             // Its approval counts for this incarnation at the revision the owner saw, which an
             // edit since replaced.
-            let revision = e.msg.get("revision").and_then(Value::as_u64);
+            // A record from before revisions is revision 0.
+            let revision = e.msg.get("revision").and_then(Value::as_u64).unwrap_or(0);
             let approval = approved
                 .get(&turn_id)
-                .filter(|a| a.get("revision").and_then(Value::as_u64) == revision);
+                .filter(|a| a.get("revision").and_then(Value::as_u64) == Some(revision));
             // A link guest's prompt waits whatever its record says (`author::awaits_owner`): one
             // an older writer recorded unmarked never runs unapproved after a restart.
             let awaiting_owner = (e.msg.get("awaitingOwner") == Some(&Value::Bool(true))
@@ -1445,7 +1446,7 @@ impl Hub {
                 steer: false,
                 held: held.contains(&prompt_id),
                 awaiting_owner,
-                revision: revision.unwrap_or(0),
+                revision,
                 declined: Default::default(),
                 sent_now: false,
                 joined: Arc::new(StdMutex::new(None)),

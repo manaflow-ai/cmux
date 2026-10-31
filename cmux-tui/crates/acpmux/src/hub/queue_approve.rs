@@ -240,10 +240,9 @@ impl Hub {
                 }
                 let Some(id) = q.msg.get("promptId").and_then(Value::as_str) else { continue };
                 let is_approved = q.msg.get("turnId").and_then(Value::as_str).is_some_and(|turn| {
-                    q.msg
-                        .get("revision")
-                        .and_then(Value::as_u64)
-                        .is_some_and(|revision| approved.get(turn) == Some(&revision))
+                    // A record from before revisions is revision 0, as a restore reads it.
+                    let revision = q.msg.get("revision").and_then(Value::as_u64);
+                    approved.get(turn) == Some(&revision.unwrap_or(0))
                 });
                 if is_approved { &mut approved_waiting } else { &mut held }.push(id.to_owned());
             }
