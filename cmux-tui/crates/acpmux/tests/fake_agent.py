@@ -1600,8 +1600,22 @@ def main():
                     update(params.get("sessionId"), {"sessionUpdate": "config_option_update", "configOptions": was})
                 if params.get("configId") == "mode":
                     MODE_OPTION[params.get("sessionId")] = v
-                # FAKE_BARE_OPTION_ANSWER=1: the answer carries no configOptions; =null: a null.
-                if os.environ.get("FAKE_BARE_OPTION_ANSWER") == "1":
+                    # FAKE_OPTION_HOLD=<path>: a mode option change writes its value to
+                    # <path>.held and holds its answer while <path> exists (at most 30 s).
+                    hold = os.environ.get("FAKE_OPTION_HOLD")
+                    if hold and os.path.exists(hold):
+                        import time as pause  # main() binds `time` locally
+                        with open(hold + ".held.tmp", "w") as f:
+                            f.write(f"{v}\n")
+                        os.replace(hold + ".held.tmp", hold + ".held")
+                        until = pause.monotonic() + 30
+                        while os.path.exists(hold) and pause.monotonic() < until:
+                            pause.sleep(0.05)
+                # FAKE_BARE_OPTION_ANSWER=1: the answer carries no configOptions; =null: a null;
+                # =mode: none for a mode option change only.
+                bare = os.environ.get("FAKE_BARE_OPTION_ANSWER")
+                bare_mode = bare == "mode" and params.get("configId") == "mode"
+                if os.environ.get("FAKE_BARE_OPTION_ANSWER") == "1" or bare_mode:
                     send({"jsonrpc": "2.0", "id": rid, "result": {}})
                     continue
                 if os.environ.get("FAKE_BARE_OPTION_ANSWER") == "null":
