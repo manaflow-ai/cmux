@@ -10,7 +10,6 @@ public nonisolated enum SidebarSectionsSetting {
     /// R87: the key nightly-next builds wrote before the rename, read for
     /// one release when `sidebar.pinnedBandsScroll` is absent. Remove after it.
     static let legacyScrollPath = ["sidebar", "stickyBandsScroll"]
-    public static let showWorkspaceTabsPath = ["sidebar", "showWorkspaceTabs"]
     public static let minimalModePath = ["sidebar", "minimalMode"]
     /// Minimal mode (cx-w1r5): rows draw only icon, name and marks; section
     /// headers become thin lines.
@@ -174,15 +173,6 @@ public nonisolated enum SidebarSectionsSetting {
                           keywords: ["sidebar", "minimal", "hide", "hover", "settings", "account"])
     }
 
-    static func showWorkspaceTabsDescriptor(group: SettingText) -> SettingDescriptor {
-        SettingDescriptor(showWorkspaceTabsPath, section: .appearance, group: group,
-                          title: SettingsText.keyed("settings.sidebar.showWorkspaceTabs", "Show Workspace Tabs"),
-                          help: SettingsText.keyed("settings.sidebar.showWorkspaceTabs.help", "Lists tabs beneath each workspace in the sidebar."),
-                          kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.showWorkspaceTabs),
-                          keywords: ["sidebar", "workspace", "workspaces", "tabs", "panes", "under", "beneath", "nested",
-                                     "expand", "list", "tree", "disclosure"])
-    }
-
     /// Projects, which its header's menu hides (Leo 2026-10-06). All chats has
     /// Show All Chats on New Tab (`showChatsDescriptor`).
     static func sectionDescriptors(group: SettingText) -> [SettingDescriptor] {
@@ -288,13 +278,6 @@ public nonisolated enum SidebarSectionsSetting {
             } else {
                 let choices = SidebarMinimalMode.allCases.map { "\"\($0.rawValue)\"" }.joined(separator: ", ")
                 diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "sidebar.minimalMode", message: "expected one of " + choices))
-            }
-        }
-        if let value = root.value(at: showWorkspaceTabsPath) {
-            if let flag = value.boolValue {
-                result.showWorkspaceTabs = flag
-            } else {
-                diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "sidebar.showWorkspaceTabs", message: "expected true or false"))
             }
         }
         result.sessionTree = flag(root, sessionTreePath, fallback: result.sessionTree, &diagnostics)

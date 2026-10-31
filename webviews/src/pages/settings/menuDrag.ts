@@ -79,7 +79,9 @@ export function dropTarget(rows: RowBox[], dragged: Path, height: number, y: num
     if (!row.folder || row.open) continue;
     const quarter = (row.bottom - row.top) / 4;
     if (y >= row.top + quarter && y <= row.bottom - quarter) {
-      return unmoved(row.path, row.children) ? null : { parent: row.path, index: row.children, depth: row.depth + 1, slot: null, into: row.path };
+      return unmoved(row.path, row.children)
+        ? null
+        : { parent: row.path, index: row.children, depth: row.depth + 1, slot: null, into: row.path };
     }
   }
   let slot = rest.findIndex((row) => (row.top + row.bottom) / 2 >= y);
@@ -105,7 +107,13 @@ export function dropTarget(rows: RowBox[], dragged: Path, height: number, y: num
  * dragged to gap `slot` among the other rows: the rows below the block move up into its place,
  * and the rows from the gap down move down to open it. No target (`undefined`): nothing slides.
  */
-export function shifts(rows: RowBox[], first: number, last: number, height: number, slot: number | null | undefined): Map<number, number> {
+export function shifts(
+  rows: RowBox[],
+  first: number,
+  last: number,
+  height: number,
+  slot: number | null | undefined,
+): Map<number, number> {
   const result = new Map<number, number>();
   if (slot === undefined) return result;
   let index = 0;
