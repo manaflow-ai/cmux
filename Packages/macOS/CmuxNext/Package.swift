@@ -1786,7 +1786,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextMobileHostTests",
-            dependencies: ["CmuxNextMobileHost", "CmuxNextMobile", "CmuxNextDesign", "CmuxNextAgentPane", "CmuxNextPages", "CmuxNextSettings"],
+            dependencies: ["CmuxNextMobileHost", "CmuxNextMobile", "CmuxNextDesign", "CmuxNextAgentPane", "CmuxNextPages", "CmuxNextSettings", "CmuxNextCompat"],
             swiftSettings: uiSwiftSettings
         ),
         .testTarget(
@@ -1798,6 +1798,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 .product(name: "CMUXMobileCore", package: "CMUXMobileCore"),
                 .product(name: "CmuxMobileRPC", package: "CmuxMobileRPC"),
                 .product(name: "CmuxMobileSSH", package: "CmuxMobileSSH"),
+                "CmuxNextCompat",
             ],
             swiftSettings: daemonSwiftSettings
         ),

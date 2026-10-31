@@ -117,7 +117,17 @@ test("Phone Access rows remain visible and removable when the legacy host is off
         account: null,
         space: null,
         phase: "off",
-        phones: [{ id: "iroh:peer", title: "Demo iPhone · cmux next", subtitle: "Device key demo", connected: false, removable: true, transport: "iroh", path: null }],
+        phones: [
+          {
+            id: "iroh:peer",
+            title: "Demo iPhone · cmux next",
+            subtitle: "Device key demo",
+            connected: false,
+            removable: true,
+            transport: "iroh",
+            path: null,
+          },
+        ],
       },
     }),
   );

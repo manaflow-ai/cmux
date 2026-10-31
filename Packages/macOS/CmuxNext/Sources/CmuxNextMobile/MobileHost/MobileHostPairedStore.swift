@@ -161,7 +161,7 @@ public final class MobileHostPairedStore: Sendable {
                 var next = current
                 edit(&next)
                 do {
-                    let completed = self.state.withLock { state -> [Removal: UUID] in
+                    let completed: [Removal: UUID] = self.state.withLock { state -> [Removal: UUID] in
                         guard state.generation == selected, state.userID == user else { return [:] }
                         var completed: [Removal: UUID] = [:]
                         for (removal, marker) in state.removals {
