@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextPalette
 import CmuxNextSidebar
 import CmuxNextWakeups
 
@@ -165,6 +166,36 @@ extension CloudHandlers {
             if let name = invocation["name"]?.stringValue { return rename(name) }
             context.services.registry.ask("cloudRenameMachine", invocation,
                                           ActionArgumentAsk(argument: "name", initialText: session.machine.displayName ?? ""))
+        }
+        // Share Machine… (CloudMachineShare): `--teammate` shares or (`--revoke`) takes back; without
+        // it a person's run opens the teammates page and a CLI or agent run answers the list.
+        bind("cloudShareMachine", registry, reason: reason) { invocation in
+            let session = try machine(invocation, context)
+            if let teammate = invocation["teammate"]?.stringValue?.trimmingCharacters(in: .whitespaces), !teammate.isEmpty {
+                let shared = invocation["revoke"]?.boolValue != true
+                return result("share machine", context) {
+                    do { try await CloudMachineShare.set(shared, teammate: teammate, on: session, cloud: cloud) } catch {
+                        throw ActionFailure(message: CloudMachineShare.message(error))
+                    }
+                    return machineFields(session.machineID, ["teammate": .string(teammate), "shared": .bool(shared)])
+                }
+            }
+            if origin(of: invocation) == .user {
+                return context.services.palette.show(page: CloudMachineShare.page(session, services: context.services),
+                                                     relativeTo: context.activeWindow?.window)
+            }
+            answer("machine shares", invocation, context) {
+                let roster: CloudMachineShareRoster
+                do { roster = try await CloudMachineShare.roster(session, cloud: cloud) } catch {
+                    throw ActionFailure(message: CloudMachineShare.message(error))
+                }
+                let lines = roster.rows.map { "\($0.shared ? "shared" : "-") \($0.name) (\($0.userID))" }
+                let teammates = roster.rows.map { row in
+                    ActionResultValue.object(["user_id": .string(row.userID), "name": .string(row.name), "shared": .bool(row.shared)])
+                }
+                return CloudAnswer(title: CloudShareStrings.listTitle, text: lines.isEmpty ? "(none)" : lines.joined(separator: "\n"),
+                                   fields: machineFields(session.machineID, ["teammates": .array(teammates), "can_share": .bool(roster.canShare)]))
+            }
         }
         // Destructive: the registry confirmed it (sheet, or `confirm: true`).
         bind("cloudKillMachine", registry, reason: reason) { invocation in

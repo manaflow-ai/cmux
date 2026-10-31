@@ -261,6 +261,18 @@ nonisolated enum CatalogArgument {
                        isRequired: false)
     }
 
+    /// `cloud share-machine --teammate USER_ID`: the teammate whose chats on the machine change.
+    static var teammateString: ActionArgument {
+        ActionArgument(name: "teammate", title: String(localized: "argument.teammate", defaultValue: "Teammate", bundle: .module),
+                       kind: .string, isRequired: false)
+    }
+
+    /// `cloud share-machine --teammate USER_ID --revoke`: take the teammate's share back.
+    static var revokeBool: ActionArgument {
+        ActionArgument(name: "revoke", title: String(localized: "argument.revoke", defaultValue: "Revoke", bundle: .module),
+                       kind: .bool, isRequired: false)
+    }
+
     static var onBool: ActionArgument {
         ActionArgument(name: "on", title: String(localized: "argument.on", defaultValue: "On", bundle: .module), kind: .bool)
     }

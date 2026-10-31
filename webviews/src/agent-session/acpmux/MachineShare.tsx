@@ -1,0 +1,64 @@
+import { type ReactNode, useState } from "react";
+import { copyTextResult } from "./conversation/clipboard";
+import { useT } from "./i18n";
+import { askOwnerRequest, type MachineShareOutcome, offersMachineShare, shareMachineWithMe } from "./machineShare";
+
+/// What the start refusal card needs to share a teammate's machine: its name (for Ask the Owner's
+/// request) and the native `machine.share.self` call.
+export type MachineShareProps = { machine?: string; call(): Promise<unknown> };
+
+type Phase =
+  | { kind: "idle" }
+  | { kind: "sharing" }
+  | { kind: "forbidden" }
+  | { kind: "copied" }
+  | { kind: "failed"; outcome: Extract<MachineShareOutcome, { kind: "failed" }> };
+
+/// The card's one share button and its one status line, for a teammate's machine only
+/// (machineShare.ts). One button at a time keeps the card compact: Share with Me, and once that is
+/// refused (only the creator or an admin shares), Ask the Owner in its place. A share that went
+/// through retries the start (`onShared`). The state belongs to one refusal: a new one starts over.
+export function useMachineShare(
+  share: MachineShareProps | undefined,
+  refusal: { code?: string; error?: string } | undefined,
+  onShared: () => void,
+): { button?: ReactNode; line?: string } {
+  const t = useT();
+  const key = `${refusal?.code ?? ""}\n${refusal?.error ?? ""}`;
+  const [state, setState] = useState<{ key: string; phase: Phase }>({ key, phase: { kind: "idle" } });
+  if (!share || !offersMachineShare(refusal?.code)) return {};
+  const phase: Phase = state.key === key ? state.phase : { kind: "idle" };
+  const set = (next: Phase) => setState({ key, phase: next });
+  const run = async () => {
+    set({ kind: "sharing" });
+    const outcome = await shareMachineWithMe(share.call);
+    if (outcome.kind === "shared") {
+      set({ kind: "idle" });
+      onShared();
+    } else if (outcome.kind === "forbidden") set({ kind: "forbidden" });
+    else set({ kind: "failed", outcome });
+  };
+  const ask = async () => {
+    const copied = await copyTextResult(askOwnerRequest(t, share.machine));
+    set(copied ? { kind: "copied" } : { kind: "forbidden" });
+  };
+  const asking = phase.kind === "forbidden" || phase.kind === "copied";
+  const button = asking ? (
+    <button type="button" data-machine-share="ask" onClick={() => void ask()}>
+      {t("switch.action.askOwner")}
+    </button>
+  ) : (
+    <button type="button" data-machine-share="share" disabled={phase.kind === "sharing"} onClick={() => void run()}>
+      {t("switch.action.shareWithMe")}
+    </button>
+  );
+  const line =
+    phase.kind === "forbidden"
+      ? t("switch.share.forbidden")
+      : phase.kind === "copied"
+        ? t("switch.askOwner.copied")
+        : phase.kind === "failed"
+          ? t(phase.outcome.key, { reason: phase.outcome.reason ?? t("switch.unknownError") })
+          : undefined;
+  return { button, ...(line && { line }) };
+}

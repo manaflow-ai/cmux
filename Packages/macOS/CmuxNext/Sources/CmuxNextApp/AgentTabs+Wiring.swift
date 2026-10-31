@@ -312,6 +312,12 @@ extension AgentTabStore {
             await client.close()
             return folders
         }
+        tabs.shareMachineWithMe = { [weak services, weak tabs] key in
+            guard let services, let tabs, let machine = tabs.remoteMachineID(of: key), let session = services.machines.session(machine) else {
+                return .refused(code: "unavailable", message: CloudShareStrings.notCloudMachine)
+            }
+            return await CloudMachineShare.shareWithMe(session, cloud: services.cloud)
+        }
         tabs.remoteHost = { [weak services, weak tabs] key in
             guard let services, let tabs, let (tab, _) = services.locateTabOnAnyMachine(key), let record = tab.agentSession else { return nil }
             let started = record.host.hasPrefix(AgentTabRemoteStart.registryPrefix)

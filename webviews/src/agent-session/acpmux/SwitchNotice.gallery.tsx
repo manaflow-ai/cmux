@@ -2,11 +2,13 @@
 import { useState } from "react";
 import { componentEntry } from "../../gallery/format";
 import type { Play } from "../../gallery/play";
+import { NativeError } from "./nativeError";
 import { SwitchNotice } from "./SwitchNotice";
 
-type Props = { error: string; code?: string };
+/// `share`: how the fixture's Share with Me answers (a team admin's share, or the creator-or-admin refusal).
+type Props = { error: string; code?: string; share?: "shared" | "forbidden" };
 
-function GallerySwitchNotice({ error, code }: Props) {
+function GallerySwitchNotice({ error, code, share }: Props) {
   const [ran, setRan] = useState<string>();
   return (
     <div className="acpmux-shell" data-switch-notice-fixture data-ran={ran}>
@@ -14,6 +16,15 @@ function GallerySwitchNotice({ error, code }: Props) {
         switching={{ harness: "claude", name: "Claude Code", phase: "failed", error, ...(code && { code }) }}
         onRetry={() => setRan("retry")}
         onAction={(action) => setRan(action)}
+        {...(share && {
+          share: {
+            machine: "build-box",
+            call: async () => {
+              if (share === "forbidden") throw new NativeError({ code: "vm_chat_share_forbidden" });
+              return { shared: true };
+            },
+          },
+        })}
       />
     </div>
   );
@@ -22,6 +33,11 @@ function GallerySwitchNotice({ error, code }: Props) {
 const newMachine: Play = async (ctx) => {
   await ctx.click({ role: "button", name: "New Cloud Machine" });
   await ctx.waitFor(() => ctx.find({ role: "button", name: "Retry" }) !== null);
+};
+
+const shareRefused: Play = async (ctx) => {
+  await ctx.click({ role: "button", name: "Share with Me" });
+  await ctx.waitFor(() => ctx.find({ role: "button", name: "Ask the Owner" }) !== null);
 };
 
 export default componentEntry<Props>({
@@ -40,9 +56,20 @@ export default componentEntry<Props>({
         error:
           "build-box is a teammate's machine, so its owner starts chats there. Pick your own machine, or create one with New Cloud Machine.",
         code: "agent_session.team_vm_blocked",
+        share: "shared",
       },
       play: newMachine,
-      note: "A teammate's machine: the person's own new machine is one click away, beside Retry.",
+      note: "A teammate's machine: Share with Me (a team admin's share retries the start), then the person's own new machine, beside Retry.",
+    },
+    "teammate-machine-share-refused": {
+      props: {
+        error:
+          "build-box is a teammate's machine, so its owner starts chats there. Pick your own machine, or create one with New Cloud Machine.",
+        code: "agent_session.team_vm_blocked",
+        share: "forbidden",
+      },
+      play: shareRefused,
+      note: "Share with Me refused (only the creator or a team admin shares): the same button becomes Ask the Owner, which copies a request naming the machine.",
     },
     "no-folder": {
       props: {

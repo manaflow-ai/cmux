@@ -184,6 +184,8 @@ public final class AgentPaneModel {
     /// Choose Folder… for a chat whose folder is missing: the native folder sheet on this pane,
     /// then acpmux's `chat_open` with the pick (cx-nn3e.1).
     @ObservationIgnored public var onChooseChatFolder: (@MainActor (_ chat: String) async -> AgentPaneChatFolderResult)?
+    /// Share with Me: grants the signed-in person chats on this remote chat's Cloud machine.
+    @ObservationIgnored public var onShareMachineWithMe: (@MainActor () async -> AgentPaneMachineShare)?
     /// The folder this pane's user chose with "Choose Folder…": new chats start there until the
     /// workspace's own field (``workspaceRoots``) carries it.
     @ObservationIgnored public internal(set) var chosenFolder: String?
@@ -380,6 +382,7 @@ public final class AgentPaneModel {
         case .chooseFolder where remoteChat: return Self.unsupported("workspace.chooseFolder")
         case .chooseFolder: return await chooseFolder()
         case .chooseChatFolder: return await chooseChatFolder()
+        case .shareMachineWithMe: return await shareMachineWithMe()
         // The panel picks this Mac's files: never for a chat on another machine (cx-k21v).
         case .chooseAttachments where remoteChat: return Self.unsupported("chat.attach.choose")
         case .chooseAttachments: return await chooseAttachments()

@@ -151,6 +151,9 @@ final class AgentTabStore {
     /// The folders the machine of tab `key` lists itself (`agent-session-folders`: its work folder,
     /// then the folders under it), for the same project list; none from an older daemon.
     var remoteMachineFolders: (@MainActor (String) async -> [String])?
+    /// Share with Me on the refused start of tab `key`'s chat: grants the signed-in person chats on
+    /// its Cloud machine (``CloudMachineShare/shareWithMe(_:cloud:)``).
+    var shareMachineWithMe: (@MainActor (String) async -> AgentPaneMachineShare)?
     /// The display name of a remote daemon's machine, recorded on the tabs of its new chats.
     var remoteMachineName: @MainActor (DaemonService) -> String? = { _ in nil }
     /// Shared conversion and project actions for a direct blank chat, without a chooser page.
@@ -420,6 +423,10 @@ final class AgentTabStore {
                 let folders = AgentTabRemoteStart.folders(listed: listed, machine: machine)
                 guard let query = query?.lowercased(), !query.isEmpty else { return folders }
                 return folders.filter { $0.lowercased().contains(query) }
+            }
+            model.onShareMachineWithMe = { [weak self] in
+                guard let self, let shareMachineWithMe else { return .refused(code: "unavailable", message: CloudShareStrings.notCloudMachine) }
+                return await shareMachineWithMe(resolveRemote(key))
             }
         }
         guard let view = makeView(model) else {

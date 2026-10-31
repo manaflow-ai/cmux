@@ -11153,6 +11153,7 @@ function AcpmuxPane() {
               switching={snapshot.switching}
               onRetry={() => void callNative("chat.harness.retry")}
               onAction={(action) => (action === "newCloudMachine" ? connectMachine("cloud") : chooseWorkspaceFolder())}
+              share={{ ...(machineName && { machine: machineName }), call: () => callNative("machine.share.self") }}
             />
           </Notice>
         )}
