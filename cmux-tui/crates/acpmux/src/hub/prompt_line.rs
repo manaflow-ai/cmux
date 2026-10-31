@@ -54,7 +54,7 @@ fn message(text: &str, client: &str, provenance: Option<&Value>) -> Option<(Stri
             let words = field("msgId").and_then(|id| rendered_body(text, &id)).unwrap_or(text);
             Some((name, words.to_owned()))
         }
-        // `[NAME] lane report: ...` (`lane_reports.rs`).
+        // `[NAME] verdict or first sentence` (`lane_reports.rs`); legacy report titles work too.
         Some(super::lane_reports::KIND) => name_prefixed(text),
         Some(super::digest::DIGEST_KIND) => {
             let messages = provenance?.get("messages")?.as_array()?;
@@ -189,6 +189,21 @@ mod tests {
         // Not in the rendered form: its first line.
         let p = json!({"kind": "agent_message", "from": "term_1", "msgId": "m9", "threadId": "t1"});
         assert_eq!(prompt_line("hello\nthere", "cmux", Some(&p)), "term_1: hello");
+    }
+
+    #[test]
+    fn lane_reports_read_the_verdict_without_parsing_the_legacy_title() {
+        let p = json!({"kind": "lane_report", "from": "lane-id", "fromName": "review-1", "turn": 4, "state": "idle"});
+        for title in [
+            "BLOCK at 123456789abc · 2 P2 · turn 4, idle",
+            "Fixed the crash. · turn 4, idle",
+            "lane report: turn 4 ended, idle.",
+        ] {
+            assert_eq!(
+                prompt_line(&format!("[review-1] {title}\nMore"), "acpmux", Some(&p)),
+                format!("review-1: {title}")
+            );
+        }
     }
 
     #[test]

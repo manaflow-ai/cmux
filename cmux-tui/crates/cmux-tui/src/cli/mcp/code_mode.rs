@@ -172,7 +172,9 @@ pub(super) fn descriptors(tools: &[Value]) -> Vec<Value> {
              filter((l) => l.includes(\"error\")). Return small results: a list's ids and names, \
              not every record.\n\
              - tab_rename {{tab, name}}, tab_close {{tab}}, tab_focus {{tab}}; workspace_rename \
-             {{workspace, name}}.\n\
+             {{workspace, name}}; tab_move {{tab, destination_pane}} (or destination_workspace: \
+             its active pane; it goes last); workspace_create {{name}}; terminal_input_keys \
+             {{terminal, keys: [\"ctrl+c\"]}} presses keys (enter, escape, up).\n\
              - Groups: tab_group_create {{tabs: [ids], name}}; workspace_group_create {{name}}, \
              then workspace_place {{workspace, group: <its id>}} for each member.\n\
              - workspace_status_set {{workspace, key, text}} (a sidebar status pill); \

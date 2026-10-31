@@ -56,6 +56,8 @@
 //!   (`restore.rs`); its stable prompt id still admits that attempt only once.
 //! - `_acpmux/retry` retries a failed turn on demand, taking over a continuation that waits
 //!   ([`retry_turn`]).
+//! - A chat's first send that a revoked OAuth token failed is sent again once, 2 s later, through
+//!   the same mark ([`first_send`]).
 
 use cmux_json::JsonSet as _;
 
@@ -97,6 +99,16 @@ pub(super) fn set_after_finish_replaced_check(hook: Box<dyn FnOnce()>) {
 
 /// `_acpmux/retry`: a failed turn retried on demand.
 pub(crate) mod retry_turn;
+
+/// A first send a revoked OAuth token failed goes again once, 2 s later.
+mod first_send;
+
+/// Whether a failed turn's `error` is one acpmux may retry by itself: a transient one
+/// ([`super::turn_errors::resume_cause`]), or a revoked token, which a chat's first send retries
+/// ([`first_send`]). A row shows such a turn's retry being decided until that is settled.
+fn retry_decided_on(error: &str) -> bool {
+    super::turn_errors::resume_cause(error, error).is_some() || first_send::retried_error(error)
+}
 
 /// Waits before attempts 1, 2, 3 and 4, in milliseconds.
 pub const DEFAULT_DELAYS_MS: [u64; 4] = [10_000, 60_000, 300_000, 1_200_000];
@@ -489,6 +501,9 @@ impl Hub {
         turn_id: &str,
         cut: Option<CutTurn<'_>>,
     ) {
+        // Once a shutdown began none waits here to fire: a cut it hands on is the next daemon's
+        // to continue (`restart_resume.rs`), and Quit Everything continues nothing.
+        let cut = cut.filter(|_| !self.shutting_down());
         let mut pending = session.auto_resume.lock();
         let ending = match pending.as_ref() {
             Some(Mark::Ending(t)) if t == turn_id => Some(true),
@@ -497,6 +512,18 @@ impl Hub {
         };
         let reason = cut.as_ref().and_then(|c| super::turn_errors::resume_cause(c.error, c.error));
         let reason = reason.and_then(RetryReason::from_cause);
+        // A first send a revoked token failed: sent again once, its wait this mark's.
+        if let (Some(cut), None, Some(true)) = (cut.as_ref(), reason, ending)
+            && first_send::retries(session, cut)
+        {
+            let wake = Arc::new(Notify::new());
+            let mark =
+                Mark::Waiting { turn: turn_id.to_owned(), retry: None, _wake: Wake(wake.clone()) };
+            pending.replace(mark);
+            drop(pending);
+            self.retry_first_send(session, cut, wake);
+            return;
+        }
         let (Some(cut), Some(reason), Some(true)) = (cut, reason, ending) else {
             if ending.is_some() {
                 pending.take();
@@ -547,7 +574,24 @@ impl Hub {
             };
             let mut msg = serde_json::to_value(&retry).unwrap_or_else(|_| json!({}));
             msg.set("delayMs", json!(delay));
-            if hub.set_retry(&session, &turn_id, retry, msg) {
+            // Tests only: pause a retry before its wait is set.
+            #[cfg(test)]
+            {
+                let seam = hub.retry_seam.lock().unwrap_or_else(|e| e.into_inner()).take();
+                if let Some((arrived, release)) = seam {
+                    let _ = arrived.send(());
+                    let _ = release.await;
+                }
+            }
+            // None once a shutdown began, whenever it began (router review of #28503): a cut it
+            // hands on is the next daemon's to continue, and Quit Everything continues nothing.
+            // The wait is the record the next daemon restores (`restore.rs`).
+            let set = hub.before_shutdown(|| hub.set_retry(&session, &turn_id, retry, msg));
+            let Some(set) = set else {
+                hub.take_pending(&session, &turn_id);
+                return;
+            };
+            if set {
                 // Its delay, or its mark going (`Wake`): Stop, close, a turn that took the chat.
                 tokio::select! {
                     () = tokio::time::sleep(Duration::from_millis(delay)) => {}
@@ -582,14 +626,17 @@ impl Hub {
     fn settled_unretried(&self, session: &Session, turn_id: &str, why: &str) {
         let last = session.meta().last_turn;
         let deciding = last.as_ref().is_some_and(|t| {
-            let error = t["errorText"].as_str().unwrap_or_default();
-            t["status"] == "failed"
-                && t["turnId"] == turn_id
-                && super::turn_errors::resume_cause(error, error).is_some()
+            let field = |key: &str| t.get(key).and_then(Value::as_str);
+            let error = field("errorText").unwrap_or_default();
+            field("status") == Some("failed")
+                && field("turnId") == Some(turn_id)
+                && retry_decided_on(error)
         });
         if deciding {
             let mut msg = json!({"turnId": turn_id, "why": why});
-            if let Some(prompt_id) = last.as_ref().and_then(|t| t["promptId"].as_str()) {
+            if let Some(prompt_id) =
+                last.as_ref().and_then(|t| t.get("promptId").and_then(Value::as_str))
+            {
                 msg.set("promptId", json!(prompt_id));
             }
             self.append_retry(session, "auto_resume_settled", msg);
@@ -806,11 +853,12 @@ impl Hub {
         session: &Session,
         last: Option<&Value>,
     ) -> (Option<RetrySummary>, bool) {
-        let failed = last.filter(|t| t["status"] == "failed").filter(|t| {
-            let error = t["errorText"].as_str().unwrap_or_default();
-            super::turn_errors::resume_cause(error, error).is_some()
-        });
-        let cut = failed.and_then(|t| t["turnId"].as_str());
+        let failed = last
+            .filter(|t| t.get("status").and_then(Value::as_str) == Some("failed"))
+            .filter(|t| {
+                retry_decided_on(t.get("errorText").and_then(Value::as_str).unwrap_or_default())
+            });
+        let cut = failed.and_then(|t| t.get("turnId").and_then(Value::as_str));
         let snapshot = || {
             let pending = session.auto_resume.lock();
             let mark = pending.as_ref();

@@ -161,7 +161,7 @@ impl Hub {
         let msg = json!({"text": text, "steer": true, "client": client, "promptId": prompt_id, "turnId": turn_id});
         let msg = crate::prompt_provenance::marked(msg, opts.provenance.as_ref());
         self.append_prompt(session, msg, &blocks, opts.display_parts.as_ref());
-        let mut accepted = json!({"sessionId": session.id, "promptId": prompt_id, "turnId": turn_id, "queued": false, "steer": true});
+        let mut accepted = json!({"sessionId": session.id, "promptId": prompt_id, "turnId": turn_id, "queued": false, "state": "steered", "steer": true});
         // Steered in: the sender's prompts still queued under its key are replaced (`supersede.rs`).
         if let Some(key) = opts.supersede.as_deref() {
             let sender =

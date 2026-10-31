@@ -64,15 +64,34 @@ pub struct Session {
     /// Claim retry recovery once per session object; imports may replace a chat with the
     /// same id and a different journal, which must get its own recovery pass.
     pub(super) auto_resume_restored: AtomicBool,
+    /// What a daemon start restored here waits for the person: the chat's folder is
+    /// privacy-protected, so its queue, cut turn, inbox and retries start no agent until the
+    /// person opens, types into or prompts the chat (`protected_hold.rs`).
+    pub(super) protected_hold: AtomicBool,
     /// A retry task may outlive an imported replacement with the same durable id. Its mark
     /// belongs to this instance, so its wake and cleanup cannot consume the replacement's.
     pub(super) auto_resume: auto_resume::Pending,
     pub(super) turn_lock: Mutex<()>,
+    /// Set while a prompt holds `turn_lock` for its turn (`subsession_runs.rs` `ClaimedTurn`):
+    /// from the moment it takes the lock, before `start_turn` shows its turn in `turn`, until
+    /// its guard drops. A prompt that comes meanwhile queues and is accepted at once
+    /// (`queue_slot`), instead of waiting unanswered for the lock (fuzz row g, g1).
+    pub(super) turn_claimed: AtomicBool,
+    /// Makes a new prompt's check whether it must wait and its place in the `queued` count one
+    /// step (`queue.rs` `queue_slot`): two prompts that come together never both find the chat
+    /// free. A leaf lock, held for no await.
+    pub(super) admit: StdMutex<()>,
     /// Serializes the handoff of a turn's prompt and a session-wide cancel. A compacting Stop
     /// settles the logical turn before its cancel reaches the harness; keeping this lock until
     /// that cancel is handed to the child prevents the next turn's prompt from overtaking it.
     pub(super) input_handoff: std::sync::Arc<Mutex<()>>,
     pub(super) turn: StdMutex<Option<TurnInfo>>,
+    /// The turn `finish_turn` took and has not ended yet: a shutdown settles it if its end does
+    /// not land within the grace (`shutdown.rs` `settle_ends`).
+    pub(super) ending: StdMutex<Option<TurnInfo>>,
+    /// A detach is ending the agent it took under the child lock (`detach_child`): a shutdown
+    /// that meets that lock waits for the detach rather than count the agent as kept.
+    pub(super) detaching: AtomicBool,
     pub(super) queued: AtomicU64,
     pub(super) queue: StdMutex<Vec<QueuedPrompt>>,
     /// Durable team notices, indexed once per session; receiving one never queues a turn.
@@ -337,6 +356,10 @@ impl Session {
     }
     pub fn turn(&self) -> Option<TurnInfo> {
         self.turn.lock().unwrap().clone()
+    }
+    /// Whether a prompt holds the turn lock for its turn (`turn_claimed`).
+    pub(super) fn turn_claimed(&self) -> bool {
+        self.turn_claimed.load(Ordering::SeqCst)
     }
     pub fn queued(&self) -> u64 {
         self.queued.load(Ordering::SeqCst)
