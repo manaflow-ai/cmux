@@ -461,7 +461,7 @@ def main():
     groups = []
     try:
         try:
-            bench.launch(timeout=180, settle=3.0)
+            bench.launch(timeout=180)
         except LaunchError as error:
             results["launch_failure"] = {"reason": error.reason, "detail": error.report.get("detail")}
             raise
