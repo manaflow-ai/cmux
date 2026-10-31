@@ -9,6 +9,16 @@ import Testing
 @MainActor @Suite(.serialized) struct ArtAccentTests {
     static let work = BackdropArt.vanGoghStarryNight
 
+    /// What a gallery suite leaves in the app's theme (`ThemeScope.app.store.apply`): Soft Blue, whose
+    /// `cmux-accent` is #3666F0. These tests must hold whatever another suite left there (feat tip
+    /// Swift suite 41190088925 and the serial run 54e4c583d660: `accentColor → #3666F0 == nil`).
+    static func withAnotherSuitesAppTheme(_ body: () throws -> Void) throws {
+        let previous = ThemeScope.app.store.input
+        _ = ThemeScope.app.store.apply(try AANestedGroupsGalleryTests.input("Soft Blue"))
+        defer { _ = ThemeScope.app.store.apply(previous) }
+        try body()
+    }
+
     @Test func artColorIsAChoiceOfTheAccentAndOffByDefault() {
         #expect(!AccentSetting.followsArt(.object([:])))
         #expect(!AccentSetting.followsArt(["appearance": ["accent": "theme"]]))
@@ -21,7 +31,7 @@ import Testing
         #expect(SettingsSchema.descriptor(for: AccentSetting().configPath)?.accepts("art") == true)
     }
 
-    @Test func aWindowsAccentTakesTheHueOfTheWorkItShows() throws {
+    @Test func aWindowsAccentTakesTheHueOfTheWorkItShows() throws { try Self.withAnotherSuitesAppTheme {
         let hue = try #require(Self.work.accentHue)
         let room = ThemeScope(level: .room)
         let workspace = ThemeScope(level: .workspace, parent: room)
@@ -42,7 +52,7 @@ import Testing
 
         ThemeScope.app.store.setAccentFollowsArt(false)
         #expect(workspace.input.accentColor == nil)
-    }
+    } }
 
     /// A window opened while Art Color is on draws the app's art hue on its own chrome (a top page,
     /// or a workspace of the other light or dark).
