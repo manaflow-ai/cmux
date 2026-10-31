@@ -67,6 +67,7 @@ import {
   type SlashCommand,
   type SlashMatch,
 } from "./slashCommands";
+import { commandWaitsForTurn } from "./cliOnlyCommands";
 import { BoltIcon } from "./BoltIcon";
 import {
   flushPendingDraftWrites,
@@ -267,6 +268,9 @@ type Props = {
   /// A harness switch is under way (another provider's model was picked): the session changes
   /// under the prompt, and the typed text stays instead of the new session's empty draft.
   switching?: boolean;
+  /// False while the pane does not yet know which chat it shows (locationRow.ts paneKnowsNewChat):
+  /// an existing chat being restored or opened draws no location strip. Unset: known.
+  chatKnown?: boolean;
   /// The bar's left button, such as attach; by default + opens the agent's commands. `null` leaves the slot empty.
   leading?: React.ReactNode;
   /// Granted folder trust and chat-wide permission state, rendered inside Access.
@@ -322,6 +326,8 @@ type Props = {
   /// A new chat's machine was picked where no folder of it is known: the chat starts there.
   onComputer?(computer: string): void;
   projectChoices?: Project[];
+  /// A chat on another machine: that machine's own folders (`project.list`), for its folder menu.
+  machineFolders?: Project[];
   onBrowseProject?(): void;
   /// New Worktree: a new chat on this Mac starts in a worktree of its folder (cx-lyqio.2).
   onNewWorktree?(cwd: string): void;
@@ -398,6 +404,7 @@ export function Composer({
   onQueueSideChat,
   queueImage,
   draft,
+  chatKnown = true,
   leading,
   permissionAccess,
   accessory,
@@ -419,6 +426,7 @@ export function Composer({
   onProject,
   onComputer,
   projectChoices,
+  machineFolders,
   onBrowseProject,
   onNewWorktree,
   onBrowseFolder,
@@ -1533,7 +1541,10 @@ export function Composer({
   // step ends, and nothing is cancelled. ⌘Return queues the prompt for after the turn (Claude's
   // keys, Leo 2026-10-20). Attachments go along, so staged files alone can steer too. An agent
   // that cannot steer queues on both keys.
-  const steers = queues && snapshot.summary?.steering === true;
+  // One of the agent's own slash commands waits for the turn either way (cliOnlyCommands.ts): it
+  // queues, so it shows as waiting behind the turn and runs as its own turn, never as a steer.
+  const steers =
+    queues && snapshot.summary?.steering === true && !commandWaitsForTurn(text, snapshot.summary?.harness, commands);
   const returnSteers = steers && (Boolean(text.trim()) || attachments.length > 0);
   // Queueing off (ChatGPT's and Codex's "Turn off queueing", queueing.ts): ⌘Return and Send steer
   // too, so nothing new waits. An agent that cannot steer still runs it after the turn.
@@ -1580,9 +1591,18 @@ export function Composer({
         : undefined,
     [headerPullRequest, headerHere],
   );
+  // A new chat before its first send, known as one (locationRow.ts): the location strip and the
+  // suggested prompt are a new chat's. An existing chat opening or loading its rows has neither.
+  const locationVisible = showsLocationRow(snapshot, chatKnown);
   const suggestion = useMemo<PromptSuggestion | undefined>(
     () =>
-      !shell && !snapshot.isWorking && snapshot.rows.length === 0 && remote.canSend && !blockSend && !blocked?.reason
+      locationVisible &&
+      !shell &&
+      !snapshot.isWorking &&
+      snapshot.rows.length === 0 &&
+      remote.canSend &&
+      !blockSend &&
+      !blocked?.reason
         ? promptSuggestion(
             snapshot.sessions,
             { sessionId: snapshot.sessionId, cwd, branch },
@@ -1591,6 +1611,7 @@ export function Composer({
           )
         : undefined,
     [
+      locationVisible,
       shell,
       snapshot.isWorking,
       snapshot.rows.length,
@@ -1717,7 +1738,6 @@ export function Composer({
   // composer is bottom-anchored, so removing the slot in the same render would move every control
   // by the strip's height (cx-ncc.58); the slot is hidden when a queue is present, whose own height
   // becomes the top strip.
-  const locationVisible = showsLocationRow(snapshot);
   const locationKey = snapshot.sessionId ?? snapshot.summary?.sessionId;
   // A gallery or a reopened pane can render an unselected snapshot before its session arrives.
   // Do not let that transient visible strip reserve space for a different, already-started chat.
@@ -1735,6 +1755,7 @@ export function Composer({
   const context = locationVisible ? (
     <ComposerContext
       projectChoices={projectChoices}
+      machineFolders={machineFolders}
       onBrowseProject={onBrowseProject}
       onNewWorktree={onNewWorktree}
       onBrowseFolder={onBrowseFolder}

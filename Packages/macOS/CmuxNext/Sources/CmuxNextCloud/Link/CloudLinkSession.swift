@@ -117,6 +117,16 @@ public actor CloudLinkSession {
         return { await link?.ownerLink }
     }
 
+    /// True while the link is up and its connect's answer said the machine is a teammate's
+    /// (``CloudLinkSocket/callerIsTeammate``): a chat start is refused as a teammate's machine
+    /// (`agent_session.team_vm_blocked`). It never grants a start; only ``ownerLink`` does.
+    public var callerIsTeammate: Bool {
+        switch state {
+        case .ready(let socket), .attached(let socket): socket.callerIsTeammate
+        case .idle, .connecting, .ended: false
+        }
+    }
+
     /// The daemon connection's endpoint: the ticket's socket, once. Throws
     /// ``CloudLinkError`` otherwise; a current ticket's second call ends the
     /// link, an old ticket changes nothing.
