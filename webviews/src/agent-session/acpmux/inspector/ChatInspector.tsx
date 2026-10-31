@@ -751,7 +751,6 @@ function InspectorPresence({
         // Usage lists every chat acpmux lists; a subagent's own panel has no Usage.
         allSessions={scope ? undefined : snapshot.sessions}
         onOpenChat={onOpenChat}
-        onCompact={scope ? undefined : onCompact}
         onShowUsage={scope ? undefined : onShowUsage}
         onSetRunningLimit={onSetRunningLimit}
         revealed={revealed}
