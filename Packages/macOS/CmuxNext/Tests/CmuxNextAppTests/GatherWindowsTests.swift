@@ -203,6 +203,20 @@ struct GatherWindowsTests {
         #expect(services.workspace(id: "wh") != nil, "the merged window's Home was closed")
     }
 
+    /// Nothing to move but another window's Home: the plain switch it falls back to leaves that Home there.
+    @Test func theFallbackSwitchLeavesAnotherWindowsHome() throws {
+        let services = try Self.services()
+        defer { Self.closeAll(services) }
+        let here = try Self.open(["k0"], services), there = try Self.open(["k2", "wh"], services)
+        services.windows.select("k2", in: there.state)
+        #expect(WindowProfiles.visible(["wh"], profile: .defaultProfile, machines: services.machines) == ["wh"])
+
+        try services.windows.bringSpace(.defaultProfile, into: here.state)
+        let registry = services.windows.registry.value
+        #expect(registry.window(here.state.id)?.workspaceIDs.contains("wh") == false, "the fallback switch took a window's Home")
+        #expect(registry.window(there.state.id)?.workspaceIDs.contains("wh") == true)
+    }
+
     /// Browser tabs a window keeps itself (a daemon without frontend browser tabs) are keyed by pane
     /// id, which can repeat across machines, and die with their window: a move that takes a workspace
     /// out of such a window is refused and nothing changes. A window that gives nothing up is no bar.
