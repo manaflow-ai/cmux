@@ -539,6 +539,7 @@ fn spawn(
     loop {
         let status = match spawn_once(socket, bin, log, limit)? {
             Spawned::Ready(child) => return Ok(Some(child)),
+            Spawned::Other => return Ok(None),
             Spawned::Exited(status) => status,
         };
         if status.code() != Some(LOCK_HELD_EXIT) {
@@ -581,6 +582,33 @@ enum Spawned {
     Ready(std::process::Child),
     /// It exited before its socket answered.
     Exited(std::process::ExitStatus),
+    /// Another daemon, holding the lock, answers on the socket.
+    Other,
+}
+
+/// Whether `home`'s daemon.lock names a live process other than `pid`: acpmux
+/// writes its pid as the lock's first line once it holds the lock, before it
+/// serves the socket (acpmux `daemon/lock.rs` `record_pid`). Read only: the
+/// lock itself is never taken here. `false` when the file has no live pid.
+fn lock_holder_other_than(home: &Path, pid: u32) -> bool {
+    let Ok(text) = std::fs::read_to_string(home.join("daemon.lock")) else {
+        return false;
+    };
+    let Some(holder) = text
+        .lines()
+        .next()
+        .and_then(|line| line.trim().parse::<libc::pid_t>().ok())
+        .filter(|holder| *holder > 0)
+    else {
+        return false;
+    };
+    if holder as u32 == pid {
+        return false;
+    }
+    // SAFETY: signal 0 sends nothing; it only asks whether the process
+    // exists. EPERM: it does, as another user's.
+    unsafe { libc::kill(holder, 0) == 0 }
+    || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
 }
 
 /// One `$ACPMUX_BIN daemon run`, waited for until its socket answers, for
@@ -657,12 +685,23 @@ fn spawn_once(
         if let Ok(Some(status)) = child.try_wait() {
             return Ok(Spawned::Exited(status));
         }
-        if reachable(socket) {
+        // A socket that answers while daemon.lock names another live process
+        // is another starter's daemon: ours found the lock held and is about
+        // to exit 75, so it is never counted as this host's.
+        let other = || lock_holder_other_than(&home, pid);
+        if reachable(socket) && !other() {
             // Never waited for while it runs: it outlives the host (its own
             // process group); the stop asks whether it still runs.
             return Ok(Spawned::Ready(child));
         }
         if Instant::now() >= deadline {
+            if reachable(socket) && other() {
+                // Ours never exited, but it cannot hold the lock the other
+                // daemon holds: it ends here, and the caller adopts that one.
+                let _ = child.kill();
+                let _ = child.wait();
+                return Ok(Spawned::Other);
+            }
             // Started and never ready: it is this host's, so it ends here.
             let _ = child.kill();
             let _ = child.wait();
