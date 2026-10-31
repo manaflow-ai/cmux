@@ -29,7 +29,6 @@
           {
             "key" : "settings.group.tabs",
             "rows" : [
-              "tabs.terminalFirst",
               "tabs.newTabPosition",
               "tabs.plusButton",
               "tabs.barPosition",
@@ -548,7 +547,6 @@
           {
             "key" : "settings.group.sidebar",
             "rows" : [
-              "sidebar.showWorkspaceTabs",
               "appearance.sidebarSurface",
               "sidebar.border",
               "sidebar.borderWidth",
@@ -958,7 +956,9 @@
               "browser.omnibar.glassTintStrength",
               "browser.omnibar.cornerRadius",
               "browser.omnibar.shadow",
-              "browser.omnibar.backgroundOpacity"
+              "browser.omnibar.backgroundOpacity",
+              "browser.omnibar.height",
+              "browser.omnibar.fontSize"
             ],
             "title" : {
               "key" : "settings.group.addressBar",
@@ -1063,7 +1063,8 @@
           {
             "key" : "settings.group.import",
             "rows" : [
-              "browser.import.enabled"
+              "browser.import.enabled",
+              "browser.import.cookieBanner"
             ],
             "title" : {
               "key" : "settings.group.import",
@@ -1906,7 +1907,7 @@
         ],
         "id" : "look",
         "title" : {
-          "key" : "settings.sidebarSection.look",
+          "key" : "settings.sidebarSection.lookAndFeel",
           "text" : "Look and Feel"
         }
       },
@@ -4021,148 +4022,6 @@
       "title" : {
         "key" : "settings.tabs.nativeNewTabPage",
         "text" : "Native New Tab Page"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        true,
-        false
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : false,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.tabs",
-        "text" : "Tabs"
-      },
-      "help" : {
-        "key" : "settings.tabs.terminalFirst.help",
-        "text" : "New tabs (Cmd-T, the tab bar's +), splits (Cmd-D, Cmd-Shift-D), new workspaces (Cmd-N, the sidebar's +) and new windows open a terminal, as in cmux classic, instead of the New Tab page. To open the New Tab page while this is on, right-click or press and hold the tab bar's +, or run New Tab Page from the command palette (Cmd-Shift-P). Cmd-I still opens an agent chat and Cmd-Shift-L a browser tab."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "tabs.terminalFirst",
-      "keywords" : [
-        "terminal",
-        "classic",
-        "classic mode",
-        "cmux classic",
-        "new tab",
-        "split",
-        "workspace",
-        "window",
-        "cmd-t",
-        "cmd-d",
-        "cmd-n",
-        "new tab page",
-        "gui",
-        "default"
-      ],
-      "kind" : "toggle",
-      "page_hidden" : false,
-      "path" : [
-        "tabs",
-        "terminalFirst"
-      ],
-      "refuses" : [
-        "true",
-        1,
-        null
-      ],
-      "section" : "general",
-      "summary" : null,
-      "surfaces" : {
-        "cli" : {
-          "aliases" : [
-            "settings.unset"
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        },
-        "mcp" : {
-          "aliases" : [
-            "settings.unset"
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        },
-        "palette" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : "toggle",
-          "offered" : true,
-          "operations" : [
-            "palette.toggleSetting"
-          ],
-          "reason" : null,
-          "row" : "setting:tabs.terminalFirst"
-        },
-        "socket" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-            "settings.unset"
-          ],
-          "app_operations" : [
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        }
-      },
-      "title" : {
-        "key" : "settings.tabs.terminalFirst",
-        "text" : "cmux Classic Mode"
       },
       "validation" : "portable"
     },
@@ -49055,146 +48914,6 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : false,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.sidebar",
-        "text" : "Sidebar"
-      },
-      "help" : {
-        "key" : "settings.sidebar.showWorkspaceTabs.help",
-        "text" : "Lists tabs beneath each workspace in the sidebar."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "sidebar.showWorkspaceTabs",
-      "keywords" : [
-        "sidebar",
-        "workspace",
-        "workspaces",
-        "tabs",
-        "panes",
-        "under",
-        "beneath",
-        "nested",
-        "expand",
-        "list",
-        "tree",
-        "disclosure"
-      ],
-      "kind" : "toggle",
-      "page_hidden" : false,
-      "path" : [
-        "sidebar",
-        "showWorkspaceTabs"
-      ],
-      "refuses" : [
-        "true",
-        1,
-        null
-      ],
-      "section" : "appearance",
-      "summary" : null,
-      "surfaces" : {
-        "cli" : {
-          "aliases" : [
-            "settings.unset"
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        },
-        "mcp" : {
-          "aliases" : [
-            "settings.unset"
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        },
-        "palette" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : "toggle",
-          "offered" : true,
-          "operations" : [
-            "palette.toggleSetting"
-          ],
-          "reason" : null,
-          "row" : "setting:sidebar.showWorkspaceTabs"
-        },
-        "socket" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-            "settings.unset"
-          ],
-          "app_operations" : [
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        }
-      },
-      "title" : {
-        "key" : "settings.sidebar.showWorkspaceTabs",
-        "text" : "Show Workspace Tabs"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        true,
-        false
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "consumers" : [
-        "cmux-next"
-      ],
       "default" : true,
       "default_label" : null,
       "group" : {
@@ -70922,6 +70641,146 @@
         true,
         false
       ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.import",
+        "text" : "Import"
+      },
+      "help" : {
+        "key" : "settings.browser.importCookieBanner.help",
+        "text" : "Browser tabs offer to import cookies from your other browsers, so you stay signed in. Nothing imports until you click Import. Don't Show Again on the banner turns this off."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.import.cookieBanner",
+      "keywords" : [
+        "import",
+        "cookies",
+        "banner",
+        "card",
+        "sign in",
+        "login",
+        "chrome",
+        "safari",
+        "arc",
+        "dismissed",
+        "reset"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "browser",
+        "import",
+        "cookieBanner"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "browser",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:browser.import.cookieBanner"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.browser.importCookieBanner",
+        "text" : "Offer to Import Cookies"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
       "agent_refusal" : "userOnly",
       "agent_settable" : false,
       "consumers" : [
@@ -74344,6 +74203,318 @@
       "title" : {
         "key" : "settings.browser.omnibar.backgroundOpacity",
         "text" : "Address Bar Opacity"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "density",
+        20,
+        56,
+        38
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.matchDensity",
+            "text" : "Match Density"
+          },
+          "value" : "density"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "density",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.addressBar",
+        "text" : "Address Bar"
+      },
+      "help" : {
+        "key" : "settings.browser.omnibar.height.help",
+        "text" : "Match Density follows the density. The bar always grows to fit its text."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.omnibar.height",
+      "keywords" : [
+        "height",
+        "size",
+        "tall",
+        "density",
+        "address bar",
+        "omnibox",
+        "url"
+      ],
+      "kind" : "choice_or_number",
+      "page_hidden" : false,
+      "path" : [
+        "browser",
+        "omnibar",
+        "height"
+      ],
+      "range" : {
+        "max" : 56,
+        "min" : 20,
+        "placeholder" : 28,
+        "step" : 1,
+        "unit" : "points"
+      },
+      "refuses" : [
+        "__not_a_choice__",
+        true,
+        -16,
+        92,
+        "1"
+      ],
+      "section" : "browser",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:browser.omnibar.height"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.browser.omnibar.height",
+        "text" : "Address Bar Height"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "density",
+        10,
+        24,
+        17
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.matchDensity",
+            "text" : "Match Density"
+          },
+          "value" : "density"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "density",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.addressBar",
+        "text" : "Address Bar"
+      },
+      "help" : {
+        "key" : "settings.browser.omnibar.fontSize.help",
+        "text" : "The size of the address and the suggestions. Match Density follows the density."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.omnibar.fontSize",
+      "keywords" : [
+        "font",
+        "text",
+        "size",
+        "url",
+        "density",
+        "address bar",
+        "omnibox"
+      ],
+      "kind" : "choice_or_number",
+      "page_hidden" : false,
+      "path" : [
+        "browser",
+        "omnibar",
+        "fontSize"
+      ],
+      "range" : {
+        "max" : 24,
+        "min" : 10,
+        "placeholder" : 14,
+        "step" : 1,
+        "unit" : "points"
+      },
+      "refuses" : [
+        "__not_a_choice__",
+        true,
+        -4,
+        38,
+        "1"
+      ],
+      "section" : "browser",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:browser.omnibar.fontSize"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.browser.omnibar.fontSize",
+        "text" : "Address Bar Text Size"
       },
       "validation" : "portable"
     },
