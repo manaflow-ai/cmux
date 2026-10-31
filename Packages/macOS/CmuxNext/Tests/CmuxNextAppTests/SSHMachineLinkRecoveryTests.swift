@@ -98,6 +98,10 @@ import Testing
         #expect(machine.waitsForUser)
         machine.handle(.wake(.appActivated))
         #expect(machine.waitsForUser)
+        machine.handle(.attemptStarted)
+        #expect(machine.waitsForUser, "An automatic attempt the gate turns away keeps it user-only")
+        machine.handle(.wake(.networkChanged))
+        #expect(!machine.mayAttempt)
         machine.handle(.wake(.user))
         #expect(!machine.waitsForUser)
 
@@ -111,6 +115,7 @@ import Testing
         let session = try Self.session()
         await session.link.handle(.connect)
         await session.link.handle(.failed(.sessionInUse("in use by another cmux daemon")))
+        await session.link.handle(.attemptStarted)
         session.linkStatus = .failed("in use by another cmux daemon")
         #expect(session.waitsForUser)
         let service = Self.service(with: session)
