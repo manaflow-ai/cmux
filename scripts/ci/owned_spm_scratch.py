@@ -114,7 +114,15 @@ WARM_START_SCHEMA = "cmux-warm-start/v1"
 
 
 def packages(workspace: Path) -> list[Path]:
-    return [path.parent for path in sorted(workspace.glob("Packages/*/*/Package.swift"))]
+    """Every Packages/*/*/Package.swift's directory, except one reached through a link: a tracked link
+    (Packages/macOS -> elsewhere) must not have its target's .build replaced."""
+    found = []
+    for manifest in sorted(workspace.glob("Packages/*/*/Package.swift")):
+        package = manifest.parent
+        parts = package.relative_to(workspace).parts
+        if not any((workspace.joinpath(*parts[:depth])).is_symlink() for depth in range(1, len(parts) + 1)):
+            found.append(package)
+    return found
 
 
 def bonsplit_commit(workspace: Path) -> str:
@@ -399,8 +407,9 @@ def link(workspace: Path, store: Path, runner: str, fingerprint: str | None = No
     return link_packages(workspace, target_root)
 
 
-def link_packages(workspace: Path, target_root: Path) -> list[str]:
-    """Point each package's .build in WORKSPACE at its directory in TARGET_ROOT, dropping kept resource bundles."""
+def link_packages(workspace: Path, target_root: Path, strict: bool = False) -> list[str]:
+    """Point each package's .build in WORKSPACE at its directory in TARGET_ROOT, dropping kept resource bundles.
+    STRICT (a shared root) raises on a package it cannot link, so the job falls back to its own workspace."""
     linked = []
     for package in packages(workspace):
         relative = package.relative_to(workspace).as_posix()
@@ -416,6 +425,8 @@ def link_packages(workspace: Path, target_root: Path) -> list[str]:
             build.symlink_to(target, target_is_directory=True)
             linked.append(relative)
         except OSError as error:
+            if strict:
+                raise
             print(f"{relative}: not linked ({error})")
     return linked
 
@@ -485,6 +496,10 @@ def copy_into(origin: Path, target: Path, mode: int) -> None:
         raise
 
 
+def raise_error(error: OSError) -> None:
+    raise error
+
+
 def mirror(workspace: Path, source: Path) -> dict[str, int]:
     """Make SOURCE hold exactly WORKSPACE's files (source_files). A file whose content SOURCE already has
     keeps its time there, so SwiftPM rebuilds only what changed; every other file is written now, so it
@@ -530,7 +545,8 @@ def mirror(workspace: Path, source: Path) -> dict[str, int]:
         copied += 1
     parents = {str(Path(name).parent) for name in wanted}
     parents |= {str(parent) for name in parents for parent in Path(name).parents}
-    for base, dirs, files in os.walk(source, topdown=True):
+    # A directory the walk cannot read would keep its stale files: raise, and the job falls back.
+    for base, dirs, files in os.walk(source, topdown=True, onerror=raise_error):
         relative = os.path.relpath(base, source)
         relative = "" if relative == "." else relative
         for name in list(dirs):
@@ -583,7 +599,7 @@ def lease(workspace: Path, store: Path, runner: str, verdict: dict[str, object] 
     def root(k: int) -> Path:
         return scratch / (fingerprints[k] if fingerprints is not None else shared_fingerprint(parts, k))
 
-    existing = [root(k) for k in range(count) if root(k).is_dir()]
+    existing = [root(k) for k in range(count) if root(k).is_dir() and not root(k).is_symlink()]
 
     def new_roots():
         # Not bounded by the scan above: another job may take root k (or make it) after the scan and
@@ -625,6 +641,8 @@ def lease(workspace: Path, store: Path, runner: str, verdict: dict[str, object] 
         return None
     target, fd = held
     try:
+        if target.is_symlink() or (target.exists() and not target.is_dir()):
+            target.unlink()  # only this script makes roots: a link or a file here is never built through
         existed, kept = target.is_dir(), kept_build(target)
         os.utime(lock_path(target))
         prune(scratch, sizes=sizes)
@@ -635,7 +653,7 @@ def lease(workspace: Path, store: Path, runner: str, verdict: dict[str, object] 
     source = target / SHARED_SOURCE
     source.mkdir(exist_ok=True)
     mirror(workspace, source)
-    link_packages(source, target)
+    link_packages(source, target, strict=True)
     if verdict is not None:
         state, reason = warm_start(scratch_existed, lock_existed, kept, existed)
         verdict.update(state=state, reason=reason, bytes=sizes.get(target.name, 0) if kept else 0)
