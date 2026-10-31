@@ -24,8 +24,9 @@ name: cmux NEXT Stable
 #   soak          the build is still on the cmux NEXT feed, was never pulled, has no fail verdict,
 #                 and Sentry saw no new unhandled issue first seen in its release
 # Runners (no M6 mini; every owned macOS job also refuses an M6 chip at its first step):
-#   swift-suites, perf-budgets  vars.CI_COMPILE_CHECK_GATEWAY (glaeda-gateway: M4 Pro minis that only
-#                 submit fleet steps and stream them; the work runs on macos-27 + ram48 fleet workers)
+#   swift-suites, perf-budgets  attempt 1: glaeda-gui-std (owned M4 Pro, macOS 27, console session), the
+#                 route cmux-next.yml's swift test takes; a re-run: Blacksmith macOS. The gateway label admits
+#                 only its listed cmux-ci client jobs, and the controller does not trust a CI tailnet tag.
 #   smoke-27      attempt 1: glaeda-gui-std (the owned M4 Pro GUI pool with a console session that
 #                 cmux-next's own UI suites use); a re-run (the owned-pool rescue) takes Blacksmith,
 #                 where its macOS 27 check fails it, and the next hourly tick starts a fresh run
@@ -300,105 +301,84 @@ jobs:
           echo "stable serves $served ($base); candidate $COMMIT"
           python3 -I .stable-tooling/scripts/ci/stable_next.py crash-delta --base-tree "$RUNNER_TEMP/base-tree" --head-tree "$RUNNER_TEMP/head-tree"
 
-  # One owned M4 Pro mini submits the four suite shards to the build fleet at once and streams
-  # them; the fleet runs them on macOS 27 M4 Pro workers.
+  # Every CmuxNext test target, four shards, each on an owned M4 Pro GUI mini (macOS 27, a console
+  # session: the suites that need a display run). The same runs-on as cmux-next.yml's swift test:
+  # the gui pool on attempt 1, Blacksmith macOS on a re-run. package-test-lane.sh suite runs the same
+  # way under Actions as in a fleet step (it fetches GhosttyKit, the web bundles and the cmux-tui tree).
   swift-suites:
     needs: plan
     if: needs.plan.outputs.go == 'true'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_COMPILE_CHECK_GATEWAY || 'glaeda-gateway-xcode-26.6' }}
-    # Two attempts of at most 2 h each plus 1 h queue each.
-    timeout-minutes: 380
-    permissions: {}
+    name: swift suites ${{ matrix.shard }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt == 1 && 'glaeda-gui-std-xcode-26.6' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    timeout-minutes: 150
+    permissions:
+      contents: read
+    env:
+      CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
+      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
     steps:
-      - name: This runner is an M4 Pro mini, not an M6
+      - name: This runner is not an M6 mini
         run: |
           chip="$(sysctl -n machdep.cpu.brand_string)"
           echo "runner $RUNNER_NAME: $chip, macOS $(sw_vers -productVersion)"
           case "$chip" in *M6*) echo "::error::stable-next never uses an M6 mini ($RUNNER_NAME)"; exit 1 ;; esac
-      - name: Every CmuxNext suite on macOS 27 (M4 Pro), four shards
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.plan.outputs.commit }}
+          persist-credentials: false
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+      - name: Every CmuxNext suite of shard ${{ matrix.shard }}
         env:
-          COMMIT: ${{ needs.plan.outputs.commit }}
-          SHARDS: ${{ needs.plan.outputs.matrix }}
-          KEY: stable-next-${{ needs.plan.outputs.build }}-suites-${{ github.run_id }}-${{ github.run_attempt }}
+          FILTERS: ${{ matrix.filters }}
         run: |
           set -uo pipefail
-          client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
-          if ! [[ -x "$client" ]]; then
-            echo "::error::$client is not installed on $RUNNER_NAME"
-            exit 1
-          fi
-          logs="$RUNNER_TEMP/suites"
-          mkdir -p "$logs"
-          shard() {
-            local n="$1" filters="$2" attempt status
-            for attempt in 1 2; do
-              status=0
-              "$client" run --class light --script scripts/ci/package-test-lane.sh --ref "$COMMIT" \
-                --label macos-27 --label ram48 --key "$KEY-$n-$attempt" \
-                --arg=suite --arg=Packages/macOS/CmuxNext --arg="$filters" \
-                --env "CMUX_CI_XCODE_APP=$STABLE_XCODE_APP" --env CMUX_CI_REQUIRED_MACOS_SDK_MAJOR=26 \
-                --timeout 7200 --queue-timeout 3600 > "$logs/shard-$n-$attempt.log" 2>&1 || status=$?
-              echo "shard $n attempt $attempt: exit $status"
-              [ "$status" = 0 ] && return 0
-            done
-            return "$status"
-          }
-          pids=()
-          while IFS=$'\t' read -r n filters; do
-            shard "$n" "$filters" > "$logs/shard-$n.result" 2>&1 &
-            pids+=("$!:$n")
-          done < <(python3 -c 'import json,os; [print(f"{e[\"shard\"]}\t{e[\"filters\"]}") for e in json.loads(os.environ["SHARDS"])["include"]]')
-          failed=()
-          for entry in "${pids[@]}"; do
-            pid="${entry%%:*}"; n="${entry#*:}"
-            wait "$pid" || failed+=("$n")
-            cat "$logs/shard-$n.result"
+          # One retry: one flaky suite does not lose the night; a suite red twice is red.
+          for attempt in 1 2; do
+            status=0
+            ./scripts/ci/package-test-lane.sh suite Packages/macOS/CmuxNext "$FILTERS" || status=$?
+            [ "$status" = 0 ] && exit 0
+            echo "::warning title=stable swift suites::shard ${{ matrix.shard }} attempt $attempt exited $status"
           done
-          for log in "$logs"/shard-*-*.log; do
-            echo "::group::$(basename "$log")"; cat "$log"; echo "::endgroup::"
-          done
-          if [ "${#failed[@]}" -gt 0 ]; then
-            echo "::error title=stable swift suites::shard(s) ${failed[*]} failed twice"
-            exit 1
-          fi
-      - name: Upload the suite logs
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: stable-next-swift-suites
-          path: ${{ runner.temp }}/suites
-          if-no-files-found: ignore
-          retention-days: 3
+          exit "$status"
 
+  # scripts/cmux-next/perf-budgets.py --gate through split-spring.sh on an owned M4 Pro GUI mini
+  # (macOS 27): fails when a row's p95 is over 10 % above the apple-m4-pro-macos27 baseline.
   perf-budgets:
     needs: plan
     if: needs.plan.outputs.go == 'true'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_COMPILE_CHECK_GATEWAY || 'glaeda-gateway-xcode-26.6' }}
-    timeout-minutes: 300
-    permissions: {}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt == 1 && 'glaeda-gui-std-xcode-26.6' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    timeout-minutes: 120
+    permissions:
+      contents: read
+    env:
+      CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
+      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
     steps:
-      - name: This runner is an M4 Pro mini, not an M6
+      - name: This runner is not an M6 mini
         run: |
           chip="$(sysctl -n machdep.cpu.brand_string)"
           echo "runner $RUNNER_NAME: $chip, macOS $(sw_vers -productVersion)"
           case "$chip" in *M6*) echo "::error::stable-next never uses an M6 mini ($RUNNER_NAME)"; exit 1 ;; esac
-      # perf-budgets.py --gate: exit 1 when a row's p95 is >10 % over the apple-m4-pro-macos27 baseline.
-      - name: Perf budgets gate on an exclusive macOS 27 M4 Pro worker
-        env:
-          COMMIT: ${{ needs.plan.outputs.commit }}
-          KEY: stable-next-${{ needs.plan.outputs.build }}-perf-${{ github.run_id }}-${{ github.run_attempt }}
-        run: |
-          set -uo pipefail
-          client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
-          if ! [[ -x "$client" ]]; then
-            echo "::error::$client is not installed on $RUNNER_NAME"
-            exit 1
-          fi
-          "$client" run --class exclusive --measurement --script scripts/measure/split-spring.sh --ref "$COMMIT" \
-            --label measure --label macos-27 --label ram48 --key "$KEY" \
-            --artifact artifacts/split-spring/report.json \
-            --arg=--suite=budgets --arg=--gate --arg=--vdisplay=120 \
-            --timeout 7200 --queue-timeout 5400
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.plan.outputs.commit }}
+          persist-credentials: false
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+      - name: Perf budgets gate
+        run: CI_SHARED_CACHE_DIR="$RUNNER_TEMP/stable-perf-cache" bash scripts/measure/split-spring.sh --suite=budgets --gate --vdisplay=120
+      - name: Upload the perf report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: stable-next-perf
+          path: artifacts/split-spring
+          if-no-files-found: ignore
+          retention-days: 3
 
   sign:
     needs: plan
@@ -806,6 +786,7 @@ jobs:
             perf-budgets=${{ needs.perf-budgets.result }} sign=${{ needs.sign.result }} smoke-27=${{ needs.smoke-27.result }}
             smoke-26=${{ needs.smoke-26.result }} soak=${{ needs.soak.result }} publish=${{ needs.publish.result }}
           BUILD: ${{ needs.plan.outputs.build }}
+          SHORT_VERSION: ${{ needs.plan.outputs.short_version }}
           COMMIT: ${{ needs.plan.outputs.commit }}
           PUBLISHED: ${{ needs.publish.result == 'success' }}
           ASSIGNEE: ${{ vars.STABLE_NEXT_OWNER || 'azooz2003-bit' }}
@@ -817,6 +798,18 @@ jobs:
             --jq "map(select(.title == \"$title\")) | .[0].number // empty")"
           if [ "$PUBLISHED" = true ]; then
             [ -z "$number" ] || gh issue close "$number" -R "$GITHUB_REPOSITORY" --comment "Published build $BUILD: $RUN_URL"
+            # Every published stable build is announced on one open issue; the owner is mentioned, so the
+            # first stable release (and every later one) reaches them as a GitHub notification.
+            log="cmux NEXT Stable releases"
+            releases="$(gh issue list -R "$GITHUB_REPOSITORY" --state open --search "\"$log\" in:title" --json number,title \
+              --jq "map(select(.title == \"$log\")) | .[0].number // empty")"
+            note="$(printf '@%s cmux NEXT Stable %s (build %s, commit %s) is live: https://files-next.cmux.com/nightly-next/stable/appcast-arm64.xml\n\nRun: %s' \
+              "$ASSIGNEE" "$SHORT_VERSION" "$BUILD" "$COMMIT" "$RUN_URL")"
+            if [ -z "$releases" ]; then
+              gh issue create -R "$GITHUB_REPOSITORY" --title "$log" --assignee "$ASSIGNEE" --body "$note"
+            else
+              gh issue comment "$releases" -R "$GITHUB_REPOSITORY" --body "$note"
+            fi
             exit 0
           fi
           failed="$(tr ' ' '\n' <<<"$RESULTS" | grep -v -E '=(success|skipped)$' | grep . | paste -sd ' ' -)"
