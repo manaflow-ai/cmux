@@ -11,7 +11,8 @@ import Testing
 /// row moved only the workspace, so the group could no longer be reordered; and a drop into a nested such group took its
 /// step-in from a header the list does not draw, so the gap and card sat at the list's inset; and opening a focused
 /// collapsed such group took its header away, so Down walked on from the active workspace instead of from the group, and
-/// Tab and Shift-Tab lost their place in the headers.
+/// Tab and Shift-Tab lost their place in the headers; and the icon picker's anchor, VoiceOver's group state and
+/// actions, and focus on a group given a new id all looked for the header row.
 @MainActor @Suite(.serialized, .closesItsWindows) struct SidebarSingleMemberGroupKeysTests {
     static let group = GroupID("g-coord")
     static let coord = WorkspaceID("w-coord")
@@ -237,6 +238,56 @@ import Testing
         #expect((list.rowViews[.workspace(Self.coord)] as? WorkspaceRowView)?.isKeyboardFocused == true, "the one row drew no focus ring")
         try key("\r", 36)
         #expect(list.groupEditor.shownGroup == Self.group, "Return on the focused group opened no editor at its one row")
+    }
+
+    /// The icon picker anchors a group's popover at its row (`groupRowFrameOnScreen`): for a group drawn as its one
+    /// row, that row, not nothing (the picker then fell back to the window's center).
+    @Test func theGroupsRowOnScreenIsItsOneRow() throws {
+        let (sidebar, window) = Self.sidebar()
+        defer { Self.close(sidebar, window) }
+        let list = sidebar.list
+        let one = try #require(list.displayed.row(for: .workspace(Self.coord)))
+        let expected = window.convertToScreen(list.convert(list.frame(for: one), to: nil))
+        let frame = try #require(sidebar.groupRowFrameOnScreen(for: Self.group), "a group drawn as its one row has no row on screen")
+        #expect(frame == expected)
+        #expect(list.hoverCardAnchor(forGroup: Self.group) == expected, "the group's hover card has no anchor at its one row")
+    }
+
+    /// VoiceOver on the one row reaches its group as on the header: the expanded state, the editor, the group's menu,
+    /// New Workspace in Group and the fold, beside the workspace's own actions.
+    @Test func theOneRowCarriesItsGroupsAccessibility() throws {
+        let (sidebar, window) = Self.sidebar()
+        defer { Self.close(sidebar, window) }
+        let list = sidebar.list
+        list.onGroupEditorItem = { _, _ in }
+        list.reload(animated: false)
+        let view = try #require(list.rowViews[.workspace(Self.coord)] as? WorkspaceRowView)
+        let names = Set((view.accessibilityCustomActions() ?? []).map(\.name))
+        for name in [GroupEditorStrings.editor, GroupEditorStrings.moreActions, GroupEditorStrings.newWorkspace, GroupEditorStrings.collapse] {
+            #expect(names.contains(name), "the one row offers VoiceOver no \(name)")
+        }
+        #expect(view.isAccessibilityExpanded(), "the one row does not say its group is open")
+        let edit = try #require(view.accessibilityCustomActions()?.first { $0.name == GroupEditorStrings.editor })
+        _ = edit.handler?()
+        #expect(list.groupEditor.shownGroup == Self.group, "the one row's editor action opened no editor")
+    }
+
+    /// A group the store gives a new id keeps keyboard focus under the new id when it draws as its one row (no header
+    /// view moves, so the header's repair never ran).
+    @Test func focusFollowsAOneRowGroupGivenANewID() throws {
+        let (sidebar, window) = Self.sidebar()
+        defer { Self.close(sidebar, window) }
+        let list = sidebar.list
+        SidebarGroupKeys(list: list).setFocus(Self.group)
+        let renamed = GroupID("g-coord-daemon")
+        let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
+        sidebar.model.setSections([CmuxNextSidebar.SidebarSection(kind: .machine(machine), nodes: [
+            .workspace(SidebarWorkspace(id: WorkspaceID("w-loose"), title: "loose")),
+            .group(SidebarGroup(id: renamed, name: "release-coord", workspaces: [SidebarWorkspace(id: Self.coord, title: "release-coord")])),
+        ])])
+        list.reload(animated: false)
+        #expect(list.displayed.row(for: .workspace(Self.coord))?.standsForGroup == true)
+        #expect(list.focusedGroup == renamed, "focus stayed on \(String(describing: list.focusedGroup)), a group id the list no longer has")
     }
 
     @Test func theGroupEditorOpensAtTheOneRow() throws {
