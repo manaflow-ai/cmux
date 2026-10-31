@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "build": "4114626189601",
+  "notes": "notes/4114626189601.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 27724,
+      "title": "ci(nightly-next canary): mark a build checked only once its verdict is durable",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28570,
+      "title": "ci(nightly-next): a re-run that picks again signs the legacy identity on an owned Mac first",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28524,
+      "title": "cmux NEXT Feed: rows and Mark All Read use the themed tooltip (base red NativeTooltipGuardTests)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28558,
+      "title": "cmux NEXT tests: the one-morphing-card tests rest past a sweep before the second show",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28525,
+      "title": "cmux-next tests: the menu audit counts shown rows, not alternates",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28061,
+      "title": "acpmux: clean harness stderr in user-facing errors (carries #27021)",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
