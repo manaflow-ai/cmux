@@ -3743,7 +3743,12 @@ export class AcpmuxDirectClient {
       latest !== undefined &&
       (latest.seq === undefined || typeof detail.lastSeq !== "number" || latest.seq >= detail.lastSeq);
     if (latestIsNew) this.summary = { ...this.summary, ...latest.session };
-    this.queue = mergeQueue(this.queue, (latestIsNew ? latest?.session.queue : detail.queue) ?? [], this.queueAuthors, this.queueEdited);
+    this.queue = mergeQueue(
+      this.queue,
+      (latestIsNew ? latest?.session.queue : detail.queue) ?? [],
+      this.queueAuthors,
+      this.queueEdited,
+    );
     // acpmux holds nothing older than the page: the pane offers no more history.
     if (result?.hasMore === false) this.historyExhausted = true;
     this.attachedGeneration = generation;
