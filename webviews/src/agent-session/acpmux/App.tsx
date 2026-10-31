@@ -1954,9 +1954,7 @@ const RowFrame = React.memo(function RowFrame({
   );
   const rowTabStop = rovingTabStopProps(tabStop, handleKeyDown);
   const content = (
-    <ReferenceScopeContext.Provider value={referenceScope ?? null}>
-      {children}
-    </ReferenceScopeContext.Provider>
+    <ReferenceScopeContext.Provider value={referenceScope ?? null}>{children}</ReferenceScopeContext.Provider>
   );
   useLayoutEffect(() => {
     if (entering) onEntered(row.id);

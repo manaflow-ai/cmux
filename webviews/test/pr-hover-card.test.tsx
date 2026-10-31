@@ -70,11 +70,6 @@ const answer = {
   },
 };
 
-const tool = (id: string, command: string, output = "") => ({
-  id,
-  tool: { id, kind: "execute", title: command, status: "completed", exitCode: 0, command, output },
-});
-
 async function rig() {
   const { setChipHost } = await import("../src/agent-session/acpmux/chips/host");
   const { resetPullRequestStore } = await import("../src/agent-session/acpmux/chips/pullRequestStore");

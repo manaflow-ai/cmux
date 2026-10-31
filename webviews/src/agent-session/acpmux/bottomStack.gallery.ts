@@ -80,12 +80,7 @@ const native = { "acp.trust.get": { cwd: CWD, level: "unknown" }, "acp.trust.set
 // Real rendered accessibility surfaces, not guessed card heights. Includes the transcript viewport:
 // a floated queue or a flex-shrunk ask must not paint into a sibling's frame.
 function geometry(ctx: PlayContext) {
-  const selectors = [
-    ".acpmux-trust-ask",
-    ".acpmux-permission-panel",
-    ".acpmux-composer-queue",
-    ".acpmux-composer-box",
-  ];
+  const selectors = [".acpmux-trust-ask", ".acpmux-permission-panel", ".acpmux-composer-queue", ".acpmux-composer-box"];
   const layers = selectors.flatMap((selector) =>
     [...ctx.document.querySelectorAll(selector)].map((node) => ({
       selector,

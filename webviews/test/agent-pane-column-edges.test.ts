@@ -61,11 +61,7 @@ await requireBrowserLane("agent-pane-column-edges.test.ts", async () => {
     });
     await vite.listen();
     browser = await chromium.launch({ headless: true });
-    await warmGalleryFrame(
-      vite,
-      ["agent-pane.bottom-stack", "agent-pane.new-tab", "agent-pane.composer"],
-      { browser },
-    );
+    await warmGalleryFrame(vite, ["agent-pane.bottom-stack", "agent-pane.new-tab", "agent-pane.composer"], { browser });
   });
   afterAll(async () => {
     await browser?.close();
