@@ -16,7 +16,7 @@ import Testing
 /// title or activity change runs) must still show the change; after it the change is gone and the refusal HUD
 /// says why. Group Delete only patched the model: the next recompute drew the group again until the daemon's
 /// delete came back, and a failed save went back without a word.
-@MainActor @Suite(.serialized)
+@MainActor @Suite(.serialized, .ownsSidebarDocStore)
 struct SidebarOptimisticSaveTests {
     final class Notices {
         var shown: [String] = []
@@ -128,7 +128,8 @@ struct SidebarOptimisticSaveTests {
 
     /// Rename Workspace with a name (the palette prompt, the CLI, MCP): the name shows in the input's turn, and a
     /// failed save takes it back and says why. It waited for the daemon's echo, and a failure was only logged.
-    @Test func renameWithANameShowsAtOnceAndRollsBackWithAnError() async throws {
+    @Test(.enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
+    func renameWithANameShowsAtOnceAndRollsBackWithAnError() async throws {
         let launched = try await RapidWorkspaceCreateTests.launch()
         let services = launched.services
         do {
