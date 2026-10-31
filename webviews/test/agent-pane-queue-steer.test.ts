@@ -358,6 +358,9 @@ await requireBrowserLane("agent-pane-queue-steer.test.ts", async () => {
       // The prompt has opened, and the list has come to rest fitted to it: a frame for the fit,
       // then its max-height transition (#24718) and any other finite animation run out.
       await page.locator('.acpmux-queued-text[aria-expanded="true"]', { hasText: "the pr thing" }).waitFor();
+      // The list keeps its height while the pointer that opened the row is on it, and fits whole
+      // rows again once it leaves (ComposerQueue `held`).
+      await page.mouse.move(4, 4);
       await page.evaluate(async () => {
         await window.cmuxPaintFrame();
         const finite = () =>

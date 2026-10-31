@@ -1,25 +1,20 @@
 // The running turn's activity line under its todo list (Debug Settings `agent.sessionStatus`,
 // cx-ncc.102; Claude Code desktop's `Edit ProductGrid.module.css 26s`): what turns.ts names (the
 // running tool call, else the todo in progress) and the turn's time, ticking each second from the
-// prompt like "Working for", whose place it takes. No dots blink before it, as on that line.
-import { useEffect, useState } from "react";
+// prompt like "Working for", whose place it takes, on the same page-owned second (ui/pageClock.ts):
+// no timer of its own, and none while the page is hidden. No dots blink before it, as on that line.
 import { useSubsessionInfo } from "../subagents/subsessions";
 import { useT } from "../i18n";
 import type { AcpmuxRow } from "../model";
 import { BackgroundHint } from "./BackgroundHint";
 import { formatDuration } from "./turns";
-import { workingLabel } from "./WorkingFor";
+import { useTicking, workingLabel } from "./WorkingFor";
 
 export function ActivityLine({ row, now = Date.now }: { row: AcpmuxRow; now?: () => number }) {
   const t = useT();
-  const [time, setTime] = useState(now);
+  const time = useTicking(true, now);
   // A message going out reads "Sending message to tests", never its raw command (turns.ts `sendingTo`).
   const sendName = useSubsessionInfo(row.doingSendSession)?.name ?? row.doingSendTo;
-  useEffect(() => {
-    setTime(now());
-    const timer = setInterval(() => setTime(now()), 1000);
-    return () => clearInterval(timer);
-  }, [now]);
   return (
     <div className="cv-activity">
       {row.text ? (

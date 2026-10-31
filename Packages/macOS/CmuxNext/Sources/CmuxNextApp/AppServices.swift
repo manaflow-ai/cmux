@@ -18,6 +18,7 @@ import CmuxNextMobileHost
 import CmuxNextDaemon
 import CmuxNextDaemonService
 import CmuxNextDaemonRecovery
+import CmuxNextDictation
 import CmuxNextFeed
 import CmuxNextFloating
 import CmuxNextFavicons
@@ -334,6 +335,12 @@ final class AppServices {
         overlay: SleepyOverlayWindows(workingAgents: { [weak self] in self?.workingAgentTabCount() ?? 0 },
                                       lockMac: { SleepyMacLock().lock() })
     )
+    /// Share Screen with Chief (docs/chief-screen-share.md): off at every launch; its journal is this
+    /// Mac's Chief home's `optchat/screen`, which the Chief's brain reads into memory notes.
+    lazy var chiefScreenShare = ChiefScreenShare(
+        capture: ChiefScreenSystemCapture(),
+        journal: ChiefScreenJournal(directory: ChiefHome.resolve(tag: environment.tag).muxHome
+            .appending(path: "optchat/screen", directoryHint: .isDirectory)))
     /// Native input for `browser.page.mouse|wheel|insert_text|key` (`BrowserNativeInputs`).
     let browserNativeInputs = BrowserNativeInputs()
     /// Each pane's own Hide Tab Bar choice (`PaneTabBarChoices`).
@@ -470,6 +477,8 @@ final class AppServices {
     let windowHints = WindowHintController()
     /// Browser profiles: records, the new-tab cascade, each tab's store.
     private(set) lazy var browserProfiles = BrowserProfileService(services: self)
+    /// The app's daemon update (its one queue and board) and what it knows of its local acpmux daemons.
+    let daemonUpdates = DaemonUpdates(), acpmuxDaemons = AcpmuxLocalDaemons()
     /// Agent chat tabs and their shared acpmux host (New Agent Chat).
     private(set) lazy var agentTabs = AgentTabStore.wired(to: self)
     /// Which agent chat opened each file, for viewer quotes (viewer-comments-DESIGN.md).
@@ -547,7 +556,7 @@ final class AppServices {
         // After the run marker's handlers: Sentry calls them after its report.
         crashReporting = AppCrashReporting(environment: environment)
         DebugTimings.markLaunch("services.crash_reporting")
-        machines = MachineRegistry(local: daemon)
+        machines = MachineRegistry(local: daemon, updates: daemonUpdates.board)
         machines.isFeatureDisabled = { [registry] in registry.disabledFeatures.contains($0) }
         _ = cloud  // built here, as before
         _ = feed  // built here, as before

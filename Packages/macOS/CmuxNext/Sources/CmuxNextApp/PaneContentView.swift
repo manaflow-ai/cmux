@@ -288,6 +288,8 @@ final class PaneContentView: NSView, PaneContentChrome {
 
     func paneFrameInWindowDidChange() {
         stripView.updateWindowControlsAvoidance()
+        // Content with no strip of its own over it (Home's header) keeps clear of the traffic lights too.
+        WindowControlsAvoiders.refresh(in: window)
         // The pane moved under a possibly still pointer (column scroll, split resize).
         stripView.paneMovedInWindow()
     }
@@ -433,9 +435,9 @@ final class PaneContentView: NSView, PaneContentChrome {
     /// root paints the one sheet (`WindowBackdrop`).
     func themeDidChange() {
         needsLayout = true
-        let tokens = themeTokens
-        let paints = WindowBackdrop.current(tokens).panesPaintBackground
+        // In scope: its workspace's picture decides, not the app's (#28867: a black pane behind the chat).
         performWithTheme {
+            let paints = WindowBackdrop.current(themeTokens).panesPaintBackground
             contentHost.layer?.backgroundColor = paints ? Palette.surfaceBackground.cgColor : nil
         }
         // The strip: clear, or the user's tab bar background (R55).
@@ -458,4 +460,3 @@ private let tabSwitchLog = Logger(subsystem: "com.cmuxterm.app.next", category: 
 private func tabSwitchMark(_ name: String) {
     tabSwitchLog.debug("tab-switch \(name, privacy: .public) \(Date().timeIntervalSince1970 * 1_000, format: .fixed(precision: 3), privacy: .public)")
 }
-

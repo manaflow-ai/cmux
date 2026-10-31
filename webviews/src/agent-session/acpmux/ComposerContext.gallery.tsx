@@ -105,10 +105,12 @@ const openFolder: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector('.acpmux-location-menu [role="option"]'));
 };
 
-// Leo's list (hq#1957 composer location strip): three checkouts of cmux, each named "cmux".
+// Leo's list (hq#1957 composer location strip): three checkouts of cmux, each named "cmux", in no
+// worktree home the pickers know (a lane's own `wt/lanes/<lane>/cmux` folds under cmux instead:
+// projectRepos.ts), so each keeps its row and is named apart.
 const worktrees: Project[] = [
-  { cwd: "/Users/you/wt/lanes/cg-lane-adopt/cmux", label: "cmux" },
-  { cwd: "/Users/you/wt/lanes/fleet-ci/cmux", label: "cmux" },
+  { cwd: "/Users/you/clones/cg-lane-adopt/cmux", label: "cmux" },
+  { cwd: "/Users/you/clones/fleet-ci/cmux", label: "cmux" },
   { cwd: "/Users/you/src/cmux", label: "cmux" },
   { cwd: "/Users/you/src/atlas-web", label: "atlas-web" },
   { cwd: "/Users/you/src/relay", label: "relay" },
@@ -671,6 +673,43 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
         await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [data-mode="sandboxed"]'));
       },
     },
+    "environment-picker-cloud-row": {
+      note: "Labs (cloud work mode): where this chat runs is one pick. Cloud heads the Cloud section with one line on what it does: the app picks and sizes a machine and copies the folder, with no machine, size or environment to choose. The account's machines and New Cloud Machine stay below it.",
+      props: {
+        ...baseProps,
+        environments: true,
+        peers: ["gpu-box", "Cloud machine"],
+        peerKinds: { "gpu-box": "ssh", "Cloud machine": "cloud" },
+        peerConnected: { "gpu-box": true, "Cloud machine": false },
+        runMode: { mode: "persistent", onMode: () => undefined },
+      },
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: /^Environment/ });
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [data-mode="cloud"]'));
+      },
+    },
+    "environment-picker-cloud-picked": {
+      note: "Labs (cloud work mode): Cloud picked. The control reads Cloud where the machine was, its row is checked, and any machine row goes back to this Mac or that machine.",
+      props: { ...baseProps, environments: true, runMode: { mode: "cloud", onMode: () => undefined } },
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: /^Environment/ });
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [data-mode="cloud"][data-current]'));
+      },
+    },
+    "environment-picker-cloud-search": {
+      note: "Labs (cloud work mode): typing cloud keeps the Cloud row first, above New Cloud Machine and Open Cloud…",
+      props: { ...baseProps, environments: true, runMode: { mode: "persistent", onMode: () => undefined } },
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: /^Environment/ });
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [role="option"]'));
+        await ctx.type("cloud");
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [data-mode="cloud"]'));
+      },
+    },
+    "environment-picker-cloud-closed": {
+      note: "Labs (cloud work mode): the closed control with Cloud picked, as the composer shows it before the first send.",
+      props: { ...baseProps, environments: true, runMode: { mode: "cloud", onMode: () => undefined } },
+    },
     "environment-picker-cloud-machines": {
       note: "Preview: the environment picker above, then the account's Cloud machines acpmux does not list (`cloudMachine.list`) in Cloud and VMs, each with its stage: build box is paused (a pick resumes it), eval box is ready (a pick opens it), fresh box is still booting. They take no ⌥⌘ digit and are not greyed.",
       props: {
@@ -821,6 +860,49 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
           hostKind: "local",
           branch: "feature/composer-context-gallery",
         },
+      },
+    },
+    "started-browse-error-tray": {
+      note: "Tray style keeps the folder chooser recovery row below the raised composer, with Retry and Dismiss visible.",
+      props: {
+        ...baseProps,
+        started: true,
+        summary: {
+          sessionId: "gallery-started-browse-error-tray",
+          harness: "claude",
+          cwd: projects[0]!.cwd,
+          host: "This Mac",
+          hostKind: "local",
+        },
+        onNewChat: () => undefined,
+        onBrowseFolder: () => Promise.reject(new Error("Folder access was denied.")),
+      },
+      play: async (ctx) => {
+        ctx.document.documentElement.setAttribute("data-top-strip", "tray");
+        await ctx.click({ role: "button", name: "Folder" });
+        await ctx.click({ selector: ".acpmux-location-choose:last-child" });
+        await ctx.waitFor(() => ctx.document.querySelector('[role="alert"]'));
+      },
+    },
+    "started-browse-error": {
+      note: "A refused folder chooser leaves a started chat in place with a localized reason and direct Retry and Dismiss actions.",
+      props: {
+        ...baseProps,
+        started: true,
+        summary: {
+          sessionId: "gallery-started-browse-error",
+          harness: "claude",
+          cwd: projects[0]!.cwd,
+          host: "This Mac",
+          hostKind: "local",
+        },
+        onNewChat: () => undefined,
+        onBrowseFolder: () => Promise.reject(new Error("Folder access was denied.")),
+      },
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: "Folder" });
+        await ctx.click({ selector: ".acpmux-location-choose:last-child" });
+        await ctx.waitFor(() => ctx.document.querySelector('[role="alert"]'));
       },
     },
   },
