@@ -341,15 +341,16 @@ extension NewTabPage {
             return
         }
         switch (kind, trimmed.isEmpty) {
+        case (.terminal, _): page.newTerminalTab(cwd: cwd, typing: command(trimmed) ?? nil)
+        case (.browser, true): _ = page.newBrowserTab()
         case (.agent, true): _ = page.openAgentTab(seed: AgentPaneSeedSource(AgentPaneSeed(cwd: cwd)))
-        case (.agent, false):
+        case (.browser, false), (.agent, false):
             // A browser's words are searched; an agent's go out as a prompt.
             let reads = NewTabSubmit.plan(text: trimmed, search: search, agent: nil, resolver: page.services.cache.suggestionEngine.resolver)
             var searches = search
             if kind == .browser, case .chat = reads { searches = true }
             let arguments: [String: ActionValue] = ["text": .string(trimmed), "search": .bool(searches)]
             _ = page.services.registry.perform(NewTabSubmit.action, invocation: ActionInvocation(target: ActionTargetRef(kind: .pane, id: page.pane.id), arguments: arguments, origin: .user))
-        default: return
         }
     }
 

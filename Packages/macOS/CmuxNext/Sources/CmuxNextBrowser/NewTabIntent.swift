@@ -69,7 +69,7 @@ public nonisolated enum NewTabIntent: Equatable, Sendable {
 
 /// The fixture's shape: `{"kind": "terminal", "command": "ls"}` and so on,
 /// the same JSON the page's `NewTabIntent` type has.
-public extension NewTabIntent {
+extension NewTabIntent: Codable {
     private enum CodingKeys: String, CodingKey { case kind, command, url, text, reason }
 
     init(from decoder: any Decoder) throws {
