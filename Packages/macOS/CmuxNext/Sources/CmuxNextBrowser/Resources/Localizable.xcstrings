@@ -2097,6 +2097,137 @@
         }
       }
     },
+    "browser.engine.openFileLimit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux can’t open web pages: its open-file limit is %llu. Start cmux from Finder or the Dock, or raise the limit with ulimit -n before you start it."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux で Web ページを開けません: 開けるファイル数の上限が %llu です。Finder または Dock から cmux を起動するか、起動前に ulimit -n で上限を引き上げてください。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يستطيع cmux فتح صفحات الويب: حد الملفات المفتوحة هو %llu. شغّل cmux من Finder أو Dock، أو ارفع الحد باستخدام ulimit -n قبل تشغيله."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ne može otvoriti web stranice: ograničenje otvorenih datoteka je %llu. Pokrenite cmux iz Findera ili Docka ili povećajte ograničenje pomoću ulimit -n prije pokretanja."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kan ikke åbne websider: grænsen for åbne filer er %llu. Start cmux fra Finder eller Dock, eller hæv grænsen med ulimit -n, før du starter det."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kann keine Webseiten öffnen: Das Limit für geöffnete Dateien beträgt %llu. Starte cmux über den Finder oder das Dock oder erhöhe das Limit vor dem Start mit ulimit -n."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux no puede abrir páginas web: su límite de archivos abiertos es %llu. Abre cmux desde el Finder o el Dock, o aumenta el límite con ulimit -n antes de abrirlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ne peut pas ouvrir de pages web : la limite de fichiers ouverts est de %llu. Lancez cmux depuis le Finder ou le Dock, ou augmentez la limite avec ulimit -n avant de le lancer."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux non può aprire pagine web: il limite di file aperti è %llu. Avvia cmux dal Finder o dal Dock, oppure aumenta il limite con ulimit -n prima di avviarlo."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux មិនអាចបើកទំព័របណ្ដាញបានទេ៖ ដែនកំណត់ឯកសារដែលបើកគឺ %llu។ សូមចាប់ផ្ដើម cmux ពី Finder ឬ Dock ឬបង្កើនដែនកំណត់ដោយប្រើ ulimit -n មុនពេលចាប់ផ្ដើម។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux에서 웹 페이지를 열 수 없습니다: 열린 파일 수 제한이 %llu입니다. Finder 또는 Dock에서 cmux를 시작하거나, 시작하기 전에 ulimit -n으로 제한을 높이세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kan ikke åpne nettsider: grensen for åpne filer er %llu. Start cmux fra Finder eller Dock, eller øk grensen med ulimit -n før du starter det."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nie może otwierać stron internetowych: limit otwartych plików wynosi %llu. Uruchom cmux z Findera lub Docka albo zwiększ limit poleceniem ulimit -n przed uruchomieniem."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O cmux não consegue abrir páginas da web: o limite de arquivos abertos é %llu. Abra o cmux pelo Finder ou pelo Dock, ou aumente o limite com ulimit -n antes de abri-lo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не может открывать веб-страницы: лимит открытых файлов равен %llu. Запустите cmux из Finder или Dock либо увеличьте лимит командой ulimit -n перед запуском."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux เปิดหน้าเว็บไม่ได้: ขีดจำกัดไฟล์ที่เปิดอยู่คือ %llu เริ่ม cmux จาก Finder หรือ Dock หรือเพิ่มขีดจำกัดด้วย ulimit -n ก่อนเริ่ม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux web sayfalarını açamıyor: açık dosya sınırı %llu. cmux'u Finder'dan veya Dock'tan başlatın ya da başlatmadan önce sınırı ulimit -n ile yükseltin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не може відкривати вебсторінки: ліміт відкритих файлів становить %llu. Запустіть cmux із Finder або Dock чи збільште ліміт командою ulimit -n перед запуском."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux không thể mở trang web: giới hạn tệp đang mở là %llu. Hãy khởi động cmux từ Finder hoặc Dock, hoặc tăng giới hạn bằng ulimit -n trước khi khởi động."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 无法打开网页：其打开文件数上限为 %llu。请从访达或程序坞启动 cmux，或在启动前使用 ulimit -n 提高上限。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 無法開啟網頁：其開啟檔案數上限為 %llu。請從 Finder 或 Dock 啟動 cmux，或在啟動前使用 ulimit -n 提高上限。"
+          }
+        }
+      }
+    },
     "browser.error.loadFailed": {
       "extractionState": "manual",
       "localizations": {

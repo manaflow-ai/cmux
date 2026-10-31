@@ -76,9 +76,18 @@ public final class CEFEngine: BrowserEngine {
     /// Why Chromium cannot open a tab now, nil when it can (or may still
     /// start: idle or loading).
     public var unavailableReason: CEFUnavailableReason? {
-        if let pending = runtimeSource.unavailableReason { return pending }
-        switch CEFRuntime.shared.state {
-        case .failed(let message): return .startFailed(message)
+        Self.unavailableReason(pending: runtimeSource.unavailableReason, state: CEFRuntime.shared.state,
+                               refusal: CEFRuntime.shared.refusal)
+    }
+
+    /// ``unavailableReason`` from its inputs: a pending download first, then the runtime's state, a
+    /// failed start keeping its typed reason (the open-file limit) when it has one. So the page host
+    /// (`ChromiumPageHost.isAvailable`) and the tabs see a refused Chromium as unavailable.
+    static func unavailableReason(pending: CEFUnavailableReason?, state: CEFRuntime.State,
+                                  refusal: CEFUnavailableReason?) -> CEFUnavailableReason? {
+        if let pending { return pending }
+        switch state {
+        case .failed(let message): return refusal ?? .startFailed(message)
         case .shutDown: return .shutDown
         case .idle, .loading, .ready: return nil
         }
