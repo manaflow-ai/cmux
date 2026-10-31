@@ -290,11 +290,13 @@ final class LinkOpener {
     /// in the code editor, placed as any open is.
     func openFile(_ file: URL, from source: PaneController?, markdown: Bool = false, asText: Bool = false,
                   at position: FilePosition? = nil) -> Bool {
-        open(from: source) { pane, placed in
+        open(from: source) { [weak self] pane, placed in
             // A tab that already shows the file is selected where it is and never reports to `placed`:
             // it says so, so its turn ends now (review of the #28044 carry at 1eb458cf).
-            pane.services.viewers.openFile(file, in: pane, markdown: markdown, asText: asText, at: position, placed: placed,
-                                           shownInPlace: placed == nil ? nil : { [weak self] in self?.openedInPlace() })
+            var inPlace: (@MainActor () -> Void)?
+            if placed != nil { inPlace = { self?.openedInPlace() } }
+            return pane.services.viewers.openFile(file, in: pane, markdown: markdown, asText: asText, at: position, placed: placed,
+                                                  shownInPlace: inPlace)
         }
     }
 
