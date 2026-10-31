@@ -65,6 +65,7 @@ TIMEOUT = 60.0
 # One TagTeardown per copy path: a launch's terminal hosts and holders run from cmux-tui's host-exe copy outside the
 # bundle, so `bs.stop(bs.tag_pids(tag))` (bundle path) never finds them; the teardown does (tag_teardown.py).
 TEARDOWNS = {}
+VARIANTS_ONLY = False  # --signing-variants: the notarized reference, then only the re-signed variants
 
 
 def teardown_for(path):
@@ -276,7 +277,7 @@ def checker_cpu():
     return {name: by_pid.get(pid) for name, pid in pids.items()}
 
 
-def launch_release(app, label):
+def launch_release(app, label, until_main=False):
     """One full launch of a release bundle (the notarized nightly) to main_start and its first frame, with its own
     scratch home (HOME and CFFIXED_USER_HOME, as capture-host launches do), so it reads no account state; its marks
     come on the same pipe as a bench build's (LaunchMarkSink is in every build). Quit, then its processes are ended
@@ -310,6 +311,8 @@ def launch_release(app, label):
     deadline = spawn_t + TIMEOUT
     try:
         while not ({bs.FINAL_MARK, bs.AGENT_MARK} & marks.keys()) and time.monotonic() < deadline:
+            if until_main and main_seen is not None:
+                deadline = min(deadline, main_seen + 2.0)  # the variants need only main_start (and its daemon start)
             ready, _, _ = select.select([read_fd], [], [], max(0.0, deadline - time.monotonic()))
             if not ready:
                 break
@@ -372,6 +375,49 @@ def notarized_probe(root, adhoc_app):
     return result
 
 
+def bundle_shape(app):
+    """Mach-O count and bytes of a bundle, its signed nested bundles, and the main binary's architectures."""
+    import plistlib
+    images = macho_files(app)
+    with open(os.path.join(app, "Contents/Info.plist"), "rb") as info:
+        binary = os.path.join(app, "Contents/MacOS", plistlib.load(info)["CFBundleExecutable"])
+    nested = [p for p, dirs, _ in os.walk(app) if p != app and p.endswith((".app", ".framework", ".xpc", ".appex", ".bundle"))]
+    return {"macho_files": len(images), "macho_bytes": sum(os.path.getsize(p) for p in images),
+            "nested_bundles": len(nested), "main_archs": run(["lipo", "-archs", binary])[1].strip()}
+
+
+def signing_variants(root, app, result):
+    """What drives the one-time first-launch assessment: the same nightly bytes, re-signed ad hoc (a Developer ID
+    signature cannot be made on a mini, and a changed notarized bundle has a broken seal, so it is never launched),
+    as shipped, thinned to arm64, and without the Chromium framework and the helper apps. 3 launches of one new copy
+    each, stopped 2 s after main_start."""
+    variants = {}
+    for name, how in (("as_shipped", None), ("arm64_only", "thin"), ("no_chromium", "strip")):
+        dest = os.path.join(root, f"V-{name}")
+        os.makedirs(dest, exist_ok=True)
+        copy = os.path.join(dest, os.path.basename(app))
+        cmd = ["ditto", "--arch", "arm64", app, copy] if how == "thin" else ["ditto", app, copy]
+        code, _, err = run(cmd, timeout=900)
+        if code != 0:
+            variants[name] = {"error": f"ditto: {err.strip()[:200]}"}
+            continue
+        if how == "strip":
+            frameworks = os.path.join(copy, "Contents/Frameworks")
+            for entry in os.listdir(frameworks):
+                if entry.startswith("Chromium Embedded Framework") or entry.endswith(".app"):
+                    shutil.rmtree(os.path.join(frameworks, entry), ignore_errors=True)
+            shutil.rmtree(os.path.join(copy, "Contents/Helpers"), ignore_errors=True)
+        code, _, err = run(["codesign", "--force", "--deep", "--sign", "-", copy], timeout=900)
+        entry = {"shape": bundle_shape(copy)}
+        if code != 0:
+            entry["error"] = f"codesign: {err.strip()[:200]}"
+        else:
+            entry["runs"] = [launch_release(copy, f"variant {name} run {i}", until_main=True) for i in (1, 2, 3)]
+        variants[name] = entry
+        shutil.rmtree(dest, ignore_errors=True)
+    result["variants"] = variants
+
+
 def probe_copy(source, root, name):
     try:
         return fresh_copy(source, root, name)
@@ -423,6 +469,12 @@ def notarized_probe_body(root, adhoc_app, result):
         import plistlib
         plist = plistlib.load(info)
     result["notarized_version"] = plist.get("CFBundleVersion")
+    result["notarized_shape"] = bundle_shape(app)
+    if VARIANTS_ONLY:
+        result["notarized_new_copy"] = [launch_release(app, f"notarized (new copy) run {i}", until_main=True) for i in (1, 2, 3)]
+        signing_variants(root, app, result)
+        shutil.rmtree(work, ignore_errors=True)
+        return
     result["notarized_new_copy"] = [launch_release(app, f"notarized (new copy) run {i}") for i in (1, 2, 3)]
     quarantined = probe_copy(app, root, "Q")
     flag = f"01c1;{int(time.time()):x};Safari;"
@@ -614,7 +666,12 @@ def main():
     parser.add_argument("--exec-probe", action="store_true",
                         help="also the signing probe (full launches: ad-hoc bench copy, notarized nightly, approved-quarantine nightly, nightly re-signed ad hoc), after the launches")
     parser.add_argument("--exec-probe-only", action="store_true", help="only the signing probe, none of the A/B/C launches")
+    parser.add_argument("--signing-variants", action="store_true",
+                        help="with --exec-probe-only: the notarized nightly, then the same bytes re-signed ad hoc as "
+                             "shipped, arm64-only and without Chromium (what drives the first-launch assessment)")
     args, _ = parser.parse_known_args()
+    global VARIANTS_ONLY
+    VARIANTS_ONLY = args.signing_variants
     app = os.path.abspath(args.app)
     root = os.path.join(os.path.abspath(args.out), "premain-copies")
     report = {"suite": "premain", "app": app, "macos": run(["sw_vers", "-productVersion"])[1].strip(),
