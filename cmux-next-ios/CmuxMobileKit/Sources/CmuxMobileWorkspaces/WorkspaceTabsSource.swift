@@ -49,8 +49,9 @@ public final class WorkspaceTabsSource: TabsDataSource {
     @ObservationIgnored let native: NativeBrowserTabs
     /// The chrome insets the pages were last laid out with, for cards.
     @ObservationIgnored private var lastInsets = EdgeInsets(top: 62, leading: 0, bottom: 98, trailing: 0)
-    @ObservationIgnored var pageHeight: CGFloat = 874
-    @ObservationIgnored var pageWidth: CGFloat = 402
+    /// The page size (`rememberPageSize`): observed, so the cards follow a rotation.
+    var pageHeight: CGFloat = 874
+    var pageWidth: CGFloat = 402
     /// A workspace created on this phone opens its first tab ready to type.
     /// Kept while the Mac creates it, since the placeholder tab becomes the
     /// Mac's real tab (a new page) once it confirms.
@@ -917,8 +918,15 @@ public final class WorkspaceTabsSource: TabsDataSource {
 
     func remember(_ insets: EdgeInsets, pageSize: CGSize) {
         if insets != lastInsets { lastInsets = insets }
-        pageHeight = pageSize.height
-        pageWidth = pageSize.width
+        rememberPageSize(pageSize)
+    }
+
+    /// The page size pages and cards are laid out at (a page's context, or a card's own
+    /// layout size). Cards read it, so a new size draws them again.
+    func rememberPageSize(_ size: CGSize) {
+        guard size.width > 0, size.height > 0 else { return }
+        if size.height != pageHeight { pageHeight = size.height }
+        if size.width != pageWidth { pageWidth = size.width }
     }
 
     // MARK: Agent cards
@@ -2074,6 +2082,9 @@ struct WorkspaceTabCard: View {
                     }
                     .padding(.leading, 16).padding(.top, 14)
                 }
+                // The kit lays a card out at the full page size and scales it down: a grid shown
+                // before any page (or rotated with the grid up) gives the cards their page size.
+                .onGeometryChange(for: CGSize.self, of: { $0.size }) { size in source.rememberPageSize(size) }
     }
 
     @ViewBuilder

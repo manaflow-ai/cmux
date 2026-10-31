@@ -19,6 +19,12 @@ struct AgentCardRasterKey: Equatable {
     var bottomInset: CGFloat
     /// Pixels per page point: the card's on-screen resolution.
     var scale: CGFloat
+    /// What the rows load before they can be drawn as a still is ready: their sent images'
+    /// thumbnails (`AgentChatPreview.picturesReady`; a picture runs no `.task`).
+    var pictures = true
+    /// The chat's diffs as drawn (`ChatDiffCache.version`): an edit's snippet and the
+    /// edited-files card draw once their diff lands, and the picture is drawn again then.
+    var diffs = 0
 
     /// Drawn the same way (scheme, size, insets, resolution), whatever the
     /// turns: an older picture of the same layout stands in until the new
@@ -44,7 +50,7 @@ struct AgentCardRasterKey: Equatable {
     /// picture: that turn is drawn live (bytes already in the turn draw).
     var isDrawable: Bool {
         let pendingImage = turns.contains { $0.attachments.contains { $0.kind == .image && $0.data == nil } }
-        return !pendingImage && page.width > 0 && visibleHeight > 0
+        return !pendingImage && pictures && page.width > 0 && visibleHeight > 0
     }
 }
 
@@ -52,10 +58,13 @@ extension AgentCardRasterKey {
     /// The key a card for `feed` asks for now: a built card's (`AgentTabCard`) and one drawn
     /// before it is built (`WorkspaceTabsSource.nextAgentCardAhead`).
     @MainActor
-    static func current(_ feed: AgentCardFeed, colorScheme: ColorScheme, page: CGSize, visibleHeight: CGFloat,
-                        topInset: CGFloat, bottomInset: CGFloat, scale: CGFloat) -> AgentCardRasterKey {
-        AgentCardRasterKey(turns: feed.turns, colorScheme: colorScheme, page: page, visibleHeight: visibleHeight,
-                           topInset: topInset, bottomInset: bottomInset, scale: scale)
+    /// Reads (and so observes) what the card waits for: decoded thumbnails and the chat's diffs.
+    static func current(_ feed: AgentCardFeed, turns: [AgentTurn]? = nil, colorScheme: ColorScheme, page: CGSize,
+                        visibleHeight: CGFloat, topInset: CGFloat, bottomInset: CGFloat, scale: CGFloat) -> AgentCardRasterKey {
+        let turns = turns ?? feed.turns
+        return AgentCardRasterKey(turns: turns, colorScheme: colorScheme, page: page, visibleHeight: visibleHeight,
+                                  topInset: topInset, bottomInset: bottomInset, scale: scale,
+                                  pictures: AgentChatPreview.picturesReady(turns), diffs: feed.store.diffs.version)
     }
 }
 

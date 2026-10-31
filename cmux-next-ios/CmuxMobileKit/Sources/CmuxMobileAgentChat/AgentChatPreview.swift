@@ -22,6 +22,13 @@ public struct AgentChatPreview: View {
         self.bottomInset = bottomInset
     }
 
+    /// Whether a still of these turns (a tab card's picture, drawn with no `.task`) can show
+    /// what their rows load first: their sent images' thumbnails. Starts what is missing and is
+    /// observed, so a caller reads it again when it lands.
+    public static func picturesReady(_ turns: [AgentTurn]) -> Bool {
+        SentAttachmentThumbnails.shared.ready(turns)
+    }
+
     public var body: some View {
         // Bottom aligned like the transcript at rest in follow mode: the
         // turns keep their natural height and the overflow clips at the top.

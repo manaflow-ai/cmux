@@ -23,10 +23,8 @@ import UIKit
     static let page = CGSize(width: 402, height: 874)
 
     static func key(_ feed: AgentCardFeed, turns: [AgentTurn]) -> AgentCardRasterKey {
-        var key = AgentCardRasterKey.current(feed, colorScheme: .dark, page: page, visibleHeight: page.height,
-                                             topInset: 70, bottomInset: 110, scale: 1)
-        key.turns = turns
-        return key
+        AgentCardRasterKey.current(feed, turns: turns, colorScheme: .dark, page: page, visibleHeight: page.height,
+                                   topInset: 70, bottomInset: 110, scale: 1)
     }
 
     /// A solid red PNG.

@@ -852,6 +852,7 @@ struct SentAttachments: View {
     @State private var fetched: [String: Data] = [:]
     /// Thumbnails decoded off the main thread, by attachment id (never decoded in a body).
     @State private var decoded: [String: UIImage] = [:]
+    private let thumbnails = SentAttachmentThumbnails.shared
     @Environment(\.attachmentLoader) private var loader
 
     var body: some View {
@@ -859,11 +860,11 @@ struct SentAttachments: View {
         let files = attachments.filter { $0.kind != .image }
         VStack(alignment: .trailing, spacing: 6) {
             if images.count == 1, let image = images.first {
-                thumbnail(image, size: CGSize(width: 200, height: 150))
+                thumbnail(image, size: SentAttachmentThumbnails.size(images: 1))
             } else if !images.isEmpty {
                 HStack(spacing: 6) {
                     ForEach(images.prefix(3)) { image in
-                        thumbnail(image, size: CGSize(width: 96, height: 96))
+                        thumbnail(image, size: SentAttachmentThumbnails.size(images: images.count))
                             .overlay {
                                 if image.id == images.prefix(3).last?.id, images.count > 3 {
                                     Text("+\(images.count - 3)").font(.headline).foregroundStyle(.white)
@@ -899,8 +900,12 @@ struct SentAttachments: View {
 
     @ViewBuilder
     private func thumbnail(_ attachment: AgentAttachment, size: CGSize) -> some View {
+        let side = SentAttachmentThumbnails.side(size)
         Group {
-            if let image = decoded[attachment.id] {
+            // Decoded by this view's `.task`, or already (a tab card's picture runs no `.task`:
+            // its key waits for the thumbnail, `SentAttachmentThumbnails.ready`).
+            if let image = decoded[attachment.id]
+                ?? (attachment.data ?? fetched[attachment.id]).flatMap({ thumbnails.image(attachment, data: $0, side: side) }) {
                 Image(uiImage: image).resizable().scaledToFill()
             } else {
                 Color.cmuxMobileFill.overlay { Image(systemName: "photo").font(.title3).foregroundStyle(.secondary) }
@@ -918,11 +923,7 @@ struct SentAttachments: View {
                 data = loaded
             }
             guard let data, decoded[attachment.id] == nil else { return }
-            let side = max(size.width, size.height) * 3
-            let image = await Task.detached(priority: .userInitiated) {
-                UIImage(data: data).flatMap { $0.preparingThumbnail(of: Self.fill($0.size, side: side)) ?? $0 }
-            }.value
-            if let image { decoded[attachment.id] = image }
+            if let image = await thumbnails.decode(attachment, data: data, side: side) { decoded[attachment.id] = image }
         }
         .accessibilityElement()
         .accessibilityLabel(Text("Image, \(attachment.name)"))
