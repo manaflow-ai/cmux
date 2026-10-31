@@ -27,10 +27,10 @@
 //! event, so no client polls. Instances persist in
 //! `<state>/apps-instances.json`, owned by this module.
 
+use cmux_process::{Command, Stdio};
 use std::collections::BTreeMap;
 use std::io::Write as _;
 use std::path::PathBuf;
-use std::process::{Command, Stdio};
 use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
@@ -254,13 +254,16 @@ impl RemoteShell for CloudExec {
     }
 }
 
+/// Runs `command` (a cmux_process child: only descriptors 0-2 pass, never a
+/// PTY master or a ring of the daemon) with `input` on stdin; its stdout, or
+/// the tail of its stderr when it fails.
 fn run_with_stdin(command: &mut Command, input: &str) -> Result<String, String> {
     let mut child = command
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .map_err(|e| format!("cannot start {:?}: {e}", command.get_program()))?;
+        .map_err(|e| format!("cannot start the remote shell: {e}"))?;
     if let Some(mut stdin) = child.stdin.take() {
         let _ = stdin.write_all(input.as_bytes());
     }

@@ -54,9 +54,10 @@ nonisolated enum AppStoreActionCatalog: ActionCatalogGroup {
             {
                 var install = ActionDescriptor(
                     id: "app.install", title: t("action.app.install", "Install App…"),
-                    keywords: ["apps", "install", "add", "store", "extensions", "plugins"],
+                    keywords: ["apps", "install", "add", "store", "extensions", "plugins", "deploy", "self-hosted"],
                     category: .settings, symbol: "arrow.down.app", surfaces: [.palette, .keyboard],
-                    arguments: [ActionArgument(name: "app", title: t("argument.appStore.app", "App"), kind: .string)],
+                    arguments: [ActionArgument(name: "app", title: t("argument.appStore.app", "App"), kind: .string),
+                                ActionArgument(name: "deploy", title: t("argument.app.deploy", "Deploy To"), kind: .string, isRequired: false)],
                     cliName: "apps install",
                     surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject))
                 install.waitsForPerson = true

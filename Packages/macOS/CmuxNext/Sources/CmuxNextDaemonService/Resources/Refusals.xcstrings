@@ -12316,6 +12316,137 @@
         }
       }
     },
+    "refusal.app.notDeployed": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "هذا التطبيق لا يعمل بعد. ثبّته مع هدف نشر، مثلاً: cmux apps install <app> --deploy self-hosted:<host>."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ova aplikacija još ne radi. Instalirajte je s ciljem postavljanja, na primjer: cmux apps install <app> --deploy self-hosted:<host>."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne app kører ikke endnu. Installer den med et udrulningsmål, for eksempel: cmux apps install <app> --deploy self-hosted:<host>."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese App läuft noch nicht. Installiere sie mit einem Bereitstellungsziel, zum Beispiel: cmux apps install <app> --deploy self-hosted:<host>."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This app is not running yet. Install it with a deploy target, for example: cmux apps install <app> --deploy self-hosted:<host>."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta app aún no se está ejecutando. Instálala con un destino de despliegue, por ejemplo: cmux apps install <app> --deploy self-hosted:<host>."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette app ne tourne pas encore. Installez-la avec une cible de déploiement, par exemple : cmux apps install <app> --deploy self-hosted:<host>."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questa app non è ancora in esecuzione. Installala con una destinazione, ad esempio: cmux apps install <app> --deploy self-hosted:<host>."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このアプリはまだ動いていません。デプロイ先を指定してインストールしてください。例: cmux apps install <app> --deploy self-hosted:<host>"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កម្មវិធីនេះមិនទាន់ដំណើរការនៅឡើយទេ។ ដំឡើងវាជាមួយគោលដៅដាក់ពង្រាយ ឧទាហរណ៍៖ cmux apps install <app> --deploy self-hosted:<host>។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 앱은 아직 실행되지 않습니다. 배포 대상을 지정해 설치하세요. 예: cmux apps install <app> --deploy self-hosted:<host>"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne appen kjører ikke ennå. Installer den med et distribusjonsmål, for eksempel: cmux apps install <app> --deploy self-hosted:<host>."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ta aplikacja jeszcze nie działa. Zainstaluj ją z celem wdrożenia, na przykład: cmux apps install <app> --deploy self-hosted:<host>."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este app ainda não está em execução. Instale-o com um destino de implantação, por exemplo: cmux apps install <app> --deploy self-hosted:<host>."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Это приложение ещё не запущено. Установите его с целью развёртывания, например: cmux apps install <app> --deploy self-hosted:<host>."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แอปนี้ยังไม่ทำงาน ติดตั้งพร้อมเป้าหมายการปรับใช้ เช่น cmux apps install <app> --deploy self-hosted:<host>"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu uygulama henüz çalışmıyor. Bir dağıtım hedefiyle yükleyin, örneğin: cmux apps install <app> --deploy self-hosted:<host>."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цей застосунок ще не працює. Установіть його з ціллю розгортання, наприклад: cmux apps install <app> --deploy self-hosted:<host>."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ứng dụng này chưa chạy. Hãy cài đặt với đích triển khai, ví dụ: cmux apps install <app> --deploy self-hosted:<host>."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 App 尚未运行。请指定部署目标安装，例如：cmux apps install <app> --deploy self-hosted:<host>。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 App 尚未執行。請指定部署目標安裝，例如：cmux apps install <app> --deploy self-hosted:<host>。"
+          }
+        }
+      }
+    },
     "refusal.app.notListed": {
       "extractionState": "manual",
       "localizations": {

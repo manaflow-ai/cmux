@@ -4,7 +4,6 @@ import CmuxNextDaemon
 import CmuxNextPages
 import CmuxNextPalette
 import CmuxNextSettings
-import Foundation
 
 /// App Store actions (plans/cmux-next/app-platform.md section 3). Opening
 /// the window from automation never installs anything; installs and removals
@@ -86,44 +85,32 @@ enum AppStoreHandlers {
         })
         bindHidden("app.hide", true)
         bindHidden("app.unhide", false)
-        // Install and remove (CLI `cmux apps install|remove`, palette, MCP): the App Store's own
-        // consent card, then the supervisor op as the user's only after the person's click. An
-        // agent or script that runs them only asks; it never installs (app-platform.md 8, P13).
-        func bindStoreChange(_ id: ActionID, op: String, extra: [String: JSONValue]) {
+        // Install and remove (CLI `cmux apps install|remove [--deploy <target>]`, palette, MCP): the
+        // App Store's consent card (AppsStoreChange); only the person's click makes it the user's.
+        for (id, kind) in [("app.install", AppsStoreChange.Kind.install), ("app.remove", .remove)] as [(ActionID, AppsStoreChange.Kind)] {
             registry.bindEffect(id, requires: nil, effect: { invocation in
-                let appID = invocation["app"]?.stringValue?.trimmingCharacters(in: .whitespaces) ?? ""
-                let apps = services.apps
-                if let reason = apps.client.unavailableReason { throw Self.unavailable(reason) }
-                // No app named: the App Store, where the person picks one.
-                guard !appID.isEmpty else {
-                    apps.showStore(tab: op == "cmux.apps.install" ? .discover : .installed, focus: invocation.allowsViewChange)
+                if let reason = services.apps.client.unavailableReason { throw Self.unavailable(reason) }
+                let change = AppsStoreChange(kind: kind, app: invocation["app"]?.stringValue ?? "", deploy: invocation["deploy"]?.stringValue)
+                guard !change.app.isEmpty else {
+                    services.apps.showStore(tab: kind == .install ? .discover : .installed, focus: invocation.allowsViewChange)
                     return .done
                 }
                 let provider = PageFactory(services: services).appsStoreProvider()
                 provider.anchor = { [weak services] in services?.windows.active?.window?.contentView }
-                var params = extra
-                params["app"] = .string(appID)
-                params["idempotency_key"] = .string("\(id.rawValue).\(UUID().uuidString)")
-                let context = PageCallContext(page: PageDescriptor.apps.id)
-                // action-wait-allow: the consent card shows at once; the change exists only after the person confirms and the supervisor commits it
-                return .waiting(.daemonEcho) {
-                    do {
-                        _ = try await provider.call(op, params: .object(params), context: context)
-                        return nil
-                    } catch let error as PageError where error == .cancelled {
-                        return ActionWorkFailure(RefusalStrings.text("refusal.app.declined", "Nothing changed: the request was declined on the confirmation card."))
-                    } catch let error as PageError where error.code == "apps.unknown" {
-                        return ActionWorkFailure(RefusalStrings.text("refusal.app.notListed", "No app with that id in the App Store."))
-                    } catch let error as PageError {
-                        return ActionWorkFailure("\(error.code): \(error.message)")
-                    } catch {
-                        return ActionWorkFailure(String(describing: error))
-                    }
-                }
+                // action-wait-allow: the consent card shows at once; the change exists only after the person confirms
+                return .waiting(.daemonEcho) { Self.failure(await change.send(through: provider)) }
             })
         }
-        bindStoreChange("app.install", op: "cmux.apps.install", extra: ["grant_optional": .bool(false)])
-        bindStoreChange("app.remove", op: "cmux.apps.uninstall", extra: [:])
+    }
+
+    /// The refusal of a store change that did not commit, nil when it did.
+    static func failure(_ outcome: AppsStoreChange.Outcome) -> ActionWorkFailure? {
+        switch outcome {
+        case .done: nil
+        case .declined: ActionWorkFailure(RefusalStrings.text("refusal.app.declined", "Nothing changed: the request was declined on the confirmation card."))
+        case .unknownApp: ActionWorkFailure(RefusalStrings.text("refusal.app.notListed", "No app with that id in the App Store."))
+        case .refused(let code, let message): ActionWorkFailure("\(code): \(message)")
+        }
     }
 
     /// Why an app action cannot run while the supervisor is unreachable.
@@ -143,6 +130,7 @@ enum AppStoreHandlers {
         case .noPage: ActionFailure(message: RefusalStrings.text("refusal.app.noPage", "This app has no page to open."))
         case .noWindow: ActionFailure(message: RefusalStrings.text("refusal.app.noWindow", "Open a cmux window first, then open the app."))
         case .unknownCommand: ActionFailure(message: RefusalStrings.text("refusal.app.unknownCommand", "This app has no command with that id."))
+        case .notDeployed: ActionFailure(message: RefusalStrings.text("refusal.app.notDeployed", "This app is not running yet. Install it with a deploy target, for example: cmux apps install <app> --deploy self-hosted:<host>."))
         }
     }
 }

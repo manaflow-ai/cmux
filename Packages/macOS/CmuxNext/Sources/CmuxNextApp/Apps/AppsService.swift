@@ -133,7 +133,7 @@ final class AppsService {
         if let reason = client.unavailableReason { throw .unavailable(reason) }
         guard let app = client.app(appID), app.installed else { throw .unknownApp }
         guard app.enabled else { throw .disabled }
-        switch AppOpenTarget(app.manifest) {
+        switch AppOpenTarget(app) {
         case .scenePane:
             guard AppPanePage.opens(app), let provider = pageProvider(appID: appID, codeRouterAsPage: false) else { throw .noPage }
             guard services.pages.show(provider.page, in: services.windows.active, focus: focus) != nil else { throw .noWindow }
@@ -145,6 +145,8 @@ final class AppsService {
                 arguments: ["url": .string(url.absoluteString)], origin: origin, focusRequested: focus))
             guard opened else { throw .noPage }
             return nil
+        case .notDeployed:
+            throw .notDeployed
         case .none:
             throw .noPage
         }
@@ -217,6 +219,8 @@ extension AppsService: InternalPageProvider {
 
 enum AppsServiceError: Error {
     case unknownApp, noPage, noWindow, unknownCommand
+    /// A remote pane whose instance is not running yet (install it with a deploy target).
+    case notDeployed
     /// Installed but turned off.
     case disabled
     /// The supervisor cannot be reached (an older daemon, not connected yet, or turned off).
