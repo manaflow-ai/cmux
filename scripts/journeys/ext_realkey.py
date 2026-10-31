@@ -151,5 +151,19 @@ def step_daemon_pause(j, step):
     return {"daemon_pid": pid, "stopped_s": seconds, "background": bool(step.get("background"))}
 
 
-STEPS = {"real_key": step_real_key, "key_outcome": step_key_outcome, "daemon_pause": step_daemon_pause}
+def step_app_log(j, step):
+    """The app process's unified log of the last `seconds` (default 15), lines that match `grep` (a regex) if
+    given; kept in the result (at most 120 lines). Diagnostic only."""
+    import re
+    secs = int(step.get("seconds", 15))
+    done = subprocess.run(["/usr/bin/log", "show", "--style", "compact", "--last", f"{secs}s", "--info", "--debug",
+                           "--predicate", f"processID == {j.app.pid}"], capture_output=True, text=True, timeout=120)
+    lines = done.stdout.splitlines()
+    if step.get("grep"):
+        rx = re.compile(step["grep"], re.I)
+        lines = [l for l in lines if rx.search(l)]
+    return {"lines": [l[:300] for l in lines[-120:]], "count": len(lines)}
+
+
+STEPS = {"app_log": step_app_log, "real_key": step_real_key, "key_outcome": step_key_outcome, "daemon_pause": step_daemon_pause}
 CONDITIONS = {}

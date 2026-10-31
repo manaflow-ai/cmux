@@ -1,0 +1,199 @@
+{
+ "id": "ctrlbt-probe-palette",
+ "priority": "P1",
+ "title": "Probe: which path drops Ctrl-` while the command palette is open (real key, menu, router)",
+ "why": "Lawrence on v2.2.10-opt: Ctrl-` does not work. debug.key skips the window server, the menu and AppKit; this sends the real key.",
+ "source": "cmux-ad 2026-10-31 10:2xZ (Ctrl-` repro owner)",
+ "budget_seconds": 180,
+ "steps": [
+  {
+   "do": "wait",
+   "seconds": 8,
+   "title": "set-up: Home finishes its first load (home.show refuses 'not ready' at launch)"
+  },
+  {
+   "do": "action",
+   "action": "home.show",
+   "title": "set-up: Go to Home (its menu item); Home's message box has the keyboard"
+  },
+  {
+   "do": "wait",
+   "seconds": 2
+  },
+  {
+   "do": "rpc",
+   "method": "debug.focus",
+   "title": "record what has the keyboard (Home)"
+  },
+  {
+   "do": "real_key",
+   "key": "`",
+   "modifiers": [
+    "control"
+   ],
+   "mark": "home-key",
+   "title": "a REAL Ctrl-` on Home (CuaDriver HID key event)"
+  },
+  {
+   "do": "key_outcome",
+   "action": "newSurface",
+   "title": "Home: the real Ctrl-` reached cmux and ran New Terminal Tab"
+  },
+  {
+   "do": "focused_terminal",
+   "as": "main",
+   "title": "Home: a new terminal has the keyboard and the daemon knows it"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "type",
+   "text": "echo base-${nonce}-$((6*7))",
+   "enter": true,
+   "mark": "base-typed"
+  },
+  {
+   "do": "expect",
+   "title": "Home: the typed line runs in the new terminal",
+   "since": "base-typed",
+   "timeout": 15,
+   "all": [
+    {
+     "daemon_line": "base-${nonce}-42"
+    },
+    {
+     "app_text_line": "base-${nonce}-42"
+    },
+    {
+     "app_pane": {
+      "focused": true
+     }
+    },
+    {
+     "frame_text": "base-${nonce}-42"
+    }
+   ]
+  },
+  {
+   "do": "real_key",
+   "key": "p",
+   "modifiers": [
+    "cmd",
+    "shift"
+   ],
+   "title": "open the command palette (real Cmd-Shift-P)"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.focus",
+   "title": "record what has the keyboard before the real Ctrl-`"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.window_list",
+   "title": "windows (key window) with the palette open"
+  },
+  {
+   "do": "real_key",
+   "key": "`",
+   "modifiers": [
+    "control"
+   ],
+   "mark": "ctrlbt",
+   "title": "real Ctrl-` with the palette open"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.5
+  },
+  {
+   "do": "app_log",
+   "seconds": 4,
+   "title": "the app's log around the key"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.focus",
+   "title": "after the real Ctrl-`: is the palette still open"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.action_budget",
+   "params": {
+    "limit": 8
+   },
+   "title": "actions after the real Ctrl-`"
+  },
+  {
+   "do": "key",
+   "key": "`",
+   "modifiers": [
+    "control"
+   ],
+   "title": "debug.key Ctrl-` with the palette (if still open): the router's own answer"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.5
+  },
+  {
+   "do": "rpc",
+   "method": "debug.action_budget",
+   "params": {
+    "limit": 8
+   },
+   "title": "actions after debug.key Ctrl-`"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.focus",
+   "title": "after debug.key"
+  },
+  {
+   "do": "real_key",
+   "key": "p",
+   "modifiers": [
+    "cmd",
+    "shift"
+   ],
+   "title": "reopen the palette"
+  },
+  {
+   "do": "wait",
+   "seconds": 1
+  },
+  {
+   "do": "real_key",
+   "key": "t",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "cmdt",
+   "title": "control case: real Cmd-T with the palette open"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.5
+  },
+  {
+   "do": "rpc",
+   "method": "debug.action_budget",
+   "params": {
+    "limit": 8
+   },
+   "title": "actions after the real Cmd-T"
+  },
+  {
+   "do": "app_log",
+   "seconds": 4,
+   "title": "the app's log around Cmd-T"
+  }
+ ],
+ "finally": [
+  {
+   "do": "leave_full_screen"
+  }
+ ],
+ "continue_not_judged": true
+}
