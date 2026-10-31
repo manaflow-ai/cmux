@@ -3,7 +3,8 @@
 // and a chevron; opened, a bordered list with a row per subagent (SUBAGENT_ROW rows below it).
 // Every line has a fixed height (model.ts), so a running clock or a changing status never moves
 // the transcript.
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useContext, useState } from "react";
+import { usePageNow } from "../../../ui/pageClock";
 import { Icon } from "../icons/Icon";
 import { AgentMark } from "../../shared/AgentMark";
 import { usePaneLanguage, useT, type PaneLanguage, type Translate } from "../i18n";
@@ -64,26 +65,7 @@ export const SubagentClockContext = createContext(0);
 /// catches up the moment the pane shows again.
 export function useNow(live: boolean): number {
   const offset = useContext(SubagentClockContext);
-  const [now, setNow] = useState(Date.now);
-  useEffect(() => {
-    if (!live) return;
-    let timer: ReturnType<typeof setInterval> | undefined;
-    const tick = () => setNow(Date.now());
-    const sync = () => {
-      clearInterval(timer);
-      timer = undefined;
-      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
-      tick();
-      timer = setInterval(tick, 1000);
-    };
-    sync();
-    if (typeof document === "undefined") return () => clearInterval(timer);
-    document.addEventListener("visibilitychange", sync);
-    return () => {
-      clearInterval(timer);
-      document.removeEventListener("visibilitychange", sync);
-    };
-  }, [live]);
+  const now = usePageNow(live);
   return now - offset;
 }
 

@@ -25,6 +25,8 @@ public nonisolated struct SettingsPageLayout: Sendable {
         case voiceInput
         /// Settings > Chief's Notices row: it opens Notifications, which holds the Chief's notices.
         case notices
+        /// Settings > Menus: every right-click menu's rows, arranged by the person (ContextMenuLayout).
+        case contextMenus
         /// Settings > Server: each server's status, version line, Restart Recommended, socket and tailnet
         /// address (plans/cmux-next/server-updates-DESIGN.md section 10).
         case server
@@ -239,6 +241,11 @@ public nonisolated struct SettingsPageLayout: Sendable {
                 group("settings.group.palette"), group("settings.group.macScreenKeyboard"),
             ],
             actions: [.keyboard], aliases: [.keyboard]),
+        // Every right-click menu: promote rows out of More, reorder, hide, separators, reset
+        // (cmux.json contextMenus). Customize Menu… at the end of each menu opens it on that menu.
+        CategorySpec(
+            id: "menus", title: SettingsText.keyed("settings.category.menus", "Menus"), symbol: "contextualmenu.and.cursorarrow",
+            groups: [], lead: [.contextMenus]),
         CategorySpec(
             id: "privacy", title: SettingsText.keyed("settings.category.privacy", "Privacy and Security"),
             symbol: "hand.raised",
