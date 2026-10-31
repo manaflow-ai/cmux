@@ -1,0 +1,227 @@
+{
+ "id": "r3-zoom",
+ "priority": "P1",
+ "title": "R3 (d): zoom a split pane and unzoom it: one size everywhere after each, also in the pane that was hidden",
+ "why": "Lawrence's v2.2.11-opt capture (2026-10-31): grid 297x87 but fit_grid 126x87 in a 2088x1233 view. After a resize the shown terminal must have one size in the app, Ghostty, the PTY and the daemon, and a typed long line must wrap at it.",
+ "source": "cmux-ad P0 2026-10-31 (Lawrence on v2.2.11-opt: resizing terminals is broken); R3 invariant",
+ "budget_seconds": 240,
+ "steps": [
+  {
+   "do": "new_terminal",
+   "name": "jr-r3-zoom"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "type",
+   "text": "echo base-${nonce}",
+   "enter": true
+  },
+  {
+   "do": "smoke_adopt_line",
+   "line": "base-${nonce}",
+   "as": "main"
+  },
+  {
+   "do": "window_place",
+   "title": "set-up: the window at 70% x 70% of the screen",
+   "fraction": [
+    0.05,
+    0.05,
+    0.7,
+    0.7
+   ]
+  },
+  {
+   "do": "expect",
+   "title": "baseline: the terminal fits the placed window (R3, settled)",
+   "timeout": 15,
+   "settle": 1.5,
+   "all": [
+    {
+     "r3_settled": {
+      "pane": "main"
+     }
+    }
+   ]
+  },
+  {
+   "do": "remember",
+   "as": "start",
+   "pane": "main"
+  },
+  {
+   "do": "key",
+   "title": "Cmd-D",
+   "key": "d",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "split"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "right"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "type",
+   "text": "echo right-${nonce}",
+   "enter": true
+  },
+  {
+   "do": "smoke_adopt_line",
+   "line": "right-${nonce}",
+   "as": "right"
+  },
+  {
+   "do": "remember",
+   "as": "half",
+   "pane": "right"
+  },
+  {
+   "do": "key",
+   "title": "Cmd-Shift-Return zooms the right pane",
+   "key": "return",
+   "modifiers": [
+    "cmd",
+    "shift"
+   ],
+   "mark": "zoom"
+  },
+  {
+   "do": "type",
+   "text": "echo r3zz-${nonce} $(stty size)",
+   "enter": true
+  },
+  {
+   "do": "r3_long_line",
+   "tag": "r3zzw${nonce}"
+  },
+  {
+   "do": "expect",
+   "title": "r3zz: after the layout settles, right: grid == fit(bounds) == drawn == PTY == daemon == topology, and a long line wraps at the new width",
+   "since": "zoom",
+   "timeout": 20,
+   "settle": 2,
+   "all": [
+    {
+     "r3_settled": {
+      "pane": "right",
+      "pty_tag": "r3zz-${nonce}",
+      "long_tag": "r3zzw${nonce}",
+      "vs": "half",
+      "cols": "wider"
+     }
+    },
+    {
+     "pty_size": {
+      "tag": "r3zz-${nonce}",
+      "pane": "right"
+     }
+    },
+    {
+     "smoke_frame": {}
+    }
+   ]
+  },
+  {
+   "do": "key",
+   "title": "Cmd-Shift-Return again (unzoom)",
+   "key": "return",
+   "modifiers": [
+    "cmd",
+    "shift"
+   ],
+   "mark": "unzoom"
+  },
+  {
+   "do": "type",
+   "text": "echo r3zu-${nonce} $(stty size)",
+   "enter": true
+  },
+  {
+   "do": "r3_long_line",
+   "tag": "r3zuw${nonce}"
+  },
+  {
+   "do": "expect",
+   "title": "r3zu: after the layout settles, right: grid == fit(bounds) == drawn == PTY == daemon == topology, and a long line wraps at the new width; also main",
+   "since": "unzoom",
+   "timeout": 20,
+   "settle": 2,
+   "all": [
+    {
+     "r3_settled": {
+      "pane": "right",
+      "pty_tag": "r3zu-${nonce}",
+      "long_tag": "r3zuw${nonce}"
+     }
+    },
+    {
+     "r3_settled": {
+      "pane": "main"
+     }
+    },
+    {
+     "pty_size": {
+      "tag": "r3zu-${nonce}",
+      "pane": "right"
+     }
+    },
+    {
+     "smoke_frame": {}
+    }
+   ]
+  },
+  {
+   "do": "use_pane",
+   "pane": "main",
+   "click": true,
+   "title": "click into the left pane (hidden while zoomed)"
+  },
+  {
+   "do": "type",
+   "text": "echo r3zl-${nonce} $(stty size)",
+   "enter": true
+  },
+  {
+   "do": "r3_long_line",
+   "tag": "r3zlw${nonce}"
+  },
+  {
+   "do": "expect",
+   "title": "r3zl: after the layout settles, main: grid == fit(bounds) == drawn == PTY == daemon == topology, and a long line wraps at the new width",
+   "since": "unzoom",
+   "timeout": 20,
+   "settle": 2,
+   "all": [
+    {
+     "r3_settled": {
+      "pane": "main",
+      "pty_tag": "r3zl-${nonce}",
+      "long_tag": "r3zlw${nonce}"
+     }
+    },
+    {
+     "pty_size": {
+      "tag": "r3zl-${nonce}",
+      "pane": "main"
+     }
+    },
+    {
+     "smoke_frame": {}
+    }
+   ]
+  }
+ ],
+ "finally": [
+  {
+   "do": "restore_window",
+   "from": "before-place"
+  }
+ ]
+}

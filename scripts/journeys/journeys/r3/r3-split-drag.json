@@ -1,0 +1,285 @@
+{
+ "id": "r3-split-drag",
+ "priority": "P1",
+ "title": "R3 (b): split, drag the divider, close the split: one size everywhere after each, in each pane",
+ "why": "Lawrence's v2.2.11-opt capture (2026-10-31): grid 297x87 but fit_grid 126x87 in a 2088x1233 view. After a resize the shown terminal must have one size in the app, Ghostty, the PTY and the daemon, and a typed long line must wrap at it.",
+ "source": "cmux-ad P0 2026-10-31 (Lawrence on v2.2.11-opt: resizing terminals is broken); R3 invariant",
+ "budget_seconds": 260,
+ "steps": [
+  {
+   "do": "new_terminal",
+   "name": "jr-r3-split"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "type",
+   "text": "echo base-${nonce}",
+   "enter": true
+  },
+  {
+   "do": "smoke_adopt_line",
+   "line": "base-${nonce}",
+   "as": "main"
+  },
+  {
+   "do": "window_place",
+   "title": "set-up: the window at 70% x 70% of the screen",
+   "fraction": [
+    0.05,
+    0.05,
+    0.7,
+    0.7
+   ]
+  },
+  {
+   "do": "expect",
+   "title": "baseline: the terminal fits the placed window (R3, settled)",
+   "timeout": 15,
+   "settle": 1.5,
+   "all": [
+    {
+     "r3_settled": {
+      "pane": "main"
+     }
+    }
+   ]
+  },
+  {
+   "do": "remember",
+   "as": "start",
+   "pane": "main"
+  },
+  {
+   "do": "key",
+   "title": "Cmd-D",
+   "key": "d",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "split"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "right"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "type",
+   "text": "echo right-${nonce}",
+   "enter": true
+  },
+  {
+   "do": "smoke_adopt_line",
+   "line": "right-${nonce}",
+   "as": "right"
+  },
+  {
+   "do": "type",
+   "text": "echo r3sp-${nonce} $(stty size)",
+   "enter": true
+  },
+  {
+   "do": "r3_long_line",
+   "tag": "r3spw${nonce}"
+  },
+  {
+   "do": "expect",
+   "title": "r3sp: after the layout settles, right: grid == fit(bounds) == drawn == PTY == daemon == topology, and a long line wraps at the new width; also main",
+   "since": "split",
+   "timeout": 20,
+   "settle": 2,
+   "all": [
+    {
+     "r3_settled": {
+      "pane": "right",
+      "pty_tag": "r3sp-${nonce}",
+      "long_tag": "r3spw${nonce}"
+     }
+    },
+    {
+     "r3_settled": {
+      "pane": "main"
+     }
+    },
+    {
+     "pty_size": {
+      "tag": "r3sp-${nonce}",
+      "pane": "right"
+     }
+    },
+    {
+     "smoke_frame": {}
+    }
+   ]
+  },
+  {
+   "do": "remember",
+   "as": "left0",
+   "pane": "main"
+  },
+  {
+   "do": "remember",
+   "as": "right0",
+   "pane": "right"
+  },
+  {
+   "do": "divider_drag",
+   "title": "drag the divider 150 points left",
+   "between": [
+    "main",
+    "right"
+   ],
+   "by": -150,
+   "events": 30,
+   "mark": "drag"
+  },
+  {
+   "do": "type",
+   "text": "echo r3dr-${nonce} $(stty size)",
+   "enter": true
+  },
+  {
+   "do": "r3_long_line",
+   "tag": "r3drw${nonce}"
+  },
+  {
+   "do": "expect",
+   "title": "r3dr: after the layout settles, right: grid == fit(bounds) == drawn == PTY == daemon == topology, and a long line wraps at the new width; also main",
+   "since": "drag",
+   "timeout": 20,
+   "settle": 2,
+   "all": [
+    {
+     "r3_settled": {
+      "pane": "right",
+      "pty_tag": "r3dr-${nonce}",
+      "long_tag": "r3drw${nonce}",
+      "vs": "right0",
+      "cols": "wider"
+     }
+    },
+    {
+     "r3_settled": {
+      "pane": "main"
+     }
+    },
+    {
+     "pty_size": {
+      "tag": "r3dr-${nonce}",
+      "pane": "right"
+     }
+    },
+    {
+     "smoke_frame": {}
+    }
+   ]
+  },
+  {
+   "do": "use_pane",
+   "pane": "main",
+   "click": true,
+   "title": "click into the left pane"
+  },
+  {
+   "do": "type",
+   "text": "echo r3dl-${nonce} $(stty size)",
+   "enter": true
+  },
+  {
+   "do": "r3_long_line",
+   "tag": "r3dlw${nonce}"
+  },
+  {
+   "do": "expect",
+   "title": "r3dl: after the layout settles, main: grid == fit(bounds) == drawn == PTY == daemon == topology, and a long line wraps at the new width",
+   "since": "drag",
+   "timeout": 20,
+   "settle": 2,
+   "all": [
+    {
+     "r3_settled": {
+      "pane": "main",
+      "pty_tag": "r3dl-${nonce}",
+      "long_tag": "r3dlw${nonce}",
+      "vs": "left0",
+      "cols": "narrower"
+     }
+    },
+    {
+     "pty_size": {
+      "tag": "r3dl-${nonce}",
+      "pane": "main"
+     }
+    },
+    {
+     "smoke_frame": {}
+    }
+   ]
+  },
+  {
+   "do": "use_pane",
+   "pane": "right",
+   "click": true,
+   "title": "click into the right pane"
+  },
+  {
+   "do": "key",
+   "title": "Cmd-W closes the right pane: the left one fills the window again",
+   "key": "w",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "close"
+  },
+  {
+   "do": "use_pane",
+   "pane": "main"
+  },
+  {
+   "do": "type",
+   "text": "echo r3cl-${nonce} $(stty size)",
+   "enter": true
+  },
+  {
+   "do": "r3_long_line",
+   "tag": "r3clw${nonce}"
+  },
+  {
+   "do": "expect",
+   "title": "r3cl: after the layout settles, main: grid == fit(bounds) == drawn == PTY == daemon == topology, and a long line wraps at the new width",
+   "since": "close",
+   "timeout": 20,
+   "settle": 2,
+   "all": [
+    {
+     "r3_settled": {
+      "pane": "main",
+      "pty_tag": "r3cl-${nonce}",
+      "long_tag": "r3clw${nonce}",
+      "vs": "left0",
+      "cols": "wider"
+     }
+    },
+    {
+     "pty_size": {
+      "tag": "r3cl-${nonce}",
+      "pane": "main"
+     }
+    },
+    {
+     "smoke_frame": {}
+    }
+   ]
+  }
+ ],
+ "finally": [
+  {
+   "do": "restore_window",
+   "from": "before-place"
+  }
+ ]
+}

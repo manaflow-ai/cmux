@@ -1,0 +1,215 @@
+{
+ "id": "r3-new-tab-panel",
+ "priority": "P1",
+ "title": "R3 (c): Ctrl-` opens a terminal tab, the window resizes while it shows, Cmd-W closes it: both terminals fit",
+ "why": "Lawrence's v2.2.11-opt capture (2026-10-31): grid 297x87 but fit_grid 126x87 in a 2088x1233 view. After a resize the shown terminal must have one size in the app, Ghostty, the PTY and the daemon, and a typed long line must wrap at it.",
+ "source": "cmux-ad P0 2026-10-31 (Lawrence on v2.2.11-opt: resizing terminals is broken); R3 invariant",
+ "budget_seconds": 240,
+ "steps": [
+  {
+   "do": "new_terminal",
+   "name": "jr-r3-tab"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "type",
+   "text": "echo base-${nonce}",
+   "enter": true
+  },
+  {
+   "do": "smoke_adopt_line",
+   "line": "base-${nonce}",
+   "as": "main"
+  },
+  {
+   "do": "window_place",
+   "title": "set-up: the window at 70% x 70% of the screen",
+   "fraction": [
+    0.05,
+    0.05,
+    0.7,
+    0.7
+   ]
+  },
+  {
+   "do": "expect",
+   "title": "baseline: the terminal fits the placed window (R3, settled)",
+   "timeout": 15,
+   "settle": 1.5,
+   "all": [
+    {
+     "r3_settled": {
+      "pane": "main"
+     }
+    }
+   ]
+  },
+  {
+   "do": "remember",
+   "as": "start",
+   "pane": "main"
+  },
+  {
+   "do": "key",
+   "title": "Ctrl-` (New Terminal Tab)",
+   "key": "`",
+   "modifiers": [
+    "control"
+   ],
+   "mark": "tab"
+  },
+  {
+   "do": "focused_terminal"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "type",
+   "text": "echo tab2-${nonce}",
+   "enter": true
+  },
+  {
+   "do": "smoke_adopt_line",
+   "line": "tab2-${nonce}",
+   "as": "tab2"
+  },
+  {
+   "do": "type",
+   "text": "echo r3to-${nonce} $(stty size)",
+   "enter": true
+  },
+  {
+   "do": "r3_long_line",
+   "tag": "r3tow${nonce}"
+  },
+  {
+   "do": "expect",
+   "title": "r3to: after the layout settles, tab2: grid == fit(bounds) == drawn == PTY == daemon == topology, and a long line wraps at the new width",
+   "since": "tab",
+   "timeout": 20,
+   "settle": 2,
+   "all": [
+    {
+     "r3_settled": {
+      "pane": "tab2",
+      "pty_tag": "r3to-${nonce}",
+      "long_tag": "r3tow${nonce}"
+     }
+    },
+    {
+     "pty_size": {
+      "tag": "r3to-${nonce}",
+      "pane": "tab2"
+     }
+    },
+    {
+     "smoke_frame": {}
+    }
+   ]
+  },
+  {
+   "do": "window_drag",
+   "title": "while the new tab shows: drag the bottom-right corner 280 left, 180 up",
+   "by": [
+    -280,
+    -180
+   ],
+   "events": 30,
+   "mark": "shrink"
+  },
+  {
+   "do": "type",
+   "text": "echo r3ts-${nonce} $(stty size)",
+   "enter": true
+  },
+  {
+   "do": "r3_long_line",
+   "tag": "r3tsw${nonce}"
+  },
+  {
+   "do": "expect",
+   "title": "r3ts: after the layout settles, tab2: grid == fit(bounds) == drawn == PTY == daemon == topology, and a long line wraps at the new width",
+   "since": "shrink",
+   "timeout": 20,
+   "settle": 2,
+   "all": [
+    {
+     "r3_settled": {
+      "pane": "tab2",
+      "pty_tag": "r3ts-${nonce}",
+      "long_tag": "r3tsw${nonce}",
+      "vs": "start",
+      "cols": "narrower"
+     }
+    },
+    {
+     "pty_size": {
+      "tag": "r3ts-${nonce}",
+      "pane": "tab2"
+     }
+    },
+    {
+     "smoke_frame": {}
+    }
+   ]
+  },
+  {
+   "do": "key",
+   "title": "Cmd-W closes the new tab: the first terminal (hidden during the resize) shows again",
+   "key": "w",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "close"
+  },
+  {
+   "do": "use_pane",
+   "pane": "main"
+  },
+  {
+   "do": "type",
+   "text": "echo r3tc-${nonce} $(stty size)",
+   "enter": true
+  },
+  {
+   "do": "r3_long_line",
+   "tag": "r3tcw${nonce}"
+  },
+  {
+   "do": "expect",
+   "title": "r3tc: after the layout settles, main: grid == fit(bounds) == drawn == PTY == daemon == topology, and a long line wraps at the new width",
+   "since": "close",
+   "timeout": 20,
+   "settle": 2,
+   "all": [
+    {
+     "r3_settled": {
+      "pane": "main",
+      "pty_tag": "r3tc-${nonce}",
+      "long_tag": "r3tcw${nonce}",
+      "vs": "start",
+      "cols": "narrower"
+     }
+    },
+    {
+     "pty_size": {
+      "tag": "r3tc-${nonce}",
+      "pane": "main"
+     }
+    },
+    {
+     "smoke_frame": {}
+    }
+   ]
+  }
+ ],
+ "finally": [
+  {
+   "do": "restore_window",
+   "from": "before-place"
+  }
+ ]
+}

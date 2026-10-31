@@ -1,0 +1,158 @@
+{
+ "id": "r3-window-resize",
+ "priority": "P1",
+ "title": "R3 (a): drag the window smaller, then larger: one size everywhere after each, and a long line wraps at it",
+ "why": "Lawrence's v2.2.11-opt capture (2026-10-31): grid 297x87 but fit_grid 126x87 in a 2088x1233 view. After a resize the shown terminal must have one size in the app, Ghostty, the PTY and the daemon, and a typed long line must wrap at it.",
+ "source": "cmux-ad P0 2026-10-31 (Lawrence on v2.2.11-opt: resizing terminals is broken); R3 invariant",
+ "budget_seconds": 230,
+ "steps": [
+  {
+   "do": "new_terminal",
+   "name": "jr-r3-window"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "type",
+   "text": "echo base-${nonce}",
+   "enter": true
+  },
+  {
+   "do": "smoke_adopt_line",
+   "line": "base-${nonce}",
+   "as": "main"
+  },
+  {
+   "do": "window_place",
+   "title": "set-up: the window at 70% x 70% of the screen",
+   "fraction": [
+    0.05,
+    0.05,
+    0.7,
+    0.7
+   ]
+  },
+  {
+   "do": "expect",
+   "title": "baseline: the terminal fits the placed window (R3, settled)",
+   "timeout": 15,
+   "settle": 1.5,
+   "all": [
+    {
+     "r3_settled": {
+      "pane": "main"
+     }
+    }
+   ]
+  },
+  {
+   "do": "remember",
+   "as": "start",
+   "pane": "main"
+  },
+  {
+   "do": "window_drag",
+   "title": "drag the bottom-right corner 300 left, 200 up",
+   "by": [
+    -300,
+    -200
+   ],
+   "events": 30,
+   "mark": "shrink"
+  },
+  {
+   "do": "type",
+   "text": "echo r3ws-${nonce} $(stty size)",
+   "enter": true
+  },
+  {
+   "do": "r3_long_line",
+   "tag": "r3wsw${nonce}"
+  },
+  {
+   "do": "expect",
+   "title": "r3ws: after the layout settles, main: grid == fit(bounds) == drawn == PTY == daemon == topology, and a long line wraps at the new width",
+   "since": "shrink",
+   "timeout": 20,
+   "settle": 2,
+   "all": [
+    {
+     "r3_settled": {
+      "pane": "main",
+      "pty_tag": "r3ws-${nonce}",
+      "long_tag": "r3wsw${nonce}",
+      "vs": "start",
+      "cols": "narrower"
+     }
+    },
+    {
+     "pty_size": {
+      "tag": "r3ws-${nonce}",
+      "pane": "main"
+     }
+    },
+    {
+     "smoke_frame": {}
+    }
+   ]
+  },
+  {
+   "do": "remember",
+   "as": "small",
+   "pane": "main"
+  },
+  {
+   "do": "window_drag",
+   "title": "drag the bottom-right corner 260 right, 160 down",
+   "by": [
+    260,
+    160
+   ],
+   "events": 30,
+   "mark": "grow"
+  },
+  {
+   "do": "type",
+   "text": "echo r3wg-${nonce} $(stty size)",
+   "enter": true
+  },
+  {
+   "do": "r3_long_line",
+   "tag": "r3wgw${nonce}"
+  },
+  {
+   "do": "expect",
+   "title": "r3wg: after the layout settles, main: grid == fit(bounds) == drawn == PTY == daemon == topology, and a long line wraps at the new width",
+   "since": "grow",
+   "timeout": 20,
+   "settle": 2,
+   "all": [
+    {
+     "r3_settled": {
+      "pane": "main",
+      "pty_tag": "r3wg-${nonce}",
+      "long_tag": "r3wgw${nonce}",
+      "vs": "small",
+      "cols": "wider"
+     }
+    },
+    {
+     "pty_size": {
+      "tag": "r3wg-${nonce}",
+      "pane": "main"
+     }
+    },
+    {
+     "smoke_frame": {}
+    }
+   ]
+  }
+ ],
+ "finally": [
+  {
+   "do": "restore_window",
+   "from": "before-place"
+  }
+ ]
+}
