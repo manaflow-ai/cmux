@@ -53,7 +53,6 @@ fn spec(dir: &Path, session: &str) -> SpawnSpec {
         buffer_cap: agent_host::DEFAULT_BUFFER_CAP,
         router_owner_fifo: None,
         cwd_pin: None,
-        cpu_class: Default::default(),
         orphan_exit: None,
     }
 }
