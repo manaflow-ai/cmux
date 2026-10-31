@@ -102,9 +102,28 @@ public final class StatusIndicatorView: NSView, StatusIndicatorConfigClient {
         refresh()
     }
 
+    /// An ancestor was hidden at the last refresh (a parked pane or workspace, a collapsed group), so
+    /// the loop was left off; showing it again starts the loop.
+    private var hiddenByAncestor = false
+
+    private var ancestorIsHidden: Bool { superview?.isHiddenOrHasHiddenAncestor == true }
+
+    /// An ancestor hid this view: its loop stops. Hosts that push `isWindowVisible` (the sidebar list,
+    /// the tab strip) already stop theirs; this covers an indicator inside a pane (the agent pane's
+    /// loading mark), which is hidden in place when its tab or workspace parks (hq#3716). Only a view
+    /// with a running loop does any work, so parking a workspace costs its spinning indicators alone.
+    public override func viewDidHide() {
+        super.viewDidHide()
+        if indicator.runningAnimation != nil, ancestorIsHidden { refresh() }
+    }
+
     public override func viewDidUnhide() {
         super.viewDidUnhide()
-        if owesResync, !isHiddenOrHasHiddenAncestor { statusIndicatorResync() }
+        if owesResync, !isHiddenOrHasHiddenAncestor {
+            statusIndicatorResync()
+        } else if hiddenByAncestor, !ancestorIsHidden {
+            refresh()
+        }
     }
 
     private func refresh() {
@@ -113,7 +132,9 @@ public final class StatusIndicatorView: NSView, StatusIndicatorConfigClient {
         // A host's hidden flag that went stale (its "visible" notice missed this row) cannot keep a
         // row on a visible window still: the window's own state wins when it says visible.
         let visible = isWindowVisible || window?.occlusionState.contains(.visible) == true
-        let animates = window != nil && visible && config.animatesLoops
+        // The view's own isHidden follows its glyph (below); only an ancestor's hides it from view.
+        hiddenByAncestor = ancestorIsHidden
+        let animates = window != nil && visible && !hiddenByAncestor && config.animatesLoops
         let plan = StatusIndicatorPlan.make(state, style: config.style(hint: styleHint), animates: animates, set: config.iconSet,
                                             isStatic: config.isStatic, staticShapes: config.staticShapes,
                                             working: config.workingLook)
