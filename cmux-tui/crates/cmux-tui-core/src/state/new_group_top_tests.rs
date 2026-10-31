@@ -70,11 +70,7 @@ fn a_group_made_with_no_place_forms_first_below_home_under_top() {
         [home.as_str(), n.as_str(), b.as_str(), a.as_str()],
         "the new group is not first below Home in the document"
     );
-    assert_eq!(
-        group_order(&mux),
-        [new.clone(), old.clone()],
-        "the new group is not the first group"
-    );
+    assert_eq!(group_order(&mux), [new, old], "the new group is not the first group");
 
     // A workspace made later still lands above it, as the newest row.
     let m = empty_workspace(&mux, "m");
@@ -100,7 +96,7 @@ fn a_group_with_an_index_or_under_bottom_keeps_its_place() {
         let last = group(&mux, json!({"name": "Last"}), "group-last");
         assert_eq!(
             group_order(&mux),
-            [first.clone(), last.clone()],
+            [first.as_str(), last.as_str()],
             "bottom did not keep the group last"
         );
         let groups = read(&mux, "workspace_group.list", json!({}));
