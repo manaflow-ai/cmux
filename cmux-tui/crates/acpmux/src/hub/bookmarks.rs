@@ -63,9 +63,9 @@ impl Hub {
                 meta.updated_at = before;
             }
         }
-        self.save_meta(session);
+        let saved = self.save_meta_answered(session);
         drop(moving);
-        Ok(marks)
+        saved.map(|()| marks)
     }
 
     /// Whether `seq` is a prompt (`user_message`) or a turn's answer (`turn_result`) in the chat's log. The store reads files, so

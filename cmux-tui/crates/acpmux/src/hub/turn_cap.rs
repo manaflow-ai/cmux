@@ -207,8 +207,19 @@ impl Hub {
     /// message and turn start, so a running turn takes the new cap at once; its timer starts with
     /// the next turn.
     pub(crate) fn set_turn_cap(&self, session: &Session, cap_ms: Option<u64>) {
+        // A failed save is logged there; no request waits for this one.
+        let _ = self.set_turn_cap_answered(session, cap_ms);
+    }
+
+    /// [`Hub::set_turn_cap`] for `_acpmux/set_turn_cap`: answered only once the cap is saved
+    /// (`meta_save.rs`).
+    pub(crate) fn set_turn_cap_answered(
+        &self,
+        session: &Session,
+        cap_ms: Option<u64>,
+    ) -> Result<(), RpcError> {
         session.meta.lock().unwrap_or_else(|e| e.into_inner()).turn_cap_ms = cap_ms;
-        self.save_meta(session);
+        self.save_meta_answered(session)
     }
 }
 
