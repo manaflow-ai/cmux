@@ -353,7 +353,7 @@ Niche: Allow Site Request, Always Center Focused Column, Attempt Update, Base Ke
 | Panes | `focusUp` | Focus Pane Above | ⌥⌘ | b. standard | its section, catalog order |
 | Panes | `increaseWorkspaceTerminalFontSize` | Increase Workspace Font Size | ⌘= | c. niche | last in its section, −120 while typing |
 | Panes | `layout.undo` | Undo Layout Change |  | b. standard | its section, catalog order |
-| Panes | `newColumn` | New Column | ⌃⌘D | b. standard | its section, catalog order |
+| Panes | `newColumn` | New Column | ⌃⌘X | b. standard | its section, catalog order |
 | Panes | `newPaneAutoLayout` | New Pane (Auto Layout) | ⌃⌘N | b. standard | its section, catalog order |
 | Panes | `newRow` | New Row | ⌃⇧⌘D | b. standard | its section, catalog order |
 | Panes | `palette.newSimulatorPane` | New Simulator Pane |  | b. standard | its section, catalog order |

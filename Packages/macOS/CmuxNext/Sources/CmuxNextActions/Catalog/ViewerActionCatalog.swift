@@ -10,7 +10,7 @@ nonisolated enum ViewerActionCatalog: ActionCatalogGroup {
                 id: "openDiffViewer",
                 title: String(localized: "action.openDiffViewer", defaultValue: "Open Diff Viewer", bundle: .module),
                 keywords: ["git", "diff", "changes"],
-                // Cmd-Ctrl-Shift-D is New Row (New Column is Cmd-Ctrl-D); G for git.
+                // Cmd-Ctrl-Shift-D is New Row (New Column is Cmd-Ctrl-X); G for git.
                 defaultShortcut: Shortcut("g", modifiers: [.control, .shift, .command]), category: .browser,
                 symbol: "plusminus", surfaces: [.palette, .keyboard, .menu], arguments: [CatalogArgument.optionalPathString], targets: [.pane],
                 cliName: "browser open-diff-viewer", mainMenu: .file,
