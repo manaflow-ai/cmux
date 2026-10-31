@@ -9,7 +9,7 @@ import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import * as messageActions from "../src/agent-session/acpmux/conversation/MessageActions";
 import { PendingSteer } from "../src/agent-session/acpmux/conversation/PendingSteer";
-import { turnView } from "../src/agent-session/acpmux/conversation/turns";
+import { turnView, WORKED } from "../src/agent-session/acpmux/conversation/turns";
 import * as model from "../src/agent-session/acpmux/model";
 import {
   layoutConversation,
@@ -63,22 +63,39 @@ const marked = (rows: readonly AcpmuxRow[]) => {
   );
 };
 
-test("a reply followed by a steer keeps its row; the turn's answer keeps the footer", () => {
-  const rows = turnView(
-    [
-      row("u1", "user", 0, { text: "Give the team access to the helper." }),
-      reply("a1", 1_000, BEFORE_STEER),
-      row("s1", "user", 2_000, { text: "Also tell Lawrence.", steer: "landed" }),
-      row("t1", "activity", 3_000, { items: [send], toolCount: 1 }),
-      reply("a2", 4_000, ANSWER),
-      row("f1", "turnSummary", 5_000, { durationMs: 5_000, toolCount: 1, status: "completed" }),
-    ],
-    new Set(),
-    { now: 10_000 },
-  );
+test("a reply followed by a steer keeps its row in the opened Worked for; the turn's answer keeps the footer", () => {
+  const source = [
+    row("u1", "user", 0, { text: "Give the team access to the helper." }),
+    reply("a1", 1_000, BEFORE_STEER),
+    row("s1", "user", 2_000, { text: "Also tell Lawrence.", steer: "landed" }),
+    row("t1", "activity", 3_000, { items: [send], toolCount: 1 }),
+    reply("a2", 4_000, ANSWER),
+    row("f1", "turnSummary", 5_000, { durationMs: 5_000, toolCount: 1, status: "completed" }),
+  ];
+  // The finished turn folds the earlier reply and the steer under its Worked for; opened, the reply
+  // keeps its row (Leo, 2026-10-29: replies keep their action row).
+  const rows = turnView(source, new Set([`${WORKED}-u1`]), { now: 10_000 });
   expect(marked(rows)).toEqual({ a1: true, a2: false });
   const footer = rows.find((one) => one.kind === "turnSummary")!;
   expect(footer.answerId).toBe("a2");
+  // Closed, only the answer is drawn.
+  expect(marked(turnView(source, new Set(), { now: 10_000 }))).toEqual({ a2: false });
+});
+
+test("a short note between steps folded under an opened Worked for stays without a row", () => {
+  const rows = turnView(
+    [
+      row("u1", "user", 0, { text: "Report the merge." }),
+      reply("n1", 1_000, "Checking the review."),
+      row("t1", "activity", 2_000, { items: [send], toolCount: 1 }),
+      row("s1", "user", 3_000, { text: "Also tell Lawrence.", steer: "landed" }),
+      reply("a2", 4_000, ANSWER),
+      row("f1", "turnSummary", 5_000, { durationMs: 5_000, toolCount: 1, status: "completed" }),
+    ],
+    new Set([`${WORKED}-u1`]),
+    { now: 10_000 },
+  );
+  expect(marked(rows)).toEqual({ n1: false, a2: false });
 });
 
 test("a reply followed by another agent's message keeps its row", () => {

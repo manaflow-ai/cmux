@@ -3,6 +3,7 @@ import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextLayout
 import CmuxNextSidebar
 
 /// The one writer of a window's sidebar rows (cx-odqn): the live rows (the

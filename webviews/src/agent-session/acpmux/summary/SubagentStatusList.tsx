@@ -26,6 +26,8 @@ import type { StartedSession } from "../started/startedSessions";
 import { ChildSessionRows, sessionStatus } from "../inspector/ChildSessionRows";
 import type { SummarySubagent } from "./sessionSummary";
 import { SubagentStack } from "./SubagentStack";
+import { AgentIdentity, isRepeatedAgentKind } from "../subagents/AgentIdentity";
+import { agentTone } from "../subagents/agentTones";
 
 const ROW_ICON = rowIconSize(12);
 const NO_SESSIONS: readonly StartedSession[] = [];
@@ -197,7 +199,7 @@ export function SubagentStatusList({
               {/* The tray's own line (subagents/AgentLine.tsx): a subagent reads the same here and above the composer. */}
               <AgentLine
                 name={agent.name}
-                detail={agent.kind}
+                detail={isRepeatedAgentKind(agent.kind) ? undefined : agent.kind}
                 mark={agent.harness}
                 status={status}
                 state={subagentStateText(t, agent, waiting)}
@@ -207,6 +209,7 @@ export function SubagentStatusList({
                 depth={depth}
                 current={agent.id === current}
                 title={agent.task}
+                tone={agentTone(agent.id)}
                 onOpen={onOpen ? () => onOpen(agent.id) : undefined}
               />
             </li>
@@ -262,7 +265,7 @@ function SubsessionStatusRow({ session, onOpen }: { session: SubsessionRow; onOp
       onClick={() => onOpen?.(session.sessionId)}
     >
       <span className="acpmux-lineage__icon" data-state={status}>
-        <Icon name="agent.session" size={ROW_ICON} row />
+        <AgentIdentity harness={session.harness} tone={agentTone(session.sessionId)} size={ROW_ICON} />
       </span>
       <span className="acpmux-summary-text">
         <span className="acpmux-summary-agent__name">{session.name}</span>

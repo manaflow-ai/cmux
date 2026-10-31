@@ -73,6 +73,12 @@ pub(crate) fn answer(home: Option<&Path>, make: bool) -> Value {
     json!({"default": work.to_string_lossy(), "folders": folders})
 }
 
+/// This user's own work folder (`$HOME/work`, made first when `make`),
+/// canonical; None without a home folder or when it is not a folder.
+pub(crate) fn own_work_folder(make: bool) -> Option<PathBuf> {
+    crate::platform::home_dir().and_then(|home| work_folder(&home, make))
+}
+
 /// `home/work` when it is a folder (made first when `make`), canonical.
 fn work_folder(home: &Path, make: bool) -> Option<PathBuf> {
     let work = home.join(WORK_FOLDER);
