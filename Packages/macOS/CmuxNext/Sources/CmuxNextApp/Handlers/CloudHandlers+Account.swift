@@ -496,3 +496,46 @@ extension CloudHandlers {
         return CloudStrings.diagnosticsAllWell(CloudDiagnosticsReport.accountLabel(account))
     }
 }
+
+// HQ #4884 ("Signed-out cloud is text only"): a person's run of a Cloud action that is
+// unavailable only because nobody is signed in signs in, then runs the action, the way New
+// Cloud Machine resumes after sign-in (#27104). The CLI, MCP, scripts and pages still get
+// ``CloudStrings/signInFirst``.
+extension CloudHandlers {
+    /// Actions whose signed-out reason gets no recovery: running them after a sign-in means
+    /// nothing (Sign Out) or the sign-in already chose for them (Switch Active Team).
+    static let signInRecoveryExempt: Set<ActionID> = ["palette.auth.signOut", "openTeamPicker"]
+
+    /// Whether a person's run of `id`, unavailable for `reason`, signs in and then runs it.
+    static func signInRecovers(_ id: ActionID, reason: String) -> Bool {
+        reason == CloudStrings.signInFirst && !signInRecoveryExempt.contains(id)
+    }
+
+    static func bindSignInRecovery(into registry: ActionRegistry, cloud: CloudService) {
+        // One pending replay, shared with New Cloud Machine's: a later intent, a sign-out or a
+        // team change drops the earlier one (``CloudSignedOutCreationContinuation``).
+        let pending = cloud.signedOutCreation
+        registry.unavailableRecoveries.append { [weak registry] id, reason in
+            guard signInRecovers(id, reason: reason) else { return nil }
+            return ActionRecovery(note: CloudStrings.signInToContinue) { id, invocation in
+                let expected = pending.reserve()
+                // task-owner: the reserved generation owns the replay; a later intent, sign-out or team change cancels it.
+                Task { @MainActor in
+                    await pending.perform(expected: expected, signIn: { await cloud.auth.signIn() }, resume: {
+                        guard let registry, cloud.isSignedIn else { return }
+                        resumeAfterSignIn(id, invocation, in: registry)
+                    })
+                }
+            }
+        }
+    }
+
+    /// Runs `id` for the person once signed in; a reason that still holds (no team, no backend) is reported.
+    static func resumeAfterSignIn(_ id: ActionID, _ invocation: ActionInvocation, in registry: ActionRegistry) {
+        if let reason = registry.unavailableReason(for: id) {
+            registry.refuse(reason)
+            return
+        }
+        registry.perform(id, invocation: invocation)
+    }
+}

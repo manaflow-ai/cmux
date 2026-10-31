@@ -109,7 +109,11 @@ final class ActionMenuTarget: NSObject, NSMenuItemValidation {
             menuItem.title = title
         }
         if let route = registry.keyWindowRoute?(registry.canonicalID(for: payload.id), invocation) { return route.enablesMenuItem }
-        guard ActionTargetReasons.canPerform(payload.id, invocation: payload.invocation(in: registry, withArguments: false), in: registry) else { return false }
+        let run = payload.invocation(in: registry, withArguments: false)
+        guard ActionTargetReasons.canPerform(payload.id, invocation: run, in: registry) else {
+            // A row a recovery covers stays clickable: the click signs in, then runs it (``ActionRecovery``).
+            return registry.personRecovery(for: payload.id, run) != nil
+        }
         if let gate = registry.menuKeyEquivalentGate, !menuItem.keyEquivalent.isEmpty, registry.isDispatchingKeyDown() {
             return gate(payload.id)
         }

@@ -1971,6 +1971,138 @@
         }
       }
     },
+    "cloud.signIn.toContinue": {
+      "comment": "Under a signed-out Cloud action in the command palette: choosing the row signs in to cmux Cloud, then runs that action.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to use Cloud machines: choose it to sign in, then it runs."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud マシンを使うにはサインインが必要です。選ぶとサインインし、そのあと実行します。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "سجّل الدخول لاستخدام أجهزة Cloud: اختره لتسجيل الدخول، ثم يعمل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prijavite se za korištenje Cloud mašina: odaberite ga da se prijavite, a zatim se pokreće."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Log ind for at bruge Cloud-maskiner: vælg den for at logge ind, så kører den."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Melde dich an, um Cloud-Maschinen zu nutzen: Wähle es aus, um dich anzumelden, danach wird es ausgeführt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Inicia sesión para usar máquinas de Cloud: elígelo para iniciar sesión y después se ejecuta."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Connectez-vous pour utiliser les machines Cloud : choisissez-la pour vous connecter, puis elle s’exécute."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Accedi per usare le macchine Cloud: sceglila per accedere, poi viene eseguita."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ចូលគណនីដើម្បីប្រើម៉ាស៊ីន Cloud៖ ជ្រើសវាដើម្បីចូលគណនី បន្ទាប់មកវាដំណើរការ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud 머신을 사용하려면 로그인하세요. 선택하면 로그인한 뒤 실행됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Logg på for å bruke Cloud-maskiner: velg den for å logge på, så kjører den."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zaloguj się, aby używać maszyn Cloud: wybierz to, aby się zalogować, a potem zostanie uruchomione."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Entre para usar máquinas do Cloud: escolha para entrar e depois a ação é executada."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Войдите, чтобы пользоваться машинами Cloud: выберите это, чтобы войти, после чего оно выполнится."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ลงชื่อเข้าใช้เพื่อใช้เครื่อง Cloud: เลือกเพื่อลงชื่อเข้าใช้ แล้วคำสั่งจะทำงานต่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud makinelerini kullanmak için oturum açın: oturum açmak için seçin, ardından çalışır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Увійдіть, щоб користуватися машинами Cloud: виберіть це, щоб увійти, після чого воно виконається."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đăng nhập để dùng máy Cloud: chọn mục này để đăng nhập, sau đó nó sẽ chạy."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "登录后才能使用 Cloud 机器：选择它即可登录，随后自动执行。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "登入後才能使用 Cloud 機器：選擇它即可登入，隨後自動執行。"
+          }
+        }
+      }
+    },
     "cloud.failed.sizeMustBeOneOf": {
       "extractionState": "manual",
       "localizations": {
