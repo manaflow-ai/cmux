@@ -357,3 +357,33 @@ test("an attachment inserts at the caret and Backspace deletes it in one press",
   await act(async () => handle.current!.undo());
   expect(handle.current!.value()).toContain(inlineToken("image"));
 });
+
+// Review (Sol, #26545): the field's plain offsets must count a placed attachment as one place, as
+// markdownOffset (MentionMenu.tsx) does, so a caret after it maps to the right markdown index.
+test("a placed attachment counts as one place in the field's plain text and its caret", async () => {
+  const { markdownOffset } = await import("../src/agent-session/acpmux/MentionMenu");
+  await render(() => {});
+  const { value, selectionStart } = handle.current!.text();
+  expect(value.length).toBe("see ".length + 1 + " here".length);
+  handle.current!.writeText(value, value.length, value.length);
+  const caret = handle.current!.text().selectionStart;
+  expect(caret).toBe(value.length);
+  const markdown = handle.current!.value();
+  expect(markdown.slice(markdownOffset(markdown, caret - " here".length))).toBe(" here");
+  expect(selectionStart).toBeLessThanOrEqual(value.length);
+});
+
+// Review (Sol, #26545): a prompt that holds only a placed attachment is not empty, so a `!` typed
+// before it is text, not the start of a shell command.
+test("a prompt holding only a placed attachment is not empty to the surface", async () => {
+  const states: { text: string; empty: boolean }[] = [];
+  await render(() => {}, {
+    value: inlineToken("word"),
+    onBeforeInput: (text, state) => {
+      states.push({ text, empty: state.empty });
+      return false;
+    },
+  });
+  handle.current!.insertTyped("!");
+  expect(states).toEqual([{ text: "!", empty: false }]);
+});
