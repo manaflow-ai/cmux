@@ -93,7 +93,6 @@ export function narrowProblems(document: Document): string[] {
     [".acpmux-composer-bar", "composer bar"],
     [".nt-pickers", "New Tab chips"],
     [".acpmux-composer-context", "location row"],
-    [".acpmux-pr-dock", "pull request bar"],
   ];
   for (const [selector, name] of rows)
     for (const row of document.querySelectorAll(selector)) {
@@ -254,7 +253,6 @@ export default agentPaneEntry({
     "agent-session/acpmux/Composer.tsx#Composer",
     "agent-session/acpmux/ComposerPickers.tsx#ComposerPickers",
     "agent-session/acpmux/ComposerContext.tsx#ComposerContext",
-    "agent-session/acpmux/summary/PullRequestDock.tsx",
   ],
   variants: {
     controls: {

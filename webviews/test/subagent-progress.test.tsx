@@ -138,8 +138,9 @@ test("a running workflow and a background agent show what they do and what they 
     },
   ]);
   expect(await openRows(fold)).toEqual([
-    ["probeworkflow", "Count: n2 · 1/3 agents · 19.7K tokens"],
-    ["Watch the buildgeneral-purpose", "Bash · 38.3K tokens · 1 tool use"],
+    // No tokens or tool uses on the row (Leo, 2026-10-31: "we can remove the symbols and the tokens").
+    ["probeworkflow", "Count: n2 · 1/3 agents"],
+    ["Watch the buildgeneral-purpose", "Bash"],
   ]);
 });
 
