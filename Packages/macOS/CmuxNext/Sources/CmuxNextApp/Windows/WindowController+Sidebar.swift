@@ -11,12 +11,12 @@ extension WindowController {
         // toolbar band; strips under it follow in the same layout pass.
         root.onToolbarBandPresenceChange = { [weak self] in
             for pane in self?.content?.panes.values.map({ $0 }) ?? [] { pane.view.stripView.updateWindowControlsAvoidance() }
-            self?.updateTopRowAvoiders()
+            WindowControlsAvoiders.refresh(in: self?.window)
         }
         // The Home page rides the sidebar's slide inside the main pane card with no layout of its
         // own (a hide sizes it once at the start): every move of the card, its last frame
         // included, has its header re-read the traffic lights (no change, no work).
-        root.onMainPaneMove = { [weak self] in self?.updateTopRowAvoiders() }
+        root.onMainPaneMove = { [weak self] in WindowControlsAvoiders.refresh(in: self?.window) }
         // The host pressure indicator joins the top row after the band and badge (cmuxterm-hq#2995).
         root.hostPressureIndicator = HostPressureIndicatorView(services: services) { [weak self] in
             // Shown or hidden: the top row places it (layoutTitlebarAccessories), then strips avoid it.
@@ -46,13 +46,7 @@ extension WindowController {
             pane.view.stripView.updateWindowControlsAvoidance()
             pane.view.stripView.layoutSubtreeIfNeeded()
         }
-        updateTopRowAvoiders()
-    }
-
-    /// Views without a tab strip re-read the traffic lights after moving in the window.
-    private func updateTopRowAvoiders() {
-        guard let window = window as? ShellWindow else { return }
-        window.windowControlsAvoiders.update(in: window)
+        WindowControlsAvoiders.refresh(in: window)
     }
 
     /// Marks this window incognito: the badge shows in the sidebar header,

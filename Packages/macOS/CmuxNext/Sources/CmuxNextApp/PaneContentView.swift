@@ -289,7 +289,7 @@ final class PaneContentView: NSView, PaneContentChrome {
     func paneFrameInWindowDidChange() {
         stripView.updateWindowControlsAvoidance()
         // Content with no strip of its own over it (Home's header) keeps clear of the traffic lights too.
-        if let window = window as? ShellWindow { window.windowControlsAvoiders.update(in: window) }
+        WindowControlsAvoiders.refresh(in: window)
         // The pane moved under a possibly still pointer (column scroll, split resize).
         stripView.paneMovedInWindow()
     }
@@ -460,4 +460,3 @@ private let tabSwitchLog = Logger(subsystem: "com.cmuxterm.app.next", category: 
 private func tabSwitchMark(_ name: String) {
     tabSwitchLog.debug("tab-switch \(name, privacy: .public) \(Date().timeIntervalSince1970 * 1_000, format: .fixed(precision: 3), privacy: .public)")
 }
-

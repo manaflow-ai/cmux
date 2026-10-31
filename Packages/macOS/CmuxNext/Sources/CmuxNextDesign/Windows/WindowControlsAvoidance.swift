@@ -44,6 +44,12 @@ public final class WindowControlsAvoiders {
         }
     }
 
+    /// Re-checks a window's registered views when it hosts avoidance, including a caller with no window yet.
+    public static func refresh(in window: NSWindow?) {
+        guard let window, let host = window as? any WindowControlsAvoidanceHosting else { return }
+        host.windowControlsAvoiders.update(in: window)
+    }
+
     /// Joins `view` to its window's avoiders, when the window keeps them.
     public static func join(_ view: any WindowControlsAvoiding & NSView) {
         (view.window as? any WindowControlsAvoidanceHosting)?.windowControlsAvoiders.add(view)
