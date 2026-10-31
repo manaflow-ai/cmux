@@ -77,7 +77,7 @@ describe("VM install revocation on every terminal state", { timeout: 60_000 }, (
   })
 
   it("prunes completed receipts after the retention window in bounded alarm work", async () => {
-    const s = await bound("cloud-bind-receipt-retention")
+    const s = await bound("cloud-bind-1")
     const completedAt = Date.now() + s.a.team.length
     const requeued = await inDo(s.stub, async (i) => {
       i.vmRevokes.queue("receipt-prune-test", s.a.user, "test", completedAt)
@@ -95,7 +95,7 @@ describe("VM install revocation on every terminal state", { timeout: 60_000 }, (
   })
 
   it("prunes expired rows in batches without touching pending retries", async () => {
-    const s = await bound("cloud-bind-receipt-batch")
+    const s = await bound("cloud-bind-1")
     const remaining = await inDo(s.stub, async (i) => {
       const at = Date.now() + i.skewMs
       for (let n = 0; n < 105; n++) i.vmRevokes.queue("receipt-batch-" + n, s.a.user, "test", at)
