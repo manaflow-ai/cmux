@@ -490,7 +490,9 @@ export class MemoryTeamSeatQueue implements TeamSeatQueue {
   async listDirty(limit: number, teamIds?: readonly string[]): Promise<readonly DirtyTeamSeatRow[]> {
     return [...this.rows.entries()]
       .filter(([id, row]) => row.dirtyAt !== null && (teamIds === undefined || teamIds.includes(id)))
-      .sort((left, right) => left[1].dirtyAt!.getTime() - right[1].dirtyAt!.getTime())
+      .sort((left, right) =>
+        (left[1].lastReconciledAt?.getTime() ?? -Infinity) - (right[1].lastReconciledAt?.getTime() ?? -Infinity) ||
+        left[1].dirtyAt!.getTime() - right[1].dirtyAt!.getTime())
       .slice(0, limit)
       .map(([stackTeamId, row]) => ({ stackTeamId, dirtyAt: row.dirtyAt! }));
   }
