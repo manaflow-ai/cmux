@@ -2302,6 +2302,10 @@ path = "tests/test_cmux_next_kill_switches.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_layout_grid.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_stable_next.py"
 lane = "manual"
 reason = "Run by hand with python3 when stable_next.py or stable-next.yml changes; repository policy adds no new CI tests."

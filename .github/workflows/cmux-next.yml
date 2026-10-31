@@ -183,6 +183,11 @@ on:
       - tests/test_leo_bans.py
       - scripts/cmux-next/check-fixture-host-names.py
       - tests/test_cmux_next_fixture_host_names.py
+      - schemas/layout-grid/layout-grid.json
+      - scripts/cmux-next/gen-layout-grid.py
+      - tests/test_layout_grid.py
+      - webviews/src/pages/shared/desktop.css
+      - Packages/macOS/CmuxNext/Sources/CmuxNextDesignTokens/LayoutGrid.swift
       - scripts/cmux-next/check-kill-switches.py
       - tests/test_cmux_next_kill_switches.py
       - release-notes/next/kill-switches.json
@@ -460,6 +465,11 @@ on:
       - tests/test_leo_bans.py
       - scripts/cmux-next/check-fixture-host-names.py
       - tests/test_cmux_next_fixture_host_names.py
+      - schemas/layout-grid/layout-grid.json
+      - scripts/cmux-next/gen-layout-grid.py
+      - tests/test_layout_grid.py
+      - webviews/src/pages/shared/desktop.css
+      - Packages/macOS/CmuxNext/Sources/CmuxNextDesignTokens/LayoutGrid.swift
       - scripts/cmux-next/check-kill-switches.py
       - tests/test_cmux_next_kill_switches.py
       - release-notes/next/kill-switches.json
@@ -1737,6 +1747,11 @@ jobs:
           python3 -I scripts/cmux-next/gen-type-scale.py --check
           python3 -I scripts/cmux-next/check-swift-type-scale.py
 
+      - name: Layout grid
+        id: layout-grid
+        continue-on-error: true
+        run: python3 -I tests/test_layout_grid.py && python3 -I scripts/cmux-next/gen-layout-grid.py --check
+
       # Leo's bans (Leo 2026-10-21, ask-52da478628): the UI font is Inter, bundled, with its calculated
       # tracking (schemas/type-scale/leo-bans.json pins them). Fails on another family or tracking, a
       # stylesheet that names the system font instead of var(--font-ui), or a pin change with no
@@ -2302,6 +2317,7 @@ jobs:
             ${{ steps.motion.outcome }}|Motion tokens
             ${{ steps.overlay-glass.outcome }}|Overlays are glass, never solid
             ${{ steps.type-scale.outcome }}|Type scale
+            ${{ steps.layout-grid.outcome }}|Layout grid
             ${{ steps.leo-bans.outcome }}|Leo's bans (Inter UI font and tracking)
             ${{ steps.motion-scale.outcome }}|Motion scale
             ${{ steps.menu-metrics.outcome }}|Menu metrics

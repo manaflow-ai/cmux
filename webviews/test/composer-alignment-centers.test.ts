@@ -21,7 +21,7 @@ await requireBrowserLane("composer-alignment-centers.test.ts", async () => {
   /** Half a pixel: the subpixel rounding a centered 28 px control and its 16 px glyph can show. */
   const TOLERANCE = 0.5;
   /** The placeholder starts the prompt's own 7 px inset (markdownField's padding; the placeholder's left) after the + button's box. */
-  const TEXT_GAP = 7;
+  const TEXT_GAP = 8;
   setDefaultTimeout(180_000);
   try {
     await (await chromium.launch({ headless: true })).close();
@@ -52,9 +52,9 @@ await requireBrowserLane("composer-alignment-centers.test.ts", async () => {
     await vite?.close();
   });
 
-  const measure = async (width: number, scheme: string): Promise<ComposerAlignment> => {
+  const measure = async (width: number, scheme: string, variant: string): Promise<ComposerAlignment> => {
     const page = await browser!.newPage({ viewport: { width, height: 300 } });
-    await page.goto(stageURL("claude-auto", scheme));
+    await page.goto(stageURL(variant, scheme));
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
     await page.locator(".acpmux-composer-box .acpmux-md-placeholder").first().waitFor();
     await page.locator(".acpmux-composer-foot .acpmux-model .acpmux-picker-button").first().waitFor();
@@ -70,6 +70,12 @@ await requireBrowserLane("composer-alignment-centers.test.ts", async () => {
     const out: string[] = [];
     const off = (a: number, b: number) => Math.abs(a - b) > TOLERANCE;
     const f = (n: number) => n.toFixed(2);
+    if (off(m.box.bottom - m.box.top, 44)) out.push(`box height ${f(m.box.bottom - m.box.top)} is not 44`);
+    if (off(parseFloat(m.dom.boxRadius), 12)) out.push(`box radius ${m.dom.boxRadius} is not 12px`);
+    if (m.placeholderOptical && m.plusGlyph && off(m.placeholderOptical.cy, m.plusGlyph.cy))
+      out.push(`optical text center ${f(m.placeholderOptical.cy)} differs from + center ${f(m.plusGlyph.cy)}`);
+    if (m.placeholderOptical && off(m.placeholderOptical.inkLeft - m.box.left, 44))
+      out.push(`text ink starts ${f(m.placeholderOptical.inkLeft - m.box.left)} px from edge, not 44`);
     const plus = m.plusButton;
     const plusGlyph = m.plusGlyph;
     const placeholder = m.placeholder;
@@ -125,11 +131,12 @@ await requireBrowserLane("composer-alignment-centers.test.ts", async () => {
     return out;
   };
 
+  for (const variant of ["claude-auto", "running"])
   for (const width of [720, 420])
     for (const scheme of ["light", "dark"])
-      test(`at ${width} px (${scheme}): + , placeholder and mic share one row center; the columns and the quiet row line up`, async () => {
-        const m = await measure(width, scheme);
-        console.log(JSON.stringify({ width, scheme, measure: m }));
+      test(`${variant} at ${width} px (${scheme}): + , placeholder and mic share one row center; the columns and the quiet row line up`, async () => {
+        const m = await measure(width, scheme, variant);
+        console.log(JSON.stringify({ variant, width, scheme, measure: m }));
         expect(problems(m)).toEqual([]);
       });
 });

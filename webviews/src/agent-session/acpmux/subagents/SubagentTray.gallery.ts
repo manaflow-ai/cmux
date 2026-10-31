@@ -285,6 +285,14 @@ export default agentPaneEntry({
   // The panel's looks (trayPanel.experiment.ts), on the two- and 118-agent panels.
   experiment: { definition: trayPanelLook, script: panelScript },
   variants: {
+    "grid-31": {
+      note: "Grid fixture: 31 rows (29 ended and two running), expanded with the header and footer visible.",
+      snapshot: panel(29),
+      play: async (ctx) => {
+        await scrollPanel(ctx);
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-running-tray .acpmux-agent-line").length === 31);
+      },
+    },
     "panel-two": {
       note: 'Leo\'s panel with two chats running and three ended (2026-10-25: "this section, the whatever background tasks ... it\'s kind of wack"): the header pinned on top, running first, then the latest that ended; a chat\'s raw shell doing line reads "Running sed -i …", never "cd /Users/… && sed -i …".',
       play: async (ctx) => {

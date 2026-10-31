@@ -1199,13 +1199,13 @@
    model chip's color as the quiet chip has it (Leo 2026-10-18, #21744): its "!" mark names the risk
    without the menu, and the menu keeps the warning color where the mode is chosen. */
 .acpmux-composer-foot {
-  --acpmux-row-inset: 8px;
+  --acpmux-row-inset: var(--grid-composer-inset);
   --acpmux-row-gap: 0px;
   --acpmux-row-group-gap: 0px;
-  --acpmux-row-edge: 14px;
-  min-height: 28px;
+  --acpmux-row-edge: var(--grid-composer-quiet-row-text);
+  min-height: var(--grid-composer-quiet-row-height);
   /* Claude desktop (2x capture, Leo 2026-10-20): the row's middle 22 px under the box. */
-  margin-top: 8px;
+  margin-top: var(--grid-composer-quiet-row-gap);
   /* Claude Code's row sits at the window's bottom edge with about 8 px under it (Leo 2026-10-21: too
      much space at the bottom compared to Claude Code). The floating dock's composer adds nothing
      under the row (below), so these 8 px are all the room there is: never on the window's edge
@@ -1237,7 +1237,7 @@
      shield's center is 17 px into its chip, so the chip starts 5 px in. (-5 px was measured in a
      gallery that applied styles.css after this sheet, so the row kept the bar's 10 px padding there
      and nowhere in the app.) */
-  margin-inline-start: 5px;
+  margin-inline-start: calc(var(--grid-composer-lead-center) - var(--grid-composer-inset) - var(--grid-icon-box) / 2);
 }
 .acpmux-composer-foot .acpmux-chips > .acpmux-mode:not(:first-child) { padding-inline-start: 0; }
 /* As Claude desktop's footer: the mode's name, the model and the effort as text alone (the plain
@@ -1290,10 +1290,10 @@
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: end;
-  --acpmux-prompt-inset: calc(11px * var(--cmux-interface-scale, 1));
-  /* Keep the controls centered on the last content line as its size changes. The system
-     font's ink sits 1px above the line-box center, so its optical center gets the same lift. */
-  --acpmux-prompt-control-bottom: max(0px, calc(var(--acpmux-prompt-inset) + var(--text-content--line-height) / 2 - 14px + 1px));
+  --acpmux-prompt-inset: max(0px, calc((var(--grid-composer-box) - var(--text-content--line-height)) / 2));
+  /* Controls center on the last line's line box; the shared optical map owns any font-specific
+     correction, so this geometry has no local pixel nudge. */
+  --acpmux-prompt-control-bottom: max(0px, calc(var(--acpmux-prompt-inset) + var(--text-content--line-height) / 2 - var(--grid-composer-control) / 2));
 }
 /* The strip and the queue over the box take its corners. */
 .acpmux-composer:has(.acpmux-composer-box > .acpmux-chrome-area > .acpmux-composer-inner) {
@@ -1302,7 +1302,7 @@
 /* The box's corner, which the trust bar in the stack over it shares. */
 .acpmux-composer-box:has(> .acpmux-chrome-area > .acpmux-composer-inner),
 .acpmux-dock:has(.acpmux-composer-box > .acpmux-chrome-area > .acpmux-composer-inner) > .acpmux-asks-stack {
-  --acpmux-composer-radius: 11px;
+  --acpmux-composer-radius: var(--grid-composer-radius);
 }
 /* The bar is the grid's own items, not one box in it: styles.css gives .acpmux-composer-bar a flex
    row with the same specificity, so this names the bar too and wins by order (the diagnostics in
@@ -1319,18 +1319,18 @@
 .acpmux-composer-inner > :not(.acpmux-composer-actions) {
   grid-column: 1;
   grid-row: 2;
-  margin: 0 0 var(--acpmux-prompt-control-bottom) 8px;
+  margin: 0 0 var(--acpmux-prompt-control-bottom) var(--grid-composer-inset);
 }
 .acpmux-composer-inner > .acpmux-composer-actions {
   grid-column: 3;
   grid-row: 2;
-  margin: 0 8px var(--acpmux-prompt-control-bottom) 0;
+  margin: 0 var(--grid-composer-inset) var(--acpmux-prompt-control-bottom) 0;
 }
 /* The right inset less the minimal scroller's reserved lane (markdownField.css). */
 .acpmux-composer-box:has(> .acpmux-chrome-area > .acpmux-composer-inner) .acpmux-md-field {
-  padding: calc(11px * var(--cmux-interface-scale, 1))
-    max(0px, calc(8px * var(--cmux-interface-scale, 1) - var(--cmux-scroller-size, 8px)))
-    calc(11px * var(--cmux-interface-scale, 1)) calc(7px * var(--cmux-interface-scale, 1));
+  padding: var(--acpmux-prompt-inset)
+    max(0px, calc(var(--grid-composer-inset) - var(--cmux-scroller-size, 8px)))
+    var(--acpmux-prompt-inset) var(--grid-composer-inset);
 }
 /* The draft's scrollbar runs down the box's own right edge, as the chat's runs down the pane's (Leo
    2026-10-22: "shouldn't the styling wrt composer vs the chat/window (these should be one and hte
@@ -1361,9 +1361,9 @@
   z-index: var(--layer-raised);
 }
 .acpmux-composer-box:has(> .acpmux-chrome-area > .acpmux-composer-inner) .acpmux-md-placeholder {
-  left: calc(7px * var(--cmux-interface-scale, 1));
-  top: calc(11px * var(--cmux-interface-scale, 1));
-  right: calc(8px * var(--cmux-interface-scale, 1));
+  left: var(--grid-composer-inset);
+  top: var(--acpmux-prompt-inset);
+  right: var(--grid-composer-inset);
 }
 /* Shell mode draws from the prompt's insets (composerStates.css), so this look gives it the ones it
    gives the prompt: the 44 px row's 11 px above and below, the 7 px the placeholder starts at, and
@@ -1371,9 +1371,9 @@
    line, at every chrome size. */
 .acpmux-composer-box:has(> .acpmux-chrome-area > .acpmux-composer-inner) {
   --acpmux-shell-inset-top: var(--acpmux-prompt-inset);
-  --acpmux-shell-inset-right: calc(8px * var(--cmux-interface-scale, 1));
+  --acpmux-shell-inset-right: var(--grid-composer-inset);
   --acpmux-shell-inset-bottom: var(--acpmux-prompt-inset);
-  --acpmux-shell-inset-left: calc(7px * var(--cmux-interface-scale, 1));
+  --acpmux-shell-inset-left: var(--grid-composer-inset);
 }
 /* Under the attachments' band the prompt starts one gap down, as in the other look
    (composerAttachments.css), at this look's specificity. Shell mode takes the band there, through
