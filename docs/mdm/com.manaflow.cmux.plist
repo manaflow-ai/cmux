@@ -1418,6 +1418,7 @@
 			<key>pfm_range_list</key>
 			<array>
 				<string>top</string>
+				<string>beforeCurrent</string>
 				<string>afterCurrent</string>
 				<string>bottom</string>
 			</array>
