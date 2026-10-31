@@ -8,8 +8,8 @@ import Foundation
 /// A new chat's first send with Cloud picked as where it runs (`cloud.startChat`,
 /// ``AgentPaneCloudStart``; leo-workspace design/cloud-work-mode.md): the chat goes to Cloud with no
 /// machine, size or environment prompt. It takes a free Cloud machine of this person's, else a new
-/// one for chats sized for the chat by ``CloudChatPick`` (``machine(for:invocation:pick:)``), copies
-/// the chat's folder there with Move to Cloud's sync, and opens a new chat on that machine in the
+/// one for chats sized for the chat by ``CloudChatPick`` (``machine(for:cli:invocation:pick:)``), copies
+/// the chat's folder to the send's own place there, and opens a new chat on that machine in the
 /// copied folder whose first prompt is the person's (a seeded prompt, sent once with the Send's
 /// gesture, as onboarding's first task). This Mac's tab, which never started a chat, then closes.
 ///

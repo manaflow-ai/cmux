@@ -56,7 +56,10 @@ pub(super) fn run(args: &[String]) -> i32 {
         return 64;
     };
     let Some(ledger) = ledger::path() else {
-        println!("{}", refused("ledger_failed", "this Mac has no state folder to keep the send's machine in"));
+        println!(
+            "{}",
+            refused("ledger_failed", "this Mac has no state folder to keep the send's machine in")
+        );
         return 1;
     };
     let answer = match action.as_str() {
@@ -217,7 +220,8 @@ impl StartCopy {
     fn of(flags: &Flags) -> Option<Self> {
         let local = flags.one("--local")?;
         let subpath = flags.one("--subpath").unwrap_or("").trim_matches('/').to_string();
-        let work_roots: Vec<String> = flags.all("--work-root").map(str::to_string).collect();
+        let work_roots: Vec<String> =
+            flags.all("--work-root").into_iter().map(str::to_string).collect();
         if !local.starts_with('/')
             || local == "/"
             || subpath.split('/').any(|part| part == "..")
@@ -240,7 +244,8 @@ impl StartCopy {
     pub(super) fn remote(&self, work_root: &str) -> (String, String) {
         let place = join(work_root, &Keys::of(&self.key).place);
         let folder = join(&place, &remote_name(&self.local));
-        let chat = if self.subpath.is_empty() { folder.clone() } else { join(&folder, &self.subpath) };
+        let chat =
+            if self.subpath.is_empty() { folder.clone() } else { join(&folder, &self.subpath) };
         (folder, chat)
     }
 
@@ -262,7 +267,9 @@ impl StartCopy {
                     return match Ledger::update(ledger, |pins| {
                         pins.record_copy(&chat, &self.key, &self.machine)
                     }) {
-                        Ok(()) => json!({"ok": true, "chat": chat, "folder": folder, "copied": true}),
+                        Ok(()) => {
+                            json!({"ok": true, "chat": chat, "folder": folder, "copied": true})
+                        }
                         Err(error) => refused("ledger_failed", format!("{error:#}")),
                     };
                 }
@@ -316,14 +323,15 @@ impl Flags {
         Some(Self(pairs))
     }
 
-    fn all<'a>(&'a self, name: &'a str) -> impl Iterator<Item = &'a str> + 'a {
-        self.0.iter().filter(move |(flag, _)| flag == name).map(|(_, value)| value.as_str())
+    fn all(&self, name: &str) -> Vec<&str> {
+        self.0.iter().filter(|(flag, _)| flag == name).map(|(_, value)| value.as_str()).collect()
     }
 
     fn one(&self, name: &str) -> Option<&str> {
-        let mut values = self.all(name);
-        let value = values.next()?;
-        values.next().is_none().then_some(value)
+        match self.all(name).as_slice() {
+            [value] => Some(*value),
+            _ => None,
+        }
     }
 
     fn key(&self) -> Option<String> {

@@ -9,7 +9,7 @@ use serde_json::{Value, json};
 
 use super::ledger::{LIMIT, Ledger};
 use super::pick::{self, Candidate, Destination};
-use super::{Keys, StartCopy, plan, pin, remote_name, valid_key};
+use super::{Keys, StartCopy, pin, plan, remote_name, valid_key};
 
 const ME: &str = "user-leo";
 const TEAMMATE: &str = "user-austin";
@@ -71,7 +71,8 @@ fn a_teammates_connected_machine_is_never_taken_and_none_of_mine_makes_a_new_one
 
 #[test]
 fn a_busy_machine_of_mine_is_passed_over_for_a_free_one() {
-    let machines = [with(machine("vm-busy", "work"), |m| m.chats = Some(3)), machine("vm-free", "spare")];
+    let machines =
+        [with(machine("vm-busy", "work"), |m| m.chats = Some(3)), machine("vm-free", "spare")];
     assert_eq!(pick::pick(&machines, Some(ME), &none()).as_deref(), Some("vm-free"));
     let busy = [with(machine("vm-busy", "work"), |m| m.chats = Some(1))];
     assert_eq!(pick::pick(&busy, Some(ME), &none()), None);
@@ -79,7 +80,10 @@ fn a_busy_machine_of_mine_is_passed_over_for_a_free_one() {
 
 #[test]
 fn a_machine_marked_for_chats_is_taken_first_even_with_chats_open() {
-    let machines = [machine("vm-free", "spare"), with(machine("vm-chats", "cloud-chats"), |m| m.chats = Some(4))];
+    let machines = [
+        machine("vm-free", "spare"),
+        with(machine("vm-chats", "cloud-chats"), |m| m.chats = Some(4)),
+    ];
     assert_eq!(pick::pick(&machines, Some(ME), &none()).as_deref(), Some("vm-chats"));
     assert!(pick::is_marked_for_chats("Cloud-Chats-2"));
     assert!(!pick::is_marked_for_chats("cloud-chats-x"));
@@ -89,7 +93,8 @@ fn a_machine_marked_for_chats_is_taken_first_even_with_chats_open() {
 
 #[test]
 fn lane_shell_vms_are_never_picked() {
-    let lanes = [machine("vm-1", "fs-lane-3"), machine("vm-2", "lane-vm-1"), machine("vm-3", "LANE-VM-12")];
+    let lanes =
+        [machine("vm-1", "fs-lane-3"), machine("vm-2", "lane-vm-1"), machine("vm-3", "LANE-VM-12")];
     assert_eq!(pick::pick(&lanes, Some(ME), &none()), None);
     let slugged = [with(machine("vm-4", "Leo's box"), |m| m.slug = Some("fs-lane-7".into()))];
     assert_eq!(pick::pick(&slugged, Some(ME), &none()), None);
@@ -132,15 +137,24 @@ fn a_retry_of_the_same_send_stays_on_its_first_trys_machine() {
     let mut pins = Ledger::default();
     let key = key();
     let first = [machine("vm-a", "spare-a"), machine("vm-b", "spare-b")];
-    assert_eq!(pick::destination(&key, &mut pins, &first, Some(ME), true), Destination::Machine("vm-a".into()));
+    assert_eq!(
+        pick::destination(&key, &mut pins, &first, Some(ME), true),
+        Destination::Machine("vm-a".into())
+    );
     pins.record("vm-a", &key);
     let later = [machine("vm-b", "spare-b"), offline(machine("vm-a", "spare-a"), "running", None)];
-    assert_eq!(pick::destination(&key, &mut pins, &later, Some(ME), true), Destination::Machine("vm-a".into()));
+    assert_eq!(
+        pick::destination(&key, &mut pins, &later, Some(ME), true),
+        Destination::Machine("vm-a".into())
+    );
     assert_eq!(
         pick::destination(&key.to_lowercase(), &mut pins, &later, Some(ME), false),
         Destination::Machine("vm-a".into())
     );
-    assert_eq!(pick::destination(&self::key(), &mut pins, &later, Some(ME), true), Destination::Machine("vm-b".into()));
+    assert_eq!(
+        pick::destination(&self::key(), &mut pins, &later, Some(ME), true),
+        Destination::Machine("vm-b".into())
+    );
 }
 
 #[test]
@@ -149,11 +163,17 @@ fn a_retry_whose_machine_is_gone_picks_afresh_and_a_retry_of_a_new_machine_stays
     let key = key();
     pins.record("vm-gone", &key);
     let now = [machine("vm-b", "spare-b")];
-    assert_eq!(pick::destination(&key, &mut pins, &now, Some(ME), true), Destination::Machine("vm-b".into()));
+    assert_eq!(
+        pick::destination(&key, &mut pins, &now, Some(ME), true),
+        Destination::Machine("vm-b".into())
+    );
     assert_eq!(pins.machine(&key), None);
     // A machine made for the first try (the list is not loaded yet) is kept for its retry.
     pins.record("vm-new", &key);
-    assert_eq!(pick::destination(&key, &mut pins, &now, Some(ME), false), Destination::Machine("vm-new".into()));
+    assert_eq!(
+        pick::destination(&key, &mut pins, &now, Some(ME), false),
+        Destination::Machine("vm-new".into())
+    );
 }
 
 #[test]
@@ -189,7 +209,10 @@ fn a_finished_copy_is_kept_per_send_and_machine_across_a_relaunch() {
     })
     .unwrap();
     Ledger::update(&path, |pins| {
-        assert_eq!(pins.copied_chat(&key.to_lowercase(), "vm-a").as_deref(), Some("/home/cmux/work/chats/k/paint"));
+        assert_eq!(
+            pins.copied_chat(&key.to_lowercase(), "vm-a").as_deref(),
+            Some("/home/cmux/work/chats/k/paint")
+        );
         assert_eq!(pins.copied_chat(&key, "vm-b"), None);
         pins.record("vm-b", &key);
         assert_eq!(pins.copied_chat(&key, "vm-a"), None);
@@ -237,7 +260,10 @@ fn plan_pins_a_machine_that_exists_and_names_a_new_one_otherwise() {
     ]});
     assert_eq!(plan(&path, &free.to_string())["machine"], json!("vm-free"));
     assert_eq!(plan(&path, "{")["error_code"], json!("bad_request"));
-    assert_eq!(plan(&path, &json!({"key": "nope"}).to_string())["error_code"], json!("bad_request"));
+    assert_eq!(
+        plan(&path, &json!({"key": "nope"}).to_string())["error_code"],
+        json!("bad_request")
+    );
 }
 
 #[test]
@@ -251,7 +277,10 @@ fn a_copied_folder_keeps_move_to_clouds_name_under_the_sends_place() {
     assert_eq!(folder, format!("{place}/paint-33f597"));
     assert_eq!(chat, format!("{place}/paint-33f597/web/app"));
     let top = StartCopy { subpath: String::new(), ..copy.clone() };
-    assert_eq!(top.remote("/root/work/").1, format!("/root/work/chats/{}/paint-33f597", copy.key.to_lowercase()));
+    assert_eq!(
+        top.remote("/root/work/").1,
+        format!("/root/work/chats/{}/paint-33f597", copy.key.to_lowercase())
+    );
 }
 
 fn copy_of(local: &str, subpath: &str) -> StartCopy {
@@ -266,7 +295,9 @@ fn copy_of(local: &str, subpath: &str) -> StartCopy {
 }
 
 /// A push that fails with a code per call, recording where it pushed.
-fn pushes(results: Vec<Result<(), &'static str>>) -> (RefCell<Vec<String>>, RefCell<Vec<Result<(), &'static str>>>) {
+fn pushes(
+    results: Vec<Result<(), &'static str>>,
+) -> (RefCell<Vec<String>>, RefCell<Vec<Result<(), &'static str>>>) {
     (RefCell::new(Vec::new()), RefCell::new(results))
 }
 
@@ -326,10 +357,19 @@ fn a_retry_after_a_finished_copy_never_copies_again() {
 fn copy_refuses_paths_that_could_escape() {
     let send = key();
     let flags = |extra: &[&str]| {
-        let mut args: Vec<String> = ["--key", send.as_str(), "--machine", "vm-a", "--socket", "/s", "--work-root", "/home/cmux/work"]
-            .iter()
-            .map(|s| s.to_string())
-            .collect();
+        let mut args: Vec<String> = [
+            "--key",
+            send.as_str(),
+            "--machine",
+            "vm-a",
+            "--socket",
+            "/s",
+            "--work-root",
+            "/home/cmux/work",
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
         args.extend(extra.iter().map(|s| s.to_string()));
         super::Flags::parse(&args).unwrap()
     };
