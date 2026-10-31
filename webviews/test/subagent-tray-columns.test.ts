@@ -650,7 +650,9 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
           }
           // A running line's stats sit in its trailing meta, never on a second line under the title.
           if (variant === "running-stats") {
-            expect(anatomy.rows.some((row) => row.stats === "236.6K tokens · 112 tool uses")).toBe(true);
+            expect(anatomy.rows.some((row) => row.stats === "1/3 agents")).toBe(true);
+            // No tokens or tool uses on a row (Leo, 2026-10-31: "we can remove the symbols and the tokens").
+            expect(anatomy.rows.every((row) => !row.stats?.includes("tokens"))).toBe(true);
             expect(anatomy.rows.every((row) => !row.statsBelow)).toBe(true);
           }
           expect(anatomy.settled).toBe(variant === "done-one");

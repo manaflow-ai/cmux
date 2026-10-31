@@ -78,7 +78,7 @@ export default agentPaneEntry({
   experiment: { definition: trayRowLook, script },
   variants: {
     "done-one": {
-      note: "One subagent finished, nothing running: one fork glyph, the title, a muted 1m 24s, the chevron; no general-purpose subtitle, no Done word, no card.",
+      note: "One subagent finished, nothing running: one leading mark (no fork glyph), the title, a muted 1m 24s, the chevron; no general-purpose subtitle, no Done word, no card.",
       play: play(true),
       snapshot: chat(
         [
@@ -90,14 +90,19 @@ export default agentPaneEntry({
       ),
     },
     "running-stats": {
-      note: "A running subagent with what it spent: the spinner is its one glyph, its stats sit muted before its time, and the finished one under it lines its time up with it.",
+      note: "A running workflow: the spinner is its one glyph, its agent counts sit muted before its time (no tokens or tool uses), and the finished one under it lines its time up with it.",
       play: play(false),
       snapshot: chat(
         [
           user("Carry the composer PR and land the follow-up", 6),
           group(
             [
-              agent("Carry the composer PR", 5, "running", { tokens: 236_600, toolUses: 112, action: "Bash" }),
+              agent("Carry the composer PR", 5, "running", {
+                tokens: 236_600,
+                toolUses: 112,
+                action: "Bash",
+                agents: { done: 1, started: 3 },
+              }),
               agent("Land the fix and glyph nits follow-up", 4, "completed", { ran: 1.4 }),
             ],
             5,

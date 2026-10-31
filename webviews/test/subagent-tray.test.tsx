@@ -662,8 +662,8 @@ describe("a tray line says what it is and what a click does", () => {
   // Leo, 2026-10-29: "why are you saying sub-agent so many fucking times? Like, you can just add
   // the icon when it's in here."
   // and 2026-10-31, on a line with a chat bubble and a fork glyph before its title: "why is this
-  // still so ass in latest nightly".
-  test("a subagent leads with one glyph: the spinner while it runs, the fork once it ended", async () => {
+  // still so ass in latest nightly", then "the leading icons — just the stupid fork one".
+  test("a subagent leads with one glyph: the spinner while it runs, its mark once it ended", async () => {
     const now = Date.now();
     const running = agent("Reviewer", { startedAt: now, action: "Read src/app.ts", tokens: 236_600, toolUses: 112 });
     const ended = agent("Linter", {
@@ -704,12 +704,9 @@ describe("a tray line says what it is and what a click does", () => {
       expect(
         live!.querySelector(".acpmux-lineage__icon [data-spinner], .acpmux-lineage__icon .cv-spinner"),
       ).not.toBeNull();
-      // Its stats stay on the line; the done line says no Done.
-      // jsdom has no width, so the tray reads as narrow and the stats wrap under the title; the
-      // browser test (subagent-tray-columns.test.ts "row anatomy") checks the trailing meta.
-      expect(live!.querySelector(".acpmux-agent-line__stats, .acpmux-agent-line__progress")?.textContent).toBe(
-        "236.6K tokens · 112 tool uses",
-      );
+      // No tokens or tool uses on the line (Leo, 2026-10-31: "we can remove the symbols and the
+      // tokens"); the done line says no Done.
+      expect(live!.querySelector(".acpmux-agent-line__stats, .acpmux-agent-line__progress")).toBeNull();
       expect(finished!.querySelector(".acpmux-summary-agent__state")).toBeNull();
       expect(finished!.querySelector(".acpmux-agent-line__sr")?.textContent).toBe("Done");
       // The button's accessible name carries the quiet state, since an aria-label overrides its text.
@@ -1272,7 +1269,7 @@ describe("a failed sub-session's line", () => {
 describe("workflow progress in the default tray and Inspector", () => {
   const waiting = new Set<string>();
   for (const surface of ["tray", "inspector"] as const) {
-    test(`${surface} updates counts, warnings and tokens without replacing another row`, async () => {
+    test(`${surface} updates counts and warnings without replacing another row`, async () => {
       const { SubagentsSection } = await import("../src/agent-session/acpmux/inspector/SubagentsSection");
       const workflow = agent("Review modules", { kind: "workflow", action: "Review" });
       const other = agent("Unrelated agent");
@@ -1294,13 +1291,17 @@ describe("workflow progress in the default tray and Inspector", () => {
         await view.show(
           draw({ ...workflow, agents: { done: 37, started: 101, failed: 2, queued: 4 }, tokens: 1_200_000 }),
         );
+        // The tray's row says no tokens (Leo, 2026-10-31: "we can remove the symbols and the tokens");
+        // the Inspector's list still does.
         expect(view.root.querySelector(".acpmux-agent-line__progress, .acpmux-agent-line__stats")?.textContent).toBe(
-          "37/101 agents · 2 failed · 4 queued · 1.2M tokens",
+          surface === "tray"
+            ? "37/101 agents · 2 failed · 4 queued"
+            : "37/101 agents · 2 failed · 4 queued · 1.2M tokens",
         );
         expect(buttons().find((button) => button.textContent?.includes("Unrelated agent"))).toBe(unrelated);
         await view.show(draw({ ...workflow, agents: { done: 40, started: 101 }, tokens: 1_300_000 }));
         expect(view.root.querySelector(".acpmux-agent-line__progress, .acpmux-agent-line__stats")?.textContent).toBe(
-          "40/101 agents · 1.3M tokens",
+          surface === "tray" ? "40/101 agents" : "40/101 agents · 1.3M tokens",
         );
         expect(buttons().find((button) => button.textContent?.includes("Unrelated agent"))).toBe(unrelated);
       } finally {

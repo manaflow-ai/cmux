@@ -363,9 +363,8 @@ export const SubagentTray = memo(function SubagentTray({
       return (
         <AgentLine
           name={item.agent.name}
-          progress={subagentProgress(t, language, item.agent).join(" · ")}
+          progress={subagentProgress(t, language, item.agent, { usage: false }).join(" · ") || undefined}
           mark={item.agent.harness}
-          icon={SUBAGENT_ICON}
           tone={agentTone(item.agent.id)}
           status={subagentStatus(item.agent, waiting)}
           working={subagentStatus(item.agent, waiting) === "running"}
@@ -468,11 +467,6 @@ export const SubagentTray = memo(function SubagentTray({
     );
   }
 });
-
-/// A subagent's one leading glyph: a branch off this chat, never the chat bubble a session's own
-/// icon is (Leo, 2026-10-28: "Shouldn't the subagent icon be different?"), and never beside a
-/// second glyph (Leo, 2026-10-31: "why is this still so ass in latest nightly").
-const SUBAGENT_ICON = "agent.fork";
 
 /// A subagent's state needs no word on its line when its glyph says it: done, or running under the
 /// spinner. Waiting, failed, stopped and a retry keep theirs.

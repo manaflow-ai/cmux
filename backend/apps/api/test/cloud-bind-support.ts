@@ -21,7 +21,11 @@ export interface CloudStub {
   readOp(entity: string, principal: Principal, op: string, params: unknown): Promise<any>
   bindMachine(entity: string, body: BindBody): Promise<{ ok: boolean; value?: any; code?: string; message?: string }>
   mintLinkToken(entity: string, principal: Principal, params: unknown): Promise<{ ok: boolean; value?: any; code?: string; message?: string }>
-  fakeControl(cmd: { advance_ms?: number }): Promise<{ files: Array<{ name: string; path: string; content: string; mode: number }>; audit: Array<Record<string, unknown>>; now: number }>
+  fakeControl(cmd: {
+    advance_ms?: number
+    power_refuse?: number
+    vm_state?: { name: string; state: string }
+  }): Promise<{ files: Array<{ name: string; path: string; content: string; mode: number }>; audit: Array<Record<string, unknown>>; now: number }>
 }
 const namespace = (env as unknown as { CLOUD_DO: DurableObjectNamespace }).CLOUD_DO
 export const cloudStub = (team: string) => namespace.get(namespace.idFromName(team)) as unknown as CloudStub
