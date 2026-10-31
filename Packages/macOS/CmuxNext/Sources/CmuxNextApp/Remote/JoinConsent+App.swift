@@ -94,11 +94,11 @@ extension JoinConsentModel {
         model.fixtureActive = { [fixtures = services.debugFixtures] in fixtures.joinStatus != nil }
         #endif
         var panel: JoinConsentAskPanel?
+        let person = PersonInputCheck(sources: services.personInput.sources)
         model.present = { [weak model] shown in
             guard let model else { return }
             if shown, panel == nil {
                 let made = JoinConsentAskPanel(model: model)
-                let person = PersonInputCheck()
                 made.isPersonEvent = { person.isPerson($0) }
                 panel = made
             }

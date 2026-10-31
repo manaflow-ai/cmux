@@ -37,7 +37,7 @@ extension AgentPaneView {
             // A legacy bridge has no PageCallContext. The menu choice itself is the person's
             // gesture, so renew the one-use credit before a page action such as a user-only setting
             // write runs after this reply; a script cannot synthesize this AppKit event.
-            if picked != nil, let self { AgentPanePersonInput.record(self.model.transport.gestures) }
+            if picked != nil, let self { AgentPanePersonInput.record(self.model.transport.gestures, sources: self.eventSources) }
             reply(["ok": true, "value": ["picked": picked.map { $0 as Any } ?? NSNull()]])
         }
     }

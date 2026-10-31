@@ -174,7 +174,7 @@ extension AgentPaneView {
         // Repeats belong to the original press, whose DOM proof may still be redeeming.
         // A new page event revokes it, even when posted input cannot grant a fresh witness.
         model.transport.gestures.recordQuestionReturn(false)
-        guard AgentPanePersonInput.isPerson(event) else { return }
+        guard AgentPanePersonInput.isPerson(event, sources: eventSources) else { return }
         model.transport.gestures.record(click: event.type != .keyDown)
         if event.type == .keyDown { model.transport.gestures.recordQuestionReturn(Self.isReturnKey(event)) }
     }
@@ -195,7 +195,7 @@ extension AgentPaneView {
             guard chromiumPageContains(eventWindow.convertPoint(toScreen: event.locationInWindow), eventWindow: eventWindow) else { return }
         }
         model.transport.gestures.recordQuestionReturn(false)
-        guard AgentPanePersonInput.isPerson(event) else { return }
+        guard AgentPanePersonInput.isPerson(event, sources: eventSources) else { return }
         model.transport.gestures.record(click: event.type != .keyDown)
         if event.type == .keyDown { model.transport.gestures.recordQuestionReturn(Self.isReturnKey(event)) }
     }
