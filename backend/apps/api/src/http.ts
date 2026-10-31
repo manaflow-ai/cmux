@@ -300,8 +300,9 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
         if (def.owner === "cloud:SchedulerDO" && isChiefJobCreate(payload.op, frame.params, principal)) {
           const p = yield* principalFor(def.owner, principal)
           const stub = env.SCHEDULER_DO.get(env.SCHEDULER_DO.idFromName(p.team!))
+          // A retried create (decided key) replays from the ledger; it is not a new job.
           const refusal = yield* Effect.tryPromise({
-            try: () => chiefJobGate(env, p, (cursor) => rpc<ReadResult>(stub.readOp(p.team!, p, "automation.list", { limit: 100, ...(cursor ? { cursor } : {}) }))),
+            try: async () => ((await rpc<boolean>(stub.isReplay(p.team!, p, { t: "op", ...frame }))) ? undefined : chiefJobGate(env, p, (cursor) => rpc<ReadResult>(stub.readOp(p.team!, p, "automation.list", { limit: 100, ...(cursor ? { cursor } : {}) })))),
             catch: unreachable
           })
           if (refusal) {
