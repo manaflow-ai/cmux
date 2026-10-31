@@ -848,12 +848,14 @@ export function settleOptimisticPrompt(
   rows: Map<string, AcpmuxRow>,
   promptRows: Map<string, string>,
   message: any,
-): void {
+  removeRow = true,
+): string | undefined {
   const promptId = typeof message?.promptId === "string" ? message.promptId : undefined;
-  if (!promptId) return;
+  if (!promptId) return undefined;
   const rowId = promptRows.get(promptId);
-  if (rowId) rows.delete(rowId);
+  if (removeRow && rowId) rows.delete(rowId);
   promptRows.delete(promptId);
+  return rowId;
 }
 
 export function mergeEventRecords(...batches: EventRecord[][]): EventRecord[] {
@@ -5039,10 +5041,15 @@ export class AcpmuxDirectClient {
           ? (this.optimisticPromptParts.get(fallbackPromptId) ??
             this.queue.find((entry) => entry.id === fallbackPromptId)?.inlineParts)
           : undefined;
-        settleOptimisticPrompt(this.rows, this.optimisticPromptRows, {
-          ...msg,
-          promptId: fallbackPromptId,
-        });
+        // Keep the optimistic row as the durable row. React keys transcript rows by `id`, so
+        // replacing it with `user-${event.seq}` would unmount the prompt exactly when the echo
+        // arrives (and again when the turn starts). The queue path still removes its row above.
+        const optimisticRowId = settleOptimisticPrompt(
+          this.rows,
+          this.optimisticPromptRows,
+          { ...msg, promptId: fallbackPromptId },
+          false,
+        );
         if (fallbackPromptId) {
           this.optimisticPromptTexts.delete(fallbackPromptId);
           this.promptAccepts.get(fallbackPromptId)?.();
@@ -5117,13 +5124,15 @@ export class AcpmuxDirectClient {
         const continues = promptId !== undefined && this.continuations.has(promptId);
         if (continues) this.continueTurn(promptId!);
         else if (this.awaiting !== undefined && msg.steer !== true) this.dropContinuation(this.awaiting);
+        const durableRowId = optimisticRowId ?? `user-${event.seq}`;
         // A new list, never one changed in place: the snapshot names its rows by the list's identity.
-        if (steer === "waiting") this.waitingSteers = [...this.waitingSteers, { rowId: `user-${event.seq}`, promptId }];
-        if (steer === "waiting" && promptId) this.steerRows.set(promptId, `user-${event.seq}`);
+        if (steer === "waiting") this.waitingSteers = [...this.waitingSteers, { rowId: durableRowId, promptId }];
+        if (steer === "waiting" && promptId) this.steerRows.set(promptId, durableRowId);
         const inlineParts = recordedPromptParts(msg, knownParts) ?? knownParts;
-        this.rows.set(`user-${event.seq}`, {
-          id: `user-${event.seq}`,
-          version: 1,
+        const optimisticRow = optimisticRowId ? this.rows.get(optimisticRowId) : undefined;
+        this.rows.set(durableRowId, {
+          id: durableRowId,
+          version: (optimisticRow?.version ?? 0) + 1,
           at: event.at,
           kind: "user",
           ...shown,
@@ -5149,14 +5158,14 @@ export class AcpmuxDirectClient {
         });
         if (fallbackPromptId) {
           const attachments = this.optimisticPromptAttachments.get(fallbackPromptId);
-          if (attachments?.length) this.retryAttachments.set(`user-${event.seq}`, attachments);
+          if (attachments?.length) this.retryAttachments.set(durableRowId, attachments);
           const input = this.optimisticPromptInputs.get(fallbackPromptId);
-          if (input !== undefined) this.retryInputs.set(`user-${event.seq}`, input);
+          if (input !== undefined) this.retryInputs.set(durableRowId, input);
           this.optimisticPromptInputs.delete(fallbackPromptId);
           this.optimisticPromptParts.delete(fallbackPromptId);
           this.optimisticPromptAttachments.delete(fallbackPromptId);
           // This pane's prompt reached the agent: its row (now acpmux's) shows it read.
-          this.setDelivery(fallbackPromptId, { state: "read", readAt: event.at }, `user-${event.seq}`);
+          this.setDelivery(fallbackPromptId, { state: "read", readAt: event.at }, durableRowId);
         }
         this.stoppingOpens(event);
         // A prompt opens its turn; a steer goes into the turn already open.
