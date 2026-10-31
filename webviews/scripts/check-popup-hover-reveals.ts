@@ -40,6 +40,9 @@ const NON_POPUP_REVEALS = new Map<string, string>([
     "copy affordance",
   ],
   ["agent-session/acpmux/conversation/conversation.css|.cv-received:hover .cv-received__reply", "reply affordance"],
+  // Only the strip's own menu keeps it shown (.cv-received-actions:has([aria-haspopup="menu"][data-popup-open]),
+  // #27064); another popup in the row does not (message-actions-menu-reveal.test.ts).
+  ["agent-session/acpmux/conversation/conversation.css|.cv-received:hover .cv-received-actions", "own-menu rule"],
   ["agent-session/acpmux/styles.css|.acpmux-file-header:hover .acpmux-fh-chevron", "disclosure chevron"],
   // Suggestion rows sit in .nt-popover, which the New Tab page's ContextMenu ignores: no menu opens from them.
   ["agent-session/acpmux/newtab/screen.css|.nt-row:hover .nt-row-action", "suggestion row hint"],

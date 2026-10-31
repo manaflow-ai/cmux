@@ -718,7 +718,6 @@
   .cv-user:hover .cv-user__actions,
   .cv-user:has([data-popup-open]) .cv-user__actions,
   .cv-received:hover .cv-received-actions,
-  .cv-received:has([data-popup-open]) .cv-received-actions,
   .cv-received > .cv-disclosure__line:hover .cv-received__hover,
   .cv-received > .cv-disclosure__line:has([data-popup-open]) .cv-received__hover,
   .acpmux-assistant:hover .cv-reply-actions,
@@ -762,7 +761,6 @@
   opacity: 0;
 }
 .cv-received:hover .cv-received-actions,
-.cv-received:has([data-popup-open]) .cv-received-actions,
 .cv-received-actions:focus-within,
 .cv-received-actions:has([aria-haspopup="menu"][aria-expanded="true"]),
 .cv-received-actions:has([aria-haspopup="menu"][data-popup-open]) {
@@ -4643,8 +4641,7 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
     transition: opacity var(--cv-actions-out) var(--cv-actions-ease);
   }
   .cv-received:hover .cv-received__reply,
-  .cv-received:hover .cv-received__queued,
-  .cv-received:has([data-popup-open]) .cv-received__queued {
+  .cv-received:hover .cv-received__queued {
     transition: opacity var(--cv-actions-in) var(--cv-actions-ease) var(--cv-actions-in-delay);
   }
   .cv-received:focus-within .cv-received__reply,
