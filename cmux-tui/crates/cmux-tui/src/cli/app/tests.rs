@@ -88,6 +88,57 @@ fn space_catalog_actions_keep_their_generic_cli_routes() {
     assert_eq!(params["cli"], true);
 }
 
+/// A flag is never a positional space name: `space rename --name Office`
+/// renames the current space through the catalog action, as it did before the
+/// positional forms, instead of targeting a space called `--name`.
+#[test]
+fn space_flags_are_not_positional_names() {
+    for (words, action, target, action_args) in [
+        (
+            &["space", "rename", "--name", "Office"][..],
+            "space rename",
+            None,
+            json!({"name": "Office"}),
+        ),
+        (
+            &["space", "rename", "--target", "room:Work", "--name", "Office"][..],
+            "space rename",
+            Some("room:Work"),
+            json!({"name": "Office"}),
+        ),
+        (
+            &["space", "close", "--target", "room:Work"][..],
+            "space close",
+            Some("room:Work"),
+            json!({}),
+        ),
+        (
+            &["space", "move", "workspace", "--target", "workspace:ws_1"][..],
+            "space move workspace",
+            Some("workspace:ws_1"),
+            json!({}),
+        ),
+    ] {
+        let Some(command) = parse(&args(words)).unwrap() else { panic!("{words:?}") };
+        let (method, params) = call(command);
+        assert_eq!(method, "action.run", "{words:?}");
+        assert_eq!(params["action"], action, "{words:?}");
+        assert_eq!(params.get("target").and_then(Value::as_str), target, "{words:?}");
+        assert_eq!(params["args"], action_args, "{words:?}");
+    }
+}
+
+/// Options after a positional form still reach the action.
+#[test]
+fn space_positional_forms_keep_trailing_options() {
+    let (_, params) =
+        call(parse(&args(&["space", "rename", "Work", "Office", "--no-wait"])).unwrap().unwrap());
+    assert_eq!(params["action"], "space rename");
+    assert_eq!(params["target"], "room:Work");
+    assert_eq!(params["args"], json!({"name": "Office"}));
+    assert_eq!(params["wait"], false);
+}
+
 /// `cmux space set-defaults --cwd DIR` (and every other action's `--cwd`) names
 /// a folder of the caller's working directory, so the app gets it absolute:
 /// the app runs elsewhere, and a space's default directory must be absolute.
