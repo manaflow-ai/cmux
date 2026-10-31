@@ -166,7 +166,10 @@ pub(super) fn descriptors(tools: &[Value]) -> Vec<Value> {
              pattern, timeout_ms}} waits for a regex on the screen (never sleep or poll). The \
              typed command is on the screen too, so match the output line: pattern \
              \"(?m)^DONE\" for `cmd; echo DONE`. terminal_screen_read and terminal_history_read \
-             {{terminal}} read it.\n\
+             {{terminal}} read it; history is the whole scrollback, so return only the lines \
+             you need: (await cmux.terminal_history_read({{terminal}})).text.split(\"\\n\").\
+             filter((l) => l.includes(\"error\")). Return small results: a list's ids and names, \
+             not every record.\n\
              - tab_rename {{tab, name}}, tab_close {{tab}}, tab_focus {{tab}}; workspace_rename \
              {{workspace, name}}.\n\
              - Groups: tab_group_create {{tabs: [ids], name}}; workspace_group_create {{name}}, \
@@ -253,6 +256,28 @@ pub(super) fn docs(tools: &[Value], arguments: &Map<String, Value>) -> Result<Va
     let Some(query) = query else {
         return Ok(json!({"families": families(tools)}));
     };
+    // A query of exact tool names (`cmux.docs("tab_create_browser")`, or several) answers
+    // those tools only; the rest of the search goes in `more` by name. A full search put
+    // 8 schemas (11k characters) in front of the model for one name (tests/tool-evals r13a).
+    let words: Vec<&str> = query.split([' ', ',']).filter(|w| !w.is_empty()).collect();
+    let exact: Vec<&Value> =
+        words.iter().filter_map(|word| tools.iter().find(|tool| tool["name"] == *word)).collect();
+    if !exact.is_empty() && exact.len() == words.len() {
+        let mut answer = search(tools, &query, limit);
+        let named: Vec<&str> = exact.iter().filter_map(|tool| tool["name"].as_str()).collect();
+        let rest = answer["tools"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|tool| tool["name"].as_str())
+            .filter(|name| !named.contains(name))
+            .map(|name| json!(name));
+        let more: Vec<Value> =
+            rest.chain(answer["more"].as_array().into_iter().flatten().cloned()).collect();
+        answer.set("tools", Value::Array(exact.into_iter().map(compact).collect()));
+        answer.set("more", Value::Array(more));
+        return Ok(answer);
+    }
     Ok(search(tools, &query, limit))
 }
 

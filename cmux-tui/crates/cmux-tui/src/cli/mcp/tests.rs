@@ -1677,6 +1677,18 @@ fn cmux_docs_finds_a_tool_from_a_sentence() {
     // A tool's own name finds that tool first, not a longer one that holds it.
     let exact = call(&mut server, "cmux_docs", json!({"query": "tab_list"}));
     assert_eq!(exact["structuredContent"]["tools"][0]["name"], "tab_list", "{exact}");
+    // A query of exact names answers only those tools; the other matches by name.
+    let tools = exact["structuredContent"]["tools"].as_array().map(Vec::len);
+    assert_eq!(tools, Some(1), "{exact}");
+    assert!(!exact["structuredContent"]["more"].as_array().is_none_or(Vec::is_empty), "{exact}");
+    let pair = call(&mut server, "cmux_docs", json!({"query": "tab_list pane_split"}));
+    let names: Vec<&str> = pair["structuredContent"]["tools"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|tool| tool["name"].as_str())
+        .collect();
+    assert_eq!(names, ["tab_list", "pane_split"], "{pair}");
 
     // A script that calls a name no tool has hears the near ones.
     let script = "try { await cmux.context({}); } catch (e) { return e.message; }";
