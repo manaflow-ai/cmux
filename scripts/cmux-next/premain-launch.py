@@ -183,7 +183,8 @@ def launch_once(path, label, extra_env=None, sample_to=None, logs=True):
     poller = Poller(launch.process.pid, spawn_t, checkers)
     poller.start()
     try:
-        launch.wait_for("main_start", TIMEOUT)
+        got_main = launch.wait_for("main_start", TIMEOUT)
+        main_seen_t = time.monotonic() if got_main else None  # the line arrived (select wakes on it)
         poller.stop_flag.set()
         launch.wait_for([bs.FINAL_MARK, bs.AGENT_MARK], TIMEOUT, any_of=True)
         teardown.remember()  # the daemon runs now: its state root (and so its hosts and holders) is recorded
@@ -204,7 +205,13 @@ def launch_once(path, label, extra_env=None, sample_to=None, logs=True):
     if main_ms is not None:
         before = [s for s in poller.samples if "app" in s and s["t_ms"] <= main_ms]
         at_main = before[-1] if before else None
+    # An independent spawn -> main time on this script's clock: from just before the Popen to the main_start line's
+    # arrival. It is an upper bound (it holds the `launchctl limit` read and the pipe hop). If the app's main_start_ms
+    # (kernel p_starttime -> Date() in main) is much larger, the gap is in the process-start reference, not launch work.
+    observed = round((main_seen_t - spawn_t) * 1000, 1) if main_seen_t else None
     record = {"label": label, "path": path, "spawn": wall(t0), "main_start_ms": main_ms,
+              "spawn_to_main_observed_ms": observed,
+              "reference_excess_ms": round(main_ms - observed, 1) if observed is not None and main_ms is not None else None,
               "first_window_frame_ms": marks.get("first_window_frame_committed"),
               "first_terminal_frame_ms": marks.get(bs.FINAL_MARK), "agent_handshake_ms": marks.get(bs.AGENT_MARK),
               "app_cpu_s_at_main": at_main["app"]["cpu_s"] if at_main else None,
@@ -213,7 +220,7 @@ def launch_once(path, label, extra_env=None, sample_to=None, logs=True):
         end = t0 + main_ms / 1000
         record["log"] = scan_log(t0, end, LOG_PREDICATE, path)
         record["log_wide"] = scan_log(t0, end, WIDE_PREDICATE, path, limit=40)
-    log(f"{label}: main_start {fmt(main_ms)}, first terminal frame {fmt(marks.get(bs.FINAL_MARK))}, app cpu at main "
+    log(f"{label}: main_start {fmt(main_ms)} (observed by this script {fmt(observed)}), first terminal frame {fmt(marks.get(bs.FINAL_MARK))}, app cpu at main "
         f"{record['app_cpu_s_at_main']} s, log lines {record.get('log', {}).get('lines')} "
         f"(naming the app {record.get('log', {}).get('app_lines')}, assessment {record.get('log', {}).get('assessment_lines')})")
     return record
@@ -231,6 +238,23 @@ def checker_delta(samples, main_ms):
 
 def fmt(ms):
     return "missing" if ms is None else f"{ms:.0f} ms"
+
+
+def exec_floor(runs=5):
+    """Spawn -> exit of /usr/bin/true with the bench's Popen shape (new session, a passed pipe, Finder limits): the
+    launcher's own share of any spawn -> main time."""
+    times = []
+    for _ in range(runs):
+        read_fd, write_fd = os.pipe()
+        start = time.monotonic()
+        with bs.finder_limits():
+            proc = subprocess.Popen(["/usr/bin/true"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                    start_new_session=True, pass_fds=(write_fd,))
+        proc.wait()
+        times.append(round((time.monotonic() - start) * 1000, 1))
+        os.close(read_fd)
+        os.close(write_fd)
+    return times
 
 
 def fresh_copy(source, root, name, clone=False):
@@ -369,12 +393,12 @@ def summarize_table(xml):
 
 
 def table(runs):
-    lines = ["| copy | run | main_start ms | first terminal frame ms | app CPU s at main | log lines | naming the app | assessment lines |",
-             "|---|---|---|---|---|---|---|---|"]
+    lines = ["| copy | run | main_start ms | observed spawn->main ms | first terminal frame ms | app CPU s at main | log lines | naming the app | assessment lines |",
+             "|---|---|---|---|---|---|---|---|---|"]
     for r in runs:
         lg = r.get("log", {})
         lines.append(f"| {r['label'].split()[0]} | {r['label'].split()[-1]} | {fmt(r['main_start_ms'])} | "
-                     f"{fmt(r['first_terminal_frame_ms'])} | {r['app_cpu_s_at_main']} | {lg.get('lines')} | "
+                     f"{fmt(r.get('spawn_to_main_observed_ms'))} | {fmt(r['first_terminal_frame_ms'])} | {r['app_cpu_s_at_main']} | {lg.get('lines')} | "
                      f"{lg.get('app_lines')} | {lg.get('assessment_lines')} |")
     return "\n".join(lines)
 
@@ -402,6 +426,8 @@ def main():
         report["purge"] = ("run before each A, B and C launch (not before D, dyld-print or xctrace)" if purged
                            else f"purge not run ({why}): each copy's files are in the page cache (just written or run)")
         log(report["purge"])
+        report["exec_floor_ms"] = exec_floor()
+        log(f"exec floor (/usr/bin/true, same Popen shape): {report['exec_floor_ms']} ms")
         save()
         copy_b = fresh_copy(app, root, "B")
         copies.append(copy_b)
