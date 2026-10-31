@@ -170,6 +170,16 @@
       "title" : "Needs You",
       "type" : "boolean"
     },
+    "agentPane.newChatsIn" : {
+      "default" : "local",
+      "description" : "Where a new chat runs. Cloud starts it on your own Cloud machine, with your project copied there. The new chat's composer can change it for that chat.",
+      "enum" : [
+        "local",
+        "cloud"
+      ],
+      "title" : "Start New Chats In",
+      "type" : "string"
+    },
     "agentPane.scrollToBottomOnSend" : {
       "default" : true,
       "description" : "When off, sending while you are reading up keeps your place and shows new messages below.",
@@ -4969,6 +4979,17 @@
         "always"
       ],
       "title" : "Titlebar Buttons",
+      "type" : "string"
+    },
+    "workspaceColors.indicatorStyle" : {
+      "default" : "dot",
+      "description" : "How a workspace's color shows in the sidebar: a dot before its name, a bar down the row's edge, or the whole row filled with the color.",
+      "enum" : [
+        "dot",
+        "leftRail",
+        "fill"
+      ],
+      "title" : "Workspace Color Style",
       "type" : "string"
     },
     "workspaces.autoArchive.idleDays" : {
