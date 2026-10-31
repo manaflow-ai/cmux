@@ -88,7 +88,7 @@ extension AgentTabStore {
         let source = resolve(provisional)
         // A session can have several chat tabs. Keep each chat's remembered subagent tabs local to
         // its own right column so clicking a row never pulls the person into another workspace.
-        AgentSubagentPanes.session("\(session):\(source)").open(agent, focus: focus, chat: provisional, hooks: .init(isOpen: { [weak self] key in
+        return AgentSubagentPanes.session("\(session):\(source)").open(agent, focus: focus, chat: provisional, hooks: .init(isOpen: { [weak self] key in
                 guard let self else { return false }
                 return self.subagentTabIsBeside(source, key)
             }, focus: { [weak self] key, script in _ = self?.actionRegistry?.perform("tab.focus", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: self?.resolve(key) ?? key), arguments: script ? ["focus": .bool(true)] : [:], origin: script ? .script : .user)) },
