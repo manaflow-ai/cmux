@@ -11268,6 +11268,138 @@
         }
       }
     },
+    "handlers.refusal.gatherWhileCreating": {
+      "comment": "Refusal of Move Space to This Window or Merge All Windows while a window it would close is still creating a workspace.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A new workspace is still opening in a window this would close. Try again in a moment."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا تزال مساحة عمل جديدة قيد الفتح في نافذة سيغلقها هذا الإجراء. حاول مرة أخرى بعد لحظة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Novi radni prostor se još otvara u prozoru koji bi ovo zatvorilo. Pokušajte ponovo za trenutak."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Et nyt arbejdsområde åbner stadig i et vindue, som dette ville lukke. Prøv igen om et øjeblik."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "In einem Fenster, das dadurch geschlossen würde, wird noch ein neuer Arbeitsbereich geöffnet. Versuche es gleich noch einmal."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Todavía se está abriendo un espacio de trabajo nuevo en una ventana que esto cerraría. Vuelve a intentarlo en un momento."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un nouvel espace de travail s'ouvre encore dans une fenêtre que cette action fermerait. Réessayez dans un instant."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un nuovo spazio di lavoro si sta ancora aprendo in una finestra che questa azione chiuderebbe. Riprova tra un attimo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この操作で閉じるウインドウで、新しいワークスペースをまだ開いています。少し待ってからもう一度お試しください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កន្លែងធ្វើការថ្មីកំពុងបើកនៅឡើយក្នុងបង្អួចដែលសកម្មភាពនេះនឹងបិទ។ សូមព្យាយាមម្តងទៀតបន្តិចទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 작업으로 닫힐 창에서 새 작업 공간이 아직 열리는 중입니다. 잠시 후 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Et nytt arbeidsområde åpnes fortsatt i et vindu som dette ville lukket. Prøv igjen om et øyeblikk."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "W oknie, które to zamknie, nadal otwiera się nowy obszar roboczy. Spróbuj ponownie za chwilę."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Um novo espaço de trabalho ainda está abrindo em uma janela que isto fecharia. Tente novamente em um instante."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "В окне, которое это действие закроет, ещё открывается новое рабочее пространство. Повторите попытку через мгновение."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "พื้นที่ทำงานใหม่ยังเปิดอยู่ในหน้าต่างที่การทำงานนี้จะปิด โปรดลองอีกครั้งในอีกสักครู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bunun kapatacağı bir pencerede yeni bir çalışma alanı hâlâ açılıyor. Birazdan yeniden deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "У вікні, яке це закриє, ще відкривається новий робочий простір. Спробуйте ще раз за мить."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Một không gian làm việc mới vẫn đang mở trong cửa sổ mà thao tác này sẽ đóng. Hãy thử lại sau giây lát."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此操作将关闭的窗口中仍在打开新工作区。请稍后再试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此操作將關閉的視窗中仍在開啟新工作區。請稍後再試。"
+          }
+        }
+      }
+    },
     "handlers.refusal.unknownTheme": {
       "extractionState": "manual",
       "localizations": {

@@ -118,6 +118,7 @@ extension WindowManager {
         // paused or still connecting) shows in every space (`WindowProfiles.visible`); it stays put.
         let moving = sources.flatMap { WindowProfiles.visible($0.workspaceIDs, profile: profile, machines: machines) }
             .filter { WindowProfiles.qualified($0, machines: machines) != nil }
+        try refuseClosingCreating(sources.filter { !$0.workspaceIDs.isEmpty && Set(moving).isSuperset(of: $0.workspaceIDs) }.map(\.id))
         // A CLI or MCP run without focus permission moves the workspaces and leaves this window's
         // view alone: it keeps its space and selection (as `RoomHandlers.startNewSpace`).
         let mayShow = ActionRunScope.viewChangeAllowed()
@@ -133,7 +134,6 @@ extension WindowManager {
             state.enterProfile(profile)
         }
         transition(select: preferred) { $0.move(moving, to: state.id) }
-        retargetClaims(from: Set(sources.map(\.id)), to: state.id)
         recordSaver.stateDidChange(state)
     }
 
@@ -149,6 +149,7 @@ extension WindowManager {
         let sources = value.openWindows.filter { $0.id != state.id && !value.isIncognito($0.id) }
         let moving = sources.flatMap(\.workspaceIDs)
         guard !moving.isEmpty else { return }
+        try refuseClosingCreating(sources.filter { !$0.workspaceIDs.isEmpty }.map(\.id))
         // Front first, so the most recent window's pick wins for a space.
         let order = Dictionary(value.recency.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
         for source in sources.sorted(by: { order[$0.id, default: .max] < order[$1.id, default: .max] }) {
@@ -160,23 +161,20 @@ extension WindowManager {
             }
         }
         transition { $0.move(moving, to: state.id) }
-        retargetClaims(from: Set(sources.map(\.id)), to: state.id)
         recordSaver.stateDidChange(state)
     }
 
-    /// Claims, sidebar placements and later creates (`claimNew`) of a window the move closed go to `target`.
-    private func retargetClaims(from sources: Set<String>, to target: String) {
-        let closed = sources.filter { registry.value.window($0) == nil }
-        for window in closed { (gatheredWindows[window], pendingFrames[window]) = (target, nil); behindWindows.remove(window) }
-        for (workspace, window) in pendingClaims where closed.contains(window) { pendingClaims[workspace] = target }
-        for (id, placement) in pendingPlacements where placement.window.map(closed.contains) == true { pendingPlacements[id]?.window = target }
-    }
-
-    /// Where a claim for `windowID` goes: the window that gathered it (`retargetClaims`), else `windowID`.
-    func gatheredTarget(of windowID: String) -> String {
-        var window = windowID, seen: Set<String> = []
-        while registry.value.window(window) == nil, let next = gatheredWindows[window], seen.insert(window).inserted { window = next }
-        return window
+    /// Refuses a move that would close a window still creating a workspace (claimed, placed, queued in its
+    /// `WorkspaceLanes` lane, or drawn as a provisional row): the create would reopen it or be stranded.
+    private func refuseClosingCreating(_ windows: [String]) throws {
+        let rows = PendingWorkspaceRows.shared.rows
+        for window in windows {
+            WorkspaceLanes.shared.prune(window) { self.services.workspace(id: $0) != nil }
+            if pendingClaims.values.contains(window) || pendingPlacements.values.contains(where: { $0.window == window })
+                || WorkspaceLanes.shared.outstandingCreates(in: window) > 0 || rows.contains(where: { $0.window == window }) {
+                throw ActionFailure.invalidTarget(RefusalStrings.gatherWhileCreating)
+            }
+        }
     }
 
     /// The workspaces `profile` last showed, best first: the one each window showing it shows

@@ -61,7 +61,6 @@ final class WindowManager {
     /// reconcile places each in that window (opening it when it is not
     /// registered yet) and selects it.
     var pendingClaims: [String: String] = [:]
-    var gatheredWindows: [String: String] = [:] // a window Move Space / Merge All closed -> the one that took it
     /// Pending claims not to show on arrival; windows to open behind (automation, Option).
     var quietClaims: Set<String> = [], behindWindows: Set<String> = []
     /// Restored windows but the front one, not shown yet (`present`); `keepsOrder` while one shows alone.

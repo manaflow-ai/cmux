@@ -36,6 +36,10 @@ public nonisolated enum RefusalStrings {
     public static var incognitoMismatch: String {
         text("handlers.refusal.incognitoMismatch", "Incognito and normal windows can't share workspaces, tabs or screens.")
     }
+    /// Move Space to This Window or Merge All Windows would close a window still creating a workspace.
+    public static var gatherWhileCreating: String {
+        text("handlers.refusal.gatherWhileCreating", "A new workspace is still opening in a window this would close. Try again in a moment.")
+    }
     public static var chromiumUnavailable: String { text("handlers.refusal.chromiumUnavailable", "Chromium is not available in this build.") }
     public static var homeNotReady: String { text("handlers.refusal.homeNotReady", "Home is not ready yet.") }
     /// Close New Message (`home.closeNewMessage`) while no New Message draft is open.

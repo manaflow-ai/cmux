@@ -77,7 +77,6 @@ extension WindowManager {
     /// An action run without view-change permission files it into an open
     /// window without showing it, or opens the new window behind.
     func claimNew(workspaceID: String, window windowID: String, frame: CGRect? = nil) {
-        let windowID = gatheredTarget(of: windowID)
         guard services.machines.workspace(id: workspaceID) != nil else {
             pendingClaims[workspaceID] = windowID
             if let frame, registry.value.window(windowID) == nil { pendingFrames[windowID] = frame }
