@@ -3505,6 +3505,56 @@ class Nightly(unittest.TestCase):
                 run_main(api, clock, payload=nightly_event(head_branch="nightly-next"))
                 self.assertEqual(api.calls[-1], "rerun-failed")
 
+    def test_an_unlisted_hook_refusal_during_a_feed_outage_is_still_re_run(self):
+        # #29448: a feed that cannot be read keeps the run wanted; the refusal is not judged moot meanwhile.
+        clock = Clock()
+        api = NightlyAPI(clock, self.with_ids(nightly_run(refused_at=60, helper_done_at=200)),
+                         finished=lambda s: s >= 200, workflow=self.OWNED_ONLY)
+        api.annotations = lambda job_id, *, final=False: [{"message": rescue.HOOK_UNLISTED}]
+
+        def outage():
+            raise urllib.error.URLError("files-next.cmux.com unreachable")
+        api.next_feed_newest_build = outage
+        run_main(api, clock, payload=nightly_event(head_branch="nightly-next"))
+        self.assertEqual(api.calls[-1], "rerun-failed")
+
+    def test_the_feed_read_raises_on_an_outage_instead_of_reading_as_no_build(self):
+        api = rescue.GitHub("t", "manaflow-ai/cmux")
+        with unittest.mock.patch.object(rescue.urllib.request, "urlopen",
+                                        side_effect=urllib.error.URLError("unreachable")):
+            with self.assertRaises(rescue.READ_ERRORS):
+                api.next_feed_newest_build()
+
+        class Response(io.BytesIO):
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+        with unittest.mock.patch.object(rescue.urllib.request, "urlopen", return_value=Response(b"<rss></rss>")):
+            self.assertIsNone(api.next_feed_newest_build())
+
+    # nightly.yml's sign-nightly-identity-legacy: its picker's output, else a Blacksmith literal.
+    LEGACY = ("jobs:\n  sign-nightly-identity-legacy:\n    runs-on: ${{ needs.legacy-identity-target.outputs.sign_runner"
+              " || 'blacksmith-6vcpu-macos-26' }}\n    steps: []\n")
+
+    def test_a_failed_jobs_re_run_keeps_a_picked_owned_label_whatever_its_fallback_literal(self):
+        # #29447: a re-run of failed jobs keeps the picker's output, so the Blacksmith literal is never reached for a
+        # job the minis' hook refused; only a runs-on that reads the attempt can move.
+        name = "sign-nightly-identity-legacy"
+        self.assertTrue(rescue.rerun_stays_owned(self.LEGACY, name, failed_only=True))
+        # Attempt 1 of nightly-next may re-run pickers: the fallback literal still counts as a way off the minis.
+        self.assertFalse(rescue.rerun_stays_owned(self.LEGACY, name))
+        attempt_alt = self.LEGACY.replace("needs.legacy-identity-target.outputs.sign_runner ||",
+                                          "github.run_attempt > 1 && needs.legacy-identity-target.outputs.alt ||"
+                                          " needs.legacy-identity-target.outputs.sign_runner ||")
+        self.assertFalse(rescue.rerun_stays_owned(attempt_alt, name, failed_only=True))
+        pinned = self.OWNED_ONLY.replace("vars.CI_NIGHTLY_NEXT_BUILD_RUNNER", "needs.pick.outputs.blacksmith")
+        self.assertFalse(rescue.rerun_stays_owned(pinned, "build-nightly-app", failed_only=True))
+        self.assertTrue(rescue.rerun_stays_owned(self.OWNED_ONLY, "build-nightly-app", failed_only=True))
+        for text in (None, "", "jobs: [", self.LEGACY.replace("runs-on", "runs_on")):
+            self.assertFalse(rescue.rerun_stays_owned(text, name, failed_only=True), text)
+
     def test_jobs_all_done_in_a_run_still_going_is_not_moot(self):
         # The jobs list can be all done while the run is still in progress (its later jobs not created yet).
         clock = Clock()
@@ -3520,7 +3570,7 @@ class Nightly(unittest.TestCase):
         clock = Clock()
         api = NightlyAPI(clock, self.with_ids(nightly_run(refused_at=60, helper_done_at=200)),
                          finished=lambda s: s >= 200)
-        api.next_feed_newest_build = lambda: None  # the feed could not be read
+        api.next_feed_newest_build = lambda: None  # the feed has no Nightly build
         run_main(api, clock, payload=nightly_event(head_branch="nightly-next"))
         self.assertEqual(api.calls[-1], "rerun-failed")
 
