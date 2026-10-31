@@ -7,12 +7,12 @@ import os
 
 /// Keeps every Cloud machine on the app's own cmux-tui build with no click: each handshake of a
 /// machine's daemon (the first connect and every reconnect, also one the app refused) offers it to
-/// the app's one `DaemonUpdatePolicy.shared` as a ``CloudMachineUpdateTarget``, in the same queue as
+/// the app's one `DaemonUpdatePolicy` (`AppServices.daemonUpdates`) as a ``CloudMachineUpdateTarget``, in the same queue as
 /// the acpmux ssh peers. The policy decides (another commit than the bundled build, never a newer
 /// one; mid-turn from the first ask, with no wait for idle; backoff while the machine cannot
 /// update; one target at a time; once per machine and build in its ledger; one notice per failure);
 /// this type only feeds it Cloud machines. Their state shows in the machine header
-/// (``CloudCreationRows``) from `DaemonUpdateBoard.shared`.
+/// (``CloudCreationRows``) from the app's `DaemonUpdateBoard`.
 ///
 /// - Off with `cloud.updateMachines` (``CloudTunables``) or the policy's `agent.updatePeers`: no
 ///   offer, and a machine already queued reports no build, which the policy leaves alone.
@@ -84,10 +84,10 @@ final class CloudMachineUpdates {
               let session = services.machines.session(machineID), let binary = services.cloud.move.cli else { return false }
         let cli = CloudMoveCLI(binary: binary, timeout: services.cloud.move.timeout)
         let target = CloudMachineUpdateTarget(machineID: machineID, displayName: session.machine.title,
-                                              source: Self.source(session, machines: services.machines, cli: cli, api: services.cloud.api,
+                                              source: Self.source(session, machines: services.machines, cli: cli, api: services.cloud.machineAPI,
                                                                   logger: logger))
         // task-owner: returns once the policy queued the machine; the policy's drain owns the update
-        Task { await DaemonUpdatePolicy.shared.offer(target) }
+        Task { [policy = services.daemonUpdates.policy] in await policy.offer(target) }
         return true
     }
 

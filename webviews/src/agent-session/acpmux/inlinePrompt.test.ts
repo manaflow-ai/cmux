@@ -260,6 +260,48 @@ test("queue acceptance retains ordered metadata before the prompt reply", async 
   }
 });
 
+test("a queued prompt keeps paste and file metadata when its transcript echo omits parts", async () => {
+  const io = await connect();
+  try {
+    await io.client.send("warm");
+    const sessionId = io.sent[0].sessionId;
+    // Another client queued this prompt, so there is no local optimistic metadata to fall back to.
+    const promptId = "peer-queued-paste-and-file";
+    const text = "look\npasted content\nthen";
+    io.emit(sessionId, {
+      mux: "queued",
+      msg: {
+        promptId,
+        text,
+        inlineParts: [
+          { kind: "text", text: "look" },
+          { kind: "text", text: "pasted content", pasted: true, placed: true },
+          { kind: "file", name: "notes.txt", uri: "file:///tmp/notes.txt", mimeType: "text/plain", size: 12 },
+          { kind: "text", text: "then" },
+        ],
+      },
+    });
+    await settle(() => io.queue().some((entry) => entry.id === promptId));
+    const queuedParts = io.queue().find((entry) => entry.id === promptId)!.inlineParts;
+    expect(queuedParts?.map((part) => part.kind)).toEqual(["text", "pasted", "file", "text"]);
+    // Older/capped user_message records omit parts, and the dequeue record may be missed.
+    io.emit(sessionId, { mux: "user_message", msg: { promptId, text } });
+    await settle(() => io.rows().some((row) => row.promptId === promptId));
+    expect(io.queue().some((entry) => entry.id === promptId)).toBe(false);
+    const rows = io.rows().filter((row) => row.promptId === promptId);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].inlineParts).toEqual(queuedParts);
+    const draft = await io.client.resendPrompt(rows[0].id, text);
+    expect(draft.attachments).toMatchObject([
+      { kind: "pasted", text: "pasted content" },
+      { kind: "link", name: "notes.txt", path: "/tmp/notes.txt", mimeType: "text/plain", size: 12 },
+    ]);
+    expect(draft.input).toBe(`look${inlineToken(draft.attachments[0].id)}${inlineToken(draft.attachments[1].id)}then`);
+  } finally {
+    io.client.close?.();
+  }
+});
+
 test("strip echo Retry and Edit retain local bytes, original path and video", async () => {
   const io = await connect();
   const attachments = [image("strip"), movie];

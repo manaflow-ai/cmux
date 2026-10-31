@@ -121,6 +121,8 @@ fn plain_ip(addr: SocketAddr) -> IpAddr {
 }
 
 pub(crate) fn run(exe: PathBuf) -> anyhow::Result<()> {
+    // Before any setup: an update during it is still seen (`launchd_refresh.rs`).
+    let watch = super::service::agent_watch();
     let ready = super::service::take_ready_signal();
     // One listener per state directory; the OS drops the lock with the
     // process, so `status` and `stop` never act on a stale pid. Taken before
@@ -181,15 +183,41 @@ pub(crate) fn run(exe: PathBuf) -> anyhow::Result<()> {
         );
     }
     ready("ready");
-    let mut threads = Vec::new();
+    // `None` when a listener stopped; the launchd agent's outcome otherwise.
+    let (done, events) = std::sync::mpsc::channel();
+    super::service::follow_app_updates(watch, done.clone());
+    let mut running = listeners.len();
     for listener in listeners {
         let host = Arc::clone(&host);
-        threads.push(std::thread::spawn(move || accept_loop(&host, &listener)));
+        // Sent when the thread ends, a panic included: a listener that is gone always counts.
+        let stopped = ListenerStopped(done.clone());
+        std::thread::spawn(move || {
+            let _stopped = stopped;
+            accept_loop(&host, &listener);
+        });
     }
-    for thread in threads {
-        let _ = thread.join();
+    drop(done);
+    while running > 0 {
+        match events.recv() {
+            Ok(None) => running -= 1,
+            // KeepAlive restarts only an unsuccessful exit: launchd starts the new build.
+            Ok(Some(super::service::AgentExit::Replaced)) => {
+                bail!("an update replaced this cmux; launchd starts the new build")
+            }
+            Ok(Some(super::service::AgentExit::Removed)) => return Ok(()),
+            Err(_) => break,
+        }
     }
     Err(anyhow!("every listener stopped"))
+}
+
+/// Tells `run` that a listener stopped, when its thread ends for any reason.
+struct ListenerStopped(std::sync::mpsc::Sender<Option<super::service::AgentExit>>);
+
+impl Drop for ListenerStopped {
+    fn drop(&mut self) {
+        let _ = self.0.send(None);
+    }
 }
 
 fn accept_loop(host: &Arc<Host>, listener: &TcpListener) {
@@ -202,11 +230,15 @@ fn accept_loop(host: &Arc<Host>, listener: &TcpListener) {
                     continue;
                 };
                 let host = Arc::clone(host);
-                std::thread::spawn(move || {
+                // A thread the OS refuses drops this connection, never the listener.
+                let spawned = std::thread::Builder::new().spawn(move || {
                     if let Err(e) = serve_one(&host, stream, peer, pending) {
                         eprintln!("cmux host: {peer}: {e:#}");
                     }
                 });
+                if let Err(e) = spawned {
+                    eprintln!("cmux host: refused {peer}: cannot start its thread: {e}");
+                }
             }
             Err(e) => eprintln!("cmux host: accept failed: {e}"),
         }
@@ -485,5 +517,23 @@ fn copy_flush(from: &mut impl Read, to: &mut impl Write) -> io::Result<u64> {
         to.write_all(&buf[..n])?;
         to.flush()?;
         total += n as u64;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ListenerStopped;
+
+    #[test]
+    fn a_listener_that_panics_still_counts_as_stopped() {
+        let (done, events) = std::sync::mpsc::channel();
+        let stopped = ListenerStopped(done.clone());
+        let thread = std::thread::spawn(move || {
+            let _stopped = stopped;
+            panic!("the OS refused a thread");
+        });
+        assert!(thread.join().is_err());
+        assert_eq!(events.try_recv(), Ok(None));
+        drop(done);
     }
 }

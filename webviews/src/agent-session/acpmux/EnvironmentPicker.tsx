@@ -52,6 +52,8 @@ const CLOUD_STAGE_LABELS: Record<string, StringKey> = {
   creating: "composer.envStarting",
   booting: "composer.envStarting",
   connecting: "composer.envStarting",
+  // A machine that failed to start says so, never "Not connected", which reads as a link to fix.
+  failed: "switch.failedShort",
 };
 function cloudMachineLabel(machine: CloudMachine): string {
   return t(CLOUD_STAGE_LABELS[machine.stage] ?? "composer.envNotConnected");
@@ -87,7 +89,7 @@ export type SavedEnvironmentRows = {
   onEdit(id: string): void;
 };
 
-/// The environment picker (preview, `labs.previewFeatures`): one searchable list of every machine
+/// The environment picker (not behind Labs since Leo's 2026-10-30 order): one searchable list of every machine
 /// acpmux lists, in This Mac, My machines and Cloud and VMs sections (environments.ts), the ones a
 /// chat can start on first and the rest greyed with their state; ⌥⌘1–9 on the first nine that can
 /// take a chat. Cloud is always a section: its machines, then New
@@ -96,7 +98,7 @@ export type SavedEnvironmentRows = {
 /// work while the composer it heads has focus. On the New Tab page it also lists the saved
 /// environments (`saved`) first. A started chat's picker lists only where it runs and its move
 /// (`offload`): Move to Cloud from this Mac, Bring Back Local from a Cloud machine. A new chat with
-/// `runMode` (Labs, hq#3367) also offers Sandboxed as New Cloud Machine's other face, with no row of
+/// `runMode` (hq#3367) also offers Sandboxed as New Cloud Machine's other face, with no row of
 /// its own: shown while ⌥ is held, while the search names it, and while it is the pick.
 export function EnvironmentPicker({
   label,
@@ -107,11 +109,13 @@ export function EnvironmentPicker({
   current,
   onPick,
   onConnect,
+  cloudSignedIn,
   saved,
   onOpen,
   offload,
   onOffload,
   runMode,
+  closeOnTrustAsk = false,
 }: {
   label: string;
   /// The name automation opens it by (`openPicker`).
@@ -124,6 +128,10 @@ export function EnvironmentPicker({
   current: string;
   onPick(id: string): void;
   onConnect?(kind: ConnectKind): void;
+  /// The app's Cloud account state; only an explicit signed-in reply hides the sign-in action.
+  /// A fresh home can have no Cloud section or no reply from the host yet, and is still signed out
+  /// for the purpose of offering the existing sign-in entry point.
+  cloudSignedIn?: boolean;
   saved?: SavedEnvironmentRows;
   /// The list opened, and every few seconds while it stays open: the host reads the machines
   /// again, so each one's status is current.
@@ -131,16 +139,23 @@ export function EnvironmentPicker({
   /// A started chat's move, run by `onOffload`.
   offload?: OffloadKind;
   onOffload?(kind: OffloadKind): void;
-  /// A new chat's Run as (preview, hq#3367): Persistent (a chat, as before) or Sandboxed (the
+  /// A new chat's Run as (hq#3367): Persistent (a chat, as before) or Sandboxed (the
   /// first message runs once on a throwaway Cloud VM).
   runMode?: RunModeRows;
+  /// A trust question is the blocking surface; close an already-open destination menu so its
+  /// actions remain visible and clickable when the question arrives.
+  closeOnTrustAsk?: boolean;
 }) {
   // A picked saved environment is the current row: every machine row is then a change.
   const currentRow = saved?.current !== undefined ? SAVED + saved.current : current;
   const [query, setQuery] = useState("");
   const trigger = useRef<HTMLButtonElement>(null);
   const escaped = useRef(false);
-  const { control, anchor, open, setOpen, side } = useLocationPopover();
+  const { control, anchor, open, setOpen: setPopoverOpen, side, flip } = useLocationPopover();
+  const setOpen = (next: boolean) => {
+    if (next && closeOnTrustAsk) return;
+    setPopoverOpen(next);
+  };
   const reset = () => {
     setQuery("");
   };
@@ -149,6 +164,11 @@ export function EnvironmentPicker({
     if (!next) reset();
   });
   useLocationOpener(menu, () => setOpen(true));
+  useEffect(() => {
+    if (!closeOnTrustAsk || !open) return;
+    setPopoverOpen(false);
+    setQuery("");
+  }, [closeOnTrustAsk, open, setPopoverOpen]);
   // Sandboxed is the pick: no machine row is checked, and a machine pick goes back to Persistent.
   const sandboxed = runMode?.mode === "sandboxed";
   const checkedRow = sandboxed ? undefined : currentRow;
@@ -254,6 +274,16 @@ export function EnvironmentPicker({
       : []),
     ...(onConnect
       ? [
+          ...(cloudSignedIn !== true
+            ? [
+                {
+                  value: ACTION + "cloudSignIn",
+                  text: t("composer.cloudSignIn"),
+                  kind: "cloud" as const,
+                  run: () => onConnect("cloudSignIn"),
+                },
+              ]
+            : []),
           {
             value: ACTION + "cloud",
             text: t("composer.newCloudMachine"),
@@ -495,7 +525,12 @@ export function EnvironmentPicker({
         {/* A machine a chat cannot start on yet says why, greyed; one that can shows a status dot.
             Only an SSH or Cloud machine acpmux lists has a status; this Mac never shows one. */}
         {!ready && <span className="acpmux-env-state">{environmentStateLabel(environment)}</span>}
-        {ready && environment.kind !== "local" && environment.connected !== undefined && (
+        {ready && environment.loadWarning && (
+          <span className="acpmux-env-state" data-warning="true">
+            {environment.loadWarning}
+          </span>
+        )}
+        {ready && !environment.loadWarning && environment.kind !== "local" && environment.connected !== undefined && (
           <span className="acpmux-env-status" data-connected={String(environment.connected)}>
             <span className="acpmux-env-status-text">
               {t(environment.connected ? "composer.envConnected" : "composer.envNotConnected")}
@@ -538,7 +573,7 @@ export function EnvironmentPicker({
         label={label}
         className="acpmux-menu acpmux-location-menu acpmux-folder-popover acpmux-env-popover"
         side={side}
-        flip={false}
+        flip={flip}
         finalFocus={false}
       >
         <Combobox

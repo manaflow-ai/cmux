@@ -72,14 +72,17 @@ export const EDGE_MARGIN = 8;
 export const LANDING_OFFSET = 35;
 /// The transcript thread's top padding (.acpmux-thread): row tops start this far down the scroller.
 export const THREAD_PADDING_TOP = 16;
-/// A click's smooth scroll (Codex's Chromium smooth scroll, fitted), and a Previous or Next Turn step's.
+/// A bookmark jump's smooth scroll (Codex's Chromium smooth scroll, fitted), and a Previous or Next
+/// Turn step's. A click on the rail lands at once (ThreadMinimap.tsx `jump`).
 export const JUMP_CURVE = [0.35, 0.05, 0, 1] as const;
 export const STEP_CURVE = [0.3, 0.2, 0, 1] as const;
 export const STEP_MS = MOTION_MS.standard;
-/// The preview card opens this long after the pointer reaches the rail (Codex's `delayOpen`, 250 ms).
-/// Shorter than the app's 450 ms hover delay (ui/hoverIntent.ts): the rail is a deliberate target,
-/// and the card is the point of hovering it. Once one shows, the next row's follows at once.
-export const CARD_DELAY = 250;
+/// The preview card opens on the frame the pointer reaches the rail, with no dwell and no fade (Leo,
+/// 2026-10-29: "giving it faster scrttoll/hover over"; rulebook: the rail is "ultra fast ultra
+/// responsive"). The rail is a deliberate target at the pane's edge, and the card is the point of
+/// hovering it; it was Codex's 250 ms `delayOpen`. The app's other hover cards keep their dwell
+/// (ui/hoverIntent.ts).
+export const CARD_DELAY = 0;
 /// When older turns load above the rail's rows and move them, the rail glides back over this long.
 export const SHIFT_MS = MOTION_MS.standard;
 /// A jump keeps correcting its landing for up to this many frames while the rows it crossed measure.
@@ -219,7 +222,7 @@ export function cardOffset(center: number, cardHeight: number, viewportHeight: n
   return Math.max(EDGE_MARGIN, Math.min(top, max));
 }
 
-/// How long a click's smooth scroll takes for `distance` px: about 200 ms for 150 px up to 400 ms
+/// How long a bookmark jump's smooth scroll takes for `distance` px: about 200 ms for 150 px up to 400 ms
 /// for 650 px and more, as the recorded Chromium scrolls took.
 export function jumpDuration(distance: number): number {
   const share = Math.min(1, Math.max(0, (Math.abs(distance) - 150) / 500));

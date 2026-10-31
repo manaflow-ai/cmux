@@ -778,6 +778,35 @@ async fn waiting_peer_add_answers_after_a_failed_first_attempt() {
     assert!(peers[0]["error"].is_string(), "{peers:?}");
 }
 
+/// A waiting `_acpmux/peer_add` or `_acpmux/peer_reconnect` says what its wait saw: whether the
+/// connect attempt settled, and the peer as it was then, with its error. Before, the reply was
+/// the peer list alone, the same whether the attempt failed, succeeded or was still running
+/// when the 30 s wait ran out, so `host check --fix` printed "does not connect" with no reason
+/// while a 90 s handshake went on (2026-10-30).
+#[tokio::test]
+async fn a_waiting_peer_add_or_reconnect_says_whether_it_settled_and_why() {
+    let a = hub(config(PermissionPolicy::Ask)).await;
+    let mut ca = client(a.clone()).await;
+    let url = format!("ws://127.0.0.1:{}", free_port());
+    let added = ca
+        .call("_acpmux/peer_add", json!({"name": "gone", "url": url, "wait": true}))
+        .await
+        .unwrap();
+    assert_eq!(added["wait"]["settled"], true, "{added}");
+    assert_eq!(added["wait"]["peer"]["name"], "gone", "{added}");
+    assert_eq!(added["wait"]["peer"]["connected"], false, "{added}");
+    assert!(added["wait"]["peer"]["error"].is_string(), "no reason: {added}");
+    let again = ca
+        .call("_acpmux/peer_reconnect", json!({"name": "gone", "wait": true, "force": true}))
+        .await
+        .unwrap();
+    assert_eq!(again["wait"]["settled"], true, "{again}");
+    assert!(again["wait"]["peer"]["error"].is_string(), "no reason: {again}");
+    // Without `wait`, the reply is as before.
+    let quick = ca.call("_acpmux/peer_add", json!({"name": "gone", "url": url})).await.unwrap();
+    assert!(quick.get("wait").is_none(), "{quick}");
+}
+
 /// ACP-REMOTE-GUARD P1: a peer proven by its peer token has no mode rule
 /// for its own local user, but a request it forwards for its Web client
 /// carries `via: web`, and the owning daemon applies the Web's rules on its

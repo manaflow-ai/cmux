@@ -33,6 +33,7 @@ import Testing
         var candidateAnswers: [[HostCandidate]?] = []
         /// Streams the test drives by hand (``feed(_:)``), when set.
         var live: AsyncThrowingStream<String, any Error>.Continuation?
+        var termination: CheckedContinuation<Void, Never>?
         var holdNextRun = false
         var connectFails = false
 
@@ -52,7 +53,15 @@ import Testing
                     commands.append(command)
                     if holdNextRun {
                         holdNextRun = false
-                        return AsyncThrowingStream { self.live = $0 }
+                        return AsyncThrowingStream { continuation in
+                            self.live = continuation
+                            continuation.onTermination = { @Sendable _ in
+                                Task { @MainActor in
+                                    self.termination?.resume()
+                                    self.termination = nil
+                                }
+                            }
+                        }
                     }
                     let lines = scripts.isEmpty ? [] : scripts.removeFirst()
                     let stop = stops.isEmpty ? nil : stops.removeFirst()
@@ -236,7 +245,8 @@ import Testing
         #expect(model.checklist.failing?.step == .daemon)
         #expect(model.checklist.failing?.fix == "Log in on the host once so launchd can start it.")
         #expect(host.connected.isEmpty, "a failed add does not connect")
-        #expect(model.buttons == [AddMachineButton(action: .copyDetails, key: nil), AddMachineButton(action: .tryAgain, key: .return)])
+        #expect(model.buttons == [AddMachineButton(action: .copyDetails, key: nil), AddMachineButton(action: .changeHost, key: nil),
+                                  AddMachineButton(action: .tryAgain, key: .return)])
         #expect(!model.perform(.copyDetails))
         #expect(host.copied.first?.contains("daemon: fail - daemon status timed out (fix: Log in on the host once so launchd can start it.)") == true)
         host.scripts = [[Self.report("hb", "hb", ok: true, Self.okSteps)]]
@@ -246,6 +256,47 @@ import Testing
         #expect(model.phase == .ready(HostReport(name: "hb", host: "hb", ok: true, steps: Self.okSteps.compactMap { line in
             if case let .step(step)? = HostLine.parse(line) { step } else { nil }
         })))
+    }
+
+    @Test func changeHostAfterAFailedAddReturnsToTheFieldsWithTheirText() async throws {
+        let fail = Self.step("reach", "fail", "ssh: Could not resolve hostname huge-blu", fix: "Check the host name.")
+        host.scripts = [[fail, Self.report("lab", "leo@huge-blu", ok: false, [fail])]]
+        host.stops = [HostCLIStopFixture(message: "exit 1")]
+        model.begin(destination: "leo@huge-blu", name: "lab")
+        model.perform(.add)
+        _ = await model.finished()
+        guard case .failed = model.phase else { Issue.record("not failed: \(model.phase)"); return }
+        #expect(model.buttons == [AddMachineButton(action: .copyDetails, key: nil), AddMachineButton(action: .changeHost, key: nil),
+                                  AddMachineButton(action: .tryAgain, key: .return)])
+        #expect(AddMachineStrings.title(.changeHost, phase: model.phase) == "Change Host")
+        let probes = host.probes.count
+
+        #expect(!model.perform(.changeHost), "the card stays open")
+        #expect(model.phase == .pick)
+        #expect(model.destination == "leo@huge-blu" && model.name == "lab", "the fields keep what was typed")
+        #expect(model.checklist.failing == nil, "the old attempt's checklist is gone")
+        #expect(host.commands.count == 1, "editing runs nothing")
+        #expect(model.buttons.last == AddMachineButton(action: .add, key: .return, enabled: true))
+        try await waitFor { host.probes.count > probes }
+        #expect(model.phase == .pick, "the tailnet list loads again and nothing runs")
+
+        host.scripts = [[Self.report("lab", "leo@huge-blue", ok: true, Self.okSteps)]]
+        model.destination = "leo@huge-blue"
+        model.perform(.add)
+        _ = await model.finished()
+        #expect(host.commands == [.enroll(host: "leo@huge-blu", name: "lab"), .enroll(host: "leo@huge-blue", name: "lab")])
+        guard case .ready = model.phase else { Issue.record("not ready: \(model.phase)"); return }
+    }
+
+    @Test func changeHostIsOnlyOfferedForAFailedAdd() async {
+        host.scripts = [[Self.report("hb", "hb", ok: false, [Self.step("daemon", "fail", "down")])]]
+        model.beginCheck(host: "hb", machineID: "ssh-hb")
+        _ = await model.finished()
+        guard case .failed = model.phase else { Issue.record("not failed: \(model.phase)"); return }
+        #expect(!model.buttons.map(\.action).contains(.changeHost))
+        model.perform(.changeHost)
+        guard case .failed = model.phase else { Issue.record("Change Host moved Check Machine: \(model.phase)"); return }
+        #expect(host.commands.count == 1)
     }
 
     @Test func aRunThatEndsWithoutAReportFailsTheStepItStoppedOn() async {
@@ -357,6 +408,36 @@ import Testing
         #expect(model.perform(.cancel))
         #expect(model.phase == .pick)
         #expect(host.recorded.isEmpty)
+    }
+
+    @Test func cancelAfterAnInstallReportDoesNotStartTheFallbackInstall() async throws {
+        host.holdNextRun = true
+        model.begin(destination: "test-machine")
+        model.perform(.add)
+        try await waitFor { host.live != nil }
+        let live = try #require(host.live)
+        let installFail = Self.step("install", "fail", "use the app build", reason: "wrong-platform")
+        live.yield(Self.report("test-machine", "test-machine", ok: false, [Self.step("reach", "ok"), installFail]))
+        try await waitFor { model.checklist.row(.install)?.status == .done(.fail) }
+        #expect(model.phase == .running, "the report arrived, but the stream has not ended")
+        #expect(host.installs.isEmpty)
+
+        let terminated = Task {
+            await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+                host.termination = done
+            }
+        }
+        try await waitFor { host.termination != nil }
+        #expect(model.perform(.cancel))
+        live.finish()
+        _ = await terminated.value
+
+        #expect(host.installs.isEmpty, "a retained report must not start installation after Cancel")
+        #expect(host.connected.isEmpty)
+        #expect(host.recorded.isEmpty)
+        #expect(model.machineID == nil)
+        #expect(model.phase == .pick)
+        #expect(model.checklist.row(.install)?.status == .done(.fail))
     }
 
     @Test func aDestinationFromOutsideOnlyFillsTheCard() async {

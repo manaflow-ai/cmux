@@ -57,17 +57,21 @@ public nonisolated struct SidebarMachine: Hashable, Sendable {
         /// The machine answers, but its cmux-tui did not start (or the
         /// remote command failed); the detail carries its error.
         case failed
+        /// A Cloud machine that ran lost its link or had it revoked; a
+        /// click connects it again. The detail carries why.
+        case disconnected
         /// A Cloud machine its owner (or a caller) paused; resumes on attach.
         case paused
         /// A Cloud machine the idle auto-pause parked; resumes on attach.
         case pausedIdle
 
         /// The machine cannot connect until the person acts (sign-in,
-        /// network, install or update). In one list its workspaces' second
-        /// line names the status (cx-mdo0); no header or status row shows.
+        /// network, install or update). In one list its workspaces' rows say
+        /// the status to VoiceOver and an expanded row's meta line names it
+        /// (cx-mdo0); no header or status row shows.
         public var needsAttention: Bool {
             switch self {
-            case .authFailed, .unreachable, .installRequired, .updateRequired, .failed: true
+            case .authFailed, .unreachable, .installRequired, .updateRequired, .failed, .disconnected: true
             case .connected, .connecting, .reconnecting, .offline, .updateAvailable, .installing, .paused, .pausedIdle: false
             }
         }

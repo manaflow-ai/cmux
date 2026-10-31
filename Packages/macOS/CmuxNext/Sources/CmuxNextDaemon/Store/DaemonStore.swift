@@ -118,6 +118,14 @@ public final class DaemonStore: StateResourceQueries {
     var workspacesByKey: [WorkspaceKey: WorkspaceModel] { index.workspacesByKey }
     var tabGroupsByID: [TabGroupID: TabGroupModel] { index.tabGroupsByID }
     @ObservationIgnored public internal(set) var agents = AgentRoster()
+    /// Presence that arrived before its tab was indexed (an agent hook right after its terminal is
+    /// created, a restored session, a hook replayed on reconnect). No snapshot carries presence, so
+    /// the tab takes it from here when it is indexed (`prime`). Live-only like the tabs': a clear
+    /// drops it (`clearPresence`), and it holds at most ``heldPresenceLimit`` surfaces.
+    @ObservationIgnored var heldPresence: [SurfaceID: AgentPresence] = [:]
+    /// The most surfaces whose presence is held for a tab not indexed yet.
+    static let heldPresenceLimit = 256
+    var heldPresenceCount: Int { heldPresence.count }
     @ObservationIgnored var directories = TerminalDirectories()
     /// Pending typed intents shown on top of the confirmed mirror
     /// (DaemonStore+Intents.swift).
@@ -431,6 +439,7 @@ public final class DaemonStore: StateResourceQueries {
     /// What a tab learns when it is indexed: its agent and its observed folder.
     private func prime(_ tab: TabModel) {
         if tab.agent == nil, let agent = agents.bySurface[tab.surface] { tab.setAgent(agent) }
+        if let presence = heldPresence.removeValue(forKey: tab.surface) { tab.setPresence(presence) }
         tab.setObservedCwd(directories.directory(for: tab.surface))
     }
 

@@ -57,24 +57,17 @@ fn text(args: &[String]) -> Option<String> {
         ["status", ..] => return Some(super::super::scope_help::STATUS_HELP.to_owned()),
         ["agent", "open"] => return Some(messages.agent_open_usage.to_owned()),
         ["agent", "open-tab"] => return Some(messages.agent_open_tab_usage.to_owned()),
-        ["cloud", "exec"] => {
+        ["cloud", verb] => {
+            let japanese = crate::localization::catalog().is_japanese();
             return Some(
-                if crate::localization::catalog().local_server.cmux_root_help.contains("SCOPES") {
-                    "usage: cmux cloud exec --target machine:MACHINE_ID --command COMMAND"
-                } else {
-                    "使い方: cmux cloud exec --target machine:MACHINE_ID --command COMMAND"
-                }
-                .into(),
+                super::super::cloud_help::verb_help(verb, japanese)
+                    .unwrap_or_else(|| super::super::cloud_help::overview(japanese)),
             );
         }
         ["cloud", ..] => {
-            return Some(
-                if crate::localization::catalog().local_server.cmux_root_help.contains("SCOPES") {
-                    super::super::CLOUD_HELP.to_owned()
-                } else {
-                    super::super::CLOUD_HELP_JA.to_owned()
-                },
-            );
+            return Some(super::super::cloud_help::overview(
+                crate::localization::catalog().is_japanese(),
+            ));
         }
         // The classic `cmux identify|ping|capabilities` are `cmux app …`.
         ["identify" | "ping" | "capabilities"] => {
@@ -158,12 +151,16 @@ Lists the app's AI provider accounts; secrets are never printed.";
 
 const OPEN_HELP: &str = "\
 usage: cmux open <path|url>... [--workspace <ws_…>] [--focus [true|false]] [--no-focus]
+       cmux open --as-text <file>... [--focus [true|false]] [--no-focus]
        cmux open - [--workspace <ws_…>] [--focus [true|false]] [--no-focus]
        cmux open --link [--caller <names>] [--target <target>] (<url>... | -)
 URLs open as a browser tab in the caller's pane (or the --workspace pane),
 folders in a new workspace, files in the app. `open -` reads one http(s) URL
 per stdin line, so a URL with a token never appears in argv; it checks every
 line first and stops at the first URL the app refuses.
+--as-text (or --source) opens HTML, SVG and Markdown files as their source in
+the code editor instead of rendered; Edit Source and Open as Page on a tab
+switch between the two (cmux browser edit-source, cmux file open-as-page).
 --link opens each URL the way a program's browser in a cmux terminal does
 (BROWSER=cmux-open-url): where the terminal.linkOpener setting says, a cmux
 browser tab beside the caller by default. --caller names the programs that

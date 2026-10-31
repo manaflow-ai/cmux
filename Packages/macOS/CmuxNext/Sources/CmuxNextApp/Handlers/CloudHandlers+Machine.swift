@@ -51,7 +51,7 @@ extension CloudHandlers {
                 // Typing into a tab gives a CLI or agent nothing to read: refuse instead.
                 guard session.machine.allows(.exec) else { throw ActionFailure(message: CloudStrings.execUnavailable(session.machineID)) }
                 return result("exec on Cloud machine", context) {
-                    let ran = try await cloud.api.exec(session.machineID, command: command, timeoutMs: execTimeoutMs)
+                    let ran = try await cloud.machineAPI.exec(session.machineID, command: command, timeoutMs: execTimeoutMs)
                     return ["machine_id": .string(session.machineID), "exit_code": .int(ran.exitCode),
                             "stdout": .string(ran.stdout), "stderr": .string(ran.stderr)]
                 }
@@ -68,7 +68,7 @@ extension CloudHandlers {
         bind("cloudFilesList", registry, reason: reason) { invocation in
             let session = try machine(invocation, context), path = try filePath(invocation)
             answer("list Cloud files", invocation, context) {
-                let entries = try await cloud.api.listFiles(session.machineID, path: path)
+                let entries = try await cloud.machineAPI.listFiles(session.machineID, path: path)
                 let body = entries.map { entry in
                     var line = entry.kind == "directory" ? "d" : "-"
                     line += " \(entry.name)"
@@ -82,7 +82,7 @@ extension CloudHandlers {
         bind("cloudFileRead", registry, reason: reason) { invocation in
             let session = try machine(invocation, context), path = try filePath(invocation)
             answer("read Cloud file", invocation, context) {
-                let contents = try await cloud.api.readFile(session.machineID, path: path)
+                let contents = try await cloud.machineAPI.readFile(session.machineID, path: path)
                 var fields: [String: ActionResultValue] = ["path": .string(path), "encoding": .string(contents.text == nil ? "base64" : "utf8")]
                 if contents.text == nil { fields["data_base64"] = .string(contents.dataBase64) }
                 if let size = contents.size { fields["size"] = .int(Int(size)) }
@@ -93,21 +93,21 @@ extension CloudHandlers {
             let session = try machine(invocation, context), path = try filePath(invocation)
             guard let contents = invocation["contents"]?.stringValue else { throw ActionFailure(message: CloudStrings.fileContentsRequired) }
             runTracked("write Cloud file", context) {
-                try await cloud.api.writeFile(session.machineID, path: path, data: Data(contents.utf8))
+                try await cloud.machineAPI.writeFile(session.machineID, path: path, data: Data(contents.utf8))
             }
         }
         bind("cloudFileMkdir", registry, reason: reason) { invocation in
             let session = try machine(invocation, context), path = try filePath(invocation)
-            runTracked("create Cloud directory", context) { try await cloud.api.makeDirectory(session.machineID, path: path) }
+            runTracked("create Cloud directory", context) { try await cloud.machineAPI.makeDirectory(session.machineID, path: path) }
         }
         bind("cloudFileRemove", registry, reason: reason) { invocation in
             let session = try machine(invocation, context), path = try filePath(invocation)
-            runTracked("remove Cloud file", context) { try await cloud.api.removeFile(session.machineID, path: path) }
+            runTracked("remove Cloud file", context) { try await cloud.machineAPI.removeFile(session.machineID, path: path) }
         }
         bind("cloudFileStat", registry, reason: reason) { invocation in
             let session = try machine(invocation, context), path = try filePath(invocation)
             answer("stat Cloud file", invocation, context) {
-                let stat = try await cloud.api.statFile(session.machineID, path: path)
+                let stat = try await cloud.machineAPI.statFile(session.machineID, path: path)
                 var body = ["kind: \(stat.kind)"]
                 var fields: [String: ActionResultValue] = ["path": .string(path), "kind": .string(stat.kind)]
                 if let size = stat.size {
@@ -186,6 +186,14 @@ extension CloudHandlers {
                 try await cloud.resumeMachine(session.machineID)
             }
         }
+        // A live daemon proves Resume is redundant. Cached API status cannot: idle-pause
+        // and app-link resume can both change the server without refreshing that record.
+        // This only changes menu visibility; explicit commands remain idempotent.
+        ActionTargetVisibility.hide("cloudResumeMachine", in: registry) { invocation in
+            guard let session = try? machine(invocation, context), session.daemon.connection != nil else { return false }
+            if case .connected = session.daemon.store.connectionState { return true }
+            return false
+        }
         bind("cloudCopyMachineID", registry, reason: reason) { invocation in CloudPresenter.copy(try machine(invocation, context).machineID) }
         bind("cloudCopyPort", registry, reason: reason) { invocation in
             let session = try machine(invocation, context), port = try port(invocation)
@@ -228,7 +236,7 @@ extension CloudHandlers {
                 do { config = try await request.loadMachineConfig(work: work) ?? CloudMachineConfig(contents: nil) } catch let unreadable as CloudMachineRequest.ScriptUnreadable {
                     throw ActionFailure(message: CloudStrings.machineConfigUnreadable(unreadable.path))
                 }
-                let outcome = await config.apply(on: CloudMachineBootstrap.Machine(api: cloud.api, machineID: machineID))
+                let outcome = await config.apply(on: CloudMachineBootstrap.Machine(api: cloud.machineAPI, machineID: machineID))
                 guard outcome.status != "failed" else { throw ActionFailure(message: outcome.reason ?? "apply machine config failed") }
                 return ["machine_id": .string(machineID), "machine_config": machineConfigAnswer(outcome, machineID: machineID)]
             }
@@ -241,10 +249,13 @@ extension CloudHandlers {
                 // Stats are a separate provider read, while idle-pause diagnostics
                 // live on the VM record. Fetch both so a status action observes a
                 // cron decision written after the sidebar last refreshed.
+                let read = cloud.beginRecordRead(machineID: session.machineID)
+                defer { cloud.finishRecordRead(read) }
                 async let statsRequest = cloud.api.stats(session.machineID)
                 async let recordRequest = cloud.api.machine(session.machineID)
                 let (stats, record) = try await (statsRequest, recordRequest)
-                session.machine = record
+                // Through the list's own path: a pause suspends the link, a resume connects it.
+                cloud.apply(record, to: session, read: read)
                 return CloudAnswer(title: CloudStrings.statusTitle, text: describe(session, stats), fields: statusFields(session, stats))
             }
         }
@@ -262,7 +273,7 @@ extension CloudHandlers {
         bind("palette.cloud.tools", registry, reason: reason) { invocation in
             let session = try machine(invocation, context); guard session.machine.allows(.exec) else { throw operationUnavailable }
             answer("machine tools", invocation, context) {
-                let result = try await cloud.api.exec(session.machineID, command: toolsProbe)
+                let result = try await cloud.machineAPI.exec(session.machineID, command: toolsProbe)
                 return CloudAnswer(title: CloudStrings.toolsTitle, text: result.stdout,
                                    fields: ["machine_id": .string(session.machineID), "exit_code": .int(result.exitCode)])
             }
@@ -444,7 +455,7 @@ extension CloudHandlers {
                                                     "check": .string("cmux cloud deliver-secrets --target machine:\(machineID)")]
         result("deliver Cloud secrets", context, pendingAfter: .seconds(30), pending: pending) {
             defer { cloud.deliveringSecrets.remove(machineID) }
-            let read = { (path: String) in (try? await cloud.api.readFile(machineID, path: path)).flatMap { Data(base64Encoded: $0.dataBase64) } }
+            let read = { (path: String) in (try? await cloud.machineAPI.readFile(machineID, path: path)).flatMap { Data(base64Encoded: $0.dataBase64) } }
             guard let declared = CloudMachineSecrets.declared(status: await read(CloudMachineConfig.statusPath)) else {
                 throw ActionFailure(message: CloudStrings.machineConfigNotApplied)
             }
@@ -475,7 +486,7 @@ extension CloudHandlers {
             // 0644 and run with `sh`: the file API may write as root, and the terminal runs as the work user.
             // The receiver holds no value; the folder is the work user's 0700 one (the config apply made it),
             // so its ticket (below) is readable by that user and root only.
-            try await cloud.api.writeFile(machineID, path: CloudMachineSecrets.receiverPath, data: Data(CloudMachineSecrets.receiver.utf8), mode: 0o644)
+            try await cloud.machineAPI.writeFile(machineID, path: CloudMachineSecrets.receiverPath, data: Data(CloudMachineSecrets.receiver.utf8), mode: 0o644)
             let key = try await terminalAnchor(on: session, context).key
             // The handle is "<surface> <terminal id>": the surface takes input and waits, the id closes it.
             let surface: @Sendable (String) -> SurfaceID = { SurfaceID(rawValue: $0.split(separator: " ").first.flatMap { UInt64($0) } ?? 0) }
@@ -484,7 +495,7 @@ extension CloudHandlers {
             let link = CloudMachineSecrets.Link(
                 // Like the receiver: 0644 in the work user's 0700 folder, so only it (and root) can read it.
                 writeTicket: { ticket in
-                    try await cloud.api.writeFile(machineID, path: CloudMachineSecrets.ticketPath, data: ticket, mode: 0o644)
+                    try await cloud.machineAPI.writeFile(machineID, path: CloudMachineSecrets.ticketPath, data: ticket, mode: 0o644)
                 },
                 start: { argv in
                     // An explicit empty environment: nil would take the app's terminal environment provider,
@@ -506,7 +517,7 @@ extension CloudHandlers {
             let count: Int
             do { count = try await CloudMachineSecrets.deliver(values, over: link) } catch {
                 // A receiver that never started leaves its ticket: emptied, so no stale key stays behind.
-                try? await cloud.api.writeFile(machineID, path: CloudMachineSecrets.ticketPath, data: Data(), mode: 0o644)
+                try? await cloud.machineAPI.writeFile(machineID, path: CloudMachineSecrets.ticketPath, data: Data(), mode: 0o644)
                 guard let failed = error as? CloudMachineSecrets.DeliveryFailed else {
                     // Only the kind of failure: no error text near the values reaches a log or the caller.
                     throw ActionFailure(message: CloudStrings.secretsNotDelivered(String(describing: type(of: error))))

@@ -135,3 +135,42 @@ fn work_below_the_turn_is_working_unless_the_chat_failed_or_its_peer_went() {
     done["subagentsWorkingSince"] = Value::Null;
     assert_eq!(status_indicator(&done), Some("done"));
 }
+
+/// A harness title that is a whole prompt shows as its first 200 characters in every summary; a
+/// shorter one is untouched, its spacing too.
+#[test]
+fn a_summary_title_is_at_most_200_characters() {
+    use super::{TITLE_CHARS, summary_title};
+    let short = "Fix  the\nsidebar";
+    assert_eq!(summary_title(short), short);
+    let edge = "é".repeat(TITLE_CHARS);
+    assert_eq!(summary_title(&edge), edge);
+    let prompt = "You are a fix helper. ".repeat(400);
+    let cut = summary_title(&prompt);
+    assert_eq!(cut.chars().count(), TITLE_CHARS + 1, "{cut}");
+    assert!(cut.ends_with('…') && prompt.starts_with(cut.trim_end_matches('…').trim_end()));
+}
+
+/// A peer's row heard as a census row is cut the same, whatever acpmux the peer runs.
+#[test]
+fn a_peers_census_row_cuts_its_title_too() {
+    let row =
+        json!({"sessionId": "p", "title": "x".repeat(5_000), "tools": [], "toolsMutable": true});
+    let census = super::without_summary_tools(row);
+    assert_eq!(census["title"].as_str().unwrap().chars().count(), super::TITLE_CHARS + 1);
+    assert!(census.get("tools").is_none() && census.get("toolsMutable").is_none());
+    let short = super::without_summary_tools(json!({"sessionId": "p", "title": "a  b"}));
+    assert_eq!(short["title"], "a  b");
+}
+
+/// A secret the title's cut would split is masked whole first: no head of it is left for a
+/// peer's masking to miss.
+#[test]
+fn a_secret_across_the_title_cut_is_masked_before_the_cut() {
+    let title = format!("{} {} {}", "a".repeat(180), github_token(), "b".repeat(300));
+    let cut = super::summary_title(&title);
+    assert!(!cut.contains("ghp_"), "{cut}");
+    assert!(cut.chars().count() <= super::TITLE_CHARS + 1, "{cut}");
+    let census = super::without_summary_tools(json!({"title": title}));
+    assert!(!census["title"].as_str().unwrap().contains("ghp_"), "{census}");
+}

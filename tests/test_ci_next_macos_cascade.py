@@ -11,6 +11,7 @@ import importlib.util
 import contextlib
 import io
 import itertools
+import json
 import os
 import re
 import subprocess
@@ -113,6 +114,162 @@ class Counts(unittest.TestCase):
         self.assertEqual(cascade.queued({"generated_at": "2026-10-19T21:58:00Z", "pools": {}}, NOW),
                          {LARGE: 0, SMALL: 0})
 
+    def test_legacy_health_record_with_no_queue_keeps_live_route(self):
+        shot = snapshot(minutes_old=1)
+        shot["pools"][GUI] = {"queued": 0, "running": 1, "oldest_queued_minutes": 0}
+        self.assertFalse(cascade.owned_label_full(shot, GUI, NOW))
+
+    def test_authoritative_gates_replace_legacy_pool_queue_counts(self):
+        shot = snapshot(minutes_old=1, large=99)
+        shot["gates"] = {"version": 1, "as_of": "2026-10-19T21:59:00Z", "labels": {
+            GUI: {"listening": 0, "busy": 9, "held_offline": {"total": 9, "units": 9, "cpu": 0, "livelock": 0, "other": 0},
+                  "down": 0, "unreported": 0, "queued": 2, "oldest_queued_s": 240,
+                  "as_of": "2026-10-19T21:59:00Z"}}}
+        self.assertTrue(cascade.owned_label_full(shot, GUI, NOW))
+        shot["gates"]["labels"][GUI].update(listening=1, held_offline={"total": 0}, queued=0, oldest_queued_s=0)
+        self.assertFalse(cascade.owned_label_full(shot, GUI, NOW))
+
+    def test_fresh_gate_listener_does_not_depend_on_artifact_age(self):
+        gates = {"version": 1, "labels": {GUI: {
+            "as_of": "2026-10-19T21:59:00Z", "listening": 1,
+            "held_offline": {"total": 0}, "queued": 1, "oldest_queued_s": 240}}}
+        for shot in ({"gates": gates}, {**snapshot(minutes_old=20), "gates": gates}):
+            with self.subTest(shot=shot):
+                self.assertFalse(cascade.owned_label_full(shot, GUI, NOW, queued_wait_s=300))
+                seen = cascade.seen(shot, NOW)
+                self.assertTrue(seen.owned_full_known[GUI])
+                self.assertFalse(seen.owned_full[GUI])
+                self.assertEqual(seen.owned[GUI], 5)
+
+    def test_gate_reading_preserves_stale_nightly_reservations(self):
+        shot = snapshot(minutes_old=20)
+        shot["pools"][SMALL]["reserved_queued"] = 1
+        shot["gates"] = {"version": 1, "labels": {GUI: {
+            "as_of": "2026-10-19T21:59:00Z", "listening": 1, "queued": 0}}}
+        seen = cascade.seen(shot, NOW)
+        self.assertTrue(seen.stale)
+        self.assertEqual(seen.reserved, {SMALL: 1})
+        self.assertFalse(seen.owned_full[GUI])
+
+    def test_slow_runner_read_still_evaluates_local_fleet_gates(self):
+        gates = {"version": 1, "labels": {GUI: {
+            "as_of": "2026-10-19T21:59:00Z", "listening": 0,
+            "held_offline": {"total": 1}, "queued": 1, "oldest_queued_s": 240}}}
+        clock = iter([0, cascade.READ_BUDGET_SECONDS + 1])
+        with mock.patch.object(cascade, "Api") as api:
+            api.return_value.in_flight.return_value = {LARGE: 0, SMALL: 0}
+            live, waiting, seen = cascade.read(
+                env(CI_FLEET_GATES=json.dumps(gates), ROUTE_TOKEN="test", GITHUB_REPOSITORY="manaflow-ai/cmux"),
+                mock.Mock(), now=NOW, clock=lambda: next(clock), log=lambda _: None)
+        self.assertIsNone(waiting)
+        self.assertTrue(seen.owned_full[GUI])
+
+    def test_gate_missing_timestamp_does_not_claim_a_live_listener(self):
+        shot = {"gates": {"labels": {GUI: {"listening": 1}}}}
+        self.assertTrue(cascade.owned_label_full(shot, GUI, NOW, queued_wait_s=240))
+
+    def test_gate_variable_is_read_when_artifact_is_unavailable(self):
+        gates = {"version": 1, "labels": {GUI: {
+            "as_of": "2026-10-19T21:59:00Z", "listening": 1, "queued": 0}}}
+        live, waiting, seen = cascade.read(env(CI_FLEET_GATES=json.dumps(gates)),
+                                           mock.Mock(), now=NOW, log=lambda _: None)
+        self.assertIsNone(waiting)
+        self.assertTrue(seen.owned_full_known[GUI])
+        self.assertFalse(seen.owned_full[GUI])
+
+    def test_gate_queue_does_not_add_age_to_rescues_live_wait(self):
+        shot = {"gates": {"labels": {GUI: {
+            "as_of": "2026-10-19T21:58:00Z", "listening": 0,
+            "held_offline": {"total": 1}, "queued": 1, "oldest_queued_s": 120}}}}
+        self.assertFalse(cascade.owned_label_full(shot, GUI, NOW, queued_wait_s=120))
+        self.assertTrue(cascade.owned_label_full(shot, GUI, NOW))
+
+    def test_owned_health_full_then_overflows(self):
+        shot = snapshot(minutes_old=1)
+        shot["pools"][GUI] = {"listening": 0, "busy": 9,
+                               "held_offline": {"units": 9, "cpu": 0, "livelock": 0},
+                               "queued": 2, "oldest_queued_s": 240,
+                               "as_of": "2026-10-19T21:59:00Z"}
+        self.assertTrue(cascade.owned_label_full(shot, GUI, NOW))
+
+    def test_owned_health_stale_then_overflows(self):
+        shot = snapshot(minutes_old=6)
+        shot["pools"][GUI] = {"listening": 0, "busy": 9,
+                               "held_offline": {"units": 9}, "queued": 1,
+                               "oldest_queued_s": 240,
+                               "as_of": "2026-10-19T21:54:00Z"}
+        self.assertTrue(cascade.owned_label_full(shot, GUI, NOW))
+
+    def test_stale_health_does_not_invent_a_queue(self):
+        for label in (GUI, SIDE):
+            shot = {"gates": {"labels": {label: {
+                "as_of": "2026-10-19T21:54:00Z", "listening": 1,
+                "queued": 0, "oldest_queued_s": 0}}}}
+            with self.subTest(label=label):
+                self.assertFalse(cascade.owned_label_full(shot, label, NOW))
+                self.assertFalse(cascade.owned_label_full(shot, label, NOW, queued_wait_s=120))
+                self.assertTrue(cascade.owned_label_full(shot, label, NOW, queued_wait_s=181))
+
+    def test_stale_snapshot_queue_includes_snapshot_age(self):
+        shot = {"gates": {"labels": {GUI: {
+            "as_of": "2026-10-19T21:54:00Z", "listening": 1,
+            "queued": 1, "oldest_queued_s": 120}}}}
+        self.assertTrue(cascade.owned_label_full(shot, GUI, NOW))
+
+    def test_stale_artifact_age_overflows_even_when_health_as_of_is_fresh(self):
+        shot = snapshot(minutes_old=6)
+        shot["pools"][GUI] = {"listening": 0, "busy": 1,
+                               "held_offline": {"units": 1, "cpu": 0, "livelock": 0},
+                               "queued": 1, "oldest_queued_s": 120,
+                               "as_of": "2026-10-19T21:59:00Z"}
+        self.assertTrue(cascade.owned_label_full(shot, GUI, NOW))
+
+    def test_owned_health_with_a_listening_runner_waits(self):
+        shot = snapshot(minutes_old=1)
+        shot["pools"][GUI] = {"listening": 1, "busy": 1,
+                               "held_offline": {"units": 0, "cpu": 0, "livelock": 0},
+                               "queued": 1, "oldest_queued_s": 240,
+                               "as_of": "2026-10-19T21:59:00Z"}
+        self.assertFalse(cascade.owned_label_full(shot, GUI, NOW))
+
+    def test_blacksmith_label_outage_over_thirty_minutes_is_dead(self):
+        shot = snapshot(minutes_old=1, large=2)
+        shot["bs_health"] = {"label_outages": [{"pool": LARGE, "queued": 2,
+                                                    "oldest_wait_s": 120,
+                                                    "last_start_s": 1900}]}
+        self.assertTrue(cascade.label_full_or_dead(LARGE, shot, live=0, queued=2, now=NOW))
+
+    def test_fresh_owned_gates_do_not_extend_expired_blacksmith_outages(self):
+        for minutes_old, expected in ((1, True), (20, False)):
+            with self.subTest(minutes_old=minutes_old):
+                shot = snapshot(minutes_old=minutes_old, large=2)
+                shot["bs_health"] = {"label_outages": [
+                    {"pool": LARGE, "queued": 2, "last_start_s": 1900}]}
+                shot["gates"] = {"version": 1, "labels": {GUI: {
+                    "listening": 1, "queued": 0, "as_of": NOW.isoformat()}}}
+                reading = cascade.seen(shot, NOW)
+                self.assertIsNotNone(reading)
+                self.assertEqual(cascade.label_full_or_dead(
+                    LARGE, reading.snapshot, now=NOW), expected)
+                # Capacity counts from the same expired artifact expire too.
+                shot["bs_health"] = {}
+                shot["pools"][LARGE].update(cap=5, running=5)
+                self.assertEqual(cascade.label_full_or_dead(
+                    LARGE, shot, now=NOW), expected)
+
+    def test_blacksmith_label_at_cap_with_backlog_is_full(self):
+        shot = snapshot(minutes_old=1, small=1)
+        shot["pools"][SMALL]["cap"] = 5
+        shot["pools"][SMALL]["running"] = 5
+        self.assertTrue(cascade.label_full_or_dead(SMALL, shot, live=0, queued=1, now=NOW))
+
+    def test_blacksmith_recent_start_is_not_dead(self):
+        shot = snapshot(minutes_old=1, large=2)
+        shot["bs_health"] = {"label_outages": [{"pool": LARGE, "queued": 2,
+                                                    "oldest_wait_s": 2400,
+                                                    "last_start_s": 120}]}
+        self.assertFalse(cascade.label_full_or_dead(LARGE, shot, live=0, queued=2, now=NOW))
+
     def test_the_pools_other_labels_count_from_the_snapshot(self):
         shot = snapshot(large=1, small=2)
         shot["pools"][MACOS_15] = {"queued": 4, "running": 3}
@@ -203,6 +360,30 @@ class Cascade(unittest.TestCase):
         self.assertEqual(cascade.retry_label({LARGE: 0, SMALL: 9}, {LARGE: 0, SMALL: 0}, (LARGE,)), SMALL)
         self.assertEqual(cascade.retry_label({LARGE: 0, SMALL: 0}, {LARGE: 0, SMALL: 0}, (LARGE, SMALL)), "")
 
+
+class FleetGateway(unittest.TestCase):
+    def test_all_full_routes_reserve_only_requested_fleet_jobs(self):
+        shot = snapshot(minutes_old=1, large=1, small=1)
+        for label in (LARGE, SMALL, SIDE):
+            shot["pools"][label] = {"cap": 1, "running": 1, "queued": 1,
+                                     "listening": 0, "held_offline": {"units": 1, "cpu": 0, "livelock": 0},
+                                     "oldest_queued_s": 240, "as_of": "2026-10-19T21:59:00Z"}
+        result = cascade.place(env(FLEET_CLIENT_JOBS="fast-tier"), (),
+                               {LARGE: 5, SMALL: 10}, {LARGE: 1, SMALL: 1}, cascade.seen(shot, NOW), saturated=True)
+        self.assertEqual(result.fleet_jobs, ("fast-tier",))
+
+    def test_gateway_output_is_reserved_without_wiring_raw_mac_jobs(self):
+        jobs = yaml.safe_load(WORKFLOW.read_text())["jobs"]
+        self.assertEqual(jobs["macos-placement"]["outputs"]["fleet_jobs"], "${{ steps.place.outputs.fleet_jobs }}")
+        for tier in (*CASCADED, *GUI_JOBS):
+            self.assertNotIn("outputs.fleet_jobs", jobs[tier]["runs-on"])
+        place = next(step for step in jobs["macos-placement"]["steps"] if step.get("id") == "place")
+        self.assertNotIn("FLEET_CLIENT_JOBS", place["env"])
+
+    def test_gateway_reservation_is_empty_without_requested_jobs(self):
+        shot = snapshot(minutes_old=1)
+        result = cascade.place(env(), (), {LARGE: 5, SMALL: 10}, {LARGE: 1, SMALL: 1}, cascade.seen(shot, NOW), saturated=True)
+        self.assertEqual(result.fleet_jobs, ())
 
 class Place(unittest.TestCase):
     def test_bot_rerun_can_place_after_a_refusal_but_a_person_rerun_stays_owned(self):
@@ -689,6 +870,15 @@ class Stall(unittest.TestCase):
         # Nothing queued is never a stall.
         self.assertEqual(cascade.stalled({LARGE: 0, SMALL: 0}, {LARGE: 0, SMALL: 0}, {LARGE: 90.0, SMALL: 90.0}), ())
 
+    def test_unread_blacksmith_counts_still_honor_declared_outage(self):
+        shot = snapshot(minutes_old=1)
+        shot["bs_health"] = {"label_outages": [{"pool": SMALL, "queued": 3,
+                                                    "last_start_s": 1900}]}
+        seen = cascade.Seen(waits={LARGE: 0.0, SMALL: 0.0}, snapshot=shot, observed_at=NOW)
+        result = cascade.place(env(), (), None, {LARGE: 0, SMALL: 3}, seen)
+        self.assertEqual(result.jobs, none_placed())
+        self.assertIn("could not be read", result.why)
+
     def test_the_incident_sends_nothing_to_blacksmith_or_hosted(self):
         result = cascade.place(env(), (), self.INCIDENT_LIVE, self.INCIDENT_QUEUED, self.incident_seen())
         self.assertEqual(result.jobs, none_placed())
@@ -861,7 +1051,7 @@ class Rerun(unittest.TestCase):
         place = next(step for step in job["steps"] if step.get("id") == "place")
         self.assertEqual(place["env"]["SIDE_LABEL"], "${{ env.CMUX_NEXT_SIDE_ROUTE }}")
 
-    def test_the_rerun_writes_the_cascade_and_no_owned_route(self):
+    def test_the_rerun_writes_the_cascade_and_only_its_allocated_side_route(self):
         place = next(step for step in self.placement_job()["steps"] if step.get("id") == "place")
         call = "python3 scripts/ci/side_lane_placement.py\n"
         self.assertEqual(place["run"].count(call), 1)
@@ -887,14 +1077,30 @@ class Rerun(unittest.TestCase):
                 # The idle mini races for the canary; the scheme compile gets 12 vCPU either way.
                 self.assertEqual(lines["owned_jobs"], " fast-tier ")
                 self.assertEqual(lines["blacksmith_12_jobs"], " cmux-scheme-compile ")
-                routes = ("runner", "gui_runner", "session_runner", "free_gui_runner", "free_session_runner",
+                routes = ("gui_runner", "session_runner", "free_gui_runner", "free_session_runner",
                           "fast_runner", "gateway_runner", "gateway_attempt", "nightly_runner_ready")
                 if attempt == "2":
                     # The GUI, session, fast and gateway jobs keep the routes a re-run always had.
                     self.assertEqual({key: lines[key] for key in routes if key in lines}, {})
                     self.assertEqual(lines["retry_runner"], "")
+                    self.assertEqual(lines["runner"], SIDE)
                 else:
                     self.assertEqual(lines["runner"], SIDE)
+
+    def test_bot_fast_tier_uses_actual_fresh_owned_placement(self):
+        idle = {"name": "side-mini", "status": "online", "busy": False,
+                "labels": [{"name": label} for label in ("self-hosted", "glaeda-light-xcode-26.6", SIDE)]}
+        runs_on = yaml.safe_load(WORKFLOW.read_text())["jobs"]["fast-tier"]["runs-on"]
+        for runners, expected in (([idle], SIDE), ([], SMALL)):
+            with self.subTest(idle=bool(runners)):
+                outputs = self.rerun_outputs(runners, {LARGE: 5, SMALL: 10}, {LARGE: 10, SMALL: 10},
+                                             CASCADE_RUNS=" fast-tier ")
+                context = self.route_context("2", BOT)
+                outputs["placed_attempt"] = evaluate(self.placement_job()["outputs"]["placed_attempt"], context)
+                context["needs"] = {"macos-placement": {"outputs": outputs}}
+                self.assertEqual(evaluate(runs_on, context), expected)
+                outputs["placed_attempt"] = "1"
+                self.assertEqual(evaluate(runs_on, context), SIDE)
 
     def rerun_outputs(self, runners: list, live: dict, waiting: dict, **extra: str) -> dict:
         """placement.main() on the bot's attempt 2, then the step's shell, as the runner runs them."""
@@ -928,7 +1134,7 @@ class Rerun(unittest.TestCase):
         lines = self.rerun_outputs([idle_std, busy_light], free, dict(free), CASCADE_RUNS=" cmux-scheme-compile ")
         self.assertEqual(lines["owned_jobs"], "")
         self.assertEqual(lines["blacksmith_12_jobs"], " cmux-scheme-compile ")
-        self.assertNotIn("runner", lines)
+        self.assertEqual(lines["runner"], "")
 
     def test_a_feat_push_rerun_places_no_release_compile(self):
         # Its runs-on reads the placement on attempt 1 only and takes 6 vCPU on a re-run, so a slot
@@ -1091,7 +1297,7 @@ class Wiring(unittest.TestCase):
                                  event={"pull_request": {"head": {"repo": {"full_name": head}},
                                                          "labels": [{"name": "full-ci"}]}})
         context["needs"] = {"macos-placement": {"outputs": {
-            "runner": runner, "gui_runner": GUI if runner else "", "fallback_jobs": "",
+            "runner": runner, "gui_runner": GUI if runner else "", "fallback_jobs": "", "owned_jobs": " fast-tier ",
             "blacksmith_12_jobs": large, "blacksmith_6_jobs": small, "retry_runner": retry,
             "hosted_jobs": hosted, "hosted_runner": HOSTED if hosted else "",
             # The attempt the placement ran in: by default where it really runs (attempt 1, the bot's
@@ -1116,9 +1322,9 @@ class Wiring(unittest.TestCase):
                 self.assertEqual(evaluate(runs_on, self.context()), SIDE)
                 # The bot's attempt 2 (the rescue moved a stuck sibling) keeps the slot.
                 self.assertEqual(evaluate(runs_on, self.context("2", BOT, large=f" {name} ")), LARGE)
-                # A person's re-run goes back to the minis first: attempt 1's count is stale by then.
-                self.assertEqual(evaluate(runs_on, self.context("2", large=f" {name} ")), SIDE)
-                self.assertEqual(evaluate(runs_on, self.context("3", large=f" {name} ")), SIDE)
+                # A person's later retry cannot reuse the owned label; fast-tier falls to Blacksmith.
+                self.assertEqual(evaluate(runs_on, self.context("2", large=f" {name} ")), LARGE if name == "fast-tier" else SIDE)
+                self.assertEqual(evaluate(runs_on, self.context("3", large=f" {name} ")), LARGE if name == "fast-tier" else SIDE)
                 self.assertEqual(evaluate(runs_on, self.context(fork=True, large=f" {name} ")), SMALL)
 
     def test_release_compile_pr_takes_an_idle_mini_else_the_placements_blacksmith_slot(self):
@@ -1357,14 +1563,60 @@ class Wiring(unittest.TestCase):
         for name in CASCADED:
             runs_on = self.jobs[name]["runs-on"]
             with self.subTest(job=name):
+                expected_without_retry = LARGE if name == "fast-tier" else SIDE
                 # The bot's attempt 2, placed afresh, takes its retry label; an earlier reading never.
                 self.assertEqual(evaluate(runs_on, self.context("2", BOT, retry=SMALL, runner="")), SMALL)
-                self.assertEqual(evaluate(runs_on, self.context("3", BOT, retry=SMALL)), SIDE)
-                self.assertEqual(evaluate(runs_on, self.context("2", BOT, retry=SMALL, runner="", placed="1")), SIDE)
-                # No free slot (an empty label), or no placement output: the owned side label, never
-                # vars.MACOS_RUNNER_26, a Blacksmith label with no free-slot check.
-                self.assertEqual(evaluate(runs_on, self.context("3", BOT)), SIDE)
-                self.assertEqual(evaluate(runs_on, self.context("3", BOT, retry="")), SIDE)
+                self.assertEqual(evaluate(runs_on, self.context("3", BOT, retry=SMALL)), expected_without_retry)
+                self.assertEqual(evaluate(runs_on, self.context("2", BOT, retry=SMALL, runner="", placed="1")), SIDE if name == "fast-tier" else expected_without_retry)
+                # With no slot or a carried placement, preserve the base's
+                # owned queue rather than bypassing Blacksmith exclusions.
+                self.assertEqual(evaluate(runs_on, self.context("3", BOT)), expected_without_retry)
+                self.assertEqual(evaluate(runs_on, self.context("3", BOT, retry="")), expected_without_retry)
+
+    def test_fast_tier_keeps_fork_and_disabled_pool_routes(self):
+        runs_on = self.jobs["fast-tier"]["runs-on"]
+        self.assertEqual(evaluate(runs_on, self.context(fork=True, runner="", placed="1")), SMALL)
+        disabled = self.context(runner="", placed="1")
+        disabled["vars"]["CI_PR_POOL_OWNED"] = "0"
+        self.assertEqual(evaluate(runs_on, disabled), LARGE)
+
+    def test_fast_tier_bot_retry_with_carried_placement_keeps_base_queue(self):
+        runs_on = self.jobs["fast-tier"]["runs-on"]
+        self.assertEqual(evaluate(runs_on, self.context("2", BOT, runner="", placed="1")), SIDE)
+
+    def test_all_excluded_without_fleet_client_preserves_base_queue_and_coverage(self):
+        busy = {"name": "side-mini", "status": "online", "busy": True,
+                "labels": [{"name": label} for label in ("self-hosted", "glaeda-light-xcode-26.6", SIDE)]}
+        for reason in ("outage", "nightly"):
+            with self.subTest(reason=reason), tempfile.TemporaryDirectory() as tmp, contextlib.redirect_stdout(io.StringIO()):
+                shot = snapshot(large=1, small=1)
+                if reason == "outage":
+                    shot["bs_health"] = {"label_outages": [
+                        {"pool": label, "queued": 1, "last_start_s": 1900} for label in (LARGE, SMALL)]}
+                else:
+                    for label in (LARGE, SMALL):
+                        shot["pools"][label]["reserved_queued"] = 1
+                output = Path(tmp) / "out"
+                with mock.patch.object(placement.pool, "GitHub") as api, \
+                        mock.patch.object(placement.cascade, "read", return_value=(
+                            {LARGE: 5, SMALL: 10}, {LARGE: 1, SMALL: 1},
+                            cascade.seen(shot, NOW))):
+                    api.return_value.runners.return_value = [busy]
+                    placement.main(env(ROUTE_TOKEN="test", GITHUB_REPOSITORY="manaflow-ai/cmux",
+                                       GITHUB_OUTPUT=str(output), CASCADE_RUNS=" fast-tier "))
+                outputs = dict(line.split("=", 1) for line in output.read_text().splitlines())
+                self.assertEqual(outputs["fleet_jobs"], "")
+                self.assertEqual(outputs["free_retry_runner"], "")
+                self.assertEqual(outputs["blacksmith_12_jobs"] + outputs["blacksmith_6_jobs"], "")
+                self.assertEqual(outputs["deferred_runner"], SIDE)
+                context = self.context()
+                context["needs"]["macos-placement"]["outputs"].update(outputs, placed_attempt="1")
+                self.assertEqual(evaluate(self.jobs["fast-tier"]["runs-on"], context), SIDE)
+                context["inputs"] = {"same_tree_sha": "", "dev_daily": False}
+                context["github"].update(base_ref="feat-cmux-next")
+                context["needs"].update(path_route={"outputs": {"macos": "true", "fast_tier": "true"}},
+                                         **{"push-head-preflight": {"outputs": {"current": "true"}}})
+                self.assertTrue(evaluate(self.jobs["fast-tier"]["if"].replace("!cancelled()", "true"), context))
 
     def test_gui_jobs_keep_their_route(self):
         for name in GUI_JOBS:
@@ -1567,6 +1819,122 @@ class SaturatedOwnedPool(unittest.TestCase):
                 self.assertEqual(self.side_outputs(busy, moving, **extra)["blacksmith_6_jobs"], "")
 
 
+class NightlyFirstOnAStaleSnapshot(unittest.TestCase):
+    """Rulebook: "a waiting nightly, promote or nightly sign/verify job is admitted ... ahead of every PR, DEV
+    and side job". On 2026-10-30 from 12:20Z the janitor's snapshot landed 22 to 25 minutes apart, so every
+    cmux-next placement read none under 15 minutes ("no pool snapshot under 15 min old to count Blacksmith's
+    queue") and sent its fast tier to blacksmith-6vcpu-macos-26 blind (runs 41053956129, 41054963820,
+    41056535837, 41056990103). nightly-next's sign-nightly-identity-legacy and generate-nightly-deltas
+    queued there behind them. A snapshot up to RESERVED_SNAPSHOT_MINUTES old still holds the label for the
+    freshness work it shows queued."""
+
+    RUNS = " fast-tier swift-canary cmux-scheme-compile release-compile "
+
+    def shot(self, minutes_old: float, reserved_small: int = 1) -> dict:
+        # A moving 6 vCPU queue (oldest 2 min when the snapshot was made): only the reservation holds it.
+        shot = snapshot(minutes_old=minutes_old, small=3, oldest={"small": 2})
+        shot["pools"][SMALL]["reserved_queued"] = reserved_small
+        return shot
+
+    def test_a_late_snapshot_still_reads_its_reservation(self):
+        late = cascade.QUEUE_SNAPSHOT_MINUTES + 10
+        self.assertIsNone(cascade.seen(self.shot(late), NOW), "too old for counts")
+        held = cascade.reserved_from(self.shot(late), NOW)
+        self.assertEqual(held, cascade.Seen(waits={SMALL: 2.0}, age=float(late), reserved={SMALL: 1}, stale=True))
+        self.assertIsNone(cascade.reserved_from(self.shot(late, reserved_small=0), NOW), "nothing reserved")
+        self.assertIsNone(cascade.reserved_from(self.shot(cascade.RESERVED_SNAPSHOT_MINUTES + 1), NOW))
+        self.assertIsNone(cascade.reserved_from({"generated_at": "not a time", "pools": {}}, NOW))
+        self.assertIsNone(cascade.reserved_from(None, NOW))
+
+    def test_the_read_returns_it_when_the_counts_are_stale(self):
+        late = self.shot(cascade.QUEUE_SNAPSHOT_MINUTES + 10)
+        pool = mock.Mock()
+        pool.GitHub.return_value.snapshot.return_value = late
+        with mock.patch.object(cascade.Api, "in_flight", return_value={LARGE: 0, SMALL: 10}):
+            live, waiting, seen = cascade.read(env(ROUTE_TOKEN="t", SNAPSHOT_TOKEN="s",
+                                                   GITHUB_REPOSITORY="manaflow-ai/cmux"),
+                                               pool, now=NOW, log=lambda _: None)
+        self.assertIsNone(waiting)
+        self.assertTrue(seen.stale)
+        self.assertEqual(seen.reserved, {SMALL: 1})
+        # A fresh snapshot is read as before, never as stale.
+        pool.GitHub.return_value.snapshot.return_value = self.shot(2)
+        with mock.patch.object(cascade.Api, "in_flight", return_value={LARGE: 0, SMALL: 10}):
+            _, waiting, seen = cascade.read(env(ROUTE_TOKEN="t", SNAPSHOT_TOKEN="s",
+                                                GITHUB_REPOSITORY="manaflow-ai/cmux"), pool, now=NOW, log=lambda _: None)
+        self.assertEqual(waiting, {LARGE: 0, SMALL: 3})
+        self.assertFalse(seen.stale)
+
+    def test_pr_jobs_keep_the_owned_label_while_nightly_waits_on_6_vcpu(self):
+        held = cascade.reserved_from(self.shot(cascade.QUEUE_SNAPSHOT_MINUTES + 10), NOW)
+        for live in (None, {LARGE: 0, SMALL: 10}):
+            with self.subTest(live=live):
+                result = cascade.place(env(CASCADE_RUNS=" fast-tier "), (), live, None, held, saturated=True)
+                self.assertEqual(result.jobs, none_placed())
+                self.assertIn("snapshot shows freshness work queued", result.why)
+                # Without the reservation the incident's route stands: the fast tier takes the last resort.
+                self.assertEqual(cascade.place(env(CASCADE_RUNS=" fast-tier "), (), live, None, None,
+                                               saturated=True).jobs, none_placed(**{SMALL: ("fast-tier",)}))
+        # A feed's compile is freshness work itself and still takes it.
+        feed = env(CASCADE_RUNS=self.RUNS, FRESH_JOBS="cmux-scheme-compile")
+        self.assertEqual(cascade.place(feed, (), None, None, held, saturated=True).jobs[SMALL],
+                         ("cmux-scheme-compile",))
+
+    def test_a_stale_reading_is_no_owned_queue_reading(self):
+        """The side placement reads `seen` for the owned route's wait: a stale Seen says nothing there."""
+        held = cascade.reserved_from(self.shot(cascade.QUEUE_SNAPSHOT_MINUTES + 10), NOW)
+        runners = [{"name": f"cmux{n}-glaeda", "status": "online", "busy": True,
+                    "labels": [{"name": label} for label in ("self-hosted", SIDE)]} for n in (1, 2)]
+        self.assertIsNone(placement.route_wait(SIDE, runners, held))
+        fresh = cascade.Seen(waits={}, owned={SIDE: 12.0})
+        self.assertEqual(placement.route_wait(SIDE, runners, fresh), 12.0)
+
+
+class LateSnapshotStall(unittest.TestCase):
+    """Blacksmith is a stall-aware overflow only (rulebook, routing order: Linux, owned Macs, Blacksmith last).
+    On 2026-10-31 from about 04:00Z every cmux-next placement found no snapshot under 15 minutes ("no pool
+    snapshot under 15 min old to count Blacksmith's queue") and sent swift test, daemon tests, the fast tier
+    and the Release compile to blacksmith-6vcpu-macos-26 blind (run 41175923956), while the 06:17Z snapshot
+    showed it with 166 queued and its oldest job waiting 179 min. A snapshot up to RESERVED_SNAPSHOT_MINUTES
+    old still shows a queue that was already stalled when it was made (late_waits())."""
+
+    def read(self, shot: dict):
+        pool = mock.Mock()
+        pool.GitHub.return_value.snapshot.return_value = shot
+        with mock.patch.object(cascade.Api, "in_flight", return_value={LARGE: 0, SMALL: 12}):
+            return cascade.read(env(ROUTE_TOKEN="t", SNAPSHOT_TOKEN="s", GITHUB_REPOSITORY="manaflow-ai/cmux"),
+                                pool, now=NOW, log=lambda _: None)
+
+    def test_a_late_snapshot_keeps_jobs_off_a_stalled_6_vcpu(self):
+        live, waiting, seen = self.read(snapshot(cascade.QUEUE_SNAPSHOT_MINUTES + 10, oldest={"small": 179},
+                                                 small=166))
+        self.assertIsNone(waiting, "too old for the counts")
+        self.assertTrue(seen.stale)
+        self.assertEqual(seen.waits, {SMALL: 179.0})
+        result = cascade.place(env(CASCADE_RUNS=" fast-tier "), (), live, waiting, seen, saturated=True)
+        self.assertEqual(result.jobs, none_placed(), result.why)
+        self.assertIn(SMALL, result.fresh_stall)
+        self.assertIn("has waited 179 min", result.why)
+        # A feed's compile stays off it too, as with a fresh reading (fresh_stalled()).
+        feed = env(CASCADE_RUNS=" cmux-scheme-compile ", FRESH_JOBS="cmux-scheme-compile")
+        self.assertEqual(cascade.place(feed, (), live, None, seen).jobs, none_placed())
+
+    def test_a_late_snapshot_of_a_moving_queue_keeps_the_last_resort(self):
+        live, waiting, seen = self.read(snapshot(cascade.QUEUE_SNAPSHOT_MINUTES + 10, oldest={"small": 2}, small=3))
+        self.assertEqual(seen.waits, {SMALL: 2.0}, "the snapshot's own figure, without its 25-min age")
+        result = cascade.place(env(CASCADE_RUNS=" fast-tier "), (), live, waiting, seen, saturated=True)
+        self.assertEqual(result.jobs, none_placed(**{SMALL: ("fast-tier",)}), result.why)
+
+    def test_the_late_window(self):
+        stalled = {"oldest": {"small": 179}, "small": 1}
+        self.assertEqual(cascade.late_waits(snapshot(2, **stalled), NOW), {}, "fresh: seen() reads it, age added")
+        self.assertEqual(cascade.late_waits(snapshot(cascade.RESERVED_SNAPSHOT_MINUTES + 1, **stalled), NOW), {})
+        self.assertEqual(cascade.late_waits(snapshot(20, oldest={"small": 179}), NOW), {}, "no queue, no wait")
+        self.assertEqual(cascade.late_waits(None, NOW), {})
+        self.assertEqual(cascade.late_waits({"generated_at": "not a time", "pools": {}}, NOW), {})
+        self.assertIsNone(cascade.stale_seen(snapshot(cascade.RESERVED_SNAPSHOT_MINUTES + 1, **stalled), NOW))
+
+
 class DeadEndRoute(unittest.TestCase):
     """A job never stays on an owned route that is a longer queue than Blacksmith 6 vCPU's, or that one host
     alone serves.
@@ -1631,6 +1999,87 @@ class DeadEndRoute(unittest.TestCase):
         seen = cascade.seen(snap, NOW)
         self.assertEqual(seen.owned, {"glaeda-side-std-xcode-26.6": 443.0})
         self.assertEqual(seen.owned_queued, {"glaeda-side-std-xcode-26.6": 96})
+
+
+def observed_dead(minutes_old: float = 2, *, dead: str = LARGE, **overrides: dict) -> dict:
+    """The queue janitor's 2026-10-30 snapshot, `minutes_old` old: `dead` runs nothing and started no job (absent
+    from label_started), its queue cleared; the other label runs 5 and started one a minute before."""
+    generated = NOW - dt.timedelta(minutes=minutes_old)
+    alive = SMALL if dead == LARGE else LARGE
+    pools = {dead: {"queued": 0, "running": 0, "oldest_queued_minutes": 0},
+             alive: {"queued": 0, "running": 5, "oldest_queued_minutes": 0}}
+    for label, entry in overrides.items():
+        pools[label] = {**pools[label], **entry}
+    return {"generated_at": generated.strftime("%Y-%m-%dT%H:%M:%SZ"), "pools": pools,
+            "label_started": {alive: (generated - dt.timedelta(minutes=1)).strftime("%Y-%m-%dT%H:%M:%SZ")}}
+
+
+class DeadLabel(unittest.TestCase):
+    """A label that started nothing for an hour is dead, not busy (simple_pool_picker.blacksmith_dead()). On
+    2026-10-30 blacksmith-12vcpu-macos-26 had started nothing for about a day while the cascade, reading only the
+    oldest-wait stall rule, still counted its five slots free once its queue was cleared."""
+
+    RUNS = " fast-tier swift-canary cmux-scheme-compile "
+
+    def placed(self, snap: dict, live: dict, **kwargs):
+        return cascade.place(env(CASCADE_RUNS=self.RUNS), (), live, cascade.queued(snap, NOW),
+                             cascade.seen(snap, NOW), **kwargs)
+
+    def test_a_dead_label_with_its_queue_cleared_takes_no_job_and_is_no_retry_runner(self):
+        snap = observed_dead()
+        result = self.placed(snap, {LARGE: 0, SMALL: 0})
+        self.assertEqual(result.jobs[LARGE], (), result.why)
+        self.assertNotEqual(result.retry_runner, LARGE)
+        self.assertIn("dead", result.why)
+        # The same counts without the start evidence (an older janitor): 12 vCPU takes the first job, as before.
+        older = dict(snap)
+        del older["label_started"]
+        self.assertEqual(self.placed(older, {LARGE: 0, SMALL: 0}).jobs[LARGE], ("fast-tier", "swift-canary"))
+
+    def test_a_dead_6_vcpu_takes_no_overflow_even_beside_a_dead_end_owned_route(self):
+        snap = observed_dead(dead=SMALL)
+        result = self.placed(snap, {LARGE: 2, SMALL: 0}, saturated=True, route_wait=float("inf"))
+        self.assertEqual(result.jobs[SMALL], (), result.why)
+        self.assertIn(SMALL, result.fresh_stall)
+
+    def test_a_stale_snapshot_still_keeps_a_feed_compile_off_a_dead_6_vcpu(self):
+        """No count under 15 minutes: a feed's compile used to take 6 vCPU blind."""
+        late = observed_dead(38, dead=SMALL)
+        pool = mock.Mock()
+        pool.GitHub.return_value.snapshot.return_value = late
+        feed = env(CASCADE_RUNS=" cmux-scheme-compile ", FRESH_JOBS="cmux-scheme-compile",
+                   SNAPSHOT_TOKEN="s", GITHUB_REPOSITORY="manaflow-ai/cmux")
+        live, waiting, seen = cascade.read(feed, pool, now=NOW, log=lambda _: None)
+        self.assertIsNone(waiting)
+        self.assertEqual(seen.dead, frozenset({SMALL}))
+        result = cascade.place(feed, (), live, waiting, seen)
+        self.assertEqual(result.jobs, none_placed(), result.why)
+        self.assertIn(SMALL, result.fresh_stall)
+        # A dead 12 vCPU leaves the feed's last resort as it was.
+        _, _, seen = cascade.read(feed, mock.Mock(GitHub=mock.Mock(return_value=mock.Mock(
+            snapshot=mock.Mock(return_value=observed_dead(38))))), now=NOW, log=lambda _: None)
+        self.assertEqual(cascade.place(feed, (), None, None, seen).jobs[SMALL], ("cmux-scheme-compile",))
+
+    def test_no_evidence_changes_nothing(self):
+        """A truncated listing, a snapshot past the six-hour evidence window, or every label dead proves nothing."""
+        truncated = dict(observed_dead(), truncated=True)
+        expired = observed_dead(7 * 60)
+        both = observed_dead(**{SMALL: {"running": 0}})
+        both["label_started"] = {}
+        for snap in (truncated, expired, both):
+            with self.subTest(snap=snap):
+                self.assertEqual(cascade.dead(snap, NOW), frozenset())
+        self.assertEqual(self.placed(truncated, {LARGE: 0, SMALL: 0}).jobs[LARGE], ("fast-tier", "swift-canary"))
+        self.assertEqual(self.placed(both, {LARGE: 0, SMALL: 0}).jobs[LARGE], ("fast-tier", "swift-canary"))
+        self.assertIsNone(cascade.stale_seen(expired, NOW))
+
+    def test_the_sign_runner_reads_the_same_rule(self):
+        # Loaded without replacing sys.modules' copy: nightly_build_runner's tests patch that one.
+        spec = importlib.util.spec_from_file_location("nightly_sign_runner_dead_label", SCRIPTS / "nightly_sign_runner.py")
+        sign = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(sign)
+        snap = observed_dead(38)
+        self.assertEqual(sign.dead(snap, NOW), set(cascade.dead(snap, NOW)))
 
 
 if __name__ == "__main__":
