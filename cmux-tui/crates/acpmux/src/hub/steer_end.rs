@@ -244,12 +244,18 @@ impl Hub {
                 .is_some();
         // A digest its drain asked to steer is not held behind a waiting prompt (`turns.rs`).
         let digest = super::digest::inbox_digest::is_digest(opts.provenance.as_ref());
+        // Set when the person's waiting prompt is what held it, so a steer-only one says so.
+        let prompt_held = std::sync::atomic::AtomicBool::new(false);
         let held = || {
             if inbox_notice {
                 super::inbox::notice_held(session)
+            } else if super::inbox::review_box(session) {
+                true
+            } else if !digest && super::inbox::persons_prompt_waits(session) {
+                prompt_held.store(true, std::sync::atomic::Ordering::SeqCst);
+                true
             } else {
-                super::inbox::review_box(session)
-                    || (!digest && super::inbox::persons_prompt_waits(session))
+                false
             }
         };
         let answer = agent_prompt_hook(
@@ -302,10 +308,15 @@ impl Hub {
         let mut r = match answer {
             Err(e) if e.message.starts_with(crate::claude_stdio::STEER_NO_TURN) => {
                 let Some(blocks) = fallback else {
-                    // Logged above, it never went: the log says so (a notice whose turn ended).
-                    if bound {
+                    // Logged above, it never went: the log says so (a notice whose turn ended, a
+                    // steer-only one the person's prompt queued ahead of meanwhile).
+                    let waits = prompt_held.load(std::sync::atomic::Ordering::SeqCst);
+                    if bound || waits {
                         let msg = json!({"promptId": prompt_id, "turnId": turn_id});
                         self.append(session, "mux", "steer_withdrawn", msg);
+                    }
+                    if waits {
+                        return Err(super::inbox::prompt_waits_steer_refused());
                     }
                     return Err(e);
                 };
