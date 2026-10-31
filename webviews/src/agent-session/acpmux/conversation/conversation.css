@@ -2865,6 +2865,7 @@ pre.cv-math-source {
   color: var(--cv-text);
 }
 .cv-received:is(:hover, :active, :focus-within) .cv-received__from,
+.cv-received:hover .cv-received__text,
 .cv-received:is(:hover, :active, :focus-within) .cv-received__text {
   color: var(--cv-text);
 }

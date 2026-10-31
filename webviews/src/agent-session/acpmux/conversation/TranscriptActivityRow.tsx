@@ -91,7 +91,7 @@ export function TranscriptActivityRowShell({
 }) {
   return (
     <div
-      className={`cv-agent-activity-row${className ? ` ${className}` : ""}`}
+      className={`${className ?? ""}${className ? " " : ""}cv-agent-activity-row`}
       ref={headerRef}
       onClick={onClick}
       {...attributes}

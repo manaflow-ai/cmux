@@ -99,7 +99,6 @@ function DoneLine({ row, child }: { row: AcpmuxRow; child?: SessionRetryFields }
             after,
             ...(reasonKey ? [t(reasonKey)] : []),
             ...(phase.kind === "failed" && phase.gaveUp ? [t("retry.retriedOut", { of: phase.gaveUp.of })] : []),
-            ...(error ? [error] : []),
           ]
             .filter(Boolean)
             .join(" · "),
@@ -107,7 +106,7 @@ function DoneLine({ row, child }: { row: AcpmuxRow; child?: SessionRetryFields }
       })();
   const whole = waiting
     ? [agent.name, sentence.after].filter(Boolean).join(" · ")
-    : [sentence.before, agent.name, sentence.after, time].filter(Boolean).join(" · ");
+    : [sentence.before, agent.name, sentence.after, time, error].filter(Boolean).join(" · ");
   const rowState = waiting ? "retrying" : agent.state;
 
   const shown = note?.version === row.version ? note : undefined;
@@ -182,8 +181,16 @@ function DoneLine({ row, child }: { row: AcpmuxRow; child?: SessionRetryFields }
         }
         before={sentence.before}
         name={agent.name}
-        after={sentence.after}
-        meta={!waiting ? <span className="cv-command__meta cv-subagent-done__time">{time}</span> : undefined}
+        after={sentence.after ? <> · {sentence.after}</> : undefined}
+        meta={
+          !waiting ? (
+            <span className="cv-command__meta cv-subagent-done__time">
+              {" "}
+              · {time}
+              {error ? ` · ${error}` : ""}
+            </span>
+          ) : undefined
+        }
         actions={rowActions}
         ariaLabel={whole}
         onClick={open ? () => open(agent.id) : undefined}
