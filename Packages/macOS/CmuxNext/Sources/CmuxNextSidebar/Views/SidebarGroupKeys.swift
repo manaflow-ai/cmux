@@ -127,7 +127,12 @@ import AppKit
     /// loop moves on. Shift-Tab: the previous header; before the first, the
     /// workspaces. False when the key is not the list's.
     private func tab(forward: Bool) -> Bool {
-        let headers = stops.compactMap { if case let .group(group) = $0 { group } else { nil } }
+        // A focused group drawn as its one row (Right opened it, taking its header away) keeps its place in the
+        // order, so Tab and Shift-Tab go on from there; an unfocused one has no header to stop on, as Left finds.
+        let headers = list.displayed.rows.compactMap { row -> GroupID? in
+            if case let .group(group) = row.key { return group }
+            return row.standsForGroup && row.group == list.focusedGroup ? row.group : nil
+        }
         guard let current = list.focusedGroup, let index = headers.firstIndex(of: current) else {
             guard forward, let first = headers.first else { return false }
             focus(.group(first))
