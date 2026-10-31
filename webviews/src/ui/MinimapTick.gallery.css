@@ -48,7 +48,7 @@
   border: 0;
   border-radius: 4px;
   background: transparent;
-  cursor: pointer;
+  cursor: default;
 }
 
 .minimap-tick-gallery-strip button span {

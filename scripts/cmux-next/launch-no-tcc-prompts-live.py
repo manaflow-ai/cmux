@@ -22,15 +22,18 @@ AUTHREQ_RESULT). A check with `preflight=no` after a reset is a prompt the perso
      prompt there is allowed. The relaunch restores that terminal: nothing may read the folder
      until the person shows the terminal.
 
-Fails (exit 1) when a phase logs a non-preflight check of the app (any service) or a
-UserNotifications authorization request. Each phase writes `tcc-<phase>.log` (the raw stream),
+Fails (exit 1) when a phase logs a non-preflight check of the app (any service), or macOS
+registers a notification client of the app or its helpers (usernoted's app table, when readable:
+the "Notifications may include alerts, sounds, and icon badges" request). Use a tag that never
+ran on the host: usernoted keeps an app's row. The app runs with the account's real home (a GUI
+job runner may point HOME at a work folder, whose Downloads macOS does not guard). Each phase writes `tcc-<phase>.log` (the raw stream),
 `requests-<phase>.json` (one row per check: service, preflight, the requesting binary and pid,
 the result) and `screen-<phase>-<n>.png` stills when `screencapture` may record the screen.
 
 GUI host only: a capture mini or a Mac with a logged-in console session, run over SSH. The script
 never touches another app's privacy answers. It quits the app and ends the tag's daemons at the end.
 """
-import argparse, json, os, plistlib, re, shutil, signal, socket, subprocess, sys, tempfile, time
+import argparse, json, os, plistlib, pwd, re, signal, socket, sqlite3, subprocess, sys, tempfile, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import build_names  # noqa: E402
@@ -45,11 +48,14 @@ parser.add_argument("--folder", default="~/Downloads")
 opts = parser.parse_args()
 os.makedirs(opts.out, exist_ok=True)
 APP = os.path.abspath(opts.app.rstrip("/"))
-FOLDER = os.path.expanduser(opts.folder)
+# The account's real home, not $HOME: a GUI job runner (nx-remote) points HOME at a work folder,
+# whose Downloads macOS does not guard. The app runs with this home, as from the Dock.
+HOME = pwd.getpwuid(os.getuid()).pw_dir
+FOLDER = os.path.join(HOME, opts.folder[2:]) if opts.folder.startswith("~/") else opts.folder
 with open(os.path.join(APP, "Contents/Info.plist"), "rb") as f:
     BUNDLE = plistlib.load(f)["CFBundleIdentifier"]
-HOME = os.path.expanduser("~")
 SOCKETS = build_names.socket_paths(build_names.of_app(APP, HOME)["socket"], HOME)
+USERNOTED_DB = os.path.join(HOME, "Library/Group Containers/group.com.apple.usernoted/db2/db")
 failures = []
 
 
@@ -124,6 +130,22 @@ def requests(log_text):
             or APP in (r.get("responsible_path") or "")]
 
 
+def notification_registrations():
+    """usernoted's app rows for the bundle id and its helpers (the Alerts helper): a row is what shows
+    the "Notifications may include alerts, sounds, and icon badges" request. None when unreadable."""
+    try:
+        db = sqlite3.connect(f"file:{USERNOTED_DB}?mode=ro", uri=True)
+        try:
+            rows = db.execute("select identifier from app where identifier = ? or identifier like ?",
+                              (BUNDLE, BUNDLE + ".%")).fetchall()
+        finally:
+            db.close()
+    except sqlite3.Error as error:
+        print(f"note: usernoted db unreadable ({error}); the stills show any request", flush=True)
+        return None
+    return sorted(row[0] for row in rows)
+
+
 def screenshot(phase, n):
     path = os.path.join(opts.out, f"screen-{phase}-{n}.png")
     subprocess.run(["screencapture", "-x", path], capture_output=True, timeout=20)
@@ -131,7 +153,7 @@ def screenshot(phase, n):
 
 
 def launch():
-    env = {"CMUX_NEXT_SOCKET_MODE": "automation", "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1200,800"}
+    env = {"HOME": HOME, "CMUX_NEXT_SOCKET_MODE": "automation", "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1200,800"}
     args = ["open", "-n", "-a", APP]
     for k, v in env.items():
         args += ["--env", f"{k}={v}"]
@@ -179,6 +201,9 @@ def run_phase(phase, teardown):
         check(not prompts, f"{phase}: no privacy check that prompts ({len(prompts)} of {len(rows)} checks: {', '.join(named)})")
         notif = [l for l in text.splitlines() if "usernoted" in l and BUNDLE in l]
         check(not notif, f"{phase}: no notification authorization request ({len(notif)} lines)")
+        registered = notification_registrations()
+        if registered is not None:
+            check(not registered, f"{phase}: macOS registered no notification client of the app ({registered})")
         print(f"  stills: {[s for s in shots if s]}", flush=True)
         return True
     finally:
@@ -187,6 +212,9 @@ def run_phase(phase, teardown):
 
 
 def open_terminal_in_folder():
+    # The front pane may be Home's chat, which does not split: a new workspace's terminal does.
+    rpc("action.run", {"action": "workspace.newAtBottom", "focus": True})
+    time.sleep(2)  # the new workspace's terminal pane mounts
     reply = rpc("action.run", {"action": "splitRight", "args": {"cwd": FOLDER}, "focus": True})
     print("terminal in", FOLDER, json.dumps(reply)[:300], flush=True)
     time.sleep(3)  # the shell starts in the folder (the person's own action: a prompt here is fine)

@@ -234,6 +234,12 @@ export type FindRevealTarget = {
 };
 export const FindReveal = createContext<FindRevealTarget | undefined>(undefined);
 
+/// A grouped message keeps its own Find/highlight target even though its outer row scrolls in.
+export const findMemberRowId = (row: AcpmuxRow | undefined, target: string | undefined): string | undefined =>
+  target && (row?.pendingMessages || row?.laneNoticeBatch) && row.id !== target && row.joined?.includes(target)
+    ? target
+    : undefined;
+
 /** Whether `row` draws match row `rowId` itself: the row, its copy in an open fold, or the run
  * that absorbed it (turns.ts `mergeShortNotes`). */
 export const isFindRow = (row: AcpmuxRow, rowId: string) =>
