@@ -41,7 +41,11 @@ const inbox = "New messages from other agents in 1 thread.\n- 1 new in #1 from a
 
 function App() {
   return (
-    <main className="acpmux-shell" data-theme={theme} style={{ padding: 24, width: 640, height: "auto" }}>
+    <main
+      className="acpmux-shell"
+      data-theme={theme}
+      style={{ display: "flex", flexDirection: "column", alignItems: "stretch", padding: 24, width: 640, height: "auto" }}
+    >
       <div data-meta-row="tool" className="cv-tools">
         <ToolRow item={read} />
       </div>
