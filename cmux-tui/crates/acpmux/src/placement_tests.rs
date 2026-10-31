@@ -293,6 +293,34 @@ fn interactive_machines_come_from_the_registry() {
     assert!(!interactive(None, "cosmic"), "no registry: nothing is interactive");
 }
 
+/// What `dispatch --host auto` leaves out (design/agent-dispatch.md): a person's machine, an
+/// interactive one or one with the `leo-apps` role, and a host whose lanes say `last_resort`,
+/// by name or alias.
+#[test]
+fn personal_and_last_resort_machines_come_from_the_registry() {
+    let reg = json!({"machines": {
+        "cosmic": {"aliases": ["mbp"], "roles": ["leo-mac"]},
+        "desk": {"interactive": true},
+        "apps": {"aliases": ["red"], "roles": ["leo-apps"], "lanes": {}},
+        "spare": {"aliases": ["sixteen"], "lanes": {"last_resort": true}},
+        "maybe": {"lanes": {"last_resort": "yes"}},
+        "lane": {"roles": ["session-host"], "lanes": {"last_resort": false}}}});
+    for name in ["cosmic", "MBP.local", "desk", "apps", "red"] {
+        assert!(personal(Some(&reg), name), "{name}");
+    }
+    for name in ["spare", "lane", "unlisted"] {
+        assert!(!personal(Some(&reg), name), "{name}");
+    }
+    assert!(!interactive(Some(&reg), "apps"), "leo-apps alone is not a machine a person works at");
+    for name in ["spare", "Sixteen.local"] {
+        assert!(last_resort(Some(&reg), name), "{name}");
+    }
+    for name in ["maybe", "lane", "cosmic", "unlisted"] {
+        assert!(!last_resort(Some(&reg), name), "{name}");
+    }
+    assert!(!personal(None, "cosmic") && !last_resort(None, "spare"));
+}
+
 /// A host a `reservations` entry names takes no new work while the entry is active (from `from`
 /// to `until`), by name or alias; an entry whose times cannot be read still holds it.
 #[test]
