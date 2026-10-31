@@ -672,6 +672,14 @@ export default componentEntry<Props>({
       note: "Alternative (not shipped): the project's name with its parent folder after it, as the Environment drew every folder before. The path text is what Leo asked not to see; the tooltip carries it in the shipped row.",
       props: { ...environmentProps(), projectRowLook: "parent" },
     },
+    "environment-remote-control": {
+      note: "Shipped (Leo, 2026-10-28: \"you don't even have the, like, remote control toggle functionality\"): a chat on this Mac while it can serve cmux on iPhone. Remote Control is the iPhone host's own switch (mobile.allowIPhoneConnections, as Settings > Mobile), so its tooltip says it covers every chat on this Mac. Off here; a chat on another machine, Quick Chat, or a Mac with no account signed in draws no row.",
+      props: { ...environmentProps(), remoteControl: { on: false, set: () => undefined } },
+    },
+    "environment-remote-control-on": {
+      note: "Shipped: the same chat with Remote Control on; cmux on the same account's iPhone can open this Mac's chats.",
+      props: { ...environmentProps(), remoteControl: { on: true, set: () => undefined } },
+    },
     "environment-scratchpad": {
       note: "Shipped: Leo's chat, run in a harness's scratchpad under /private/tmp, whose commands cd'd into a worktree. Before, Environment listed the scratchpad with its path and the worktree, and offered Save. Now only the machine: no folder row and no Save (a scratch folder is never a project).",
       props: {
