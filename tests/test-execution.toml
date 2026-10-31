@@ -432,6 +432,11 @@ path = "tests/test_nushell_integration_hooks.py"
 lane = "macos-cli-no-socket"
 
 [[test]]
+path = "tests/test_shell_readiness_retry.py"
+lane = "macos-shell"
+serial = true
+
+[[test]]
 path = "tests/test_shell_git_branch_stale_cwd.py"
 lane = "macos-cli-no-socket"
 

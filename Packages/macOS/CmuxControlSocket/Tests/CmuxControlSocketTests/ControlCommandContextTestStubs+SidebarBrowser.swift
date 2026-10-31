@@ -192,6 +192,13 @@ extension ControlSidebarContext {
 
     nonisolated func controlSidebarScheduleScopedShellState(scope: ControlSidebarPanelScope, stateRawValue: String) {}
 
+    nonisolated func controlSidebarAcknowledgeScopedShellState(
+        scope: ControlSidebarPanelScope,
+        stateRawValue: String
+    ) -> ControlSidebarShellStateAdmission {
+        .rejected
+    }
+
     nonisolated func controlSidebarInvalidTerminalLifecycleIDError() -> String {
         "ERROR: Terminal session is out of date; restart the shell and try again"
     }
