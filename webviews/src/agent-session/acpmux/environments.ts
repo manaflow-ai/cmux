@@ -83,19 +83,13 @@ export function environmentReady(environment: Environment): boolean {
   return environment.connected !== false;
 }
 
-/// The name the picker's This Mac row shows. The host sends this Mac's own name as
-/// `localMachineName`; its `machineName` names a seeded chat's machine (a peer or a Cloud machine)
-/// when there is one, so an older host's `machineName` counts only when it is not the chat's machine.
-/// A Cloud machine's name never titles This Mac (Leo, 2026-10-30: "the ui is so ass in general for this tho").
-export function thisMacName(
-  localMachineName: string | undefined,
-  machineName: string | undefined,
-  chat?: { peer?: string; hostKind?: string; host?: string },
-): string | undefined {
-  if (localMachineName) return localMachineName;
-  if (!machineName) return undefined;
-  const chatMachine = chat?.peer || (chat?.hostKind === "cloud" ? chat.host : undefined);
-  return machineName === chatMachine ? undefined : machineName;
+/// The name the picker's This Mac row shows: the host's `localMachineName`, this Mac's own name. The
+/// handshake's `machineName` names the chat's machine (a seeded peer or Cloud machine, or another
+/// machine's daemon, whose chats it reports as local there), so it never titles This Mac; a host that
+/// predates `localMachineName` gets the plain "This Mac" row (Leo, 2026-10-30: "the ui is so ass in
+/// general for this tho").
+export function thisMacName(localMachineName: string | undefined): string | undefined {
+  return localMachineName || undefined;
 }
 
 /// The picker's sections: this Mac; the person's own machines; Cloud machines and VM pools. acpmux

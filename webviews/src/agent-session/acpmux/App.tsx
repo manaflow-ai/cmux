@@ -11422,7 +11422,7 @@ function AcpmuxPane() {
                       ...(snapshot.sessionId ? { sessionId: snapshot.sessionId } : {}),
                     })
             }
-            localName={thisMacName(localMachineName, machineName, composerSnapshot.summary)}
+            localName={thisMacName(localMachineName)}
             environments={preview}
             {...(sandboxOffered ? { runMode: sandboxModeRows } : {})}
             onBrowseFolder={

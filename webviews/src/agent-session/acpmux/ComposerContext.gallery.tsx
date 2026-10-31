@@ -626,7 +626,35 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
         peers: ["gpu-box"],
         peerKinds: { "gpu-box": "ssh" },
         peerConnected: { "gpu-box": true },
-        localName: thisMacName("office-mac", "kind-aqua-sandpiper", { hostKind: "cloud", host: "kind-aqua-sandpiper" }),
+        localName: thisMacName("office-mac"),
+      },
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: /^Environment/ });
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [role="option"]'));
+      },
+    },
+    "environment-picker-older-host-remote": {
+      height: 420,
+      note: "Preview: a host older than `localMachineName`, with a tab on another machine's daemon (build-mini). Its `machineName` is build-mini, so This Mac takes no guessed name and reads This Mac.",
+      props: {
+        ...baseProps,
+        environments: true,
+        // build-mini's daemon reports the chat as local on its own host.
+        summary: { sessionId: "", harness: "claude", host: "build-mini", hostKind: "local" as const },
+        sessions: [
+          {
+            sessionId: "gallery-build-mini",
+            displayTitle: "Fix the build",
+            cwd: "/Users/dev/app",
+            host: "build-mini",
+            hostKind: "local" as const,
+            updatedAt: 0,
+          },
+        ],
+        peers: ["gpu-box"],
+        peerKinds: { "gpu-box": "ssh" },
+        peerConnected: { "gpu-box": true },
+        localName: thisMacName(undefined),
       },
       play: async (ctx) => {
         await ctx.click({ role: "button", name: /^Environment/ });
