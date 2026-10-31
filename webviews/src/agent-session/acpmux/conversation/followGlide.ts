@@ -12,7 +12,8 @@
 // Cost: O(1) per rise, and a rise happens when the rows' height changes (a new line, not a token).
 // One animation at a time: a rise while one plays starts the next from where the thread is drawn.
 // Stop condition: each animation is finite (its duration); `stop` cancels it on reader input, Jump
-// to latest, a chat switch and unmount (VirtualTranscript).
+// to latest, a chat switch and unmount, and `fit` when the room it lands in shrinks below what it
+// still holds back (VirtualTranscript).
 import { MOTION_EASE_OUT, MOTION_MS } from "../../../motion/scale.generated";
 import type { AcpmuxRow, ConversationLayout } from "../model";
 import { cssTimeMs } from "./fold";
@@ -40,6 +41,9 @@ export type FollowGlide = {
   rise(thread: HTMLElement | null, rose: number, room: number): number;
   /// How far the thread is still drawn back (px), 0 when at rest.
   outstanding(): number;
+  /// The room under the last row is now `room`: a glide drawing the thread back further (the live
+  /// line came into view to name a call, or left) stops, so nothing stays under the bottom stack.
+  fit(room: number): void;
   /// Cancels the glide in flight, leaving the rows where they lay out.
   stop(): void;
 };
@@ -72,6 +76,9 @@ export function createFollowGlide(): FollowGlide {
   return {
     outstanding,
     stop,
+    fit(room) {
+      if (running && outstanding() > Math.max(0, room) + 0.5) stop();
+    },
     rise(thread, rose, room) {
       if (!thread || typeof thread.animate !== "function" || !(rose > 0.5) || !(room > 0.5)) return 0;
       if (thread.closest(FOLLOW_GLIDE_OFF)) return 0;

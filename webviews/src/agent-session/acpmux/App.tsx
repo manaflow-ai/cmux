@@ -3629,6 +3629,10 @@ export function VirtualTranscript({
         // rows on screen too, so a rise that only re-rounds the physical offset is no rise.
         const box = previousViewport.current;
         const rose = layoutScrollTop(node) - (scrolledTo.current.top - previousOrigin);
+        const room = followRoom(rows, layout);
+        // A glide holding the rows back further than the room now under the last row (the live line
+        // came into view to name a call) rests at once, so nothing stays under the bottom stack.
+        followGlide.current?.fit(room);
         if (
           !jumping &&
           rose > 0.5 &&
@@ -3638,7 +3642,7 @@ export function VirtualTranscript({
           rows.length === oldRows.length &&
           rows.at(-2)?.id === oldRows.at(-2)?.id
         )
-          followGlide.current?.rise(thread.current, rose, followRoom(rows, layout));
+          followGlide.current?.rise(thread.current, rose, room);
       } else if (top > 0 || rows[0]?.id !== oldRows[0]?.id) {
         // Keep the row at the top of the viewport where it is as rows above it change height.
         // Rows that arrived or left (a new reply segment below, older history above) move indexes,
