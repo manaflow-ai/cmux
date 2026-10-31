@@ -187,6 +187,7 @@ final class TopHomePageView: NSView {
             }
         }
         list.onNewMessage = { [weak self] in self?.presentNewMessage() }
+        list.onCloseDraft = { [weak self] in self?.performCloseNewMessage() }
         list.onOpenRequests = { [weak self] in self?.presentRequests() }
         list.composeMenu = { [weak services] in services.map { HomePageMenus.backgroundMenu(registry: $0.registry) } }
     }
@@ -501,13 +502,8 @@ final class TopHomePageView: NSView {
                 openWhenListed(id)
             }
         }
-        // Escape on an empty draft: back to the conversation shown before.
-        page.onEscape = { [weak self] in
-            guard let self else { return }
-            endNewMessage()
-            if let shown { list.select(shown) }
-            focusPrimaryInput()
-        }
+        // Escape in an empty To: field: the same close as the row's x (`home.closeNewMessage`).
+        page.onEscape = { [weak self] in self?.performCloseNewMessage() }
         newMessage = page
         return page
     }
@@ -527,6 +523,19 @@ final class TopHomePageView: NSView {
         }
         return true
     }
+
+    /// `home.closeNewMessage`: the draft, its page and its row go, whatever was typed (Messages' x);
+    /// the conversation shown before comes back, with the keyboard only when the page had it.
+    func closeNewMessage() {
+        guard let page = newMessage else { return }
+        let (wasShowing, hadKeyboard) = (!page.isHidden, (window?.firstResponder as? NSView)?.isDescendant(of: page) == true)
+        endNewMessage()
+        if wasShowing, let shown { list.select(shown) }
+        if wasShowing, hadKeyboard { focusPrimaryInput() }
+    }
+
+    /// Runs `home.closeNewMessage` through the registry (one path for every entrypoint).
+    private func performCloseNewMessage() { _ = services?.registry.perform("home.closeNewMessage", invocation: ActionInvocation(origin: .user)) }
 
     /// Drops the New Message draft, its page and its row.
     private func endNewMessage() {

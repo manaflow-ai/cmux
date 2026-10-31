@@ -27,23 +27,23 @@ fn a_runaway_claude_session_breaks_all_three_rules_with_its_numbers() {
     assert_eq!(
         w[0]["text"],
         "No autocompact cap: context is 412k and only compacts at the model's limit. \
-         Rotate onto a capped profile (lane-place rotate dep-1 --harness claude-sr2, leo-workspace#1617)"
+         Rotate onto a capped profile (lane-place rotate dep-1 --harness claude-sr2)"
     );
     assert_eq!(
         w[0]["actions"],
         json!([{"label": "Rotate onto a capped profile", "command": "lane-place rotate dep-1 --harness claude-sr2",
-                "pending": "leo-workspace#1617"}])
+                "pending": null}])
     );
-    // Compact first (it works today); rotate once leo-workspace#1617 lands.
+    // Compact first; rotate when that is not enough.
     assert_eq!(
         w[1],
         json!({"rule": "contextTokens", "value": 412_000, "limit": 400_000,
         "finding": "Context 412k tokens, above the 400k warning line",
         "text": "Context 412k tokens, above the 400k warning line. Compact it (acpmux send dep-1 /compact) \
-                 or rotate to a fresh session (lane-place rotate dep-1, leo-workspace#1617)",
+                 or rotate to a fresh session (lane-place rotate dep-1)",
         "actions": [
             {"label": "Compact it", "command": "acpmux send dep-1 /compact", "pending": null},
-            {"label": "rotate to a fresh session", "command": "lane-place rotate dep-1", "pending": "leo-workspace#1617"},
+            {"label": "rotate to a fresh session", "command": "lane-place rotate dep-1", "pending": null},
         ]})
     );
     assert_eq!(
@@ -192,7 +192,7 @@ fn a_peers_row_names_the_peers_session_in_its_commands() {
     assert_eq!(
         w[1]["text"],
         "Context 412k tokens, above the 400k warning line. Compact it (acpmux send box/dep-1 /compact) \
-         or rotate to a fresh session (lane-place rotate box/dep-1, leo-workspace#1617)"
+         or rotate to a fresh session (lane-place rotate box/dep-1)"
     );
     assert!(!w[1]["text"].as_str().unwrap().contains(" dep-1 "), "no bare name is left");
 }
