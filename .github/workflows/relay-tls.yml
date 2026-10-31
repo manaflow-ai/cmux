@@ -48,4 +48,5 @@ jobs:
         if: always()
         with:
           name: relay-tls-results
+          retention-days: 3
           path: relay-tls-results

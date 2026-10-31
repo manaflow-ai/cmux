@@ -103,7 +103,7 @@ async fn queue_once(
             return queue_direct(client, &key, text, steer, prompt_id, superseding, json_out).await;
         }
         Err(e) if e.to_string().contains("no session") => {
-            return Err(errors::AppError::no_session(&key).into());
+            return Err(errors::AppError::no_session_from(&key, &e).into());
         }
         Err(e) if super::super::output::daemon_closed_error(&e) => {
             return Err(prompt_id.closed(client, &key, "queueing the prompt"));

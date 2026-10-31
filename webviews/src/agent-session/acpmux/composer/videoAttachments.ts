@@ -116,8 +116,14 @@ export function useVideoInfo(
   const shown = useSyncExternalStore(subscribe, readingNow, readingNow);
   useEffect(() => {
     const reads = out.current;
+    const requested = asked.current;
     return () => {
-      for (const token of reads.keys()) drop(reads, token);
+      // Activity can tear down effects while retaining this hook's state. Retry only reads that
+      // were interrupted; a settled response has already left `reads` and remains marked asked.
+      for (const [token, { chip }] of reads) {
+        requested.delete(chip);
+        drop(reads, token);
+      }
     };
   }, []);
   useEffect(() => {
@@ -148,5 +154,9 @@ export function useVideoInfo(
       });
     }
   }, [attachments, setAttachments, enabled]);
-  return attachments.filter((chip) => shown.has(chip.id)).length;
+  // Include reads that the effect is about to start. On Activity reveal, a parent's setup
+  // continuation can send before the store update from that effect causes another render.
+  return attachments.filter(
+    (chip) => shown.has(chip.id) || (enabled && isVideoAttachment(chip) && !chip.video && !asked.current.has(chip)),
+  ).length;
 }

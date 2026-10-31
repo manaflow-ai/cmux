@@ -24,7 +24,8 @@ use crate::MuxEventReceiver;
 pub const LAUNCH_SNAPSHOT_FILE: &str = "launch-snapshot.json";
 const LAUNCH_SNAPSHOT_SCHEMA_VERSION: u32 = 1;
 /// A snapshot larger than this drops its projections, then is not written.
-const MAX_LAUNCH_SNAPSHOT_BYTES: usize = 8 * 1024 * 1024;
+/// The app reads the file before it connects (`LaunchSnapshot.maximumBytes`).
+pub(crate) const MAX_LAUNCH_SNAPSHOT_BYTES: usize = 8 * 1024 * 1024;
 /// Failed writes back off (a full disk must not turn into a write loop).
 const WRITE_RETRY_INITIAL: Duration = Duration::from_secs(1);
 const WRITE_RETRY_MAX: Duration = Duration::from_secs(60);
@@ -124,6 +125,8 @@ pub fn start_launch_snapshot_writer_with(
                 Instant::now().checked_sub(timing.settle).unwrap_or_else(Instant::now);
             let mut retry = WRITE_RETRY_INITIAL;
             let mut retry_at: Option<Instant> = None;
+            // The projections the last written snapshot left out (reported when it changes).
+            let mut last_dropped: Vec<String> = Vec::new();
             loop {
                 if thread_stop.load(Ordering::Acquire) {
                     break;
@@ -140,7 +143,11 @@ pub fn start_launch_snapshot_writer_with(
                 {
                     let Some(mux) = weak.upgrade() else { break };
                     match write_launch_snapshot(&mux, &thread_path) {
-                        Ok(()) => {
+                        Ok(dropped) => {
+                            if dropped != last_dropped {
+                                report_dropped_projections(&mux, &dropped);
+                                last_dropped = dropped;
+                            }
                             thread_writes.fetch_add(1, Ordering::AcqRel);
                             dirty_since = None;
                             retry = WRITE_RETRY_INITIAL;
@@ -199,6 +206,8 @@ fn launch_snapshot_value(mux: &Mux, include_projections: bool) -> anyhow::Result
     // Rooms, pins and personal groups filter and group the sidebar, so a
     // provisional sidebar drawn without them regroups when live data lands.
     // Room default env can hold credentials; the sidebar does not need it.
+    // A session's capability list (up to `MAX_SESSION_CAPABILITIES_BYTES`
+    // each) is not drawn either, and the file has its own size bound.
     let personal = match mux.personal_snapshot() {
         Ok(personal) => {
             let mut personal = serde_json::to_value(personal)?;
@@ -207,6 +216,13 @@ fn launch_snapshot_value(mux: &Mux, include_projections: bool) -> anyhow::Result
             {
                 if let Some(defaults) = profile.get_mut("defaults").and_then(Value::as_object_mut) {
                     defaults.remove("env");
+                }
+            }
+            for session in
+                personal.get_mut("sessions").and_then(Value::as_array_mut).into_iter().flatten()
+            {
+                if let Some(session) = session.as_object_mut() {
+                    session.remove("capabilities");
                 }
             }
             personal
@@ -221,6 +237,11 @@ fn launch_snapshot_value(mux: &Mux, include_projections: bool) -> anyhow::Result
     } else {
         json!([])
     };
+    // The sidebar document (`sidebar.get`'s reply): its Pinned band draws in
+    // the app's first frame, not after this daemon's restore and handshake
+    // (seconds on a large registry). A pin bumps `personal_revision`, so a
+    // pin change rewrites the snapshot. Left out of the smaller retry.
+    let sidebar_doc = if include_projections { launch_sidebar_doc(mux) } else { Value::Null };
     Ok(json!({
         "schema_version": LAUNCH_SNAPSHOT_SCHEMA_VERSION,
         "app": "cmux-tui",
@@ -235,13 +256,42 @@ fn launch_snapshot_value(mux: &Mux, include_projections: bool) -> anyhow::Result
         "tree": tree,
         "personal": personal,
         "frontend_projections": projections,
+        "sidebar_doc": sidebar_doc,
     }))
 }
 
-fn write_launch_snapshot(mux: &Mux, path: &Path) -> anyhow::Result<()> {
-    let mut bytes = serde_json::to_vec(&launch_snapshot_value(mux, true)?)?;
+/// The sidebar document, or null before its migration or on a read error
+/// (the snapshot is a cache: the app then waits for `sidebar.get`).
+fn launch_sidebar_doc(mux: &Mux) -> Value {
+    let read = mux.personal_state_read(|connection| {
+        if !crate::state::sidebar_doc_store::is_migrated(connection)? {
+            return Ok(Value::Null);
+        }
+        crate::state::sidebar_doc_store::snapshot(connection)
+    });
+    match read {
+        Ok(value) => value,
+        Err(error) => {
+            eprintln!("cmux-tui: launch snapshot without the sidebar document: {error:?}");
+            Value::Null
+        }
+    }
+}
+
+/// Writes the snapshot; returns the projections left out to fit its bound
+/// (`frontend/scope/subject`), empty when all fit.
+fn write_launch_snapshot(mux: &Mux, path: &Path) -> anyhow::Result<Vec<String>> {
+    let mut value = launch_snapshot_value(mux, true)?;
+    let mut bytes = serde_json::to_vec(&value)?;
+    let mut dropped = Vec::new();
     if bytes.len() > MAX_LAUNCH_SNAPSHOT_BYTES {
+        dropped = drop_largest_projections(&mut value, bytes.len());
+        bytes = serde_json::to_vec(&value)?;
+    }
+    if bytes.len() > MAX_LAUNCH_SNAPSHOT_BYTES {
+        // The tree and personal state alone: the smaller form, as before.
         bytes = serde_json::to_vec(&launch_snapshot_value(mux, false)?)?;
+        dropped.push("sidebar_doc".to_string());
     }
     anyhow::ensure!(
         bytes.len() <= MAX_LAUNCH_SNAPSHOT_BYTES,
@@ -267,8 +317,61 @@ fn write_launch_snapshot(mux: &Mux, path: &Path) -> anyhow::Result<()> {
     if result.is_err() {
         let _ = std::fs::remove_file(&temporary);
     }
-    result
+    result.map(|()| dropped)
 }
+
+/// Removes native projections from `value`, largest first, until the
+/// snapshot fits [`MAX_LAUNCH_SNAPSHOT_BYTES`]; returns their names. The
+/// registry keeps them: the app reads them after it connects.
+fn drop_largest_projections(value: &mut Value, mut bytes: usize) -> Vec<String> {
+    let Some(projections) = value.get_mut("frontend_projections").and_then(Value::as_array_mut)
+    else {
+        return Vec::new();
+    };
+    let mut sized: Vec<(usize, usize)> = projections
+        .iter()
+        .enumerate()
+        .map(|(index, projection)| (serde_json::to_vec(projection).map_or(0, |b| b.len()), index))
+        .collect();
+    sized.sort_unstable_by(|a, b| b.cmp(a));
+    let mut removed = Vec::new();
+    for (size, index) in sized {
+        if bytes <= MAX_LAUNCH_SNAPSHOT_BYTES {
+            break;
+        }
+        bytes = bytes.saturating_sub(size + 1);
+        removed.push(index);
+    }
+    removed.sort_unstable_by(|a, b| b.cmp(a));
+    removed
+        .into_iter()
+        .map(|index| {
+            let projection = projections.remove(index);
+            let field = |key: &str| {
+                projection.get(key).and_then(Value::as_str).unwrap_or_default().to_string()
+            };
+            format!("{}/{}/{}", field("frontend"), field("scope"), field("subject_key"))
+        })
+        .collect()
+}
+
+/// Logs and reports the projections the launch snapshot left out: the app's
+/// first frame draws without them (the registry keeps them).
+fn report_dropped_projections(mux: &Mux, dropped: &[String]) {
+    if dropped.is_empty() {
+        return;
+    }
+    let message = format!(
+        "launch snapshot over {MAX_LAUNCH_SNAPSHOT_BYTES} bytes: left out {}",
+        dropped.join(", ")
+    );
+    eprintln!("cmux-tui: {message}");
+    mux.report_internal_diagnostic(message);
+}
+
+#[cfg(test)]
+#[path = "launch_snapshot_size_tests.rs"]
+mod size_tests;
 
 #[cfg(test)]
 mod tests {
@@ -312,6 +415,35 @@ mod tests {
                     .collect()
             })
             .unwrap_or_default()
+    }
+
+    /// Over its bound, the snapshot leaves out the largest projections first,
+    /// only as many as it must, and names them.
+    #[test]
+    fn an_oversized_snapshot_drops_the_largest_projections_first() {
+        let projection = |subject: &str, bytes: usize| {
+            json!({"frontend":"cmux-next","scope":"personal","subject_key":subject,
+                   "projection":{"pad":"x".repeat(bytes)}})
+        };
+        let big = MAX_LAUNCH_SNAPSHOT_BYTES / 2;
+        let mut value = json!({"tree":{},"frontend_projections":[
+            projection("windows", 1000),
+            projection("history", big),
+            projection("bookmarks", big),
+        ]});
+        let bytes = serde_json::to_vec(&value).unwrap().len();
+        assert!(bytes > MAX_LAUNCH_SNAPSHOT_BYTES);
+        let dropped = drop_largest_projections(&mut value, bytes);
+        assert_eq!(dropped.len(), 1, "only as many as needed: {dropped:?}");
+        assert!(dropped[0].ends_with("/history") || dropped[0].ends_with("/bookmarks"));
+        assert!(serde_json::to_vec(&value).unwrap().len() <= MAX_LAUNCH_SNAPSHOT_BYTES);
+        let kept: Vec<_> = value["frontend_projections"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|p| p["subject_key"].as_str().unwrap().to_string())
+            .collect();
+        assert!(kept.contains(&"windows".to_string()), "the small window state is kept: {kept:?}");
     }
 
     #[test]
@@ -378,6 +510,84 @@ mod tests {
             let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
             assert_eq!(mode, 0o600, "tab titles and paths are private to the user");
         }
+
+        drop(writer);
+        mux.shutdown();
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    /// The app draws the Pinned band from the snapshot before it connects
+    /// (Lawrence 2026-10-29: pins came back minutes after an update), so the
+    /// snapshot holds the sidebar document as `sidebar.get` returns it, and a
+    /// pin rewrites it.
+    #[test]
+    fn cmux_next_launch_snapshot_carries_the_sidebar_document() {
+        let root = temp_root("sidebar-doc");
+        let mux =
+            Mux::open_persistent("launch-snapshot-sidebar-doc", SurfaceOptions::default(), &root)
+                .unwrap();
+        let writer = start_launch_snapshot_writer_with(
+            &mux,
+            LaunchSnapshotTiming {
+                settle: Duration::from_millis(50),
+                max_delay: Duration::from_millis(500),
+            },
+        )
+        .unwrap()
+        .unwrap();
+        let request = |operation: &str, params: Value, key: Option<&str>| {
+            let mut params = params;
+            params["machine"] = json!("current");
+            params["session"] = json!("current");
+            let mut envelope = json!({"protocol":"cmux.protocol/2","type":"request","id":operation,
+                                      "operation":operation,"params":params});
+            if let Some(key) = key {
+                envelope["idempotency_key"] = json!(key);
+            }
+            let response =
+                crate::resource_router::handle_resource_message(&mux, &envelope.to_string())
+                    .unwrap();
+            assert_eq!(response["ok"], true, "{operation}: {response}");
+            response["result"].clone()
+        };
+        mux.create_empty_workspace(Some("pinned-one".into()), None, None).unwrap();
+        let doc = request("sidebar.get", json!({}), None);
+        let item = doc["items"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|item| item["body"]["type"] == "workspace")
+            .map(|item| item["id"].clone());
+        let item = match item {
+            Some(item) => item,
+            None => {
+                let (registry_id, _) = mux.registry_identity();
+                let listed = run_command(&mux, json!({"cmd":"list-workspaces"}));
+                let workspace = listed["workspaces"][0]["resource_id"].clone();
+                request(
+                    "sidebar.adopt",
+                    json!({"refs":[{"session_id":registry_id,"workspace_id":workspace}]}),
+                    Some("launch-snapshot-adopt"),
+                );
+                let doc = request("sidebar.get", json!({}), None);
+                doc["items"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .find(|item| item["body"]["type"] == "workspace")
+                    .map(|item| item["id"].clone())
+                    .expect("the adopted workspace has an item")
+            }
+        };
+        request("sidebar.pin", json!({"items":[item]}), Some("launch-snapshot-pin"));
+        let expected = request("sidebar.get", json!({}), None);
+        let snapshot = wait_for_snapshot(writer.path(), |snapshot| {
+            snapshot["sidebar_doc"]["items"].as_array().is_some_and(|items| {
+                items.iter().any(|entry| entry["id"] == item && entry["section"] == "sec_pinned")
+            })
+        });
+        assert_eq!(snapshot["sidebar_doc"], expected, "the snapshot's document is sidebar.get's");
 
         drop(writer);
         mux.shutdown();
@@ -470,6 +680,25 @@ mod tests {
             .unwrap();
         assert_eq!(work["defaults"]["cwd"], "/tmp");
         assert!(work["defaults"].get("env").is_none(), "room env stays out of the file");
+        // A session's capability list stays out of the file too.
+        run_command(
+            &mux,
+            json!({"cmd":"put-session","session_id":"remote-1","transport":{"kind":"ssh"},
+                   "capabilities":["profiles-v1"]}),
+        );
+        let snapshot = wait_for_snapshot(writer.path(), |snapshot| {
+            snapshot["personal"]["sessions"].as_array().is_some_and(|sessions| {
+                sessions.iter().any(|session| session["session_id"] == "remote-1")
+            })
+        });
+        assert!(
+            snapshot["personal"]["sessions"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|session| session.get("capabilities").is_none()),
+            "session capabilities stay out of the file"
+        );
         assert_eq!(
             snapshot["personal"]["personal_revision"],
             run_command(&mux, json!({"cmd":"list-personal"}))["personal_revision"]

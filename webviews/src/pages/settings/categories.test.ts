@@ -25,6 +25,8 @@ test("every page row has exactly one home", () => {
   expect(homes.size).toBe(schema.rows.length);
 });
 
+// In sidebar-section order (user 2026-10-30, "sections"): General and Updates, then Look and Feel,
+// Tools, AI, Interaction, Accounts and Devices, Data and System.
 test("the categories are the approved ones, in order", () => {
   expect(categories.map((category) => category.id)).toEqual([
     "general",
@@ -33,17 +35,19 @@ test("the categories are the approved ones, in order", () => {
     "appearance",
     "terminal",
     "editor",
+    "browser",
     "agents",
     "chief",
     "notifications",
-    "browser",
-    "import",
     "keyboard",
-    "privacy",
+    // Settings > Menus: every right-click menu's arrangement (Customize Menu… opens it).
+    "menus",
     "accounts",
     "mobile",
-    "server",
     "devices",
+    "server",
+    "import",
+    "privacy",
     "advanced",
     "experimental",
     "development",

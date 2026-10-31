@@ -1,6 +1,7 @@
 import CmuxNextActions
 import AppKit
 import CmuxNextAgentPane
+import CmuxNextPages
 import CmuxNextWakeups
 import Foundation
 
@@ -49,8 +50,8 @@ struct AgentTabContent {
         }
         if !view.model.hasPainted { drawLastPage(key, until: view) }
         if view.model.newTab != nil { AgentPaneNewTabFrame.shared.capture(view, in: pane.view.contentHost) }
-        if view.model.newTab != nil { BenchSpans.mark(view.superview is NewTabSpareParking ? "newTab.show.parked" : "newTab.show") }
-        if view.model.hasPainted, view.superview is NewTabSpareParking { coverMove(of: view) }
+        if view.model.newTab != nil { BenchSpans.mark(view.superview is PageOffscreenParking ? "newTab.show.parked" : "newTab.show") }
+        if view.model.hasPainted, view.superview is PageOffscreenParking { coverMove(of: view) }
         AgentReplySites(services: services).wire(view.model.replyLinks)
         return .agent(view)
     }
@@ -81,6 +82,10 @@ struct AgentTabContent {
             guard let imageView else { return }
             paneView?.clearLaunchImage(ifShowing: imageView)
         }
+        view.whenPagePainted { [weak paneView, weak imageView] in
+            guard let imageView else { return }
+            paneView?.clearLaunchImage(ifShowing: imageView)
+        }
     }
 
     /// A parked spare taken into this pane draws nothing until WebKit renders it in its new place
@@ -95,7 +100,11 @@ struct AgentTabContent {
         let image = size == .zero || paneView.launchImageView != nil || view.pageDrawsOverCovers ? nil : own ?? AgentPaneNewTabFrame.shared.image(size: size, appearance: appearance)
         BenchSpans.mark(image == nil ? "newTab.cover.none \(size) \(String(describing: appearance))" : own != nil ? "newTab.cover.own" : "newTab.cover")
         // The image's deadline shows the page too, should its frame never be reported.
-        if let image { paneView.showLaunchImage(image); paneView.onLaunchImageCleared = { [weak view] in view?.revealMovedPage() } }
+        if let image {
+            paneView.showLaunchImage(image)
+            paneView.launchImageInvokesResizeCallback = false
+            paneView.onLaunchImageCleared = { [weak view] in view?.revealMovedPage() }
+        }
         let imageView = image == nil ? nil : paneView.launchImageView
         view.hideMovedPage { [weak paneView, weak imageView] in
             BenchSpans.mark("newTab.cover.cleared")

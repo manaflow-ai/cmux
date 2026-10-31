@@ -1,6 +1,7 @@
 public import AppKit
-import CmuxNextAgentPane
+public import CmuxNextAgentPane
 import CmuxNextCompat
+import CmuxNextKeepAwake
 public import CmuxNextMobile
 public import Foundation
 public import Observation
@@ -102,6 +103,11 @@ public final class IPhoneHostService {
 
     /// `mobile.allowIPhoneConnections`, as the settings file has it.
     private(set) var allowed = false
+    /// Session Info's Remote Control switch every chat page shows (the App gives it to each page's model).
+    public let remoteControl = AgentPaneRemoteControl()
+    /// The service is wired and this build bundles hostd, so this Mac can serve cmux on iPhone
+    /// (Session Info's Remote Control row shows only then). Observed: set once by `wire`.
+    public internal(set) var servesPhones = false
     private(set) var account: Account?
     private(set) var state = MobileHostState()
     /// The account's phones on the mobile service (Settings > Mobile's list with Remove).
@@ -147,6 +153,8 @@ public final class IPhoneHostService {
     @ObservationIgnored private var followingFolders: Task<Void, Never>?
     @ObservationIgnored private var followingPicks: Task<Void, Never>?
     @ObservationIgnored private var pairingWatch: Task<Void, Never>?
+    /// App-lifetime wake observer; released on stop or deinit.
+    @ObservationIgnored private var wakeObserver: MainActorObservation?
     /// The one reconcile in flight; each waits for the previous one.
     @ObservationIgnored private var applying: Task<Void, Never>?
     @ObservationIgnored private var watching: Task<Void, Never>?
@@ -158,6 +166,12 @@ public final class IPhoneHostService {
 
     /// A host that runs nothing until it is wired and an account with the setting on arrives.
     public init() {
+        wakeObserver = MainActorObservation(NSWorkspace.didWakeNotification, center: NSWorkspace.shared.notificationCenter) { [weak self] in
+            guard let self, allowed, account != nil, !removed else { return }
+            let supervisor = supervisor
+            // task-owner: one control-line write per wake; ends after the actor hop.
+            Task { await supervisor.networkChanged() }
+        }
         let states = supervisor.states
         // task-owner: lives as long as the app; follows the supervisor's state stream
         watching = Task { [weak self] in
@@ -317,6 +331,7 @@ public final class IPhoneHostService {
     /// hostd reported the removal: remember it (across relaunches) and forget the device id.
     private func recordRemoval() {
         removed = true
+        KeepAwakeService.shared.setIPhoneServing(false)
         pairTokens.revoke()
         guard let dependencies, let key = running else { return }
         do {
@@ -362,6 +377,8 @@ public final class IPhoneHostService {
     /// App quit: hostd ends with the app (closing its stdin ends it too). Called only from
     /// `applicationWillTerminate`.
     public func stop() {
+        wakeObserver = nil
+        KeepAwakeService.shared.setIPhoneServing(false)
         running = nil
         following?.cancel()
         followingAccount?.cancel()
@@ -380,6 +397,7 @@ public final class IPhoneHostService {
     }
 
     private func reconcile() {
+        KeepAwakeService.shared.setIPhoneServing(allowed && account != nil && !removed)
         let want = allowed ? account : nil
         let key = want.map { "\($0.userID)\u{0}\($0.teamID)" }
         guard key != running else { return }
@@ -403,6 +421,7 @@ public final class IPhoneHostService {
             // Removed by the owner (this launch or an earlier one): stay stopped.
             if let key, MobileHostRemovalMarker(directory: dependencies.stateDirectory).account() == key {
                 self?.removed = true
+                KeepAwakeService.shared.setIPhoneServing(false)
                 self?.pairTokens.revoke()
                 await supervisor.stop(phase: .removed)
                 return

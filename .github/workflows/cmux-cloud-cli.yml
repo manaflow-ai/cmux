@@ -42,5 +42,6 @@ jobs:
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: cmux-cloud-cli-${{ github.event.pull_request.head.sha || github.sha }}
+          retention-days: 3
           path: cmux-tui/target/x86_64-unknown-linux-musl/release/cmux-cloud-cli
           if-no-files-found: error

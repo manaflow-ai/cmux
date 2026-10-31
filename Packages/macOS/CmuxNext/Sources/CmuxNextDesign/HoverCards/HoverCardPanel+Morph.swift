@@ -88,7 +88,7 @@ extension HoverCardPanel {
         let generation = Self.morphGeneration
         let mask = CALayer()
         mask.backgroundColor = NSColor.black.cgColor
-        mask.cornerRadius = Self.cornerRadius
+        mask.cornerRadius = host.cornerRadius
         mask.cornerCurve = .continuous
         mask.anchorPoint = corner
         CATransaction.begin()

@@ -5,7 +5,7 @@
 // opening to its Shell block. A command that went on in the background shows how it stands there
 // instead (BackgroundMark.tsx), and its time once it ends.
 import { useFindReveal } from "./chatFind";
-import { useId, useMemo, useState } from "react";
+import { memo, useId, useMemo, useState } from "react";
 import { useT } from "../i18n";
 import type { AcpmuxActivity } from "../model";
 import { commandFolder } from "./commandFolder";
@@ -21,7 +21,15 @@ import { rowFailed, toolFailure } from "./toolFailure";
 import { leadingVerb, ToolLabel } from "./ToolVerb";
 import { failureWord, InlineFailureCause, ToolFailureCause } from "./ToolFailureCause";
 
-export function CommandRow({ item }: { item: AcpmuxActivity }) {
+// direct.ts replaces only the changed item. Keep every expanded sibling out of that stream's
+// render/output work; the row's own disclosure, Find and language subscriptions still update it.
+export const CommandRow = memo(function CommandRow({
+  item,
+  grouped = false,
+}: {
+  item: AcpmuxActivity;
+  grouped?: boolean;
+}) {
   const t = useT();
   const tool = item.tool!;
   const [open, setOpen] = useTranscriptDisclosure(`command:${tool.id}`);
@@ -66,6 +74,7 @@ export function CommandRow({ item }: { item: AcpmuxActivity }) {
       <button
         type="button"
         className={`cv-tool cv-command is-toggle${running ? " is-live" : " is-strong"}`}
+        data-tool-id={tool.id}
         aria-expanded={open}
         aria-controls={open ? detailsId : undefined}
         ref={(node) => {
@@ -95,9 +104,9 @@ export function CommandRow({ item }: { item: AcpmuxActivity }) {
         </span>
         <span className="cv-command__meta">
           {foreground ? (
-            <Spinner size={12} />
+            !grouped && <Spinner size={12} />
           ) : tool.background ? (
-            <BackgroundMark background={tool.background} />
+            <BackgroundMark background={tool.background} showActivity={!grouped} />
           ) : failure ? (
             <span className="cv-command__failed" data-find-skip>
               {failureWord(t, failure)}
@@ -129,4 +138,4 @@ export function CommandRow({ item }: { item: AcpmuxActivity }) {
       )}
     </>
   );
-}
+});

@@ -119,7 +119,7 @@ public final class WorkspaceAutoNamer {
         var renames: [Rename] = []
         for target in targets {
             let workspace = target.workspace
-            guard target.supportsNameSource, workspace.kind != SidebarMapping.homeKind, workspace.app == nil,
+            guard target.supportsNameSource, !workspace.isAnyHome, workspace.app == nil,
                   target.nameSource != .user,
                   rule.confirmsRename(currentName: workspace.name, currentTitle: workspace.title,
                                       nameSource: target.nameSource, nameRevision: target.nameRevision),
@@ -169,7 +169,7 @@ public final class WorkspaceAutoNamer {
               target.workspace.key != nil, target.daemonGeneration == candidate.daemonGeneration,
               target.nameRevision == candidate.nameRevision,
               target.nameSource != .user, target.supportsNameSource,
-              target.workspace.kind != SidebarMapping.homeKind, target.workspace.app == nil,
+              !target.workspace.isAnyHome, target.workspace.app == nil,
               rule.confirmsRename(currentName: target.workspace.name, currentTitle: target.workspace.title,
                                   nameSource: target.nameSource, nameRevision: target.nameRevision),
               let front = focusedFront(target.workspace), front.id == candidate.frontTabID,

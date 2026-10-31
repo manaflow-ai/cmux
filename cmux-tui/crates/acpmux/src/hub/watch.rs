@@ -18,7 +18,8 @@
 //!   (`claude --resume`, Codex `session/load`); the history it shows is already there.
 //! - The read position is saved with the session, so a watch goes on after a daemon restart
 //!   where it stopped.
-//! - A transcript over 64 MiB is read from its newest 64 MiB.
+//! - A Claude Code transcript is shown from its newest page of turns (`adopt_replay_page.rs`); a
+//!   Codex rollout over 64 MiB from its newest 64 MiB.
 
 use super::{Hub, Session, SessionStatus};
 use crate::adopt::IfLive;
@@ -116,6 +117,7 @@ impl Hub {
         }
         let (hub, session) = (self.clone(), session.clone());
         tokio::spawn(async move {
+            hub.seek_watch_to_page(&session).await;
             loop {
                 let Some(watching) = session.meta().watching else { return };
                 if session.status() == SessionStatus::Closed {
@@ -138,6 +140,48 @@ impl Hub {
                 }
             }
         });
+    }
+
+    /// A Claude Code watch that has read nothing yet starts at its transcript's newest page
+    /// (`adopt_replay_page.rs`): the newest turns show at once, instead of the newest 64 MiB read
+    /// oldest first. The older turns stay in the transcript, from the `native_history` record's
+    /// `before` back.
+    async fn seek_watch_to_page(&self, session: &Arc<Session>) {
+        let Some(watching) = session.meta().watching else { return };
+        if watching.offset != 0 || watching.family != "claude" {
+            return;
+        }
+        let file = watching.file.clone();
+        // The newest page that starts at a prompt, so the first turn followed opens as a turn.
+        let (start, mark) = tokio::task::spawn_blocking(move || {
+            let mut input = std::fs::File::open(&file).ok()?;
+            let start = crate::adopt_replay::newest_prompt_start_open(
+                &mut input,
+                crate::adopt_replay::PAGE_TURNS,
+            )?;
+            Some((start, super::native_history::mark(&mut input, start)))
+        })
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or((0, None));
+        if start == 0 || mark.is_none() {
+            return;
+        }
+        {
+            let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+            match m.watching.as_mut() {
+                Some(w) if w.offset == 0 => w.offset = start,
+                _ => return,
+            }
+        }
+        self.save_meta(session);
+        self.append(
+            session,
+            "mux",
+            "native_history",
+            json!({"family": "claude", "before": start, "mark": mark}),
+        );
     }
 
     /// Appends what `lines` add as history and moves the read position to `offset`, unless the

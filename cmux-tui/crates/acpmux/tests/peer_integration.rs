@@ -778,6 +778,35 @@ async fn waiting_peer_add_answers_after_a_failed_first_attempt() {
     assert!(peers[0]["error"].is_string(), "{peers:?}");
 }
 
+/// A waiting `_acpmux/peer_add` or `_acpmux/peer_reconnect` says what its wait saw: whether the
+/// connect attempt settled, and the peer as it was then, with its error. Before, the reply was
+/// the peer list alone, the same whether the attempt failed, succeeded or was still running
+/// when the 30 s wait ran out, so `host check --fix` printed "does not connect" with no reason
+/// while a 90 s handshake went on (2026-10-30).
+#[tokio::test]
+async fn a_waiting_peer_add_or_reconnect_says_whether_it_settled_and_why() {
+    let a = hub(config(PermissionPolicy::Ask)).await;
+    let mut ca = client(a.clone()).await;
+    let url = format!("ws://127.0.0.1:{}", free_port());
+    let added = ca
+        .call("_acpmux/peer_add", json!({"name": "gone", "url": url, "wait": true}))
+        .await
+        .unwrap();
+    assert_eq!(added["wait"]["settled"], true, "{added}");
+    assert_eq!(added["wait"]["peer"]["name"], "gone", "{added}");
+    assert_eq!(added["wait"]["peer"]["connected"], false, "{added}");
+    assert!(added["wait"]["peer"]["error"].is_string(), "no reason: {added}");
+    let again = ca
+        .call("_acpmux/peer_reconnect", json!({"name": "gone", "wait": true, "force": true}))
+        .await
+        .unwrap();
+    assert_eq!(again["wait"]["settled"], true, "{again}");
+    assert!(again["wait"]["peer"]["error"].is_string(), "no reason: {again}");
+    // Without `wait`, the reply is as before.
+    let quick = ca.call("_acpmux/peer_add", json!({"name": "gone", "url": url})).await.unwrap();
+    assert!(quick.get("wait").is_none(), "{quick}");
+}
+
 /// ACP-REMOTE-GUARD P1: a peer proven by its peer token has no mode rule
 /// for its own local user, but a request it forwards for its Web client
 /// carries `via: web`, and the owning daemon applies the Web's rules on its
@@ -2951,17 +2980,23 @@ async fn auto_placement_takes_a_running_name_only_with_reuse_here_or_on_a_peer()
     tokio::spawn(acpmux::server::serve_unix(a.clone(), l));
     let cli = acpmux::client::Client::connect(&sock).await.unwrap();
 
-    let here = resolve(&cli, "agent", Some("near"), false).await.unwrap_err().to_string();
+    let here =
+        resolve(&cli, "agent", Some("near"), false, false, false).await.unwrap_err().to_string();
     assert!(here.contains("already runs on this machine") && here.contains("--reuse"), "{here}");
-    assert_eq!(resolve(&cli, "agent", Some("near"), true).await.unwrap(), None);
-    let there = resolve(&cli, "agent", Some("far"), false).await.unwrap_err().to_string();
+    assert_eq!(resolve(&cli, "agent", Some("near"), true, false, false).await.unwrap(), None);
+    let there =
+        resolve(&cli, "agent", Some("far"), false, false, false).await.unwrap_err().to_string();
     assert!(there.contains("already runs on b"), "{there}");
-    assert_eq!(resolve(&cli, "agent", Some("far"), true).await.unwrap().as_deref(), Some("b"));
+    assert_eq!(
+        resolve(&cli, "agent", Some("far"), true, false, false).await.unwrap().as_deref(),
+        Some("b")
+    );
     // On two machines: not guessed at, even with --reuse.
-    let two = resolve(&cli, "agent", Some("both"), true).await.unwrap_err().to_string();
+    let two =
+        resolve(&cli, "agent", Some("both"), true, false, false).await.unwrap_err().to_string();
     assert!(two.contains("this machine, b") && two.contains("--host"), "{two}");
     // A new name goes to the pick (which a busy test machine may refuse).
-    if let Err(e) = resolve(&cli, "agent", Some("fresh"), false).await {
+    if let Err(e) = resolve(&cli, "agent", Some("fresh"), false, false, false).await {
         let e = e.to_string();
         assert!(!e.contains("runs on") && !e.contains("--reuse"), "{e}");
     }
