@@ -25,15 +25,20 @@ public nonisolated struct TitleFadeGeometry: Equatable, Sendable {
     public var trailingPadding: CGFloat
     /// Longest trailing fade.
     public var fadeWidth: CGFloat
+    /// Width of the title layer while it is at rest. This can be narrower than
+    /// ``span`` when the rendered title must share its span with a trailing
+    /// close button or badge. Marquee mode expands back to the full span.
+    public var restWidth: CGFloat
 
     public init(textWidth: CGFloat, span: CGFloat, visibleWidth: CGFloat, leadingPadding: CGFloat,
-                trailingPadding: CGFloat, fadeWidth: CGFloat) {
+                trailingPadding: CGFloat, fadeWidth: CGFloat, restWidth: CGFloat? = nil) {
         self.textWidth = max(0, textWidth)
         self.span = max(0, span)
         self.visibleWidth = max(0, min(visibleWidth, span))
         self.leadingPadding = max(0, leadingPadding)
         self.trailingPadding = max(0, trailingPadding)
         self.fadeWidth = max(0, fadeWidth)
+        self.restWidth = max(0, min(self.span, restWidth ?? self.span))
     }
 
     /// The title does not fit before `visibleWidth`.
@@ -70,6 +75,6 @@ public nonisolated struct TitleFadeGeometry: Equatable, Sendable {
     /// Width the title's layer needs: its span, or the whole title while
     /// the marquee may show its end.
     public func layerWidth(marquee: Bool) -> CGFloat {
-        marquee && isTruncated ? max(span, ceil(textWidth)) : span
+        marquee && isTruncated ? max(span, ceil(textWidth)) : restWidth
     }
 }

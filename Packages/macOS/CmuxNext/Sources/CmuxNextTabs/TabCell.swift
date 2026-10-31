@@ -473,9 +473,10 @@ final class TabCell {
         setCloseButtonRect(closeRect, pill: bounds)
 
         if visibility.showsTitle {
-            // The title always spans to the trailing inset, so it never moves
-            // or resizes when the x appears; the x overlays its end and the
-            // title fades out before it.
+            // The title spans to the trailing inset while it fits. A clipped
+            // title uses the visible area as its rest width so middle
+            // truncation and the trailing fade share the same edge; the x or
+            // badge still overlays the trailing inset without hiding its tail.
             let titleX = iconFrame.maxX + m.iconTitleSpacing
             let span = max(0, bounds.width - m.contentTrailingInset - titleX)
             let lineHeight = ceil(titleFont.ascender - titleFont.descender + titleFont.leading)
@@ -483,9 +484,13 @@ final class TabCell {
             let titleEnd = closeRect.map { $0.minX - m.titleCloseSpacing } ?? (bounds.width - m.contentTrailingInset)
             let visibleEnd = layoutTrailingMarks(titleX: titleX, titleEnd: titleEnd, midY: midY, onPath: onPath)
             // The marquee fades glyphs out across the icon-title gap.
+            let textWidth = titleWidth()
+            let visibleWidth = visibleEnd - titleX
+            let restWidth = textWidth > visibleWidth + 0.5 ? visibleWidth : span
             let geometry = TitleFadeGeometry(
-                textWidth: titleWidth(), span: span, visibleWidth: visibleEnd - titleX,
-                leadingPadding: m.iconTitleSpacing, trailingPadding: 0, fadeWidth: m.titleFadeWidth
+                textWidth: textWidth, span: span, visibleWidth: visibleWidth,
+                leadingPadding: m.iconTitleSpacing, trailingPadding: 0, fadeWidth: m.titleFadeWidth,
+                restWidth: restWidth
             )
             let frame = CGRect(x: pixel(titleX), y: pixel(midY - lineHeight / 2), width: span, height: lineHeight)
             if onPath {
