@@ -39,15 +39,8 @@ struct CloseRenderMotionTests {
         private var observation: LayoutOverlaySyncObservation?
         private var landing: CheckedContinuation<Bool, Never>?
 
-        /// `columnGap`: pins the layout style with that column gap (`followsDesignMetrics` off), so the geometry does
-        /// not follow the host's design settings; nil (the default) keeps the live design metrics, as before.
-        init(_ layout: ScreenLayout, focused: PaneID, renderServer: Bool = true, reduceMotion: Bool = false, columnGap: CGFloat? = nil) {
+        init(_ layout: ScreenLayout, focused: PaneID, renderServer: Bool = true, reduceMotion: Bool = false) {
             model = LayoutModel(screens: [LayoutScreen(id: "s", name: "s", layout: layout)], activeScreenID: "s", focusedPane: focused)
-            if let columnGap {
-                model.followsDesignMetrics = false
-                model.baseStyle.columnGap = columnGap
-                model.baseStyle.panePadding = 0
-            }
             model.rowsEnabledOverride = true
             let renderSwitch = Switch(renderServer)
             self.renderServer = renderSwitch
