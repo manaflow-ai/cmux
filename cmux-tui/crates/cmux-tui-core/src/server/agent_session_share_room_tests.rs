@@ -1993,3 +1993,181 @@ fn a_prompt_in_flight_across_a_host_reconnect_is_sent_again() {
     let state = state_of(&room, conn, "c0");
     assert_eq!(state["state"], "held", "{state}");
 }
+
+// SCRATCH (never merge): load reproduction of the a_provisioned_share_answers_its_link hang.
+struct HangWatch(#[allow(dead_code)] Sender<()>);
+
+fn hang_watch(tag: String) -> HangWatch {
+    let (sender, receiver) = channel::<()>();
+    std::thread::spawn(move || {
+        if receiver.recv_timeout(Duration::from_secs(45))
+            != Err(std::sync::mpsc::RecvTimeoutError::Timeout)
+        {
+            return;
+        }
+        let pid = std::process::id();
+        eprintln!("HANGWATCH {tag}: no end after 45 s; sampling pid {pid}");
+        let file = std::env::temp_dir().join(format!("hangwatch-{pid}.txt"));
+        let out = std::process::Command::new("/usr/bin/sample")
+            .args([pid.to_string().as_str(), "2", "-file"])
+            .arg(&file)
+            .output();
+        eprintln!("HANGWATCH sample status: {:?}", out.as_ref().map(|o| o.status));
+        if let Ok(o) = &out {
+            eprintln!("HANGWATCH sample stderr: {}", String::from_utf8_lossy(&o.stderr));
+        }
+        match std::fs::read_to_string(&file) {
+            Ok(text) => eprintln!("HANGWATCH BEGIN SAMPLE\n{text}\nHANGWATCH END SAMPLE"),
+            Err(error) => eprintln!("HANGWATCH no sample file: {error}"),
+        }
+        std::process::abort();
+    });
+    HangWatch(sender)
+}
+
+fn hang_mark(tag: &str, start: Instant, step: &str) {
+    eprintln!("HANGMARK {tag} +{:?} {step}", start.elapsed());
+}
+
+fn provisioned_case(tag: &str) {
+    let start = Instant::now();
+    let _watch = hang_watch(tag.to_owned());
+    hang_mark(tag, start, "start");
+    let room = FakeRoom::start(&[]);
+    let (_fake, _mux, surface, mut owner) = bridged("room-put", &room);
+    hang_mark(tag, start, "bridged");
+    let reply = create(&mut owner, surface);
+    hang_mark(tag, start, "created");
+    assert_eq!(reply["ok"], true, "{reply}");
+    let share = &reply["data"];
+    let (id, secret) = (share["share_id"].as_str().unwrap(), share["secret"].as_str().unwrap());
+    let (path, bearer, body) = room.request("PUT");
+    assert_eq!((path, bearer), (format!("/v1/chat-shares/{id}"), OWNER_TOKEN.to_owned()));
+    assert_eq!(body["secret_sha256"], hex(&digest(&[secret])));
+    let listed = state(&mut owner);
+    hang_mark(tag, start, "listed");
+    assert_eq!(listed["state"], json!("active"));
+    let guest = owner.request(json!({"cmd":"agent-session-share-redeem", "share_id":id,
+        "secret":secret, "name":"Theo", "attempt_id":"attempt-1"}));
+    hang_mark(tag, start, "redeemed");
+    assert_eq!(guest["ok"], true, "{guest}");
+    let revoke = json!({"cmd":"agent-session-share-revoke", "share_id":id});
+    assert_eq!(owner.request(revoke)["ok"], true);
+    hang_mark(tag, start, "revoked");
+    let (path, bearer, _) = room.request("DELETE");
+    assert_eq!((path, bearer), (format!("/v1/chat-shares/{id}"), "host-token-1".to_owned()));
+    room.none(
+        "a second DELETE",
+        |s| matches!(s, Seen::Request { method, .. } if method == "DELETE"),
+    );
+    hang_mark(tag, start, "no second delete");
+    assert_eq!(state(&mut owner)["state"], "revoked");
+    hang_mark(tag, start, "body done");
+    drop(owner);
+    hang_mark(tag, start, "owner dropped");
+    drop(_mux);
+    hang_mark(tag, start, "mux dropped");
+    drop(_fake);
+    drop(room);
+    hang_mark(tag, start, "end");
+}
+
+#[test]
+fn hangcopy_provisioned_share_01() {
+    provisioned_case("copy-01");
+}
+
+#[test]
+fn hangcopy_provisioned_share_02() {
+    provisioned_case("copy-02");
+}
+
+#[test]
+fn hangcopy_provisioned_share_03() {
+    provisioned_case("copy-03");
+}
+
+#[test]
+fn hangcopy_provisioned_share_04() {
+    provisioned_case("copy-04");
+}
+
+#[test]
+fn hangcopy_provisioned_share_05() {
+    provisioned_case("copy-05");
+}
+
+#[test]
+fn hangcopy_provisioned_share_06() {
+    provisioned_case("copy-06");
+}
+
+#[test]
+fn hangcopy_provisioned_share_07() {
+    provisioned_case("copy-07");
+}
+
+#[test]
+fn hangcopy_provisioned_share_08() {
+    provisioned_case("copy-08");
+}
+
+#[test]
+fn hangcopy_provisioned_share_09() {
+    provisioned_case("copy-09");
+}
+
+#[test]
+fn hangcopy_provisioned_share_10() {
+    provisioned_case("copy-10");
+}
+
+#[test]
+fn hangcopy_provisioned_share_11() {
+    provisioned_case("copy-11");
+}
+
+#[test]
+fn hangcopy_provisioned_share_12() {
+    provisioned_case("copy-12");
+}
+
+#[test]
+fn hangcopy_provisioned_share_13() {
+    provisioned_case("copy-13");
+}
+
+#[test]
+fn hangcopy_provisioned_share_14() {
+    provisioned_case("copy-14");
+}
+
+#[test]
+fn hangcopy_provisioned_share_15() {
+    provisioned_case("copy-15");
+}
+
+#[test]
+fn hangcopy_provisioned_share_16() {
+    provisioned_case("copy-16");
+}
+
+#[test]
+fn hangcopy_provisioned_share_17() {
+    provisioned_case("copy-17");
+}
+
+#[test]
+fn hangcopy_provisioned_share_18() {
+    provisioned_case("copy-18");
+}
+
+#[test]
+fn hangcopy_provisioned_share_19() {
+    provisioned_case("copy-19");
+}
+
+#[test]
+fn hangcopy_provisioned_share_20() {
+    provisioned_case("copy-20");
+}
