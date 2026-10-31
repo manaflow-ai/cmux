@@ -239,6 +239,7 @@ fn decode(request: &Request, value: serde_json::Value) -> io::Result<Value> {
             if grant.token.is_empty()
                 || grant.services.len() != services.len()
                 || !services.iter().all(|service| grant.covers(host, *service))
+                || grant.vm_kind.as_deref().is_some_and(|kind| !matches!(kind, "owner" | "team"))
             {
                 return Err(invalid());
             }
