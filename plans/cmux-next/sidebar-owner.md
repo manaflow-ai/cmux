@@ -1,5 +1,14 @@
 # cmux-next sidebar: owner note
 
+- 2026-10-30: the sidebar is a linear list by default: no titlebar dropdown. Lawrence (message 18548): "by default
+  i dont want to have workspace titlebar dropdowns at all, i just want to have linear list of workspaces (with
+  groups ofc)". The chevron beside the titlebar's + (a879's split-button segment, 631d310) now shows only with
+  `sidebar.showNewWorkspaceChooser` (Settings > Appearance > Sidebar, "Show New Workspace Menu Button"), off by
+  default; the +'s right-click menu keeps the same chooser. Workspace rows list no tabs and draw no tab
+  disclosure (tabs in the sidebar were removed in 74d73a32d071). Regression:
+  `SidebarLinearListDefaultTests`, `SidebarShowNewWorkspaceChooserSettingTests`; stills: `AALinearSidebarGalleryTests`
+  (artifact `linear-sidebar-gallery.tar`, before and after, dark and light).
+
 - 2026-10-30: a group's rail keeps its gap and spans its members; a lone warning triangle sits on the status column.
   Lawrence (NIGHTLY "Sleep alarm" group): "alignment here is bad": the rail sat flush against "New Workspace"'s fill
   and began part way down it. `SidebarStyle.groupEdgePadding` was `horizontalInset - groupBarWidth`, which ate the
