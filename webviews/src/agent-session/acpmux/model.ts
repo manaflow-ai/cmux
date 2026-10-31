@@ -753,6 +753,12 @@ export type AcpmuxSnapshot = {
   /// wire to a chat on another machine lists `acp.trust.set` (cx-1bhjj); acpmux never lists it,
   /// so a remote browser still cannot answer.
   answersTrust?: boolean;
+  /// The connection is the app's wire to a chat on the person's OWN Cloud machine: the Cloud API
+  /// said the signed-in caller owns it (`vmKind: "owner"`), and that machine's daemon checks the
+  /// same answer again at each start. A disposable VM of the person's own is its own boundary, so
+  /// Codex and opencode chats send there (remoteEditing.ts). Never set for a team machine,
+  /// another person's computer or a remote browser.
+  ownerCloud?: boolean;
   /// acpmux reconnects a Claude Code chat's failed MCP server for this connection: its `initialize`
   /// lists `_acpmux/mcp/reconnect` (an older acpmux does not), so the Inspector's Connectors offer
   /// Reconnect.

@@ -159,7 +159,7 @@ export const ToolRow = memo(function ToolRow({ item }: { item: AcpmuxActivity })
           className={`cv-tool is-toggle${shell ? "" : " is-whole-open"}${running ? " is-live" : " is-strong"}`}
           data-tool-id={tool.id}
           aria-expanded={open}
-          aria-controls={open ? detailsId : undefined}
+          aria-controls={open && (shell || files.length > 0 || body) ? detailsId : undefined}
           ref={fold.headerRef}
           onClick={fold.toggle}
         >
