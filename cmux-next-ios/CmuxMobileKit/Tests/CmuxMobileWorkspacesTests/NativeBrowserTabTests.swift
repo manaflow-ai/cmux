@@ -5,6 +5,7 @@ import CmuxMobileTransport
 import CmuxTabsKit
 import Foundation
 import Testing
+import UIKit
 @testable import CmuxMobileWorkspaces
 
 /// A Mac that streams browser tabs: each open records the tab and keeps its stream,
@@ -243,8 +244,17 @@ final class DevServerChannel: LinkChannel, @unchecked Sendable {
         let (source, _, _) = try await linked(at: "http://127.0.0.1:\(port)/", native: native)
         source.openOnPhone(tab)
         let phone = try #require(try page(source) as? BrowserTabModel, "the Mac's localhost opens on the phone")
+        // On screen, as the tab's page is in the app (`BrowserPage`). WebKit treats a web view in
+        // no window as hidden and lets a busy simulator hold back its page's process, so in a
+        // full kit run the page sometimes never parsed (no title) and the typed address below
+        // never reached the navigation policy (its port never opened).
+        let window = UIWindow(frame: phone.webView.frame)
+        window.addSubview(phone.webView)
+        window.isHidden = false
+        defer { window.isHidden = true }
         for _ in 0..<2000 where phone.title != "Forwarded from the Mac" { try await Task.sleep(for: .milliseconds(5)) }
-        #expect(phone.title == "Forwarded from the Mac", "the page came over the link: \(String(describing: phone.problem))")
+        #expect(phone.title == "Forwarded from the Mac",
+                "the page came over the link: \(String(describing: phone.problem)), loading \(phone.isLoading) at \(phone.progress), \(served.count) served")
         #expect(served.count > 0)
         #expect(native.forwarder?.ports == [port])
 
