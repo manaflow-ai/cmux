@@ -66,7 +66,7 @@ import CmuxNextWakeups
         let daemon = try FakeChiefAcpmux(sessions: rows(homeTag: "optchat-chief:b902d10e", namedTag: "optchat-chief:69e026c6"))
         defer { daemon.stop() }
         let router = AcpmuxChiefSessionRouter(local: NamedHost(name: "app"), chief: NamedHost(name: "chief-home"),
-                                              chiefEnvironment: daemon.environment, parentTag: "optchat-chief:b902d10e")
+                                              chiefEnvironment: daemon.environment)
 
         #expect(await reached(router, session: namedChiefSubagent) == "chief-home")
         #expect(await reached(router, session: untagged) == "chief-home")
@@ -111,7 +111,7 @@ import CmuxNextWakeups
                                                 withIntermediateDirectories: true)
         let environment = FakeChiefAcpmux.environment(home: root, socket: root.appendingPathComponent("acpmux.sock").path)
         let router = AcpmuxChiefSessionRouter(local: NamedHost(name: "app"), chief: NamedHost(name: "chief-home"),
-                                              chiefEnvironment: environment, parentTag: "optchat-chief:b902d10e")
+                                              chiefEnvironment: environment)
         #expect(await reached(router, session: namedChiefSubagent) == "chief-home")
         #expect(await reached(router, session: appChat) == "app")
     }
