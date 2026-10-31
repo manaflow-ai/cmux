@@ -55,6 +55,7 @@ public struct SidebarMapping {
     /// so a structural pass reads no row's status.
     /// `workspaceFilter` drops workspaces that are no longer valid sidebar rows
     /// (for example, an acpmux session that was purged while its tab lingers).
+    /// `terminalTitle` (localized by the App) names a Cloud machine's unnamed workspace whose shell idles at its home.
     public func sections(_ daemonSections: [DaemonSidebarSection], machine: SidebarMachine,
                                 collapsedGroups: Set<String> = [],
                                 hidesHomeWorkspace: Bool = true,
@@ -69,6 +70,7 @@ public struct SidebarMapping {
                                 groupIconAsset: ((String) -> SidebarFavicon?)? = nil,
                                 rowSource: RowSource? = nil,
                                 workspaceFilter: (WorkspaceModel) -> Bool = { _ in true },
+                                terminalTitle: String? = nil,
                                 harnessIcons: @escaping () -> HarnessIconLookup = { .none }) -> [SidebarRowSection] {
         // A personal group's icon lives on the home daemon, whichever machine's section shows it.
         func groupImage(_ icon: String) -> SidebarFavicon? { groupIconAsset.map { $0(icon) } ?? iconAsset(icon) }
