@@ -845,3 +845,43 @@ proptest! {
         }
     }
 }
+
+/// R3b in the daemon: a column create whose live result resized a column
+/// that was there is refused, by the tab-conserving check for a drag into a
+/// new column and by `ensure_columns_kept` for a new terminal column; one
+/// that keeps every width passes.
+#[test]
+fn a_column_create_that_resizes_a_column_is_refused() {
+    let mux = test_mux("layout-invariants-r3b");
+    let first = mux.new_workspace(None, Some((80, 22))).unwrap();
+    let anchor = pane_of(&mux, first.id);
+    let right = mux.new_pane_right(anchor, 0.5, Some((38, 22))).unwrap();
+    let right = pane_of(&mux, right.id);
+    assert!(mux.set_viewport_pane_width(anchor, 0.7));
+    let before = mux.with_state(Clone::clone);
+    let model = project(&before);
+    let screen = project_screen(&before.workspaces[0].screens[0]);
+
+    // The live store after a new column at 0.4 beside `right`.
+    let created = mux.new_pane_right(right, 0.4, Some((30, 22))).unwrap();
+    let after = mux.with_state(Clone::clone);
+    let kind = LayoutOpKind::MoveTabToColumn {
+        tab: created.id,
+        anchor: right,
+        after_column: None,
+        width_permille: 400,
+        new_pane: pane_of(&mux, created.id),
+        new_column: u64::MAX,
+        base_column: u64::MAX - 1,
+    };
+    assert!(ensure_columns_kept("pane.split", &screen, &after.workspaces[0].screens[0]).is_ok());
+    // The same result with the anchor's column shrunk to make room.
+    let mut resized = after;
+    resized.workspaces[0].screens[0].layout_columns[0].width = 0.3;
+    let refused = ensure_columns_kept("pane.split", &screen, &resized.workspaces[0].screens[0])
+        .expect_err("a resized column must be refused");
+    assert!(refused.to_string().contains("from 700\u{2030} to 300\u{2030}"), "{refused}");
+    let problems = validate_layout_transition("tab.drag", &model, None, Some(&kind), &resized)
+        .expect_err("a drag into a new column that resizes one must be refused");
+    assert!(problems.to_string().contains("resized column"), "{problems}");
+}

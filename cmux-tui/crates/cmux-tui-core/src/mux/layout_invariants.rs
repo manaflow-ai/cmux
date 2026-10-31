@@ -13,8 +13,13 @@
 //!    operation on a reducer rejection before the live state changes;
 //! 2. runs the live state change, and [`validate_layout_transition`] rejects
 //!    it, restoring the previous state, when the result introduces an I1-I3
-//!    violation the previous state did not have or places a tab differently
-//!    than the reducer does.
+//!    violation the previous state did not have, places a tab differently
+//!    than the reducer does, or, for an operation that creates a column,
+//!    changes the width of a column that was there (R3b).
+//!
+//! A new terminal column (`new-pane-right`) is a creation, not a
+//! tab-conserving move: [`ensure_columns_kept`] checks R3b on the one
+//! screen it changed before the creation commits.
 //!
 //! The check is relative on purpose: state restored from an older build that
 //! already breaks an invariant must not block every later layout operation.
@@ -25,8 +30,9 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use cmux_layout_reducer::{
-    Column, LayoutOp, LayoutOpKind, LayoutState, Row, Screen, TabContent, Workspace, apply,
-    introduced_violations, placement_mismatches,
+    COLUMN_WIDTH_PERMILLE, Column, LayoutOp, LayoutOpKind, LayoutState, Row, Screen, TabContent,
+    Workspace, apply, introduced_violations, placement_mismatches, resized_columns,
+    resized_screen_columns,
 };
 use serde_json::json;
 
@@ -72,21 +78,7 @@ pub(crate) fn project(state: &State) -> LayoutState {
             .iter()
             .map(|workspace| Workspace {
                 id: workspace.id,
-                screens: workspace
-                    .screens
-                    .iter()
-                    .map(|screen| Screen {
-                        id: screen.id,
-                        columns_active: !screen.layout_columns.is_empty(),
-                        // While columns are active, `root` is a derived
-                        // projection of them.
-                        columns: if screen.layout_columns.is_empty() {
-                            vec![Column::single(0, screen.root.pane_ids_vec())]
-                        } else {
-                            screen.layout_columns.iter().map(project_column).collect()
-                        },
-                    })
-                    .collect(),
+                screens: workspace.screens.iter().map(project_screen).collect(),
             })
             .collect(),
         panes: state.panes.iter().map(|(id, pane)| (*id, pane.tabs.clone())).collect(),
@@ -107,8 +99,29 @@ pub(crate) fn project(state: &State) -> LayoutState {
     }
 }
 
-/// One viewport column of the model: its panes in order and, with
-/// `rows-v1`, the rows partitioning them.
+/// The layout model of one screen: its strip columns, or its split tree as
+/// one full-width column.
+pub(crate) fn project_screen(screen: &crate::model::Screen) -> Screen {
+    Screen {
+        id: screen.id,
+        columns_active: !screen.layout_columns.is_empty(),
+        // While columns are active, `root` is a derived projection of them.
+        columns: if screen.layout_columns.is_empty() {
+            vec![Column::single(0, screen.root.pane_ids_vec())]
+        } else {
+            screen.layout_columns.iter().map(project_column).collect()
+        },
+    }
+}
+
+/// A column width (a viewport fraction) in the reducer's thousandths.
+fn width_permille(width: f32) -> u16 {
+    let range = COLUMN_WIDTH_PERMILLE;
+    ((width * 1000.0).round().clamp(f32::from(*range.start()), f32::from(*range.end()))) as u16
+}
+
+/// One viewport column of the model: its panes in order, its width and,
+/// with `rows-v1`, the rows partitioning them.
 fn project_column(column: &crate::model::LayoutColumn) -> Column {
     let rows = column
         .row_trees()
@@ -119,7 +132,12 @@ fn project_column(column: &crate::model::LayoutColumn) -> Column {
             len: tree.pane_ids_vec().len(),
         })
         .collect();
-    Column { id: column.id, panes: column.root.pane_ids_vec(), rows }
+    Column {
+        id: column.id,
+        panes: column.root.pane_ids_vec(),
+        rows,
+        width_permille: width_permille(column.width),
+    }
 }
 
 /// Run the reducer for `kind` on the model of the live state `before`.
@@ -139,19 +157,28 @@ pub(crate) fn model_result(
 /// Every reason to reject the change from `before` (the model of the live
 /// state before it) to the live state `after`: introduced invariant
 /// violations, and, when the reducer ran, a placement it does not produce.
+#[cfg(test)]
 pub(crate) fn transition_problems(
     before: &LayoutState,
     model: Option<&LayoutState>,
     after: &State,
 ) -> Vec<String> {
-    let after = project(after);
-    let mut problems = introduced_violations(before, &after, &BTreeSet::new())
+    model_transition_problems(before, model, &project(after))
+}
+
+/// [`transition_problems`] on the model of the live result.
+fn model_transition_problems(
+    before: &LayoutState,
+    model: Option<&LayoutState>,
+    after: &LayoutState,
+) -> Vec<String> {
+    let mut problems = introduced_violations(before, after, &BTreeSet::new())
         .iter()
         .map(ToString::to_string)
         .collect::<Vec<_>>();
     if let Some(model) = model {
         problems.extend(
-            placement_mismatches(model, &after)
+            placement_mismatches(model, after)
                 .iter()
                 .map(|mismatch| format!("the layout reducer disagrees: {mismatch}")),
         );
@@ -160,14 +187,35 @@ pub(crate) fn transition_problems(
 }
 
 /// Reject a tab-conserving `operation` whose live result `after` breaks a
-/// layout invariant or differs from the reducer's result `model`.
+/// layout invariant or differs from the reducer's result `model`, and, when
+/// its op `kind` creates a column, one that resized a column (R3b).
 pub(crate) fn validate_layout_transition(
     operation: &str,
     before: &LayoutState,
     model: Option<&LayoutState>,
+    kind: Option<&LayoutOpKind>,
     after: &State,
 ) -> anyhow::Result<()> {
-    let problems = transition_problems(before, model, after);
+    let after = project(after);
+    let mut problems = model_transition_problems(before, model, &after);
+    if kind.is_some_and(LayoutOpKind::creates_column) {
+        problems.extend(resized_columns(before, &after).iter().map(ToString::to_string));
+    }
+    if problems.is_empty() { Ok(()) } else { Err(rejection(operation, problems)) }
+}
+
+/// R3b for a creation that changed one screen: refuse it when a column
+/// that `before` (the screen's model before the change) had changed its
+/// width in `after`. O(the screen's panes), not the session.
+pub(crate) fn ensure_columns_kept(
+    operation: &str,
+    before: &Screen,
+    after: &crate::model::Screen,
+) -> anyhow::Result<()> {
+    let problems = resized_screen_columns(before, &project_screen(after))
+        .iter()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>();
     if problems.is_empty() { Ok(()) } else { Err(rejection(operation, problems)) }
 }
 
