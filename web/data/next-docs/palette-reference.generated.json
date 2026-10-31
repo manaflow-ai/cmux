@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1229,
+    "entries": 1237,
     "shortcuts": 189
   },
   "sections": [
@@ -3874,6 +3874,12 @@
           "command": "cmux bookmark edit"
         },
         {
+          "id": "browser.editSource",
+          "title": "Edit Source",
+          "shortcut": null,
+          "command": "cmux browser edit-source"
+        },
+        {
           "id": "fileEditorZoomReset",
           "title": "Editor: Actual Size",
           "shortcut": "⌘0",
@@ -4214,6 +4220,12 @@
           "title": "Open All Bookmarks in Folder",
           "shortcut": null,
           "command": "cmux bookmark open-all"
+        },
+        {
+          "id": "file.openAsPage",
+          "title": "Open as Page",
+          "shortcut": null,
+          "command": "cmux file open-as-page"
         },
         {
           "id": "bookmark.openInBackgroundTab",
@@ -4688,6 +4700,12 @@
           "title": "Show Downloads…",
           "shortcut": null,
           "command": null
+        },
+        {
+          "id": "browser.showCookieImportBanner",
+          "title": "Show Import Cookies Banner",
+          "shortcut": null,
+          "command": "cmux browser show-cookie-banner"
         },
         {
           "id": "showBrowserJavaScriptConsole",
@@ -5308,12 +5326,6 @@
           "command": "cmux sidebar show-spaces"
         },
         {
-          "id": "sidebar.workspaceTabs.toggle",
-          "title": "Show Tabs Under Workspaces",
-          "shortcut": null,
-          "command": null
-        },
-        {
           "id": "switchRightSidebarToSessions",
           "title": "Show Vault",
           "shortcut": null,
@@ -5644,6 +5656,12 @@
           "command": null
         },
         {
+          "id": "chief.screenShare.look",
+          "title": "Chief: Look at Screen Now",
+          "shortcut": null,
+          "command": "cmux chief look-at-screen"
+        },
+        {
           "id": "chief.openMemoryInspector",
           "title": "Chief: Open Memory Inspector",
           "shortcut": null,
@@ -5654,6 +5672,12 @@
           "title": "Chief: Toggle Memory Inspector",
           "shortcut": null,
           "command": null
+        },
+        {
+          "id": "chief.screenShare.toggle",
+          "title": "Chief: Toggle Screen Sharing",
+          "shortcut": null,
+          "command": "cmux chief toggle-screen-share"
         },
         {
           "id": "agentPane.git.commit",
@@ -6040,6 +6064,12 @@
           "command": "cmux agent set-model"
         },
         {
+          "id": "chief.screenShare.start",
+          "title": "Share Screen with Chief",
+          "shortcut": null,
+          "command": "cmux chief share-screen"
+        },
+        {
           "id": "stats.show",
           "title": "Show Agent Stats",
           "shortcut": null,
@@ -6074,6 +6104,12 @@
           "title": "Stop Reading Aloud",
           "shortcut": null,
           "command": "cmux agent stop-reading-aloud"
+        },
+        {
+          "id": "chief.screenShare.stop",
+          "title": "Stop Sharing Screen with Chief",
+          "shortcut": null,
+          "command": "cmux chief stop-sharing-screen"
         },
         {
           "id": "home.stopChief",
@@ -6868,6 +6904,12 @@
           "command": null
         },
         {
+          "id": "app.install",
+          "title": "Install App…",
+          "shortcut": null,
+          "command": "cmux apps install"
+        },
+        {
           "id": "palette.applyUpdateIfAvailable",
           "title": "Install Available Update",
           "shortcut": null,
@@ -6986,6 +7028,12 @@
           "title": "Reload Configuration",
           "shortcut": "⇧⌘,",
           "command": "cmux settings reload-configuration"
+        },
+        {
+          "id": "app.remove",
+          "title": "Remove App…",
+          "shortcut": null,
+          "command": "cmux apps remove"
         },
         {
           "id": "appearance.reset",
