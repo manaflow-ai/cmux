@@ -23,6 +23,7 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
         var raw: [String] = []
         var rawBytes = 0
         var processing = false
+        var questionNotificationQueued = false
         var signaled = false
         var outstanding = 0
         var outstandingBytes = 0
@@ -71,6 +72,7 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
     private let ids: AcpmuxRequestIds
     /// Sends a reply in place on (``AgentPaneAgentReply``); nil refuses every one.
     private let agentReplies: AgentPaneAgentReply.Send?
+    private let onQuestionStateChanged: (@MainActor () -> Void)?
     private let signal: @Sendable () -> Void
     private let state = Mutex(State())
     let statusRead = AcpmuxStatusReadSlot()
@@ -79,7 +81,7 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
 
     init(request: URLRequest, wire: (any AcpmuxPaneWire)? = nil, limits: AgentPaneTransport.Limits,
          options: AcpmuxPermissionOptions, sessions: AcpmuxPaneSessions, decisions: AcpmuxDecisionContexts = AcpmuxDecisionContexts(),
-         replacements: AcpmuxPaneReplacements = AcpmuxPaneReplacements(), connection: Int = 0, ids: AcpmuxRequestIds, agentReplies: AgentPaneAgentReply.Send? = nil, signal: @escaping @Sendable () -> Void) {
+         replacements: AcpmuxPaneReplacements = AcpmuxPaneReplacements(), connection: Int = 0, ids: AcpmuxRequestIds, agentReplies: AgentPaneAgentReply.Send? = nil, onQuestionStateChanged: (@MainActor () -> Void)? = nil, signal: @escaping @Sendable () -> Void) {
         self.request = request
         self.wire = wire
         self.limits = limits
@@ -90,6 +92,7 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
         self.connection = connection
         self.ids = ids
         self.agentReplies = agentReplies
+        self.onQuestionStateChanged = onQuestionStateChanged
         self.signal = signal
     }
 
@@ -181,6 +184,7 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
         while !batch.isEmpty {
             var page: [String] = []
             var awaited = 0
+            var questionsChanged = false
             for text in batch {
                 switch ids.toPage(text) {
                 case .drop:
@@ -196,7 +200,9 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
                     sessions.observe(object)
                     sessions.observeFolder(object, replyTo: method)
                     if wire != nil { sessions.observeTabSession(object, replyTo: method) }
+                    let questionVersion = decisions.pendingQuestionVersion()
                     decisions.observe(object, replyTo: method)
+                    questionsChanged = questionsChanged || decisions.pendingQuestionVersion() != questionVersion
                     replacements.observe(object, replyTo: method, connection: connection)
                     if Self.pageWaits(on: object) { awaited += 1 }
                     page.append(fresh)
@@ -209,7 +215,23 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
                 }
             }
             enqueue(page, awaited: awaited)
+            if questionsChanged { notifyQuestionsChanged() }
             batch = takeRaw()
+        }
+    }
+
+    private func notifyQuestionsChanged() {
+        let queue = state.withLock { state in
+            guard !state.questionNotificationQueued else { return false }
+            state.questionNotificationQueued = true
+            return true
+        }
+        guard queue else { return }
+        // task-owner: one coalesced native projection update, only after question state changes.
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.state.withLock { $0.questionNotificationQueued = false }
+            self.onQuestionStateChanged?()
         }
     }
 
