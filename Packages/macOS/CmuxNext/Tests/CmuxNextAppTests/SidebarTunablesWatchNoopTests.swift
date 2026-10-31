@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// `SidebarTunablesWatch.changed()` redrew and re-laid-out every live row in the process each time it ran,
@@ -8,7 +9,7 @@ import Testing
 /// both observations, which each read `sidebar.agentMark`), each pass over every row of every open list, so
 /// whole-process `swift test` runs stalled on the main thread there until the 300 s watchdog killed them
 /// (PR #27961 run 41059291481 attempt 2, and five other branches' runs the same day).
-@MainActor @Suite(.serialized)
+@MainActor @Suite(.serialized, .closesItsWindows)
 struct SidebarTunablesWatchNoopTests {
     /// A pass that finds the rows already drawn with the current values touches no row.
     @Test func aPassWithNoTunableChangeLeavesTheRowsAlone() throws {

@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextDesign
+import CmuxNextTestSupport
 import Foundation
 @testable import CmuxNextSidebar
 import Testing
@@ -10,7 +11,7 @@ import Testing
 /// same model: its rows and their order and frames, group headers and rails, selection, folds and placeholders.
 /// Each operation runs through the path the app uses (the sidebar document's drag, the model's fold, a click, an
 /// external tab drag), then the daemon's echo shows it as the app's model change does.
-@MainActor @Suite(.serialized) struct SidebarIncrementalMatchesRebuildTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct SidebarIncrementalMatchesRebuildTests {
     static let section = "sec_m_s1"
     static let work = GroupID("g-work"), infra = GroupID("g-infra"), empty = GroupID("g-empty"), folded = GroupID("g-folded")
     static let allGroups = [work, infra, empty, folded]

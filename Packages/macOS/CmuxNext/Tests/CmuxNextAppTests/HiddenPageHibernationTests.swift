@@ -7,6 +7,7 @@ import CmuxNextCompat
 import CmuxNextSettings
 import Foundation
 import Testing
+import CmuxNextTestSupport
 
 /// The 2026-10-14 hibernation audit (100 Chromium tabs, `browser.hibernation` 0.5 min): 34
 /// renderers (2.9 GB) outlived their tabs' pages, and the app grew about 7 MB per hibernated tab.
@@ -15,7 +16,7 @@ import Testing
 /// default option, and the probe called that the person's form input. The 7 MB was each
 /// placeholder's own full-size snapshot, outside the 32 MB preview cache. Real WebKit pages,
 /// hidden from a pane, through the app's hibernation.
-@MainActor @Suite(.serialized, .timeLimit(.minutes(2))) struct HiddenPageHibernationTests {
+@MainActor @Suite(.closesItsWindows, .serialized, .timeLimit(.minutes(2))) struct HiddenPageHibernationTests {
     @Test func aPageWhoseScriptFillsItsFormHibernates() async throws {
         let rig = try Rig()
         defer { rig.close() }
