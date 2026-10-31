@@ -9,7 +9,7 @@ import Foundation
 extension PageWebView {
     func popup(_ op: String, params: [String: Any]) -> JSONValue {
         if op == PageNativeOp.popupHide {
-            popupHost?.hide()
+            popupHost?.hideRequest(params)
             return .object([:])
         }
         guard let model = WebPopupHost.Model(params) else { return .object(["shown": .bool(false)]) }
