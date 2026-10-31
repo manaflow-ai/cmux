@@ -223,6 +223,9 @@ export function ComposerQueue({
   // The open edit as the latest render saw it, for a call that settles later.
   const editingNow = useRef<string | undefined>(undefined);
   editingNow.current = editing;
+  // Each row's latest Save: an older one that settles after a newer one began must not reopen its
+  // superseded text (the newer save's editor, or its result, is the one that counts).
+  const saveGeneration = useRef(new Map<string, number>());
   // The images the open edit drops from its prompt.
   const [dropped, setDropped] = useState<ReadonlySet<string>>(new Set());
   const setEditing = (id: string | undefined) => {
@@ -668,6 +671,9 @@ export function ComposerQueue({
     const edit: QueueEdit = removed
       ? { op: "update", text: next, images: kept.map((image) => image.id) }
       : { op: "update", text: next };
+    const generation = (saveGeneration.current.get(entry.id) ?? 0) + 1;
+    saveGeneration.current.set(entry.id, generation);
+    const latest = () => saveGeneration.current.get(entry.id) === generation;
     // A refused edit (acpmux answered no: the prompt already started) hands the typed text back to
     // the composer. A call that failed before acpmux could have it (not connected, a typed
     // refusal) leaves the row queued, so the text goes back into the row's editor: restoring it to
@@ -679,7 +685,7 @@ export function ComposerQueue({
         if (!ok) onLost?.(next, entry.id);
       },
       (error: unknown) => {
-        if (mayHaveReachedAcpmux(error)) return;
+        if (mayHaveReachedAcpmux(error) || !latest()) return;
         // Another row's edit is open now: its draft is not ours to drop, so this text goes to the composer.
         if (editingNow.current !== undefined) return void onLost?.(next, entry.id);
         draft.current = { id: entry.id, original: entry.prompt, text: next };

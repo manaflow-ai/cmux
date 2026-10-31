@@ -792,6 +792,56 @@ test("a reopened editor hands its text back to the composer if the row is gone w
   expect(run.editor()).toBeNull();
 });
 
+// Overlapping saves of one row: A is pending, the row is reopened and B is saved, then A fails and B
+// succeeds. A's failure is stale (B superseded it), so it must not reopen A's text: the stale editor would
+// autosave A over B when clicked away.
+test("an older save that fails after a newer save of the same row began does not reopen its text", async () => {
+  const calls: { resolve(ok: boolean): void; reject(error: Error): void }[] = [];
+  const lost: [string, string][] = [];
+  const unhandled: unknown[] = [];
+  const onUnhandled = (reason: unknown) => unhandled.push(reason);
+  process.on("unhandledRejection", onUnhandled);
+  const container = installDom();
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <ComposerQueue
+        queue={queue}
+        chat="c"
+        t={t}
+        onChange={() => new Promise<boolean>((resolve, reject) => calls.push({ resolve, reject }))}
+        onRemove={async () => true}
+        onLost={(text, id) => lost.push([id, text])}
+      />,
+    );
+  });
+  const saveAs = async (text: string) => {
+    await startEdit(container, "p-1");
+    const field = container.querySelector<HTMLTextAreaElement>('[data-prompt-id="p-1"] textarea')!;
+    await act(async () => {
+      field.value = text;
+      field.dispatchEvent(new dom!.window.Event("input", { bubbles: true }));
+    });
+    await act(async () => {
+      field.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+    });
+  };
+  await saveAs("text A");
+  await saveAs("text B");
+  expect(calls).toHaveLength(2);
+  const editor = () => container.querySelector<HTMLTextAreaElement>('[data-prompt-id="p-1"] textarea');
+  expect(editor()).toBeNull();
+  await act(async () => calls[0]!.reject(Object.assign(new Error("not connected"), { code: "native.not_connected" })));
+  await settle();
+  await act(async () => calls[1]!.resolve(true));
+  await settle();
+  await settle();
+  process.off("unhandledRejection", onUnhandled);
+  expect(editor()).toBeNull();
+  expect(lost).toEqual([]);
+  expect(unhandled).toEqual([]);
+});
+
 for (const [name, error] of [
   ["timed out", { code: "native.timed_out" }],
   ["closed", { code: "transport.closed" }],
