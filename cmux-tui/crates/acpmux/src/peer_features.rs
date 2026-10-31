@@ -47,6 +47,11 @@ impl Peer {
         self.lists(feature).then_some(epoch)
     }
 
+    /// Whether the peer said at its last handshake that it pages a chat's native history.
+    pub fn supports_native_history(&self) -> bool {
+        self.native_history.load(Ordering::SeqCst)
+    }
+
     /// Whether the peer said at its last handshake that it saves a message's attachments.
     pub fn supports_send_attach(&self) -> bool {
         self.lists(crate::attach::FEATURE)

@@ -178,6 +178,8 @@ pub struct Peer {
     link_epoch: AtomicU64,
     /// Whether the peer serves `_acpmux/subagent_transcript` (`hub/subagent_transcript.rs`).
     subagent_transcript: AtomicBool,
+    /// Whether the peer serves `_acpmux/native_history` (`hub/native_history.rs`).
+    native_history: AtomicBool,
     /// The peer lists `sessionAuth` (`hub/session_auth.rs`).
     session_auth: AtomicBool,
     /// The features the peer listed at its last handshake (`lists`).
@@ -274,6 +276,7 @@ impl Peer {
             media_read: AtomicBool::new(false),
             link_epoch: AtomicU64::new(0),
             subagent_transcript: AtomicBool::new(false),
+            native_history: AtomicBool::new(false),
             session_auth: AtomicBool::new(false),
             features: StdMutex::new(Vec::new()),
             session_resume_link: AtomicU64::new(0),
@@ -1221,6 +1224,7 @@ impl Peer {
             set(&me.file_put_chunks, crate::hub::file_uploads::CHUNKS_FEATURE);
             set(&me.media_read, crate::hub::MEDIA_READ_FEATURE);
             set(&me.subagent_transcript, crate::hub::SUBAGENT_TRANSCRIPT_FEATURE);
+            set(&me.native_history, crate::hub::NATIVE_HISTORY_FEATURE);
             set(&me.session_auth, crate::hub::session_auth::FEATURE);
             set(&me.person_stop, crate::hub::cancel::PERSON_STOP_FEATURE);
             // The rest are read from the list (`lists`): attachments, uploads, upload status,

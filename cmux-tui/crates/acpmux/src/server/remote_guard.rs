@@ -72,7 +72,8 @@
 //! - Web only: no `_acpmux/subagent_transcript` (`transcriptRead.remote`),
 //!   which reads a subagent's transcript from the chat's Claude store
 //!   (`hub/subagent_transcript.rs`): the unix socket, the app and a peer
-//!   forwarding for either.
+//!   forwarding for either. Nor `_acpmux/native_history`, which reads a
+//!   chat's older turns from its Claude Code transcript (`hub/native_history.rs`).
 //!
 //! The unix socket keeps today's behavior.
 
@@ -464,6 +465,15 @@ async fn check_inner(
             "mediaRead.remote: a chat's media is read only for the app or over the local unix socket",
         )
         .with_data(serde_json::json!({"reason": "mediaRead.remote"})));
+    }
+    // And a chat's older turns, read from its Claude Code transcript (`hub/native_history.rs`).
+    if m == method::MUX_NATIVE_HISTORY
+        && control_of(origin, auth, params) == crate::hub::Control::Web
+    {
+        return Err(RpcError::invalid_params(
+            "transcriptRead.remote: a chat's transcript is read only for the app or over the local unix socket",
+        )
+        .with_data(serde_json::json!({"reason": "transcriptRead.remote"})));
     }
     // And a subagent's transcript (`hub/subagent_transcript.rs`).
     if m == method::MUX_SUBAGENT_TRANSCRIPT
