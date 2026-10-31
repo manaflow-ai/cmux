@@ -56,10 +56,16 @@ public struct CloudConfiguration: Sendable, Equatable {
 
     /// The file-fallback token store directory the old app used.
     public var credentialsDirectory: URL {
-        FileManager.default.homeDirectoryForCurrentUser
+        credentialsDirectory(homeDirectory: FileManager.default.homeDirectoryForCurrentUser)
+    }
+
+    func credentialsDirectory(homeDirectory: URL) -> URL {
+        homeDirectory
             .appendingPathComponent("Library/Application Support/cmux", isDirectory: true)
             .appendingPathComponent(bundleID ?? "cmux", isDirectory: true)
     }
+
+    func authDefaultsKey(_ key: String) -> String { key }
 
     /// `<scheme>://auth-callback`. `resolve` accepts only a scheme that forms this URL;
     /// /dev/null stands in for a hand-built configuration with one that does not.

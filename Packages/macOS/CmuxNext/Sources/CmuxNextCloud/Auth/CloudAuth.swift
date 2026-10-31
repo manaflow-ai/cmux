@@ -100,9 +100,9 @@ public final class CloudAuth {
         let anchor = AuthPresentationContextProvider()
         coordinator = AuthCoordinator(
             client: client,
-            sessionCache: CMUXAuthSessionCache(keyValueStore: defaults, key: "cmux.auth.hasTokens"),
-            userCache: CMUXAuthIdentityStore(keyValueStore: defaults, key: "cmux.auth.cachedUser"),
-            teamSelection: CMUXAuthTeamSelectionStore(keyValueStore: defaults, key: "cmux.auth.selectedTeamID"),
+            sessionCache: CMUXAuthSessionCache(keyValueStore: defaults, key: configuration.authDefaultsKey("cmux.auth.hasTokens")),
+            userCache: CMUXAuthIdentityStore(keyValueStore: defaults, key: configuration.authDefaultsKey("cmux.auth.cachedUser")),
+            teamSelection: CMUXAuthTeamSelectionStore(keyValueStore: defaults, key: configuration.authDefaultsKey("cmux.auth.selectedTeamID")),
             anchor: anchor,
             config: config,
             launch: AuthLaunchOptions(clearAuthRequested: false, mockDataEnabled: false, environment: launchEnvironment,
