@@ -67,7 +67,7 @@
   color: inherit;
   font: inherit;
   text-align: start;
-  cursor: pointer;
+  cursor: default;
 }
 .acpmux-cu-preview__open:focus-visible {
   outline: 1.5px solid var(--agent-text);
@@ -176,7 +176,7 @@
   border-radius: 50%;
   background: var(--cu-preview-close-fill);
   color: white;
-  cursor: pointer;
+  cursor: default;
 }
 .acpmux-cu-preview__close:hover {
   background: var(--cu-preview-close-hover);
