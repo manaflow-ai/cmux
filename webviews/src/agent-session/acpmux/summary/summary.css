@@ -75,6 +75,9 @@
 .acpmux-summary-dot[data-state=running]{box-shadow:0 0 0 1px var(--agent-accent)}
 /* The Subagents tab (SubagentsTab.tsx): the Subagents title opens it; the card's head then shows a Summary tab and a closable Subagents tab. Its rows are the transcript's subagent rows (SubagentGroup.tsx), compact and unbordered here. */
 .acpmux-summary-title__button{display:inline-flex;align-items:center;gap:4px;margin:-2px -4px;padding:2px 4px;border:0;border-radius:5px;background:none;color:inherit;font:inherit;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out),color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
+/* One line, left-aligned, its counts cut with an ellipsis: the popover's title carries every count. */
+.acpmux-summary-title__button{max-width:100%;text-align:left}
+.acpmux-summary-title__text{min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
 .acpmux-summary-title__button>svg{flex:none;opacity:.7}
 .acpmux-summary-title__button:hover{background:var(--acpmux-menu-hover);color:var(--agent-text)}
 .acpmux-summary-title__button:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:0}
@@ -305,6 +308,9 @@ html[data-pr-dock-layout="beside"] .acpmux-pr-comparison[data-mode="compact"] .a
 .acpmux-summary-task{display:flex;align-items:center;gap:2px;margin:2px 0;border:var(--cmux-hairline,.5px) solid var(--agent-border);border-radius:8px;background:color-mix(in srgb,var(--agent-text) 3%,transparent)}
 .acpmux-summary-task>.acpmux-summary-row{flex:1 1 auto;min-width:0;height:auto;min-height:32px;padding-block:8px}
 .acpmux-summary-task>.acpmux-chat-inspector-stop{margin-right:4px}
+/* One Stop per row reads as a column of repeated controls; it shows for the task under the pointer or keyboard focus, and stays while a stop is in flight or failed. */
+.acpmux-summary-task>.acpmux-chat-inspector-stop[data-state=idle]{opacity:0}
+.acpmux-summary-task:is(:hover,:focus-within)>.acpmux-chat-inspector-stop{opacity:1}
 .acpmux-summary-task[data-state=failed]>.acpmux-summary-row>svg{color:var(--agent-status-failure)}
 .acpmux-summary-task[data-state=stopped]>.acpmux-summary-row>svg,.acpmux-summary-task[data-state=lost]>.acpmux-summary-row>svg{color:var(--agent-muted)}
 .acpmux-summary-task__body{display:flex;min-width:0;flex-direction:column;align-items:flex-start;line-height:16px}
@@ -349,3 +355,6 @@ html[data-pr-dock-layout="beside"] .acpmux-pr-comparison[data-mode="compact"] .a
 .acpmux-tools-source,.acpmux-tools-note{flex:0 1 auto;min-width:0;margin-inline-start:auto;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;color:var(--agent-muted);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
 .acpmux-tools-note[data-kind=error]{color:var(--acpmux-warning)}
 .acpmux-tools-empty{padding:4px var(--ui-row-padding-inline);color:var(--agent-muted)}
+
+/* The toolbar popover starts with Environment, without a title band or divider above it. */
+.acpmux-summary-card[data-placement=popover] .acpmux-summary-card__body{padding-top:4px;border-top:0}

@@ -254,6 +254,7 @@ import {
   descendants,
   subagentChangesFolder,
   subagentProcesses,
+  subagentSummary,
   withChatEnds,
   type SubagentScope,
 } from "./inspector/subagentScope";
@@ -12233,6 +12234,19 @@ function AcpmuxPane() {
           <SummaryCard
             key={snapshot.sessionId}
             card={summaryCard}
+            environment={{
+              summary: inspectorSubagent
+                ? subagentSummary(inspectorSummary, inspectorSubagent.agent, inspectorSubagent.rows)
+                : inspectorSummary,
+              machineName,
+              peerKinds: snapshot.peerKinds,
+              repository: githubRepository,
+              onOpenFolder:
+                quick || !inspectorLocal
+                  ? undefined
+                  : (path) =>
+                      ignoreFailure(callNative("pane.action", { id: HEADER_ACTIONS.files, cwd: path, mode: "open" })),
+            }}
             rows={cardRows}
             cwd={snapshot.summary?.cwd}
             changes={quick ? undefined : cardChanges}
