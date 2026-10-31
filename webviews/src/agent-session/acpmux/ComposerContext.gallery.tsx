@@ -589,13 +589,64 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       },
     },
     "environment-picker": {
+      height: 640,
       note: "Preview: the computer is the environment picker, one searchable list in Local, SSH and Cloud sections with ⌥⌘1–9; New Cloud Machine ends the Cloud section and New environment (SSH…, Connect Phone…) comes last. gpu-box is connected (a filled dot), Cloud machine is not (a ring); this Mac has no status.",
       props: {
         ...baseProps,
         environments: true,
+        auto: { detail: "This Mac", kind: "local", selected: true, onPick: () => undefined },
         peers: ["gpu-box", "Cloud machine"],
         peerKinds: { "gpu-box": "ssh", "Cloud machine": "cloud" },
         peerConnected: { "gpu-box": true, "Cloud machine": false },
+      },
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: /^Environment/ });
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [role="option"]'));
+      },
+    },
+    "environment-picker-auto-local": {
+      height: 640,
+      note: "New chat default: Auto is selected at the top of the picker, with a quiet one-line note that the prompt chooses the destination; explicit machines remain below.",
+      props: {
+        ...baseProps,
+        environments: true,
+        auto: { detail: "This Mac", kind: "local", selected: true, onPick: () => undefined },
+        peers: ["gpu-box", "Cloud machine"],
+        peerKinds: { "gpu-box": "ssh", "Cloud machine": "cloud" },
+        peerConnected: { "gpu-box": true, "Cloud machine": true },
+      },
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: /^Environment/ });
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [role="option"]'));
+      },
+    },
+    "environment-picker-auto-cloud": {
+      height: 640,
+      note: "Auto remains selected for a prompt that asks for cloud work (or a folder whose last chat went to Cloud): it goes to the Cloud row, which stays unchecked under Auto, a one-click override like the machines.",
+      props: {
+        ...baseProps,
+        environments: true,
+        auto: { detail: "Cloud", kind: "cloud", selected: true, onPick: () => undefined },
+        runMode: { mode: "cloud", onMode: () => undefined, onDefault: () => undefined },
+        peers: ["Cloud machine", "gpu-box"],
+        peerKinds: { "gpu-box": "ssh", "Cloud machine": "cloud" },
+        peerConnected: { "gpu-box": true, "Cloud machine": true },
+      },
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: /^Environment/ });
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [role="option"]'));
+      },
+    },
+    "environment-picker-auto-named": {
+      height: 640,
+      note: "Auto names the requested machine in the same quiet line; opening it keeps the explicit alternatives available.",
+      props: {
+        ...baseProps,
+        environments: true,
+        auto: { detail: "gpu-box", kind: "ssh", selected: true, onPick: () => undefined },
+        peers: ["gpu-box", "Cloud machine"],
+        peerKinds: { "gpu-box": "ssh", "Cloud machine": "cloud" },
+        peerConnected: { "gpu-box": true, "Cloud machine": true },
       },
       play: async (ctx) => {
         await ctx.click({ role: "button", name: /^Environment/ });
