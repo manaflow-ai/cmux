@@ -604,6 +604,8 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       },
     },
     "environment-picker-cloud-chat": {
+      // The whole list, down to the Cloud section, past the entry's 180px stage.
+      height: 420,
       note: "Preview: a chat seeded onto a Cloud machine (kind-aqua-sandpiper). This Mac keeps this Mac's own name (office-mac, the host's `localMachineName`) and the Cloud machine is listed under Cloud and VMs, never under This Mac (Leo, 2026-10-30: \"the ui is so ass in general for this tho\").",
       props: {
         ...baseProps,
@@ -631,6 +633,8 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
     },
     // TEMPORARY (removed before review): base's behaviour, This Mac titled with the chat's Cloud machine.
     "environment-picker-cloud-chat-before": {
+      // The whole list, down to the Cloud section, past the entry's 180px stage.
+      height: 420,
       note: "Before: This Mac titled with the Cloud machine the chat was seeded onto (the host's machineName), and this Mac missing.",
       props: {
         ...baseProps,
