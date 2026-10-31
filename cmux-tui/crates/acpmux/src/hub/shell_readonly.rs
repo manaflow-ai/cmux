@@ -100,16 +100,19 @@ pub(crate) const PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_
 /// The environment the harness runs its shell commands with.
 pub(crate) type Env = BTreeMap<String, String>;
 
-/// Whether `env` points none of these programs at another program or file. A library search
-/// path (`LD_LIBRARY_PATH`, which cargo sets for its tests) passes: it only finds libraries
-/// already on disk, and putting one there takes an edit, which asks. Any other loader variable
-/// asks: one loads a library first, another writes a trace (`LD_DEBUG_OUTPUT`,
-/// `DYLD_PRINT_TO_FILE`).
+/// Whether `env` points none of these programs at another program or file. The library search
+/// path cargo sets for its tests passes on each OS: `LD_LIBRARY_PATH` on Linux and
+/// `DYLD_FALLBACK_LIBRARY_PATH` on macOS. Each only finds libraries already on disk, and putting
+/// one there takes an edit, which asks; the macOS one is searched only for a library its install
+/// name does not find (and macOS drops every `DYLD_*` variable when it starts a protected system
+/// program such as `/usr/bin/git`). Any other loader variable asks: one loads a library first
+/// (`DYLD_INSERT_LIBRARIES`, `DYLD_LIBRARY_PATH`, searched before the install name), another
+/// writes a trace (`LD_DEBUG_OUTPUT`, `DYLD_PRINT_TO_FILE`).
 fn env_runs_nothing(env: &Env) -> bool {
     env.keys().all(|k| {
         !(RUNS_ENV.contains(&k.as_str())
             || (k.starts_with("LD_") && k != "LD_LIBRARY_PATH")
-            || k.starts_with("DYLD_")
+            || (k.starts_with("DYLD_") && k != "DYLD_FALLBACK_LIBRARY_PATH")
             // An exported bash function (`BASH_FUNC_pwd%%`) runs in place of the command it names.
             || k.starts_with("BASH_FUNC_")
             || (k.starts_with("GIT_") && !HARMLESS_GIT_ENV.contains(&k.as_str())))
