@@ -2039,6 +2039,7 @@ async fn dispatch_request(
             };
             // The prompt of the turn the page starts inside, read with it (`turn_opener.rs`).
             let opener = turn_opener::turn_opener(hub, &s.id, &page);
+            hub.lane_report_events_read(conn.caller(), &s.id, &page.events);
             let events: Vec<Value> = events::values(&s.id, page.events);
             // Who has the chat open now (`hub/presence.rs`), this attachment included.
             let presence = hub.presence.snapshot(&s.id);

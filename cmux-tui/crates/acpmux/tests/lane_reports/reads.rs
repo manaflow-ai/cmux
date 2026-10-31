@@ -150,35 +150,36 @@ async fn lane_report_parent_history_read_removes_only_the_matching_queued_result
 
 #[tokio::test]
 async fn lane_report_transcript_reply_read_consumes_its_ended_turn_not_state_only_pages() {
-    let hub = hub();
-    let mut person = Client::new(&hub);
-    let parent = person.new_session("parent", json!({})).await;
-    let lane = Client::as_session(&hub, &parent).await.new_session("last-lane", json!({})).await;
-    start_running(&mut person, &parent).await;
-    let mut events = hub.subscribe();
-    Client::as_session(&hub, &parent).await.prompt(&lane, "last reply result").await;
-    tokio::time::timeout(Duration::from_secs(5), async {
-        loop {
-            let event = events.recv().await.unwrap();
-            if event.session_id == parent && event.record.kind == "queued" {
-                break;
+    for method in ["_acpmux/attach", "_acpmux/events"] {
+        let hub = hub();
+        let mut person = Client::new(&hub);
+        let parent = person.new_session("parent", json!({})).await;
+        let lane =
+            Client::as_session(&hub, &parent).await.new_session("last-lane", json!({})).await;
+        start_running(&mut person, &parent).await;
+        let mut events = hub.subscribe();
+        Client::as_session(&hub, &parent).await.prompt(&lane, "last reply result").await;
+        tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                let event = events.recv().await.unwrap();
+                if event.session_id == parent && event.record.kind == "queued" {
+                    break;
+                }
             }
-        }
-    })
-    .await
-    .expect("the report queued behind its busy parent");
-    let mut reader = Client::as_session(&hub, &parent).await;
-    reader
-        .ok("_acpmux/events", json!({"sessionId": lane, "limit": 5000, "kinds": ["turn_result"]}))
-        .await;
-    assert_eq!(hub.session_summary(&hub.resolve(&parent).unwrap())["queued"], 1);
-    reader
-        .ok("_acpmux/events", json!({"sessionId": lane, "limit": 5000, "kinds": ["transcript"]}))
-        .await;
-    assert_eq!(hub.session_summary(&hub.resolve(&parent).unwrap())["queued"], 0);
-    let messages = archive(&mut person, &parent).await;
-    assert_eq!(messages.len(), 1);
-    let projections = person.message_events(&parent).await;
-    assert_eq!(projections.len(), 1, "the archive preserves the durable message projection");
-    person.ok("session/cancel", json!({"sessionId": parent})).await;
+        })
+        .await
+        .expect("the report queued behind its busy parent");
+        let mut reader = Client::as_session(&hub, &parent).await;
+        reader
+            .ok(method, json!({"sessionId": lane, "limit": 5000, "kinds": ["turn_result"]}))
+            .await;
+        assert_eq!(hub.session_summary(&hub.resolve(&parent).unwrap())["queued"], 1);
+        reader.ok(method, json!({"sessionId": lane, "limit": 5000, "kinds": ["transcript"]})).await;
+        assert_eq!(hub.session_summary(&hub.resolve(&parent).unwrap())["queued"], 0);
+        let messages = archive(&mut person, &parent).await;
+        assert_eq!(messages.len(), 1);
+        let projections = person.message_events(&parent).await;
+        assert_eq!(projections.len(), 1, "the archive preserves the durable message projection");
+        person.ok("session/cancel", json!({"sessionId": parent})).await;
+    }
 }
