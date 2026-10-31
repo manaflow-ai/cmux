@@ -32,6 +32,7 @@ import argparse
 import calendar
 import json
 import re
+import shutil
 import os
 import subprocess
 import sys
@@ -304,9 +305,12 @@ def build_state(job, deadline, poll=30.0):
     """The fleet state of build JOB once it is done, failed or cancelled, or its last state at DEADLINE."""
     while True:
         try:
-            out = subprocess.run([os.environ.get("SMOKE_GATE_CMUX_CI", "cmux-ci"), "status", job],
+            out = subprocess.run([os.environ.get("SMOKE_GATE_CMUX_CI") or shutil.which("cmux-ci")
+                                  or str(Path.home() / ".local/bin/cmux-ci"), "status", job],
                                  capture_output=True, text=True, timeout=60).stdout
             state = json.loads(out).get("state") if out.strip() else None
+        except FileNotFoundError:
+            return "unknown (no cmux-ci)"  # never poll for hours without the client
         except (subprocess.TimeoutExpired, ValueError, OSError):
             state = None
         if state in ("done", "failed", "cancelled") or time.time() > deadline:

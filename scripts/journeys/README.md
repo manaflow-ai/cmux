@@ -393,7 +393,8 @@ GO's mini (it must be one of `--hosts`), sets capture-host's acquire timeout and
 starts before the GO's `until` (less 20 s), and writes `NAME.done` after the round, only while that same GO is
 still open. A GO with less than 60 s left, or on another mini, is given back unused; one GO is never two rounds.
 With `--whole-host`, each round leases the GO's whole mini. No GO within `--go-wait-hours` (4): that round is
-not run. The 10-of-10 rule and the `.pass` file are unchanged.
+not run. The 10-of-10 rule and the `.pass` file are unchanged. A round that took its lease counts as one of the
+spec's rounds whatever its status, so give the spec no `rounds` limit, or one larger than `--rounds`.
 
 ### Building a smoke candidate (the only way)
 
