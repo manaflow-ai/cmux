@@ -80,7 +80,9 @@ test("a sent message starts as one collapsed line: Sent to, the recipient, a one
   expect(row.querySelector(".cv-agentmsg__preview")?.textContent).toBe("first line");
   expect(toggle().getAttribute("aria-expanded")).toBe("false");
   // Closed, how far it got is one word on the line; nothing else draws: no body, no Show more.
-  expect(row.querySelector(".cv-agentmsg__line > .cv-tool__trail > .cv-message__status")?.textContent).toBe("Delivered");
+  expect(row.querySelector(".cv-agentmsg__line > .cv-tool__trail > .cv-message__status")?.textContent).toBe(
+    "Delivered",
+  );
   expect(row.querySelector(".cv-agentmsg__card")).toBeNull();
   expect(row.querySelectorAll(".cv-message__status")).toHaveLength(1);
   expect(row.textContent).not.toContain("second line");

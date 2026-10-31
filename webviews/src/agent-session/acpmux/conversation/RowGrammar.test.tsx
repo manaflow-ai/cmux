@@ -213,7 +213,9 @@ test("the trailing column and the chevron hold fixed grid columns in the shared 
   const css = readFileSync(new URL("./conversation.css", import.meta.url), "utf8");
   const block = (selector: string) =>
     new RegExp(`(?:^|\\n)${selector.replace(/[.]/g, "\\.")} \\{([^}]*)\\}`).exec(css)?.[1] ?? "";
-  expect(block(".cv-tool")).toContain("grid-template-columns: var(--cv-glyph-slot) minmax(0, 1fr) auto var(--cv-disclosure-slot)");
+  expect(block(".cv-tool")).toContain(
+    "grid-template-columns: var(--cv-glyph-slot) minmax(0, 1fr) auto var(--cv-disclosure-slot)",
+  );
   expect(block(".cv-tool__trail")).toContain("grid-column: 3");
   expect(block(".cv-tool__chevron")).toContain("grid-column: 4");
   // The message line is that grid, not a flex row of its own whose chevron moves with its meta.

@@ -22,7 +22,10 @@ type Props = { recipient: "chip" | "link" | "plain"; open?: boolean };
 
 const sendMessage = tool("SendMessage", "other", "completed", {
   id: "grammar-send-message",
-  inputSummary: JSON.stringify({ to: "Organize the sidebar", message: "The sessions you set up should nest under their parent chat." }),
+  inputSummary: JSON.stringify({
+    to: "Organize the sidebar",
+    message: "The sessions you set up should nest under their parent chat.",
+  }),
   output: JSON.stringify({ queued: true }),
 });
 const shellSend = tool("acpmux send", "execute", "completed", {
@@ -42,7 +45,14 @@ const subagent: AcpmuxRow = {
   kind: "activity",
   settled: true,
   subagents: [
-    { id: "grammar-sa", parent: null, name: "Audit agent friction", state: "completed", startedAt: 0, endedAt: 148_000 },
+    {
+      id: "grammar-sa",
+      parent: null,
+      name: "Audit agent friction",
+      state: "completed",
+      startedAt: 0,
+      endedAt: 148_000,
+    },
   ],
 } as AcpmuxRow;
 
@@ -66,7 +76,9 @@ function RowGrammarGallery({ recipient, open = false }: Props) {
   }, [recipient]);
   useLayoutEffect(() => {
     if (!open) return;
-    for (const toggle of document.querySelectorAll<HTMLElement>(".row-grammar-gallery .cv-agentmsg__toggle, .row-grammar-gallery .cv-sent"))
+    for (const toggle of document.querySelectorAll<HTMLElement>(
+      ".row-grammar-gallery .cv-agentmsg__toggle, .row-grammar-gallery .cv-sent",
+    ))
       toggle.click();
   }, [open]);
   const message = agentMessage(sendMessage.tool!)!;

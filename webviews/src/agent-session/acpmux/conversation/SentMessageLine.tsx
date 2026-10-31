@@ -216,7 +216,9 @@ export function SentMessageLine({
             // l10n-allow: punctuation around the message's own words.
             <span className="cv-agentmsg__preview cv-sent__preview">{`“${trailing}”`}</span>
           )}
-          {shape === "sentence" && trailing && <span className="cv-agentmsg__preview cv-sent__preview">{trailing}</span>}
+          {shape === "sentence" && trailing && (
+            <span className="cv-agentmsg__preview cv-sent__preview">{trailing}</span>
+          )}
           {/* Copy takes the message's text, shown while the row is pointed at, as a SendMessage
               row's is (MessageCard.tsx); its click never toggles the row. It stays at the
               sentence's end, outside the trailing column. */}
