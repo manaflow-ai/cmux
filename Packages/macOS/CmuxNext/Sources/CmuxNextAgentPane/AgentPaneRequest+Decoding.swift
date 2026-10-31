@@ -144,6 +144,13 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
+        case "tips.state":
+            // `{}` reads the records, `{id, state}` keeps one, `{claim, feature?}` asks to show a tip.
+            if let tips = AgentPaneFeatureTipRequest(params) {
+                self = .featureTips(tips)
+            } else {
+                self = .unsupported(method)
+            }
         case "pane.setDisplay":
             // Only the chat's own look keys: the page can never write another setting.
             if let key = params?["key"] as? String, let path = AgentPaneDisplaySetting.writablePath(key) {
@@ -194,6 +201,8 @@ extension AgentPaneRequest {
             }
         case "acpmux.restart":
             self = .restartAcpmux
+        case "acpmux.restartStuck":
+            self = .restartStuckAcpmux
         case "harness.restart":
             self = .harnessRestart
         case "shell.run":
@@ -380,8 +389,14 @@ extension AgentPaneRequest {
             if let id = params?["sessionId"] as? String, !id.isEmpty, id.count <= 256 { self = .sideChat(id) } else { self = .unsupported(method) }
         case "chat.subagentPane":
             if let id = params?["subagent"] as? String, !id.isEmpty, id.count <= 256 {
-                self = .subagentPane(id, focus: params?["focus"] as? Bool == true)
+                // `title`: the subagent's own name, which its pane's tab shows (SubagentTabTitles).
+                self = .subagentPane(id, focus: params?["focus"] as? Bool == true, title: params?["title"] as? String)
             } else { self = .unsupported(method) }
+        case "chat.subagentShown":
+            let id = params?["subagent"] as? String
+            if let id, id.isEmpty || id.count > 256 { self = .unsupported(method) } else {
+                self = .subagentShown(id, title: id == nil ? nil : params?["title"] as? String)
+            }
         case "chat.processTerminal":
             if let id = params?["toolCallId"] as? String, AgentPaneProcessViewer.isToken(id) { self = .processTerminal(toolCall: id) } else { self = .unsupported(method) }
         case "chat.newHere":

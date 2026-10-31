@@ -47,7 +47,23 @@ struct PaletteArgumentFlow {
         case .target(let kind):
             guard let targets else { return .textInput(textSpec(for: argument, collected: collected)) }
             var page = listPage(for: argument, options: targets.targets(of: kind, for: descriptor.id), collected: collected)
-            if let refresh = targets.targetRefresh(of: kind, for: descriptor.id) {
+            if let updates = targets.targetUpdates(of: kind, for: descriptor.id) {
+                let flow = self
+                let invocation = collected
+                page.providers = [AsyncPaletteProvider.streaming(id: "argument", immediateItems: page.providers.first?.immediateItems) {
+                    let (stream, continuation) = AsyncStream.makeStream(of: [PaletteItem].self, bufferingPolicy: .bufferingNewest(1))
+                    // task-owner: maps one open's option lists to rows; ends with the stream's consumer
+                    let task = Task { @MainActor in
+                        for await options in updates() {
+                            let loaded = flow.listPage(for: argument, options: options, collected: invocation)
+                            continuation.yield(await loaded.providers.first?.items() ?? [])
+                        }
+                        continuation.finish()
+                    }
+                    continuation.onTermination = { _ in task.cancel() }
+                    return stream
+                }]
+            } else if let refresh = targets.targetRefresh(of: kind, for: descriptor.id) {
                 let flow = self
                 let invocation = collected
                 page.providers = [AsyncPaletteProvider(id: "argument", immediateItems: page.providers.first?.immediateItems) {
