@@ -63,7 +63,7 @@ ap.add_argument("--max-seconds", type=float, default=480, help="stop starting it
 ap.add_argument("--seed", type=int, default=None, help="the run's seed (default: from the clock, printed)")
 ap.add_argument("--iterations", type=int, default=0, help="at most this many (0: until --max-seconds)")
 ap.add_argument("--targets", default="app,daemon,acpmux")
-ap.add_argument("--chaos", default="none", choices=["none", "hog", "cpu", "fd", "fdsoft", "slowdisk"])
+ap.add_argument("--chaos", default="none", choices=["none", "hog", "cpu", "fd", "fdsoft", "slowdisk", "exec"])
 ap.add_argument("--hog-swap-gb", type=float, default=15.0)
 ap.add_argument("--replay", help="a violations.json: replay its first violation's iteration seed and shrink it")
 # Passed by the slot runner for restore-journey.py; unused here.
@@ -216,7 +216,7 @@ class App:
                 os.unlink(opts.socket)
             except OSError:
                 pass
-        if opts.chaos in ("fd", "fdsoft", "slowdisk"):
+        if opts.chaos in ("fd", "fdsoft", "slowdisk", "exec"):
             # exec of the executable itself, so the limit or the I/O policy is the app's and its children's
             # (LaunchServices would not keep either). slowdisk: taskpolicy -d throttle, macOS's own per-process
             # disk I/O throttle (inherited by the daemon the app starts); no host setting changes.
@@ -534,6 +534,10 @@ def evidence(tag):
     rows = [f"{pid} {ppid} {args[:300]}" for pid, ppid, args in ps_table() if APP.mine(args)]
     snap = {"bundle_processes": rows, "app_alive": APP.alive(), "app_pid": APP.pid,
             "daemon_state": daemon_state(), "app_state": (app_state() or [None])[0]}
+    time.sleep(30)
+    snap["daemon_state_30s_later"] = daemon_state()
+    snap["app_state_30s_later"] = (app_state() or [None])[0]
+    snap["daemon_pids"] = APP.daemon_pids()
     with open(os.path.join(folder, "state.json"), "w") as f:
         json.dump(snap, f, indent=1, default=str)
     copied = []
@@ -799,6 +803,8 @@ def start_chaos():
     elif opts.chaos in ("fd", "fdsoft"):
         say(f"chaos {opts.chaos}: every app relaunch runs with RLIMIT_NOFILE soft 256"
             + (", hard 256" if opts.chaos == "fd" else ", hard unchanged"))
+    elif opts.chaos == "exec":
+        say("chaos exec (control): every app relaunch execs the executable as fd/slowdisk do, with no limit and no throttle")
     elif opts.chaos == "slowdisk":
         say("chaos slowdisk: every app relaunch runs under taskpolicy -d throttle (disk I/O throttled)")
 
