@@ -129,6 +129,7 @@
      "all": [
        {"app_rpc": {"method": "debug.focus", "path": "windows.0.model.resolved", "equals": "addressBar"}},
        {"app_rpc": {"method": "debug.omnibar", "path": "field_text", "equals": "example.com"}},
+       {"app_rpc": {"method": "debug.omnibar", "path": "field_selection", "equals": [11, 0]}},
        {"frame_text": "ample.com"}
      ]},
     {"do": "smoke_key", "key": "return", "modifiers": [], "mark": "loaded"},
