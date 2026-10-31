@@ -20,7 +20,9 @@
       "paths": [
         "webviews/src/agent-session/acpmux/EnvironmentPicker.tsx",
         "webviews/src/agent-session/acpmux/environments.ts",
-        "webviews/src/agent-session/acpmux/ComposerContext.tsx"
+        "webviews/src/agent-session/acpmux/ComposerContext.tsx",
+        "webviews/src/agent-session/acpmux/ComposerContext.gallery.tsx",
+        "webviews/test/environment-picker.test.tsx"
       ]
     },
     "composer": {
