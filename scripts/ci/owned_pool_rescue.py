@@ -2176,13 +2176,11 @@ class GitHub:
         return lines
 
     def next_feed_newest_build(self) -> int | None:
-        """The newest build in cmux NEXT's nightly appcast (NEXT_FEED_URL), or None when it cannot be read."""
-        try:
-            request = urllib.request.Request(NEXT_FEED_URL, headers={"User-Agent": "cmux-owned-pool-rescue"})
-            with urllib.request.urlopen(request, timeout=20) as response:
-                return newest_feed_build(response.read().decode("utf-8", "replace"))
-        except (*READ_ERRORS, UnicodeError):
-            return None
+        """The newest build in cmux NEXT's nightly appcast (NEXT_FEED_URL), or None when the feed has none. A failed
+        read raises (one of READ_ERRORS), so nightly_next_moot() can tell an outage from an empty feed (#29448)."""
+        request = urllib.request.Request(NEXT_FEED_URL, headers={"User-Agent": "cmux-owned-pool-rescue"})
+        with urllib.request.urlopen(request, timeout=20) as response:
+            return newest_feed_build(response.read().decode("utf-8", "replace"))
 
     def annotations(self, job_id: int, *, final: bool = False) -> list[Mapping[str, Any]]:
         """The annotations of a job's check run (GitHub's "The run was canceled by @actor." among them). `final`: the
@@ -3166,9 +3164,20 @@ def newest_feed_build(xml: str) -> int | None:
 _RERUN_ELSEWHERE = re.compile(r"run_attempt\s*(?:>|>=|!=)|blacksmith", re.I)
 
 
-def rerun_stays_owned(workflow_text: str | None, name: str) -> bool:
+# A runs-on that reads the attempt at all: its value can differ between attempts.
+_READS_ATTEMPT = re.compile(r"run_attempt", re.I)
+
+
+def rerun_stays_owned(workflow_text: str | None, name: str, *, failed_only: bool = False) -> bool:
     """Whether the workflow job the jobs API calls `name` runs on owned Macs at every attempt, so a re-run meets the
-    same hook. Fails open (False): an unreadable file or an unmatched job keeps the re-run."""
+    same hook. Fails open (False): an unreadable file or an unmatched job keeps the re-run.
+
+    `failed_only`: the re-run is of failed jobs only (rerun_failed_or_repick() from attempt 2 on, or attempt 1 of a
+    run that is not nightly-next's), so the pickers the job needs keep their outputs. A runs-on that does not read the
+    attempt then resolves to the same owned label the refused job was on, whatever fallback literal it ends in: the
+    legacy signer's `needs.legacy-identity-target.outputs.sign_runner || 'blacksmith-6vcpu-macos-26'` takes the
+    Blacksmith literal only when the picker's output is empty, which it was not for a job the minis' hook refused
+    (#29447)."""
     if not workflow_text:
         return False
     try:
@@ -3180,7 +3189,12 @@ def rerun_stays_owned(workflow_text: str | None, name: str) -> bool:
     if len(matches) != 1:
         return False
     runs_on = matches[0].get("runs-on")
-    return bool(runs_on) and not _RERUN_ELSEWHERE.search(json.dumps(runs_on))
+    if not runs_on:
+        return False
+    text = json.dumps(runs_on)
+    if failed_only and not _READS_ATTEMPT.search(text):
+        return True
+    return not _RERUN_ELSEWHERE.search(text)
 
 
 def nightly_next_moot(api: GitHub, target: Target, sleep: Callable[[float], None],
@@ -3191,7 +3205,8 @@ def nightly_next_moot(api: GitHub, target: Target, sleep: Callable[[float], None
     freshness), so a run that is still going keeps "" and its own path. A finished one is moot when cmux NEXT's
     feed already has a Nightly build of a newer run (publish-nightly would refuse this one), or when a job of this
     attempt was refused because its commit's signing-hook list lacks the mini's hook and the job's runs-on keeps
-    every re-run on owned Macs (a re-run is refused the same way). Any read that fails answers "", as before."""
+    every re-run on owned Macs (a re-run is refused the same way). Any read that fails answers "", as before: a feed
+    that cannot be read keeps the run wanted, and no refusal is judged moot while it is unread (#29448)."""
     try:
         jobs = read(lambda: api.jobs(target.run_id, target.attempt), sleep, log)
         if not jobs or not run_finished(jobs):
@@ -3212,7 +3227,9 @@ def nightly_next_moot(api: GitHub, target: Target, sleep: Callable[[float], None
             if not text:
                 text.append(read(lambda: api.workflow_file(target.path, target.head_sha), sleep, log))
             name = str(found.get("name") or found["id"])
-            if rerun_stays_owned(text[0], name):
+            # From attempt 2 on, a refusal re-runs only the failed jobs (rerun_failed_or_repick()); attempt 1 of a
+            # nightly-next run may re-run its build picker and the jobs that need it, which may pick afresh.
+            if rerun_stays_owned(text[0], name, failed_only=target.attempt > 1):
                 reason = (f"{name} was refused because scripts/ci/glaeda-signing-hooks.txt at "
                           f"{target.head_sha[:12]} does not list the minis' runner hook, and its runs-on keeps "
                           "every re-run on owned Macs, so a re-run is refused the same way")
