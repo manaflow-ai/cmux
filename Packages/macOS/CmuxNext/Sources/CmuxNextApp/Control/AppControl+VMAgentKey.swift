@@ -16,7 +16,7 @@ extension AppControl {
         service?.router.register([
             ControlMethod.async("vm.agent_key.create") { call in
                 let issuer = try await Self.vmIssuer(services)
-                let body = try Self.agentKeyRequest(call.params)
+                let body = try ControlMethod.vmAgentKeyRequest(call.params)
                 var request = URLRequest(url: issuer.baseURL.appendingPathComponent("v1/agent-keys"))
                 request.httpMethod = "POST"
                 request.timeoutInterval = 20
@@ -82,32 +82,6 @@ extension AppControl {
         case .production: return URL(string: "https://vm.cmux.dev")
         case .development, .localOnly: return URL(string: "https://vm-staging.cmux.dev")
         }
-    }
-
-    /// The agent-key request: only VM scopes, whatever the caller sent.
-    nonisolated static func agentKeyRequest(_ params: [String: JSONValue]) throws -> [String: Any] {
-        var body: [String: Any] = [
-            "name": params["name"]?.stringValue.flatMap { $0.isEmpty ? nil : String($0.prefix(200)) } ?? "cmux vm token",
-            "scopes": ["vm:read", "vm:write", "vm:exec"],
-        ]
-        // A limit that is present must be valid: a bad one is refused, never
-        // dropped (the server's default would be larger).
-        func invalid(_ name: String) -> ControlError {
-            ControlError(code: "invalid_params", message: "\(name) is out of range")
-        }
-        if let raw = params["ttlSeconds"] {
-            guard let ttl = raw.intValue, (60...86_400).contains(ttl) else { throw invalid("ttlSeconds") }
-            body["ttlSeconds"] = ttl
-        }
-        if let raw = params["maxVms"] {
-            guard let vms = raw.intValue, (1...20).contains(vms) else { throw invalid("maxVms") }
-            body["maxVms"] = vms
-        }
-        if let raw = params["maxUsdPerHour"] {
-            guard let usd = raw.doubleValue, usd.isFinite, usd > 0, usd <= 50 else { throw invalid("maxUsdPerHour") }
-            body["maxUsdPerHour"] = usd
-        }
-        return body
     }
 
     /// A refusal from the cmux VM API as this socket's error. The key is never in it.
