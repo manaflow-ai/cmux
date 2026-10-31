@@ -31714,33 +31714,16 @@ struct CMUXCLI {
                 )
                 if let stopFailure {
                     try? setClaudeStopFailureStatus(stopFailure, client: client, workspaceId: workspaceId, surfaceId: surfaceId)
-                } else if hasPendingBackgroundWork {
-                    // The turn ended but a background task or scheduled wakeup is
-                    // still live, so the pane is not idle — show it as still
-                    // running rather than the misleading "Idle". Reuse the shared
-                    // generic-agent status strings so the pill stays localized.
-                    //
+                } else {
                     // A background task or cron is a deterministic wakeup the pane
                     // is parked on, which reads as Waiting. A re-entrant Stop
                     // (`stop_hook_active`) does not change this decision because
                     // it is not pending background work.
-                    try? setClaudeStatus(
+                    try? setClaudeTurnSettledStatus(
                         client: client,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
-                        value: String(localized: "agent.generic.status.waiting", defaultValue: "Waiting"),
-                        icon: "hourglass",
-                        color: "#8E8E93",
-                        workState: .waiting
-                    )
-                } else {
-                    try? setClaudeStatus(
-                        client: client,
-                        workspaceId: workspaceId,
-                        surfaceId: surfaceId,
-                        value: String(localized: "agent.generic.notification.status.idle", defaultValue: "Idle"),
-                        icon: "pause.circle.fill",
-                        color: "#8E8E93"
+                        pendingBackgroundWork: hasPendingBackgroundWork
                     )
                 }
                 if let completion {
@@ -32250,6 +32233,34 @@ struct CMUXCLI {
                     hookEventName: reportedHookEventName(from: parsedInput) ?? "Notification",
                     lastSubtitle: summary.subtitle,
                     lastBody: summary.body
+                )
+            }
+
+            // Claude sends idle_prompt only while its prompt sits idle, so a
+            // session still recorded as running lost this turn's Stop on the
+            // way to the app (#21229). Settle it the way that Stop would have
+            // rather than leaving the pane Running until the next prompt.
+            let settlesUndeliveredStop = journalKind == .idleObserved
+                && notificationType == "idle_prompt"
+                && classifiedSubtitle != "Error"
+                && !isNestedAgentSession
+                && mappedSession?.agentLifecycle == .running
+            if settlesUndeliveredStop, let sessionId = parsedInput.sessionId {
+                _ = try? sessionStore.upsert(
+                    sessionId: sessionId,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    cwd: hookCwd,
+                    transcriptPath: hookTranscriptPath,
+                    agentLifecycle: notifyPending ? .backgroundWorkPending : .idle,
+                    turnSettled: true,
+                    hookEventName: reportedHookEventName(from: parsedInput) ?? "Notification"
+                )
+                try? setClaudeTurnSettledStatus(
+                    client: client,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    pendingBackgroundWork: notifyPending
                 )
             }
 

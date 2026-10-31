@@ -41,6 +41,36 @@ extension CMUXCLI {
         _ = try client.send(command: cmd)
     }
 
+    /// Shows a turn that ended normally. A background task or scheduled wakeup
+    /// that is still live reads as Waiting rather than a misleading Idle.
+    func setClaudeTurnSettledStatus(
+        client: SocketClient,
+        workspaceId: String,
+        surfaceId: String,
+        pendingBackgroundWork: Bool
+    ) throws {
+        if pendingBackgroundWork {
+            try setClaudeStatus(
+                client: client,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                value: String(localized: "agent.generic.status.waiting", defaultValue: "Waiting"),
+                icon: "hourglass",
+                color: "#8E8E93",
+                workState: .waiting
+            )
+        } else {
+            try setClaudeStatus(
+                client: client,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                value: String(localized: "agent.generic.notification.status.idle", defaultValue: "Idle"),
+                icon: "pause.circle.fill",
+                color: "#8E8E93"
+            )
+        }
+    }
+
     /// Shows a turn that Claude Code ended on an API error (`StopFailure`)
     /// with the same red error treatment other agents use, so the pane never
     /// keeps a stale "Running" pill and the reason is visible at a glance.
