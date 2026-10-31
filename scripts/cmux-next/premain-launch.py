@@ -262,6 +262,93 @@ def exec_floor(runs=5, limits=True):
     return times
 
 
+POSIX_SPAWN_START_SUSPENDED = 0x0080
+NIGHTLY_FEED = "https://files-next.cmux.com/nightly-next/next/appcast-arm64.xml"
+
+
+def suspended_exec_ms(binary):
+    """Time of one exec of `binary` that runs no code of it: posix_spawn with POSIX_SPAWN_START_SUSPENDED returns when
+    the kernel has made the process (the code-signing and syspolicyd checks of the exec included); the process is then
+    killed by its pid before its first instruction. Returns (ms, error)."""
+    import ctypes
+    import signal as _signal
+    libc = ctypes.CDLL("/usr/lib/libSystem.B.dylib", use_errno=True)
+    attr = ctypes.c_void_p()
+    if libc.posix_spawnattr_init(ctypes.byref(attr)) != 0:
+        return None, "posix_spawnattr_init failed"
+    try:
+        libc.posix_spawnattr_setflags(ctypes.byref(attr), ctypes.c_short(POSIX_SPAWN_START_SUSPENDED))
+        pid = ctypes.c_int()
+        argv = (ctypes.c_char_p * 2)(binary.encode(), None)
+        envp = (ctypes.c_char_p * 2)(b"PATH=/usr/bin:/bin", None)
+        start = time.monotonic()
+        code = libc.posix_spawn(ctypes.byref(pid), binary.encode(), None, ctypes.byref(attr), argv, envp)
+        ms = round((time.monotonic() - start) * 1000, 1)
+        if code != 0:
+            return None, f"posix_spawn: {os.strerror(code)}"
+        os.kill(pid.value, _signal.SIGKILL)  # the suspended process this function started, never run
+        os.waitpid(pid.value, 0)
+        return ms, None
+    finally:
+        libc.posix_spawnattr_destroy(ctypes.byref(attr))
+
+
+def suspended_series(binary, runs=3):
+    return [{"ms": ms, "error": err} for ms, err in (suspended_exec_ms(binary) for _ in range(runs))]
+
+
+def notarized_probe(root, adhoc_app):
+    """The exec cost of the newest notarized Developer ID nightly-next (what a person runs) against the ad-hoc bench
+    copy, with the same suspended spawn: 3 execs of a fresh copy of each. No code of either app runs."""
+    result = {"method": "posix_spawn START_SUSPENDED, killed before its first instruction",
+              "adhoc_reused": suspended_series(bs.app_binary(use_copy(adhoc_app)))}
+    adhoc_fresh = fresh_copy(adhoc_app, root, "F")
+    result["adhoc_fresh"] = suspended_series(bs.app_binary(use_copy(adhoc_fresh)))
+    shutil.rmtree(os.path.dirname(adhoc_fresh), ignore_errors=True)
+    work = os.path.join(root, "N")
+    os.makedirs(work, exist_ok=True)
+    code, feed, err = run(["curl", "-fsSL", "--max-time", "30", NIGHTLY_FEED], timeout=60)
+    urls = re.findall(r'url="(https://files-next\.cmux\.com/nightly-next/next/[^"]+\.dmg)"', feed)
+    if not urls:
+        result["error"] = f"no DMG in the feed ({err.strip()[:200] or code})"
+        return result
+    dmg, mount = os.path.join(work, "nightly.dmg"), os.path.join(work, "mnt")
+    result["dmg"] = urls[0]
+    code, _, err = run(["curl", "-fsSL", "--max-time", "600", "-o", dmg, urls[0]], timeout=660)
+    if code != 0:
+        result["error"] = f"download failed: {err.strip()[:200]}"
+        return result
+    os.makedirs(mount, exist_ok=True)
+    code, _, err = run(["hdiutil", "attach", "-nobrowse", "-readonly", "-noautoopen", "-mountpoint", mount, dmg], timeout=300)
+    if code != 0:
+        result["error"] = f"hdiutil attach: {err.strip()[:200]}"
+        return result
+    try:
+        apps = [name for name in os.listdir(mount) if name.endswith(".app")]
+        if not apps:
+            result["error"] = "no .app in the DMG"
+            return result
+        app = os.path.join(work, apps[0])
+        run(["ditto", os.path.join(mount, apps[0]), app], timeout=600)  # curl and ditto set no quarantine
+    finally:
+        run(["hdiutil", "detach", "-force", mount], timeout=120)
+    os.remove(dmg)
+    _, out, err = run(["codesign", "-dv", "--verbose=2", app])
+    result["signature"] = [line for line in (out + err).splitlines() if line.startswith(("Authority", "TeamIdentifier", "Notarization", "Runtime", "flags", "CodeDirectory"))]
+    result["spctl"] = " ".join(run(["spctl", "-a", "-vv", "-t", "exec", app])[2].split())[:300]
+    with open(os.path.join(app, "Contents/Info.plist"), "rb") as info:
+        import plistlib
+        plist = plistlib.load(info)
+    binary = os.path.join(app, "Contents/MacOS", plist["CFBundleExecutable"])
+    result["notarized_version"] = plist.get("CFBundleVersion")
+    result["notarized_fresh"] = suspended_series(binary)
+    second = fresh_copy(app, root, "N2")
+    result["notarized_second_copy"] = suspended_series(os.path.join(second, "Contents/MacOS", plist["CFBundleExecutable"]))
+    shutil.rmtree(work, ignore_errors=True)
+    shutil.rmtree(os.path.dirname(second), ignore_errors=True)
+    return result
+
+
 def fresh_copy(source, root, name, clone=False):
     dest_dir = os.path.join(root, name)
     shutil.rmtree(dest_dir, ignore_errors=True)
@@ -415,6 +502,8 @@ def main():
     parser.add_argument("--json", required=True)
     parser.add_argument("--runs", type=int, default=3)
     parser.add_argument("--no-xctrace", action="store_true")
+    parser.add_argument("--exec-probe-only", action="store_true",
+                        help="only the suspended-exec probe (ad-hoc bench copy vs the notarized nightly), no app launch")
     args, _ = parser.parse_known_args()
     app = os.path.abspath(args.app)
     root = os.path.join(os.path.abspath(args.out), "premain-copies")
@@ -437,6 +526,11 @@ def main():
         report["launchctl_maxfiles"] = run(["/bin/launchctl", "limit", "maxfiles"])[1].strip()
         report["exec_floor_ms"] = exec_floor()
         report["exec_floor_inherit_limits_ms"] = exec_floor(limits=False)
+        report["exec_probe"] = notarized_probe(root, app)
+        log(f"exec probe: {json.dumps({k: v for k, v in report['exec_probe'].items() if k != 'signature'})[:900]}")
+        save()
+        if args.exec_probe_only:
+            return
         log(f"exec floor (/usr/bin/true, same Popen shape): Finder limits {report['exec_floor_ms']} ms, the caller's "
             f"{report['exec_floor_inherit_limits_ms']} ms (python {report['python']}, nofile {report['nofile_rlimit']}, "
             f"launchctl {report['launchctl_maxfiles']})")
