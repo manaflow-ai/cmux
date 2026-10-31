@@ -299,6 +299,7 @@
   bottom: 4px;
   left: 4px;
   width: 16px;
+  height: auto;
   aspect-ratio: 1;
   border-radius: 8px;
   color: #fff; /* theme-fixed: on its own black scrim over media */
