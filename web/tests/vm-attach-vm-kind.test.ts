@@ -1,6 +1,7 @@
 // attach-endpoint's `vmKind`: the Mac app gives up its local sandbox for its
-// own session only when this reads "owner", so "owner" must mean the signed-in
-// caller's own personal machine and nothing else.
+// own session only when this reads "owner", so "owner" must mean a machine the
+// signed-in caller created: their personal account, or a Stack team whose
+// member list, read for this attach, still contains them, whatever its size.
 import { describe, expect, test } from "bun:test";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -8,7 +9,8 @@ import * as Layer from "effect/Layer";
 import { VmBillingGateway, noOpVmBillingGateway } from "../services/vms/billingGateway";
 import { VmProviderGateway, type VmProviderGatewayShape } from "../services/vms/providerGateway";
 import { VmRepository, type CloudVmRow, type VmRepositoryShape } from "../services/vms/repository";
-import { vmKindForCaller } from "../services/vms/vmKind";
+import type { VmTeamDirectory } from "../services/vms/teamDirectory";
+import { vmKindForCaller, vmKindForCallerNeedsMembers } from "../services/vms/vmKind";
 import { openAttachEndpoint, openVmCmuxRemote } from "../services/vms/workflows";
 
 const NOW = new Date("2026-01-01T00:00:00.000Z");
@@ -81,18 +83,33 @@ function layerFor(vm: CloudVmRow) {
   );
 }
 
-function access(userId: string, billingTeamId: string) {
-  return { userId, billingTeamId, teamIds: [billingTeamId], providerVmId: "vm-kind", callerPlanId: "pro" };
+// A Stack directory that answers `members` for every team (null: no such
+// team), or throws `error`, and records which teams it was asked about.
+function directory(answer: { members?: readonly string[] | null; error?: Error; never?: true }) {
+  const asked: string[] = [];
+  const teamDirectory: VmTeamDirectory = {
+    async listMemberIds(teamId) {
+      asked.push(teamId);
+      if (answer.never) return new Promise<never>(() => {});
+      if (answer.error) throw answer.error;
+      return answer.members ?? null;
+    },
+  };
+  return { teamDirectory, asked };
 }
 
-async function cmuxRemoteKind(vm: CloudVmRow, userId: string, billingTeamId: string) {
-  const endpoint = await Effect.runPromise(openVmCmuxRemote(access(userId, billingTeamId)).pipe(Effect.provide(layerFor(vm))));
+function access(userId: string, billingTeamId: string, teamDirectory?: VmTeamDirectory) {
+  return { userId, billingTeamId, teamIds: [billingTeamId], providerVmId: "vm-kind", callerPlanId: "pro", teamDirectory };
+}
+
+async function cmuxRemoteKind(vm: CloudVmRow, userId: string, billingTeamId: string, teamDirectory?: VmTeamDirectory) {
+  const endpoint = await Effect.runPromise(openVmCmuxRemote(access(userId, billingTeamId, teamDirectory)).pipe(Effect.provide(layerFor(vm))));
   expect(endpoint.token).toBe("test-token");
   return endpoint.vmKind;
 }
 
-async function websocketKind(vm: CloudVmRow, userId: string, billingTeamId: string) {
-  const endpoint = await Effect.runPromise(openAttachEndpoint(access(userId, billingTeamId)).pipe(Effect.provide(layerFor(vm))));
+async function websocketKind(vm: CloudVmRow, userId: string, billingTeamId: string, teamDirectory?: VmTeamDirectory) {
+  const endpoint = await Effect.runPromise(openAttachEndpoint(access(userId, billingTeamId, teamDirectory)).pipe(Effect.provide(layerFor(vm))));
   expect(endpoint.transport).toBe("websocket");
   return endpoint.vmKind;
 }
@@ -103,7 +120,7 @@ describe("attach-endpoint vmKind", () => {
     expect(await websocketKind(personalVm, CREATOR, CREATOR)).toBe("owner");
   });
 
-  test("a team machine is team, for its creator too", async () => {
+  test("a team machine with no membership answer is team, for its creator too", async () => {
     expect(await cmuxRemoteKind(teamVm, CREATOR, TEAM)).toBe("team");
     expect(await websocketKind(teamVm, CREATOR, TEAM)).toBe("team");
   });
@@ -122,9 +139,57 @@ describe("attach-endpoint vmKind", () => {
     expect(await websocketKind(padded, CREATOR, CREATOR)).toBe("team");
   });
 
-  test("a team whose only member is the creator is still team", async () => {
-    const soloTeamVm = row({ billingTeamId: "team-solo", ownerTeamId: "team-solo" });
+  const soloTeamVm = row({ billingTeamId: "team-solo", ownerTeamId: "team-solo" });
+
+  test("the creator's machine on a team whose only member is them is owner", async () => {
+    const solo = directory({ members: [CREATOR] });
+    expect(await cmuxRemoteKind(soloTeamVm, CREATOR, "team-solo", solo.teamDirectory)).toBe("owner");
+    expect(await websocketKind(soloTeamVm, CREATOR, "team-solo", solo.teamDirectory)).toBe("owner");
+    // The list is read for each attach, for the machine's own team.
+    expect(solo.asked).toEqual(["team-solo", "team-solo"]);
+  });
+
+  test("the creator stays owner when their team grows to three members", async () => {
+    const answer: { members: readonly string[] } = { members: [CREATOR] };
+    const { teamDirectory } = directory(answer);
+    expect(await cmuxRemoteKind(teamVm, CREATOR, TEAM, teamDirectory)).toBe("owner");
+    answer.members = [CREATOR, MEMBER, "user-third"];
+    expect(await cmuxRemoteKind(teamVm, CREATOR, TEAM, teamDirectory)).toBe("owner");
+    expect(await websocketKind(teamVm, CREATOR, TEAM, teamDirectory)).toBe("owner");
+    expect(await websocketKind(teamVm, CREATOR, TEAM, directory({ members: [MEMBER, CREATOR] }).teamDirectory)).toBe("owner");
+    expect(await cmuxRemoteKind(teamVm, MEMBER, TEAM, teamDirectory)).toBe("team");
+    expect(await websocketKind(teamVm, MEMBER, TEAM, teamDirectory)).toBe("team");
+    answer.members = [MEMBER, "user-third"];
+    expect(await cmuxRemoteKind(teamVm, CREATOR, TEAM, teamDirectory)).toBe("team");
+    expect(await websocketKind(teamVm, CREATOR, TEAM, teamDirectory)).toBe("team");
+  });
+
+  test("a teammate on the creator's one-member team is never owner, and Stack is not asked", async () => {
+    // A machine the caller did not create, on a team whose only member is the caller.
+    const creatorLeft = row({ userId: MEMBER, billingTeamId: "team-solo", ownerTeamId: "team-solo" });
+    const solo = directory({ members: [CREATOR] });
+    expect(await cmuxRemoteKind(creatorLeft, CREATOR, "team-solo", solo.teamDirectory)).toBe("team");
+    expect(await websocketKind(creatorLeft, CREATOR, "team-solo", solo.teamDirectory)).toBe("team");
+    expect(solo.asked).toEqual([]);
+  });
+
+  test("an unread, failed, missing or timed-out member list is team, never owner", async () => {
+    // No directory: the list is unknown.
     expect(await cmuxRemoteKind(soloTeamVm, CREATOR, "team-solo")).toBe("team");
+    expect(await websocketKind(soloTeamVm, CREATOR, "team-solo")).toBe("team");
+    expect(await cmuxRemoteKind(soloTeamVm, CREATOR, "team-solo", directory({ error: new Error("stack down") }).teamDirectory)).toBe("team");
+    expect(await websocketKind(soloTeamVm, CREATOR, "team-solo", directory({ members: null }).teamDirectory)).toBe("team");
+    expect(await websocketKind(soloTeamVm, CREATOR, "team-solo", directory({ members: [] }).teamDirectory)).toBe("team");
+  });
+
+  test("a member list that never answers times out to team", async () => {
+    expect(await cmuxRemoteKind(soloTeamVm, CREATOR, "team-solo", directory({ never: true }).teamDirectory)).toBe("team");
+  }, 10_000);
+
+  test("the personal machine never asks Stack", async () => {
+    const solo = directory({ members: [MEMBER] });
+    expect(await cmuxRemoteKind(personalVm, CREATOR, CREATOR, solo.teamDirectory)).toBe("owner");
+    expect(solo.asked).toEqual([]);
   });
 
   test("a machine with no usable billing owner is never answered as owner", async () => {
@@ -147,11 +212,12 @@ describe("vmKindForCaller", () => {
     expect(vmKindForCaller({ userId: CREATOR, ownerTeamId: CREATOR }, CREATOR)).toBe("owner");
   });
 
-  test("anyone else, any team, and a blank caller get team", () => {
+  test("anyone else, an unread team, and a blank caller get team", () => {
     expect(vmKindForCaller({ userId: CREATOR, ownerTeamId: CREATOR }, MEMBER)).toBe("team");
     expect(vmKindForCaller({ userId: CREATOR, ownerTeamId: TEAM }, CREATOR)).toBe("team");
     expect(vmKindForCaller({ userId: CREATOR, ownerTeamId: TEAM }, MEMBER)).toBe("team");
-    // The caller's id equal to the team's id is still not a personal machine.
+    // The caller's id equal to the team's id is still not a personal machine
+    // (the caller did not create it).
     expect(vmKindForCaller({ userId: CREATOR, ownerTeamId: TEAM }, TEAM)).toBe("team");
     expect(vmKindForCaller({ userId: CREATOR, ownerTeamId: CREATOR }, "")).toBe("team");
     expect(vmKindForCaller({ userId: "", ownerTeamId: CREATOR }, CREATOR)).toBe("team");
@@ -164,5 +230,33 @@ describe("vmKindForCaller", () => {
   test("no usable billing owner is null", () => {
     expect(vmKindForCaller({ userId: CREATOR, ownerTeamId: "" }, CREATOR)).toBeNull();
     expect(vmKindForCaller({ userId: CREATOR, ownerTeamId: " " }, CREATOR)).toBeNull();
+    expect(vmKindForCaller({ userId: CREATOR, ownerTeamId: "" }, CREATOR, { memberIds: [CREATOR] })).toBeNull();
+  });
+
+  test("a team machine is owner only for its creator on the member list, at any team size", () => {
+    const solo = { userId: CREATOR, ownerTeamId: TEAM };
+    expect(vmKindForCaller(solo, CREATOR, { memberIds: [CREATOR] })).toBe("owner");
+    expect(vmKindForCaller(solo, CREATOR, { memberIds: [CREATOR, MEMBER, "user-third"] })).toBe("owner");
+    expect(vmKindForCaller(solo, MEMBER, { memberIds: [CREATOR, MEMBER, "user-third"] })).toBe("team");
+    expect(vmKindForCaller(solo, CREATOR, { memberIds: [CREATOR, CREATOR] })).toBe("owner");
+    expect(vmKindForCaller(solo, CREATOR, { memberIds: [MEMBER, "user-third"] })).toBe("team");
+    expect(vmKindForCaller(solo, CREATOR, { memberIds: [] })).toBe("team");
+    expect(vmKindForCaller(solo, CREATOR, { memberIds: null })).toBe("team");
+    expect(vmKindForCaller(solo, CREATOR, { error: "error" })).toBe("team");
+    expect(vmKindForCaller(solo, CREATOR, { error: "timeout" })).toBe("team");
+    expect(vmKindForCaller(solo, CREATOR)).toBe("team");
+    // Not the creator: team, whatever the list says.
+    expect(vmKindForCaller({ userId: MEMBER, ownerTeamId: TEAM }, CREATOR, { memberIds: [CREATOR] })).toBe("team");
+    expect(vmKindForCaller(solo, "", { memberIds: [""] })).toBe("team");
+    // Exact ids in the list too.
+    expect(vmKindForCaller(solo, CREATOR, { memberIds: [` ${CREATOR}`] })).toBe("team");
+  });
+
+  test("only a machine the caller created on a Stack team needs the member list", () => {
+    expect(vmKindForCallerNeedsMembers({ userId: CREATOR, ownerTeamId: TEAM }, CREATOR)).toBe(true);
+    expect(vmKindForCallerNeedsMembers({ userId: CREATOR, ownerTeamId: CREATOR }, CREATOR)).toBe(false);
+    expect(vmKindForCallerNeedsMembers({ userId: MEMBER, ownerTeamId: TEAM }, CREATOR)).toBe(false);
+    expect(vmKindForCallerNeedsMembers({ userId: CREATOR, ownerTeamId: " " }, CREATOR)).toBe(false);
+    expect(vmKindForCallerNeedsMembers({ userId: "", ownerTeamId: TEAM }, "")).toBe(false);
   });
 });
