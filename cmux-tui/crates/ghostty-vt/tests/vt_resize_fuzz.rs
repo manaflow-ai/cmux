@@ -227,6 +227,15 @@ fn run_sequence(start: (u16, u16), ops: &[Op]) -> Result<(), String> {
     Ok(())
 }
 
+/// While [`OPEN_FINDING_ORACLES`] is off, every run says so in its test
+/// list and its output, so a pass is never read as full coverage.
+#[test]
+fn vt_resize_fuzz_known_open_findings_e1_e2_e3_not_checked_issue_29136() {
+    if !OPEN_FINDING_ORACLES {
+        eprintln!("known open findings e1 e2 e3 not checked (issue #29136)");
+    }
+}
+
 proptest! {
     #![proptest_config(ProptestConfig {
         cases: u32::try_from(env_u64("CMUX_VT_FUZZ_CASES", 128)).unwrap_or(u32::MAX),
