@@ -456,10 +456,85 @@ class Excusing(unittest.TestCase):
 
     def test_a_job_with_no_tip_suite_gets_no_extra_lookup(self):
         self.gh.base_runs = []
-        self.gh.jobs[1]["name"] = SCHEME
+        self.gh.jobs[1]["name"] = "cmux-next Release compile (Xcode 26)"
         with self.assertRaisesRegex(excuse.Refused, "no completed"):
             self.judge()
         self.assertFalse([route for route in self.gh.routes if "event=workflow_dispatch" in route])
+
+    def base_tier_setup(self, name, *, verdict="failure", in_window=False):
+        # cmuxterm-hq#5424: a feat-cmux-next push no longer runs the base Mac tier (daemon tests, generated
+        # files, the Debug scheme compile); a `cmux-next base tier · <sha>` dispatch runs it at most once
+        # every 15 minutes on the tip, so most base runs, pushes and DEV daily runs, have no verdict for it.
+        self.gh.jobs = {1: failed_job(1, 10, HEAD, name=name, step="Run the suites")}
+        self.gh.logs[1] = log(name, "Run the suites", ISSUE)
+        noise = []
+        for offset in range(excuse.BASE_JOB_READS + 5):
+            run_id = 3000 + offset
+            self.gh.jobs[run_id] = dict(failed_job(run_id, run_id, BASE_SHA, name=name), conclusion="skipped",
+                                        steps=[])
+            noise.append({"id": run_id, "event": "workflow_dispatch", "head_branch": "feat-cmux-next",
+                          "status": "completed", "conclusion": "success",
+                          "display_title": "cmux NEXT DEV daily · " + BASE_SHA})
+        tested = "e" * 40
+        tier = {"id": 40, "event": "workflow_dispatch", "head_branch": "feat-cmux-next", "head_sha": "f" * 40,
+                "status": "completed", "conclusion": verdict, "display_title": "cmux-next base tier · " + tested,
+                "created_at": "2026-10-30T12:00:00Z", "html_url": "https://github.com/manaflow-ai/cmux/actions/runs/40"}
+        self.gh.jobs[4] = dict(failed_job(4, 40, tested, name=name, step="Run the suites"), conclusion=verdict)
+        self.gh.logs[4] = log(name, "Run the suites", ISSUE, OTHER)
+        self.gh.base_runs = noise + ([copy.deepcopy(tier)] if in_window else [])
+        plain = self.gh.json
+
+        def json(route, *, paginate=False):
+            if "/actions/workflows/7/runs?" in route and "event=workflow_dispatch" in route:
+                self.gh.routes.append(route)
+                return {"workflow_runs": [copy.deepcopy(noise[0]), copy.deepcopy(tier)]}
+            return plain(route, paginate=paginate)
+
+        self.gh.json = json
+
+    def test_the_base_tier_run_is_the_base_verdict_for_its_jobs(self):
+        for name in ("cmux-next daemon tests", "cmux-next generated files", SCHEME):
+            with self.subTest(job=name):
+                self.setUp()
+                self.base_tier_setup(name)
+                text = "\n".join(self.judge())
+                self.assertIn(f"excused '{name}'", text)
+                # It says which commit and when the verdict is from: one base tier run covers the landings
+                # of up to 15 minutes, so it is often not the base tip's.
+                self.assertIn("run 40 at eeeeeeeeee (the newest feat-cmux-next verdict for it, 2026-10-30T12:00:00Z)",
+                              text)
+                self.assertNotIn(f"repos/{REPO}/actions/runs/3000/jobs?filter=latest&per_page=100", self.gh.routes)
+
+    def test_suites_that_never_run_the_job_are_skipped_unread_in_the_window(self):
+        # 45 DEV daily runs ahead of the base tier run in the window: none is read, so the job-list budget
+        # still reaches the base tier run and the dispatch fallback is not needed.
+        self.base_tier_setup(SCHEME, in_window=True)
+        text = "\n".join(self.judge())
+        self.assertIn(f"excused '{SCHEME}'", text)
+        self.assertFalse([route for route in self.gh.routes if "/runs/30" in route and "/jobs?" in route])
+        self.assertFalse([route for route in self.gh.routes if "event=workflow_dispatch" in route])
+
+    def test_a_suite_runs_verdict_for_a_shared_job_still_counts(self):
+        # Review of this change: tip suite runs also run checks and web bundles. A newer green verdict in a
+        # tip daemon suite run must stand over an older red push run, or a regression would be excused.
+        name = "cmux-next checks (god files, concurrency, crash safety, l10n)"
+        self.gh.jobs = {1: failed_job(1, 10, HEAD, name=name, step="Run the suites")}
+        self.gh.logs[1] = log(name, "Run the suites", ISSUE)
+        suite = {"id": 21, "event": "workflow_dispatch", "head_branch": "feat-cmux-next", "status": "completed",
+                 "conclusion": "success", "display_title": "cmux-next tip daemon suite · " + BASE_SHA}
+        push = {"id": 20, "event": "push", "head_branch": "feat-cmux-next", "status": "completed",
+                "conclusion": "failure", "display_title": "cmux-next · " + BASE_SHA}
+        self.gh.jobs[5] = dict(failed_job(5, 21, BASE_SHA, name=name), conclusion="success")
+        self.gh.jobs[6] = failed_job(6, 20, BASE_SHA, name=name, step="Run the suites")
+        self.gh.logs[6] = log(name, "Run the suites", ISSUE)
+        self.gh.base_runs = [suite, push]
+        with self.assertRaisesRegex(excuse.Refused, "not red on feat-cmux-next run 21"):
+            self.judge()
+
+    def test_a_green_base_tier_run_still_blocks(self):
+        self.base_tier_setup("cmux-next daemon tests", verdict="success")
+        with self.assertRaisesRegex(excuse.Refused, "not red on feat-cmux-next run 40"):
+            self.judge()
 
     def test_a_setup_refusal_is_never_excused(self):
         self.gh.jobs[1]["steps"] = [{"name": "Set up job", "status": "completed", "conclusion": "success"},
@@ -895,6 +970,42 @@ class CrashIsNeverABaseRed(unittest.TestCase):
         self.gh.logs[2] = log(SWIFT, TEST_STEP, ISSUE)
         with self.assertRaisesRegex(excuse.Refused, "palettePagesReleaseTheRegistry"):
             self.judge()
+
+
+class EchoedStepScriptIsNoEvidence(unittest.TestCase):
+    """The runner echoes each step's script before it runs, so the script's own text (an `echo "::error::..."`
+    branch, a grep for test names) is in every run's log. 2026-10-30: cmux#28145's kit job at c39d28ef failed two
+    iOS simulator tests that base run 41138142557 passed, and was excused because both logs echo the same
+    `::error::` lines of the xcodebuild step's script."""
+
+    KIT = "CmuxMobileKit tests (macOS swift test, iOS simulator)"
+    STEP = "xcodebuild test (iOS simulator)"
+    FIXTURES = ROOT / "tests/fixtures/test_reds"
+
+    def setUp(self):
+        self.gh = FakeGitHub()
+        self.gh.jobs = {1: failed_job(1, 10, HEAD, self.KIT, self.STEP),
+                        2: failed_job(2, 20, BASE_SHA, self.KIT, self.STEP)}
+        self.gh.logs = {1: (self.FIXTURES / "ios-kit-head-run-41079430021.log").read_text(),
+                        2: (self.FIXTURES / "ios-kit-base-run-41138142557.log").read_text()}
+
+    def test_the_28145_kit_red_is_not_excused_by_the_echoed_script(self):
+        with self.assertRaisesRegex(excuse.Refused, "HomeRetryTests.failedHomeLoadRetriesTheFeedOnTheExistingLink"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10], self.gh)
+
+    def test_echoed_script_lines_are_not_error_lines(self):
+        _, tests, errors = excuse.signature(self.gh.jobs[2], self.gh.logs[2])
+        self.assertEqual(tests, {"TerminalSurfaceFramePacingTests.busyOutputDrawsAtMostOneFramePerDisplayRefresh()"})
+        self.assertEqual(errors, set(), "every `::error::` in this log is the step script's echo")
+
+    def test_an_error_only_the_echo_names_cannot_excuse_a_head_error(self):
+        echo = ["##[group]Run make", 'echo "::error::Python is required"', "shell: /bin/bash -e {0}", "##[endgroup]"]
+        name = "cmux-next fast tier"
+        self.gh.jobs = {1: failed_job(1, 10, HEAD, name, "Install"), 2: failed_job(2, 20, BASE_SHA, name, "Install")}
+        self.gh.logs[1] = log(name, "Install", *echo, "##[error]Python is required")
+        self.gh.logs[2] = log(name, "Install", *echo, "##[error]Could not find a version for foo")
+        with self.assertRaisesRegex(excuse.Refused, "errors not on feat-cmux-next run 20: Python is required"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10], self.gh)
 
 
 class NoVerdictCompileIsNeverABaseRed(unittest.TestCase):

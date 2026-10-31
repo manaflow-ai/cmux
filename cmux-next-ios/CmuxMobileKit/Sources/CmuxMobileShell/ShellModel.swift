@@ -244,6 +244,11 @@ final class ShellModel {
             // Browser tabs opened on this iPhone follow the Macs' tab lists.
             StreamedBrowserDirectory.shared.tabsRetained = { NativeBrowserTabs.shared.retain(tabs: $0) }
             StreamedBrowserDirectory.shared.tabRenamed = { NativeBrowserTabs.shared.rename(tab: $0, to: $1) }
+            // Their `localhost:<port>` pages, forwarded to the Mac when it serves `localhost`.
+            NativeBrowserTabs.shared.forwarder = StreamedBrowserDirectory.shared.localhost
+            NativeBrowserTabs.shared.macForwardsLocalhost = { [store] macID in
+                macID.flatMap { store.macCapabilities[$0] }?.contains(NativeBrowserTabs.forwardCapability) ?? false
+            }
         } else {
             StreamedBrowserDirectory.shared.opener = nil
             StreamedBrowserDirectory.shared.macOpener = nil

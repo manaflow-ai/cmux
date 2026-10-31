@@ -90,7 +90,7 @@ extension AcpmuxStatusClient {
     /// Streams a larger upload over begin/chunk/finish requests. Each request is a fresh bounded
     /// exchange, so a peer WebSocket never receives the entire base64 file in one frame.
     static func putFileChunked(sessionId: String, name: String, data: Data,
-                               send: @Sendable (_ method: String, _ params: [String: any Sendable]) async throws -> [String: Any]) async throws -> String {
+                               send: @escaping @Sendable (_ method: String, _ params: [String: any Sendable]) async throws -> [String: Any]) async throws -> String {
         guard data.count <= AgentPaneUpload.maximumPeerFileBytes else { throw AgentPaneFilePutFailure.tooLarge }
         var upload: String?
         let started: [String: Any]
@@ -112,16 +112,14 @@ extension AcpmuxStatusClient {
             guard let path = finished["path"] as? String, !path.isEmpty else { throw AgentPaneFilePutFailure.failed }
             return path
         } catch {
-            if let upload {
-                try? await send(filePutCancelMethod, ["sessionId": sessionId, "uploadId": upload])
-            }
+            if let upload { await cancelStaged(upload, sessionId: sessionId, send: send) }
             if let failure = error as? AgentPaneFilePutFailure { throw failure }
             throw AgentPaneFilePutFailure(error)
         }
     }
 
     private static func putFileChunked(sessionId: String, name: String, size: Int, file: URL,
-                                       send: @Sendable (_ method: String, _ params: [String: any Sendable]) async throws -> [String: Any]) async throws -> String {
+                                       send: @escaping @Sendable (_ method: String, _ params: [String: any Sendable]) async throws -> [String: Any]) async throws -> String {
         var upload: String?
         do {
             let started = try await send(filePutBeginMethod, ["sessionId": sessionId, "fileName": name, "size": size])
@@ -144,9 +142,21 @@ extension AcpmuxStatusClient {
             guard let path = finished["path"] as? String, !path.isEmpty else { throw AgentPaneFilePutFailure.failed }
             return path
         } catch {
-            if let upload { try? await send(filePutCancelMethod, ["sessionId": sessionId, "uploadId": upload]) }
+            if let upload { await cancelStaged(upload, sessionId: sessionId, send: send) }
             if let failure = error as? AgentPaneFilePutFailure { throw failure }
             throw AgentPaneFilePutFailure(error)
         }
+    }
+
+    /// Drops staged upload `upload` on the peer (`_acpmux/file_put_cancel`), from a fresh task: the
+    /// put's own task may be the one that was cancelled (the page's x), and a call made from it is
+    /// torn down before it is sent, which would leave the upload staged on the peer.
+    private static func cancelStaged(_ upload: String, sessionId: String,
+                                     send: @escaping @Sendable (_ method: String, _ params: [String: any Sendable]) async throws -> [String: Any]) async {
+        // task-owner: one cleanup call, bounded by the call's own deadline and awaited right here;
+        // unstructured so it does not inherit the put's cancellation.
+        await Task {
+            _ = try? await send(filePutCancelMethod, ["sessionId": sessionId, "uploadId": upload])
+        }.value
     }
 }

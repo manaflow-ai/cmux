@@ -42,11 +42,15 @@ fn transfer_state(record: &EventRecord) -> Option<bool> {
 }
 
 impl Hub {
+    /// The record kinds [`transfer_state`] reads.
+    pub(crate) const TRANSFER_KINDS: &[&str] =
+        &["transfer_out", "transferred", "transfer_aborted", "imported"];
+
     pub(super) fn restore_transfer_authority(&self, session: &Session) {
         let mut latest = (0, false);
         // Fail closed on an unreadable log. This runs only in load_session_log, never in
         // info, and does not hold the cache lock while reading disk.
-        match self.store.scan_strict(&session.id, 0, &mut |record| {
+        match self.store.scan_kinds_strict(&session.id, Self::TRANSFER_KINDS, &mut |record| {
             if let Some(blocked) = transfer_state(&record)
                 && record.seq >= latest.0
             {
