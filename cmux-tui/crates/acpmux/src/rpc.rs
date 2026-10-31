@@ -307,6 +307,8 @@ pub mod method {
     /// What this daemon knows of a chat's sign-in (`hub/session_auth.rs`).
     pub const MUX_SESSION_AUTH: &str = "_acpmux/session/auth";
     pub const MUX_INFO: &str = "_acpmux/info";
+    /// Sign a daemon-owned proof for the currently live turn.
+    pub const MUX_TURN_ATTESTATION: &str = "_acpmux/turn_attestation";
     /// Metadata-only paths for a session's config and state files; local Unix socket only.
     pub const MUX_SESSION_FILES: &str = "_acpmux/session_files";
     pub const MUX_EVENTS: &str = "_acpmux/events";
@@ -579,6 +581,9 @@ pub mod method {
     /// Sent to the prompting connection as soon as a `session/prompt` is
     /// recorded, before the turn ends: `{sessionId, promptId, turnId, queued}`.
     pub const MUX_PROMPT_ACCEPTED: &str = "_acpmux/prompt_accepted";
+    /// To the connection whose `session/cancel` notification was refused, which has no answer to
+    /// read: `{sessionId, message, reason?, peer?}` (`server/requests/cancel_refused.rs`).
+    pub const MUX_CANCEL_REFUSED: &str = "_acpmux/cancel_refused";
     /// To attached and watching clients when a background process starts or
     /// ends: `{process}` (`server/processes.rs`).
     pub const MUX_PROCESS_UPDATE: &str = "_acpmux/process_update";

@@ -870,7 +870,8 @@
    "method": "acp.session.fork",
    "params": {
     "sessionId": 1,
-    "throughSeq": 1
+    "throughSeq": 1,
+    "live": true
    }
   },
   "mode_fields": null,

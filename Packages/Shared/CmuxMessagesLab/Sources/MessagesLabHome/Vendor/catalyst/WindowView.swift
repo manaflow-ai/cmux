@@ -1268,7 +1268,17 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
             return positions[id]
         }
         var idx: [Int] = []
-        for r in model.rows.suffix(400) where r.spec.key.hasPrefix("receipt:") {
+        // cmux: a receipt row moves only when a message or its status changes. The typing dots, the
+        // host's status line and a stream's text change neither, so their commits re-derive only the
+        // trailing rows. From the receipt down, the Chief's "working on" line re-derived every message
+        // after my last read one on each change (agents working: ~5 ms of main thread per line change
+        // with ~150 messages below the receipt, between the person's keys).
+        let receiptsMove: Bool
+        switch action {
+        case .typing, .setNotice, .streamBegin, .streamSet, .streamAppend, .streamEnd(_, nil): receiptsMove = false
+        default: receiptsMove = true
+        }
+        for r in model.rows.suffix(400) where receiptsMove && r.spec.key.hasPrefix("receipt:") {
             if let i = index(String(r.spec.key.dropFirst("receipt:".count))) { idx.append(i) }
         }
         switch action {

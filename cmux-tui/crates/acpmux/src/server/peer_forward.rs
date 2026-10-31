@@ -208,6 +208,11 @@ async fn forward_inner(
         if super::trust_gate::gated(conn.origin, params) && !peer.supports_trust_gate() {
             return Err(super::trust_gate::peer_unsupported(&peer.name));
         }
+        // A conditional stop runs only where the session lives: an older peer would ignore the
+        // condition and stop it anyway (`hub/stop_if_idle.rs`).
+        if m == method::MUX_KILL && crate::hub::stop_if_idle::StopCondition::asked(params) {
+            return Err(crate::hub::stop_if_idle::remote_refusal(&peer.name));
+        }
         // A dropped file crosses the link as one frame: checked here, and only to a peer that
         // takes it (`hub/file_uploads.rs`).
         if m == method::MUX_FILE_PUT {
