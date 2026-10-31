@@ -231,7 +231,7 @@ BUNDLE_INPUTS = (
     # Files outside webviews/ that webviews sources import (web-bundle-key.py --inputs;
     # tests/test_web_bundle_key_inputs.sh keeps this list complete).
     "web/data/model-catalog/*", "Resources/markdown-viewer/viewer-navigation.js", "config/vite-plus/*",
-    "schemas/sync-motion/*",
+    "schemas/sync-motion/*", "schemas/agent-pane/*",
     # The UI font the gallery frame imports (src/gallery/frame/uiFont.ts).
     "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/Fonts/InterVariable.woff2",
 )
@@ -753,9 +753,16 @@ def linux_values(expression: str) -> bool:
         elif re.fullmatch(r"'[^']*'", value):
             if "ubuntu" not in value:
                 return False
-        elif not (re.fullmatch(r"vars\.\w+", value) and "LINUX" in value):
+        elif not (re.fullmatch(r"vars\.\w+", value) and "LINUX" in value) and value not in PORTABLE_RUNNERS:
             return False
     return True
+
+
+# Portable placement (scripts/ci/portable_job_placement.py) puts a job that needs neither Linux nor
+# Blacksmith on fleet Linux or a free mini. The job runs the same scripts either way, none of the
+# app's Mac tiers, so its outputs count as Linux here: an edit to such a job runs no Mac tier.
+PORTABLE_RUNNERS = frozenset(
+    f"needs.portable-placement.outputs.{output}" for output in ("linux_runner", "mini_runner"))
 
 
 def linux_runs_on(value) -> bool:

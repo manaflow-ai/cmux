@@ -1,5 +1,6 @@
 import type { MachineResources } from "./machineResources";
 import type { VideoInfo } from "./composer/videoAttachments";
+import type { AttachmentSource } from "./attachments";
 import type { HarnessIconSpec } from "../shared/harnessIcons";
 import type { ChatUnavailable } from "./chatUnavailable";
 import type { ChatPresence, Participant } from "./multiplayer/participants";
@@ -16,6 +17,7 @@ import type { IncomingMessage, IncomingPrompt } from "./conversation/incomingMes
 import { appHref, linkHref, safeHref } from "./replyHref";
 import type { ShellRun } from "./shell/shellRuns";
 import { SUBAGENTS, type Subagent } from "./subagents/subagentFold";
+import type { SubagentRetryNotice } from "./subagents/retryState";
 import {
   isRunGroup,
   SUBAGENT_DONE,
@@ -157,6 +159,9 @@ export type QueuedPrompt = {
   /// A teammate's prompt in a shared chat (its `person_message` provenance): its row names them,
   /// and only they may change it (acpmux refuses another author's edit with `queue.not_author`).
   author?: Participant;
+  /// acpmux's ask to resume a failed subagent (subagents/retryState.ts `subagentRetryNotice`): its
+  /// row names the subagent instead of drawing the prompt's text.
+  retry?: SubagentRetryNotice;
   /// Another agent's message the person's Stop holds (acpmux `queue_paused` with `reason: "stop"`,
   /// hub/cancel.rs): it waits until the person's next turn completes or the queue is resumed, not
   /// for the turn to end, and its card says so (conversation/QueuedMessageCard.tsx).
@@ -172,6 +177,8 @@ export type PromptImage = {
   width?: number;
   height?: number;
   src?: string;
+  /// The app it came from (attachments.ts `AttachmentSource`), as acpmux kept it with the prompt.
+  source?: AttachmentSource;
 };
 /// Ordered ACP content. The daemon validates blockIndex/companionOf against the actual blocks.
 /// Local attachment identities and video previews survive echo; companions remain on the wire.
@@ -199,6 +206,7 @@ export type PromptContentPart =
       pageCount?: number;
       uri?: string;
       video?: VideoInfo;
+      source?: AttachmentSource;
     };
 /// A queued prompt's image: `src` is its data URL when the pane has its bytes (it sent them, or
 /// the `queued` record carries them), else the row reads it by `id`. acpmux names an image by the
@@ -308,8 +316,13 @@ export type AcpmuxRow = {
   /// A turn summary whose turn draws a "Worked for" line (conversation/turns.ts), so its
   /// footer need not repeat the time and count.
   folded?: boolean;
+  /// A Worked-for row's actual open state, including a provisional key from paged history.
+  foldOpen?: boolean;
   /// Work shown inside an open "Worked for": its turn has ended.
   settled?: boolean;
+  /// A reply to the person (not a short note) shown inside an open "Worked for": settled, yet it
+  /// keeps its own action row (hasReplyActions; conversation/turns.ts shapeTurn).
+  foldedReply?: boolean;
   /// A run of finished tool calls folded under one summary line (Debug toggle
   /// `agentPane.debug.codexToolRuns`, on by default; conversation/turns.ts `codexRuns`,
   /// conversation/toolRunSummary.ts).
@@ -535,6 +548,8 @@ export type AcpmuxPermission = {
   kind?: string;
   /// The tool call it asks about: a subagent's own call when a subagent asks (summary/SubagentStatusList.tsx).
   toolCallId?: string;
+  /// Proposed changes from this ask only; these have not been applied to the workspace.
+  diffs?: AcpmuxFileDiff[];
   pending: boolean;
   options: {
     id: string;
@@ -611,6 +626,11 @@ export type AcpmuxContextBreakdown = {
   totalTokens: number;
   maxTokens: number;
 };
+
+/// A Claude Code chat's plan usage limits as acpmux reports them (claude_stdio `usage_limits`):
+/// `id` is `session` (5 hours), `weekly`, `weekly_opus` or `weekly_sonnet`; `usedPercent` is 0-100;
+/// `resetsAt` is unix seconds, only when Claude Code said when the window resets.
+export type AcpmuxUsageLimits = { windows: { id: string; usedPercent: number; resetsAt?: number }[] };
 
 /// Optional Labs workflow payload. acpmux does not emit this field yet; keeping the wire shape
 /// here gives the future event a typed adapter seam without deriving workflow state from rows.
@@ -693,7 +713,8 @@ export type AcpmuxSnapshot = {
     baseUrl?: string;
     route?: string;
     settingsSources?: unknown;
-    usageLimits?: string;
+    /// acpmux's structured limits, or a harness's own text for them.
+    usageLimits?: AcpmuxUsageLimits | string;
     /// The model the agent last reported, when the pane draws a pick (`model`) it has not
     /// confirmed yet (harnessSwitch.ts). Unset otherwise: `model` is what it reported.
     confirmedModel?: string;
@@ -742,6 +763,12 @@ export type AcpmuxSnapshot = {
   /// wire to a chat on another machine lists `acp.trust.set` (cx-1bhjj); acpmux never lists it,
   /// so a remote browser still cannot answer.
   answersTrust?: boolean;
+  /// The connection is the app's wire to a chat on the person's OWN Cloud machine: the Cloud API
+  /// said the signed-in caller owns it (`vmKind: "owner"`), and that machine's daemon checks the
+  /// same answer again at each start. A disposable VM of the person's own is its own boundary, so
+  /// Codex and opencode chats send there (remoteEditing.ts). Never set for a team machine,
+  /// another person's computer or a remote browser.
+  ownerCloud?: boolean;
   /// acpmux reconnects a Claude Code chat's failed MCP server for this connection: its `initialize`
   /// lists `_acpmux/mcp/reconnect` (an older acpmux does not), so the Inspector's Connectors offer
   /// Reconnect.
@@ -1108,7 +1135,7 @@ export const hasReplyActions = (row: AcpmuxRow, next: AcpmuxRow | undefined) =>
   next !== undefined &&
   !isBeforeFooter(row, next) &&
   row.streaming !== true &&
-  row.settled !== true &&
+  (row.settled !== true || row.foldedReply === true) &&
   (row.text ?? "").trim().length > 0;
 export const isBeforeFooter = (row: AcpmuxRow, next: AcpmuxRow | undefined) =>
   row.kind === "assistant" &&
