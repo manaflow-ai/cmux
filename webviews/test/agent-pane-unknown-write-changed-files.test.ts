@@ -13,7 +13,7 @@ import { CARGO, NOTES, PLAN, activity, editWithDiff, toolCall, translatorWrite }
 
 async function changedFiles(rows: AcpmuxRow[]) {
   const { automationState } = await import("../src/agent-session/acpmux/automation");
-  const snapshot = { type: "snapshot", rows, sessions: [], connection: "connected", isWorking: false };
+  const snapshot = { type: "snapshot", rows, queue: [], sessions: [], connection: "connected", isWorking: false };
   const host: AutomationHost = {
     snapshot: () => snapshot as unknown as AcpmuxSnapshot,
     call: async () => undefined,

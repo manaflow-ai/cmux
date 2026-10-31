@@ -14,6 +14,7 @@
 import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import { DaemonSocket, type DaemonAuth } from "../shared/daemonSocket";
 import type { Strings } from "../shared/i18n";
+import { useLasting } from "../../ui/lasting";
 
 const storageKey = (url: string) => `cmux.daemon.credential:${url}`;
 
@@ -225,18 +226,28 @@ export function DaemonGate({
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- resume is rebuilt each render; the effect runs once per endpoint.
   }, [url, source.kind]);
 
+  // Connecting (a launch, the daemon or this build's Chief starting or restarting, a dropped link):
+  // nothing shows while the retries can still outlast it. Only one that lasts past the grace is
+  // said, as one muted line: the last attempt's reason, never in red, since the retries go on.
+  const lasting = useLasting(phase.kind === "connecting");
   // A new store per connection: the key remounts the page on every reconnect.
   if (phase.kind === "ready")
     return <Fragment key={phase.generation}>{children(phase.daemon, phase.pages, phase.owner)}</Fragment>;
+  if (phase.kind === "connecting")
+    return (
+      <section className="hc-gate" aria-busy="true">
+        {lasting && (
+          <output className="hc-gate-line">
+            {phase.note ? format("connect.failed", phase.note) : t("connect.connecting")}
+          </output>
+        )}
+      </section>
+    );
   return (
     <section className="hc-gate" aria-labelledby="hc-gate-title">
       <h1 id="hc-gate-title">{t("connect.title")}</h1>
       {url && <p className="hc-gate-endpoint">{url}</p>}
       {phase.kind === "pairing" && <p className="hc-gate-code">{format("connect.pairingCode", phase.code)}</p>}
-      {phase.kind === "connecting" && <p>{t("connect.connecting")}</p>}
-      {phase.kind === "connecting" && phase.note && (
-        <p className="hc-gate-error">{format("connect.failed", phase.note)}</p>
-      )}
       {phase.kind === "blocked" && (
         <>
           <p className="hc-gate-error">{format("connect.failed", phase.error)}</p>

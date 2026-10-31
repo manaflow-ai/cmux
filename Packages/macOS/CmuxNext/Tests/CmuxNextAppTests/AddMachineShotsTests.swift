@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 @testable import CmuxNextServer
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -8,7 +9,7 @@ import Testing
 /// no Tailscale, running, ready, failed, Check Machine with Fix) into one contact sheet, so a fleet run
 /// returns the card's look as an artifact: `Packages/macOS/CmuxNext/.build/add-machine-shots.png`.
 /// It also checks that every state draws something at a sane size.
-@MainActor @Suite(.serialized) struct AddMachineShotsTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct AddMachineShotsTests {
     @Test func everyStateRendersToTheContactSheet() async throws {
         _ = NSApplication.shared
         var shots: [(String, NSImage)] = []
