@@ -162,7 +162,6 @@ extension AgentTabStore {
         tabs.machineLink.reconnect = { [weak tabs] machine in
             _ = tabs?.actionRegistry?.perform("machine.reconnect", invocation: ActionInvocation(target: ActionTargetRef(kind: .machine, id: machine), origin: .user))
         }
-        Self.wireRemoteControl(services)
         // The composer chips and shell commands chat pages held at the last quit (every relaunch's quit).
         tabs.relaunchWake = services.relaunchWake
         // The Chief home's acpmux: the Chief host's subagent tabs attach there.
