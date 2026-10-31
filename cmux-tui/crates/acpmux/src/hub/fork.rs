@@ -217,7 +217,17 @@ impl Hub {
             Made::Copy(copy) => (json!({}), Some(copy.clone())),
             Made::ClaudeResume | Made::Fresh => (json!({}), None),
         };
-        let fork_seq = cut.unwrap_or_else(|| session.seq.load(Ordering::SeqCst));
+        // A fork through a turn copies through its `turn_result`, before which the log holds
+        // nothing back. A fork of now copies the tool output the log holds back too
+        // (`store/deferred.rs`), read with the seq it copies through.
+        let (fork_seq, held_output) = match cut {
+            Some(cut) => (cut, Vec::new()),
+            None => {
+                let _order = session.append_lock.lock().unwrap_or_else(|e| e.into_inner());
+                let held = session.log_deferral.lock().unwrap_or_else(|e| e.into_inner()).pending();
+                (session.seq.load(Ordering::SeqCst), held)
+            }
+        };
         let name_given = name.is_some();
         let name = name.unwrap_or_else(|| self.unique_name(&format!("{}-fork", parent_meta.name)));
         let now = now_ms();
@@ -431,6 +441,10 @@ impl Hub {
                 }
                 true
             });
+        }
+        for output in held_output {
+            let at = Some(now_ms());
+            let _ = self.append_at(&new, "in", "tool_call_update", output, None, at);
         }
         // The fork's copy of the running turn ends now: its tool calls still running did not
         // finish here, and the turn is cancelled, so the fork is idle and its partial reply

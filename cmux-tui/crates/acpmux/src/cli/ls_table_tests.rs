@@ -131,15 +131,27 @@ fn an_unreachable_peer_reads_unknown_and_is_never_dropped() {
 #[test]
 fn warn_is_one_word_and_shows_only_while_a_row_has_one() {
     assert!(!compact(&[lane("a")]).contains("WARN"));
-    let warned = with(
-        lane("big"),
-        json!({"usageWarnings": [{"rule": "contextTokens"}, {"rule": "noAutocompactCap"}]}),
+    // Warnings as the daemon decides them (`hub/usage_warnings.rs`), for a row named `big`.
+    let stats = json!({"autocompact": "none", "contextTokens": 955_000, "subagents1h": 90});
+    let summary = json!({"name": "big", "status": "idle", "family": "claude", "usageStats": stats});
+    let warnings = crate::hub::usage_warnings::usage_warnings(
+        &summary,
+        &crate::config::UsageLimits::default(),
     );
+    let warned = with(lane("big"), json!({"usageWarnings": warnings}));
     let out = compact(&[lane("a"), warned.clone()]);
     assert!(out.lines().next().unwrap().ends_with("WARN"), "{out}");
     assert!(out.lines().any(|l| l.starts_with("big") && l.ends_with("warn")), "{out}");
     let wide = render(&[warned], Some(&[]), View { all: false, wide: true }, false, NOW);
-    assert!(wide.contains("contextTokens noAutocompactCap"), "{wide}");
+    // Wide names each rule with its number and the command that answers it.
+    assert!(
+        wide.contains(
+            "no-cap: lane-place rotate big --harness claude-sr2; \
+             ctx 955k: acpmux send big /compact | lane-place rotate big; \
+             90 sub/h: acpmux session cancel big"
+        ),
+        "{wide}"
+    );
 }
 
 #[test]
