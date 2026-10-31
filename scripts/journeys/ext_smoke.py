@@ -22,6 +22,7 @@ Steps (`do`):
                                       fail (the app took the keys elsewhere), no app window key is "not run: known
                                       gap" -- or, with the journey option smoke_mode=diagnostic, the keys are typed
                                       after the creation hold and the round goes on (never a gate pass).
+  smoke_ready        {timeout?}       waits (default 60 s) for a main window, a loaded topology and a connected daemon
   smoke_remember_workspaces {}        keeps the workspace ids the app has now (the baseline)
   smoke_snapshot     {name}           keeps, before the keys that make terminals, the daemon terminals of the
                                       topology, each pane's tabs and the focused pane (smoke_new_terminals reads it)
@@ -53,7 +54,7 @@ import json
 import time
 
 D = None  # the driver module (install)
-GAP = "known gap: the capture slot could not make the window key (debug.window.focus), so keys typed into a new " \
+GAP = "known gap: the capture lease could not make the window key (debug.window.focus), so keys typed into a new " \
       "terminal while it is made cannot be checked here; not a pass"
 
 
@@ -124,6 +125,25 @@ def step_smoke_type_now(j, step):
 
 def _workspace_ids(j):
     return [ws.get("id") for ws in j.topology().get("workspaces", []) if ws.get("id")]
+
+
+def step_smoke_ready(j, step):
+    """Waits (at most TIMEOUT s, default 60) until the app shows a main window and its topology is loaded with the
+    daemon connected: the moment a person would start to use it after the launch. Under memory pressure this can
+    take long; the wait is recorded, and an app that is not ready within TIMEOUT fails the round."""
+    t0, last = D.now(), {}
+    end = t0 + float(step.get("timeout", 60))
+    while D.now() < end:
+        windows = _windows(j)
+        snap = j.app.rpc("snapshot.get") or {}
+        topo = snap.get("topology") if isinstance(snap, dict) else None
+        topo = topo if isinstance(topo, dict) else {}
+        last = {"windows": len(windows), "loaded": topo.get("loaded"), "daemon_state": topo.get("daemon_state")}
+        if windows and topo.get("loaded") is True and topo.get("daemon_state") == "connected":
+            return dict(last, waited_s=round(D.now() - t0, 2))
+        time.sleep(0.5)
+    raise D.StepError(f"the app was not ready {step.get('timeout', 60)} s into the journey "
+                      f"(a main window, topology loaded, daemon connected): {json.dumps(last)}")
 
 
 def step_smoke_remember_workspaces(j, step):
@@ -331,7 +351,7 @@ def cond_smoke_key_window(j, want, cache):
     return key_now, {"windows": windows}
 
 
-STEPS = {"smoke_make_key": step_smoke_make_key, "smoke_type_now": step_smoke_type_now,
+STEPS = {"smoke_ready": step_smoke_ready, "smoke_make_key": step_smoke_make_key, "smoke_type_now": step_smoke_type_now,
          "smoke_remember_workspaces": step_smoke_remember_workspaces, "smoke_close_all": step_smoke_close_all,
          "smoke_snapshot": step_smoke_snapshot}
 CONDITIONS = {"smoke_workspaces": ("app", cond_smoke_workspaces), "smoke_key_window": ("app", cond_smoke_key_window),

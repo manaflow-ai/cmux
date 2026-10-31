@@ -27,6 +27,7 @@ Never run it on a person's Mac: the hog fills the memory up to swap.
 """
 import argparse
 import json
+import re
 import os
 import subprocess
 import sys
@@ -246,7 +247,8 @@ def main(argv=None):
         exclusive = exclusive_line(round_out)
         if row.get("status") == "pass" and not exclusive:
             row = dict(row, status="not run", reason="capture-host did not say the lease's mini was exclusive (acquire.log)")
-        leases = sorted({w for w in (done.stdout + done.stderr).split() if w.startswith("slot-")})
+        # run.py logs "leased <lease>": a slot lease (slot-<host>-<token>) or a whole-host lease (the host alias).
+        leases = sorted(set(re.findall(r"\bleased (\S+)", done.stdout + done.stderr)))
         record = {"round": n, "steps": step_results(round_out), "status": row.get("status"), "reason": row.get("reason"), "host": row.get("host"),
                   "seconds": round(time.time() - started), "failing_step": failing_step(round_out),
                   "frames": frames(round_out), "hog_logs": sorted(p.name for p in round_out.glob("hog-*.jsonl")), "pressure": hog, "hosts_offered": hosts, "exclusive": exclusive,
@@ -277,7 +279,7 @@ def main(argv=None):
              + ("; diagnostic rounds judge nothing, so no .pass file" if opts.diagnostic else
                 "" if gate_run else f"; a trial: the gate needs {GATE_ROUNDS} rounds at +{GATE_SWAP_GB:g} GB, so no .pass file")]
     if summary["known_gap_rounds"]:
-        lines.append(f"KNOWN GAP in rounds {summary['known_gap_rounds']}: the capture slot could not make the window key, "
+        lines.append(f"KNOWN GAP in rounds {summary['known_gap_rounds']}: the capture lease could not make the window key, "
                      "so keys typed into a new terminal while it is made were not checked; not a pass")
     if opts.diagnostic:
         lines.append("DIAGNOSTIC: no type-at-once where the slot has no key window; no .pass file. Each check:")

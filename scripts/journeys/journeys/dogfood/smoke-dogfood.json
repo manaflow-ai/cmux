@@ -6,6 +6,7 @@
   "source": "the dogfood smoke gate (scripts/journeys/smoke-gate.py; README)",
   "budget_seconds": 250,
   "steps": [
+    {"do": "smoke_ready", "timeout": 60},
     {"do": "smoke_remember_workspaces"},
     {"do": "smoke_make_key"},
     {"do": "smoke_snapshot", "name": "before_workspaces"},
@@ -79,7 +80,7 @@
     {"do": "expect", "title": "the browser tab loads the page", "since": "loaded", "timeout": 45,
      "all": [
        {"app_rpc": {"method": "debug.focus", "path": "windows.0.model.resolved", "equals": "browserPage"}},
-       {"frame_text": "Example Domain"}
+       {"frame_text": "documentation examples"}
      ]},
     {"do": "relaunch", "how": "quit", "mark": "reopened"},
     {"do": "expect", "title": "after the reopen: one window, a clean launch, no blank pane, the same three workspaces with their output, and the browser page", "since": "reopened", "timeout": 60,
@@ -90,13 +91,13 @@
        {"smoke_workspaces": {"new": 3, "same_as": "before_splits"}},
        {"smoke_panes": {"line": "d2-${nonce}-42", "count": 3}},
        {"smoke_daemon_lines": {"lines": ["w1-${nonce}-42", "w2-${nonce}-42", "w3-${nonce}-42", "d1-${nonce}-42", "d2-${nonce}-42", "t1-${nonce}-42", "t2-${nonce}-42"]}},
-       {"frame_text": "Example Domain"}
+       {"frame_text": "documentation examples"}
      ]},
     {"do": "smoke_close_all", "mark": "closed"},
     {"do": "expect", "title": "close all: the journey's workspaces are gone from the app and the window", "since": "closed", "timeout": 20,
      "all": [
        {"smoke_workspaces": {"new": 0}},
-       {"smoke_frame": {"lacks": ["Example Domain", "w3-${nonce}-42", "d2-${nonce}-42", "t2-${nonce}-42"]}}
+       {"smoke_frame": {"lacks": ["documentation examples", "w3-${nonce}-42", "d2-${nonce}-42", "t2-${nonce}-42"]}}
      ]}
   ],
   "finally": [

@@ -253,7 +253,8 @@ ACQUIRE_SLACK_SECONDS = 60
 
 
 def acquire_lease(ch, exclusive, log_path=None, whole_host=False):
-    """`capture-host acquire --slot [--exclusive]`; the lease words it prints. An exclusive acquire waits for the
+    """`capture-host acquire --slot [--exclusive]` (or, whole_host, `acquire [--exclusive]`: the whole mini); the
+    lease words it prints. An exclusive acquire waits for the
     mini's running fleet steps (the drain), and capture-host moves its own acquire deadline on by the time
     drained, so its bound here is its acquire timeout plus its drain budget. On that bound the acquire gets TERM
     first: its trap ends the controller reservation the drain made (a KILL would leave it until it expires)."""
@@ -288,7 +289,7 @@ HOG_WARMUP_SECONDS = 45  # at least this long from the hog's start (before the d
 
 
 def run_lease(specs, build, out, frame_interval, exclusive=False, hog_swap_gb=0.0, whole_host=False):
-    """Plays `specs` in one slot; {id: result} (driver results, or not run with the reason). `exclusive`: the
+    """Plays `specs` in one slot (or, whole_host, on the whole mini with the app active); {id: result} (driver results, or not run with the reason). `exclusive`: the
     lease owns the whole mini (`capture-host acquire --slot --exclusive`: no fleet step runs there meanwhile;
     the fleet rule for any result that is evidence, such as the dogfood smoke gate)."""
     ch = capture_host()

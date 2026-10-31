@@ -89,7 +89,7 @@ class Verdicts(unittest.TestCase):
             # fleet rules' acquire and drain bounds.
             self.assertEqual(env, {"CAPTURE_HOST_POOL": "perf-lead", "CAPTURE_HOST_ACQUIRE_TIMEOUT_SECONDS": "600",
                                    "CAPTURE_HOST_EXCLUSIVE_DRAIN_SECONDS": "900"})
-            self.assertEqual(summary["rounds_detail"][0]["leases"], ["slot-cmux99-abc"])
+            self.assertEqual(summary["rounds_detail"][0]["leases"], ["slot-cmux99-abc"])  # from "leased <lease>"
             written = os.path.exists(os.path.join(tmp, "handoff", "job123.pass"))
             # The gate's own folder may have uncommitted edits while it is developed: then no .pass file.
             self.assertEqual(written, not summary["gate_dirty"])
@@ -433,6 +433,31 @@ class NewTerminals(unittest.TestCase):
         self.assertTrue(self.ext.cond_smoke_panes(j, {"line": "d2", "count": 3}, {})[0])
         self.assertFalse(self.ext.cond_smoke_panes(j, {"line": "d2", "count": 2}, {})[0])
         self.assertFalse(self.ext.cond_smoke_panes(j, {"line": "zz", "count": 3}, {})[0])
+
+    def test_smoke_ready_waits_for_a_window_and_a_loaded_topology(self):
+        j = self.journey([], {}, None)
+        replies = iter([({"windows": []}, {"topology": {"loaded": False}}),
+                        ({"windows": [{"id": "w"}]}, {"topology": {"loaded": True, "daemon_state": "connected"}})])
+        state = {}
+
+        def rpc(method, params=None):
+            if method == "debug.windows":
+                state["now"] = next(replies)
+                return state["now"][0]
+            return state["now"][1]
+        j.app.rpc = rpc
+        sleep = self.ext.time.sleep
+        self.ext.time.sleep = lambda s: None  # the time module itself: put back below
+        try:
+            result = self.ext.step_smoke_ready(j, {"timeout": 5})
+            self.assertEqual((result["windows"], result["loaded"]), (1, True))
+            j.app.rpc = lambda method, params=None: {"windows": []} if method == "debug.windows" else {}
+            clock = iter(range(100))
+            self.ext.D.now = staticmethod(lambda: float(next(clock)))
+            with self.assertRaises(self.StepError):
+                self.ext.step_smoke_ready(j, {"timeout": 5})
+        finally:
+            self.ext.time.sleep = sleep
 
     def test_each_workspace_line_in_its_own_new_workspace(self):
         before = [("w0", "p0", "a", "T0", True)]
