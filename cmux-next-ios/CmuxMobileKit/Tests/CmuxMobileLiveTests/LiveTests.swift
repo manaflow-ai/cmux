@@ -1272,3 +1272,26 @@ final class Seen: @unchecked Sendable {
         #expect(tabs.first?.systemImage == "iphone")
     }
 }
+
+// MARK: Title events
+
+@MainActor
+@Suite struct TitleActivityTests {
+    /// A shell sets its terminal title again and again with the same text: only a new
+    /// title is activity. Each repeat stamped the workspace as active now, re-listed it
+    /// and republished every workspace to the store (a whole-list update for nothing).
+    @Test func aRepeatedTitleIsNotActivity() async throws {
+        let sync = WorkspaceSync(deviceID: "d", deviceName: "iPhone")
+        sync.handle(.titleChanged(surface: 5, title: "zsh"))
+        let first = try #require(sync.activity[5])
+        sync.handle(.titleChanged(surface: 5, title: "zsh"))
+        #expect(sync.activity[5] == first)
+        #expect(sync.titleEventsIgnored == 1)
+        sync.handle(.titleChanged(surface: 5, title: "vim"))
+        #expect(sync.titleEventsIgnored == 1)
+        // Another surface's first title is activity.
+        sync.handle(.titleChanged(surface: 6, title: "zsh"))
+        #expect(sync.activity[6] != nil)
+        #expect(sync.titleEventsIgnored == 1)
+    }
+}

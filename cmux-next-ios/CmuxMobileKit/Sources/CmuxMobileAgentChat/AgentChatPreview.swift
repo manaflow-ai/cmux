@@ -7,11 +7,17 @@ import SwiftUI
 /// view, no bindings, no demo commands.
 public struct AgentChatPreview: View {
     let store: AgentChatStore
+    /// The turns to draw (the last ones); nil reads the store's own. A grid
+    /// card passes a copy it updates only while the grid shows and is not
+    /// scrolling, so a streaming chat does not re-render its card per token.
+    var turns: [AgentTurn]?
     var topInset: CGFloat
     var bottomInset: CGFloat
+    @State private var model = AgentChatPreviewModel()
 
-    public init(store: AgentChatStore, topInset: CGFloat, bottomInset: CGFloat) {
+    public init(store: AgentChatStore, turns: [AgentTurn]? = nil, topInset: CGFloat, bottomInset: CGFloat) {
         self.store = store
+        self.turns = turns
         self.topInset = topInset
         self.bottomInset = bottomInset
     }
@@ -35,7 +41,7 @@ public struct AgentChatPreview: View {
     }
 
     @ViewBuilder private var content: some View {
-        if store.turns.isEmpty {
+        if turns.map(\.isEmpty) ?? !store.hasTurns {
             VStack(spacing: 12) {
                 Image(systemName: "sparkle")
                     .font(.system(size: 22))
@@ -46,13 +52,56 @@ public struct AgentChatPreview: View {
             .frame(maxWidth: .infinity)
             .padding(.bottom, 240)
         } else {
+            let rows = model.tail(of: store, turns: turns)
             VStack(alignment: .leading, spacing: 0) {
-                ForEach(store.turns.suffix(2)) { turn in
-                    TurnView(turn: turn, store: store, isLast: turn.id == store.turns.last?.id)
-                        .padding(.bottom, 24)
+                ForEach(rows) { row in
+                    ChatRowView(row: row, context: model.context(store))
+                        .padding(.top, row.gap)
                 }
             }
+            .padding(.bottom, ChatTranscriptBuilder.trailingGap(after: rows.last))
         }
+    }
+}
+
+/// The card's rows: the transcript's rows (memoized per turn, an answer parsed by its
+/// tail), cut to what a bottom-aligned card can show. The card stays alive beside the
+/// live page, so drawing the whole chat laid out every streamed answer in full (its
+/// tables and code) on every frame.
+@MainActor
+final class AgentChatPreviewModel {
+    /// More than a page of estimated height: rows above it are clipped off the card.
+    static let budget: CGFloat = 2400
+    private var builder: ChatTranscriptBuilder?
+    private var rowContext: ChatRowContext?
+
+    func context(_ store: AgentChatStore) -> ChatRowContext {
+        if let rowContext, rowContext.store === store { return rowContext }
+        let context = ChatRowContext(store: store, surface: AgentChatSurface())
+        rowContext = context
+        return context
+    }
+
+    /// `frozen`: the turns a grid card holds (it updates them only while the grid rests); nil reads the store's.
+    func tail(of store: AgentChatStore, turns frozen: [AgentTurn]? = nil) -> [ChatRow] {
+        if builder?.diffs !== store.diffs { builder = ChatTranscriptBuilder(diffs: store.diffs) }
+        guard let builder else { return [] }
+        let turns = frozen ?? store.turns
+        // The newest two turns, as the card showed before.
+        let shown = Array(turns.suffix(2))
+        let built = builder.build(turns: shown, pendingPermission: store.pendingPermission,
+                                  askOpen: store.pendingPermission != nil || store.pendingQuestion != nil, permissionBarHidden: false,
+                                  earlierHistory: store.hasEarlierHistory, retryPending: store.retryRequested)
+        var out: [ChatRow] = []
+        var height: CGFloat = 0
+        for row in built.flatMap(\.rows).reversed() {
+            // The session line belongs to the chat's first turn only.
+            if row.id == "session-start", turns.count > 2 { continue }
+            out.append(row)
+            height += row.gap + row.estimatedHeight(width: 350)
+            if height > Self.budget { break }
+        }
+        return out.reversed()
     }
 }
 #endif

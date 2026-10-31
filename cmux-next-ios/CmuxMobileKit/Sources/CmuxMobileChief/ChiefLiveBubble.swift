@@ -195,49 +195,72 @@ struct ChiefShimmerText: View {
         if reduceMotion {
             label
         } else {
-            TimelineView(.animation) { context in
-                // -0.25...1.25: the band enters and leaves fully off the text.
-                let phase = context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 1.6) / 1.6 * 1.5 - 0.25
-                label.overlay {
-                    LinearGradient(
-                        stops: [
-                            .init(color: .clear, location: phase - 0.25),
-                            .init(color: .white.opacity(0.7), location: phase),
-                            .init(color: .clear, location: phase + 0.25),
-                        ],
-                        startPoint: .leading, endPoint: .trailing
-                    )
-                    .mask(label)
-                    .blendMode(.plusLighter)
+            label.overlay {
+                // A band half the text wide whose middle runs from -0.25 to 1.25 of the width:
+                // it enters and leaves fully off the text.
+                // A repeating keyframe animation of the band's offset: it starts over whenever the
+                // line appears, and only the band updates per frame.
+                GeometryReader { proxy in
+                    let width = proxy.size.width
+                    LinearGradient(colors: [.clear, .white.opacity(0.7), .clear], startPoint: .leading, endPoint: .trailing)
+                        .frame(width: width * 0.5)
+                        .keyframeAnimator(initialValue: 0.0, repeating: true) { band, phase in
+                            band.offset(x: -width * 0.5 + width * 1.5 * phase)
+                        } keyframes: { _ in
+                            LinearKeyframe(1.0, duration: 1.6)
+                        }
                 }
+                .mask(label)
+                .blendMode(.plusLighter)
             }
         }
     }
 }
 
-/// The three-dot typing indicator of the status line.
+/// The three-dot typing indicator of the status line: a wave through the dots (each one's
+/// opacity follows `sin(4t)`, a beat later than the one before), from a repeating keyframe
+/// clock that starts over whenever the line appears. Still with Reduce Motion.
 struct ChiefTypingDots: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// One period of `sin(4t)`.
+    static let period = Double.pi / 2
 
     var body: some View {
-        TimelineView(.animation(paused: reduceMotion)) { context in
-            let t = context.date.timeIntervalSinceReferenceDate
-            HStack(spacing: 3) {
-                ForEach(0..<3) { index in
-                    Circle()
-                        .fill(Color.secondary)
-                        .frame(width: 6, height: 6)
-                        .opacity(reduceMotion ? 0.7 : 0.35 + 0.65 * max(0, sin((t * 4) - Double(index) * 0.8)))
+        Group {
+            if reduceMotion {
+                ChiefTypingDotsRow(t: nil)
+            } else {
+                ChiefTypingDotsRow(t: 0).keyframeAnimator(initialValue: 0.0, repeating: true) { _, t in
+                    ChiefTypingDotsRow(t: t)
+                } keyframes: { _ in
+                    LinearKeyframe(Self.period, duration: Self.period)
                 }
             }
-            .padding(.horizontal, 8)
-            .frame(height: 22)
-            .background(Color(uiColor: .systemGray5), in: .capsule)
         }
+        .padding(.horizontal, 8)
+        .frame(height: 22)
+        .background(Color(uiColor: .systemGray5), in: .capsule)
         .accessibilityHidden(true)
         .accessibilityIdentifier("chief.live.typing")
     }
 }
+
+/// The three dots at clock `t` (nil: still, Reduce Motion).
+struct ChiefTypingDotsRow: View {
+    let t: Double?
+
+    var body: some View {
+        HStack(spacing: 3) {
+            ForEach(0..<3) { index in
+                Circle()
+                    .fill(Color.secondary)
+                    .frame(width: 6, height: 6)
+                    .opacity(t.map { 0.35 + 0.65 * max(0, sin($0 * 4 - Double(index) * 0.8)) } ?? 0.7)
+            }
+        }
+    }
+}
+
 /// The window frame of the live status line and its details (the only
 /// part of the overlay that takes touches).
 @MainActor

@@ -284,8 +284,20 @@ public struct MockArtifactSource: ArtifactSource {
     """
 
     #if os(iOS)
+    /// Rendered once: a real source's bytes arrive from the Mac, so the list rig measures the
+    /// app's decode, not the mock's drawing.
+    @MainActor private static var screenshot: Data?
+    @MainActor private static var report: Data?
+
     @MainActor
     public static func screenshotPNG() async -> Data? {
+        if let screenshot { return screenshot }
+        screenshot = renderScreenshot()
+        return screenshot
+    }
+
+    @MainActor
+    private static func renderScreenshot() -> Data? {
         let size = CGSize(width: 390, height: 300)
         let renderer = UIGraphicsImageRenderer(size: size)
         let image = renderer.image { context in
@@ -307,6 +319,13 @@ public struct MockArtifactSource: ArtifactSource {
     /// A one-page generated PDF.
     @MainActor
     public static func reportPDF() async -> Data? {
+        if let report { return report }
+        report = renderReport()
+        return report
+    }
+
+    @MainActor
+    private static func renderReport() -> Data? {
         let bounds = CGRect(x: 0, y: 0, width: 612, height: 792)
         let renderer = UIGraphicsPDFRenderer(bounds: bounds)
         return renderer.pdfData { context in

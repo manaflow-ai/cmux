@@ -345,7 +345,7 @@ extension AppStore {
 }
 
 extension WorkspaceCreator {
-    private var arranger: (any WorkspaceArrangementBackend)? { backend as? any WorkspaceArrangementBackend }
+    var arranger: (any WorkspaceArrangementBackend)? { backend as? any WorkspaceArrangementBackend }
 
     /// Whether the workspace's pin, color, order and read mark can change from here now.
     public func canArrange(_ workspace: Workspace) -> Bool {

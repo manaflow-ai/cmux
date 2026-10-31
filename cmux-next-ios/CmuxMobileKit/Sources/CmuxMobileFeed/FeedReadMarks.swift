@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 
 /// Which events the person has read, kept across relaunches for every event, including
 /// open asks (the archive keeps only finished turns, and the Mac re-reports asks unread).
@@ -36,16 +37,55 @@ public struct FeedReadMarks: Sendable {
 
     /// Account deletion: the account's marks go.
     public func remove() {
-        try? FileManager.default.removeItem(at: url)
+        let url = url
+        // Empty until the delete lands; queued after any write, so a write cannot bring the file back.
+        Self.pending.withLock { $0[url] = .removed }
+        Self.queue.async {
+            try? FileManager.default.removeItem(at: url)
+            Self.pending.withLock { if $0[url] == .removed { $0[url] = nil } }
+        }
     }
 
+    /// Writes run here, in order, off the main thread: a read mark lands while the Feed
+    /// scrolls (the Mac's reads arrive several a second), and an atomic file write per mark
+    /// on the main thread cost a frame.
+    static let queue = DispatchQueue(label: "dev.cmux.mobile.feed.readmarks", qos: .utility)
+    /// The newest marks given to `save` per file and not yet written: `load` returns them,
+    /// so a reader never waits for the disk queue.
+    private static let pending = Mutex<[URL: Pending]>([:])
+
+    private enum Pending: Equatable {
+        case marks([String])
+        /// Removed, the delete still queued: reads see nothing, and no queued write lands.
+        case removed
+    }
+
+    /// The marks as last saved (written or still queued).
     public func load() -> [String] {
-        (try? Data(contentsOf: url)).flatMap { try? JSONDecoder().decode([String].self, from: $0) } ?? []
+        switch Self.pending.withLock({ $0[url] }) {
+        case .marks(let queued): return queued
+        case .removed: return []
+        case nil: break
+        }
+        return (try? Data(contentsOf: url)).flatMap { try? JSONDecoder().decode([String].self, from: $0) } ?? []
     }
 
+    /// Queues a write of the newest `limit` marks; returns at once.
     public func save(_ ids: [String]) {
-        guard let data = try? JSONEncoder().encode(Array(ids.suffix(Self.limit))) else { return }
-        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try? data.write(to: url, options: [.atomic])
+        let ids = Array(ids.suffix(Self.limit))
+        let url = url
+        Self.pending.withLock { $0[url] = .marks(ids) }
+        Self.queue.async {
+            // Only the newest marks are written (nil: already written; removed: none).
+            guard case .marks(let next) = Self.pending.withLock({ $0[url] }) else { return }
+            if let data = try? JSONEncoder().encode(next) {
+                try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try? data.write(to: url, options: [.atomic])
+            }
+            Self.pending.withLock { if $0[url] == .marks(next) { $0[url] = nil } }
+        }
     }
+
+    /// Waits until every queued write has landed (account switch, tests).
+    public static func flush() { queue.sync {} }
 }

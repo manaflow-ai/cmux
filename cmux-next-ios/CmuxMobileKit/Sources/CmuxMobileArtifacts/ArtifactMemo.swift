@@ -1,0 +1,87 @@
+import Foundation
+
+/// Values made once per artifact this session (grid thumbnails), by artifact id and kind, so an
+/// artifact that moves in the list or is referenced again keeps its value. An edit is new content:
+/// an "Edited" detail is part of the key, so a file the agent changed again gets a new thumbnail. An `NSCache`, so memory
+/// pressure evicts entries. A make runs once per key, shared by every tile asking for it, and is
+/// cancelled when the last of them goes (scrolled away); a cancelled make is not recorded, so the
+/// tile tries again when it returns.
+final class ArtifactMemo<Value: Sendable>: @unchecked Sendable {
+    private final class Entry {
+        let value: Value?
+        init(_ value: Value?) { self.value = value }
+    }
+
+    private let cache = NSCache<NSString, Entry>()
+    private let cost: @Sendable (Value?) -> Int
+    private let lock = NSLock()
+    private var makes = 0
+
+    init(costLimit: Int, cost: @escaping @Sendable (Value?) -> Int = { _ in 1 }) {
+        cache.totalCostLimit = costLimit
+        self.cost = cost
+    }
+
+    /// Makes started (tests read it).
+    var makesStarted: Int { lock.withLock { makes } }
+
+    static func key(_ artifact: TerminalArtifact) -> NSString {
+        let edit = artifact.detail.flatMap { $0.hasPrefix("Edited") ? $0 : nil } ?? ""
+        return "\(artifact.kind.rawValue)|\(artifact.id)|\(edit)" as NSString
+    }
+
+    /// A value already made (`.some(nil)`: known to have none), without making it.
+    func cached(_ artifact: TerminalArtifact) -> Value?? {
+        cache.object(forKey: Self.key(artifact)).map(\.value)
+    }
+
+    /// Makes in progress, by key: a second ask joins the first.
+    private var running: [String: Task<Value?, Never>] = [:]
+    /// Callers waiting on each running make.
+    private var waiters: [String: Int] = [:]
+
+    func value(for artifact: TerminalArtifact, make: @escaping @Sendable (TerminalArtifact) async -> Value?) async -> Value? {
+        if let cached = cached(artifact) { return cached }
+        let key = Self.key(artifact) as String
+        let task: Task<Value?, Never> = lock.withLock {
+            waiters[key, default: 0] += 1
+            if let running = running[key] { return running }
+            makes += 1
+            let task = Task<Value?, Never>(priority: .utility) { [weak self] in
+                let value = await make(artifact)
+                self?.finish(value, key: key, record: !Task.isCancelled)
+                return value
+            }
+            running[key] = task
+            return task
+        }
+        return await withTaskCancellationHandler {
+            let value = await task.value
+            lock.withLock { waiters[key, default: 1] -= 1 }
+            return value
+        } onCancel: {
+            // The last tile waiting scrolled away: nobody shows the result, so stop the make.
+            let last = lock.withLock { () -> Task<Value?, Never>? in
+                waiters[key, default: 1] -= 1
+                guard waiters[key] ?? 0 <= 0, let task = running[key] else { return nil }
+                // Out of the table at once: a tile asking from now on starts a new make.
+                running[key] = nil
+                waiters[key] = nil
+                return task
+            }
+            last?.cancel()
+        }
+    }
+
+    private func finish(_ value: Value?, key: String, record: Bool) {
+        guard record else { return }
+        cache.setObject(Entry(value), forKey: key as NSString, cost: cost(value))
+        lock.withLock {
+            running[key] = nil
+            waiters[key] = nil
+        }
+    }
+
+    /// Callers waiting on the make for `artifact` (tests).
+    func waiting(for artifact: TerminalArtifact) -> Int { lock.withLock { waiters[Self.key(artifact) as String] ?? 0 } }
+}

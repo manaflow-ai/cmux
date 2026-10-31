@@ -75,11 +75,14 @@ struct AgentChatFindBar: View {
 /// `MessageFindMarks`): it reports
 /// its top for Find in Chat and is marked while it holds the current match.
 struct FindBlockMarker: ViewModifier {
-    let key: String
+    let key: String?
     let surface: AgentChatSurface?
+    /// Reports the block's frame in `AgentChatFindBar.contentSpace`. A transcript cell does
+    /// not: its rows' frames are the transcript layout's (`ChatTranscriptList.findFrame`).
+    var reportsFrame = true
 
     func body(content: Content) -> some View {
-        let current = surface?.find?.currentBlock == key
+        let current = key != nil && surface?.find?.currentBlock == key
         content
             .background {
                 if current {
@@ -90,8 +93,9 @@ struct FindBlockMarker: ViewModifier {
                 }
             }
             .onGeometryChange(for: CGRect.self) { proxy in
-                proxy.frame(in: .named(AgentChatFindBar.contentSpace))
+                reportsFrame ? proxy.frame(in: .named(AgentChatFindBar.contentSpace)) : .null
             } action: { [weak surface] frame in
+                guard reportsFrame, let key else { return }
                 surface?.findAnchors[key] = (frame.minY, frame.height)
             }
             .accessibilityAddTraits(current ? .isSelected : [])
@@ -117,8 +121,8 @@ struct MessageFindMarks: MarkdownBlockMarks {
 
 extension View {
     /// Marks a searchable transcript block for Find in Chat.
-    func findBlock(_ key: String, surface: AgentChatSurface?) -> some View {
-        modifier(FindBlockMarker(key: key, surface: surface))
+    func findBlock(_ key: String?, surface: AgentChatSurface?, reportsFrame: Bool = true) -> some View {
+        modifier(FindBlockMarker(key: key, surface: surface, reportsFrame: reportsFrame))
     }
 }
 #endif

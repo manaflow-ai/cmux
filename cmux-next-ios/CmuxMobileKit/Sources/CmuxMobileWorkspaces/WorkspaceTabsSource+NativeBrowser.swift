@@ -9,8 +9,10 @@ import Foundation
 /// (mirrored) or loads it in this iPhone's own web view (`NativeBrowserTabs`).
 extension WorkspaceTabsSource {
     /// The tab's page on this iPhone, when the person opened it here instead of the mirror.
+    /// The listed workspace's Mac: cards and pages read this in their bodies, and the
+    /// store's workspace would observe every Mac publish there.
     func nativeBrowser(_ tab: WorkspaceTab) -> BrowserTabModel? {
-        native.model(tab: tab.id, macID: store.workspace(id: workspaceID)?.macID)
+        native.model(tab: tab.id, macID: listedWorkspace?.macID)
     }
 
     /// The Mac's page of a mirrored tab (nil: not linked, or the tab is on the iPhone).
