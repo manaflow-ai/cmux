@@ -763,7 +763,7 @@ class WindowVideoTests(unittest.TestCase):
 
     def test_stop_times_out_and_kills_only_the_owned_recorder(self):
         sys.path.insert(0, str(SCRIPT.parent))
-        import video
+        import tour as video
         with tempfile.TemporaryDirectory() as root:
             recording = video.WindowVideo(mock.Mock(), 123, Path(root), Path(root))
             process = mock.Mock(returncode=-9)

@@ -173,6 +173,7 @@ class MakeVideoTests(unittest.TestCase):
         self.assertIn("-fps_mode", encode)
         self.assertNotIn("-framerate", encode)
         self.assertNotIn("-frames:v", encode)
+        self.assertEqual(encode[encode.index("-t") + 1], "300")
         self.assertEqual([call[2] for call in media.gif_calls], [publish.GIF_FPS])
 
     def test_native_capture_must_be_the_tour_local_regular_file(self):
