@@ -16744,7 +16744,17 @@ class TerminalController {
         // surface): they run `resumeForExplicitInputIfNeeded()` first, waking a
         // hibernated agent terminal the same way local typing does, so a mobile
         // composer submit cannot write into a cold surface.
-        let textResult = terminalTarget.sendTextResult(text)
+        // CLI and mobile pastes bypass Ghostty's clipboard callback. Mirror
+        // panes still need the same tmux paste path used by Cmd+V.
+        let textResult: TerminalSurface.TextSendResult
+        if AppDelegate.shared?.remoteTmuxController.pasteIntoMirror(
+            surfaceId: surfaceId,
+            text: text
+        ) == true {
+            textResult = .sent
+        } else {
+            textResult = terminalTarget.sendTextResult(text)
+        }
         // The paste and its submit key are one unit: once the text is
         // accepted the unit counts as applied, even if the submit key fails
         // (reported below), so a resend never pastes the block twice.
