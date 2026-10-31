@@ -1904,7 +1904,7 @@ export class AcpmuxDirectClient {
     if (this.peerCopy && this.peerCopy.sessionId === this.selectedSessionId) this.peerCopy.attaching = true;
     // Any attach of the copy already out (a select's, a recovery's) leaves it to this one when it
     // fails, copy drawn yet or not.
-    const mine = ++this.copyAttaches;
+    let mine = ++this.copyAttaches;
     // A chat another tab read already is held by the app host: ask for its tail now, while the
     // socket connects and acpmux lists the chats, so drawing it below costs this open no round
     // trip of its own (tailCache.ts). A page that read the chat itself has the newer tail.
@@ -2125,33 +2125,42 @@ export class AcpmuxDirectClient {
           }
         }
         let page: EventRecord[] = [];
+        // The attach that goes out last decides the chat: a select's that went out before this one
+        // (while the socket connected or the chats were listed) leaves the chat to it. Only when this
+        // attach goes out: one a select took over while the tail or copy was read sends nothing, and
+        // must not take the chat from the select's attach.
+        if (generation === this.selectionGeneration && this.selectedSessionId === sessionId) mine = ++this.copyAttaches;
         try {
           page = await this.attach(sessionId, generation, keptThrough, 1, adopted);
         } catch (error) {
-          // A peer chat whose machine is down keeps what it drew, marked as the Mac's copy, and
-          // reads the machine when its row says it is back (`sessionChanged`): the page stays open.
-          const kept = await this.keepPeerCopy(sessionId, generation, error);
-          // The chat could not be read: a tail drawn from the host must not stay on screen as if
-          // this page had read the chat, here as in `select` — and the pane has to be told, or it
-          // keeps drawing the snapshot that carried those rows.
-          if (
-            !kept &&
-            keptThrough > 0 &&
-            generation === this.selectionGeneration &&
-            this.selectedSessionId === sessionId
-          ) {
-            forgetTail(sessionId);
-            this.peerCopy = undefined;
-            this.copyLive = undefined;
-            this.events = [];
-            this.queue = [];
-            // Those rows are off screen again, so the frame the host shows is the failure, not a
-            // chat: it fades in as any first draw of a chat does.
-            this.drewKeptTail = false;
-            this.rebuild();
-            this.emit(this.socket?.readyState === WebSocket.OPEN ? "failed" : "disconnected");
+          // A newer attach of the chat (a select, a switch) took it over while this one was out:
+          // its outcome decides, so this one's failure neither draws, clears nor fails the open on
+          // the socket that newer attach read the chat over.
+          const superseded =
+            mine !== this.copyAttaches ||
+            generation !== this.selectionGeneration ||
+            this.selectedSessionId !== sessionId;
+          if (!superseded || this.socket?.readyState !== WebSocket.OPEN) {
+            // A peer chat whose machine is down keeps what it drew, marked as the Mac's copy, and
+            // reads the machine when its row says it is back (`sessionChanged`): the page stays open.
+            const kept = await this.keepPeerCopy(sessionId, generation, error);
+            // The chat could not be read: a tail drawn from the host must not stay on screen as if
+            // this page had read the chat, here as in `select` — and the pane has to be told, or it
+            // keeps drawing the snapshot that carried those rows.
+            if (!kept && !superseded && keptThrough > 0) {
+              forgetTail(sessionId);
+              this.peerCopy = undefined;
+              this.copyLive = undefined;
+              this.events = [];
+              this.queue = [];
+              // Those rows are off screen again, so the frame the host shows is the failure, not a
+              // chat: it fades in as any first draw of a chat does.
+              this.drewKeptTail = false;
+              this.rebuild();
+              this.emit(this.socket?.readyState === WebSocket.OPEN ? "failed" : "disconnected");
+            }
+            if (!kept) throw error;
           }
-          if (!kept) throw error;
         }
         const oldest = page.length > 0 ? Math.min(...page.map((event) => event.seq)) : 0;
         if (resumeAfter > 0 && oldest > resumeAfter + 1)
