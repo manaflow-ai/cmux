@@ -10,6 +10,8 @@ use serde_json::{Map, Value, json};
 pub fn filtered(value: &Value, shape: &ReplyShape) -> Option<Value> {
     match shape {
         ReplyShape::String => value.as_str().map(|s| Value::String(s.to_owned())),
+        // serde_json keeps no NaN or infinity, and a boolean is not a number.
+        ReplyShape::Number => value.is_number().then(|| value.clone()),
         ReplyShape::List(item) => value
             .as_array()
             .map(|a| Value::Array(a.iter().filter_map(|v| filtered(v, item)).collect())),

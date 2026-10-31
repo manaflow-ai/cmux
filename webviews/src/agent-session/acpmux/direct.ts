@@ -39,6 +39,7 @@ import { carryInline, inlinePrompt, recordedPromptParts, restoreInline, stripFil
 import { liftInlineImages } from "./inlineImages";
 import { primeSentImages } from "./conversation/imageEntries";
 import { resentAttachments, shownPrompt } from "./pastedText";
+import { PeerStateEvents } from "./peerStateEvents";
 import { peerConnectedFromStatus, peerKindsFromStatus, peerStatesFromStatus } from "./environments";
 import { peerResourcesFromStatus } from "./machineResources";
 import { type ChatUnavailable, chatUnavailable, type PeerStatus, peerStatusFromStatus } from "./chatUnavailable";
@@ -1544,6 +1545,7 @@ export class AcpmuxDirectClient {
   /// acpmux lists `acp.session.fork` among the operations it serves.
   private canFork = false;
   private handoffSupported = false;
+  private readonly peerEvents = new PeerStateEvents();
   /// The `_acpmux/*` methods acpmux's `initialize` lists (`_meta.acpmux.extensions`).
   private extensions: readonly string[] = [];
   private features = new Set<string>();
@@ -1841,6 +1843,8 @@ export class AcpmuxDirectClient {
     if (this.opening || this.closed) return;
     this.features.clear();
     this.opening = true;
+    // A new socket must advertise its own feature and proven origin before its notes are accepted.
+    this.peerEvents.configure(undefined);
     // A reconnect owns the attach of the copy on screen from its start: a row that says its machine
     // is back meanwhile waits for it (`copyBack`), never a second attach over the same copy.
     if (this.peerCopy && this.peerCopy.sessionId === this.selectedSessionId) this.peerCopy.attaching = true;
@@ -1907,7 +1911,10 @@ export class AcpmuxDirectClient {
           onLost();
         } else this.scheduleReconnect();
       };
-      socket.onmessage = (message) => acpmuxPerf.timed("client.receive", () => this.receive(String(message.data)));
+      // A socket this client replaced still answers what was asked on it (an export that watches for
+      // the swap rejects on that answer); only its peer notes, about a connection that is gone, drop.
+      socket.onmessage = (message) =>
+        acpmuxPerf.timed("client.receive", () => this.receive(String(message.data), this.socket !== socket));
     }).catch((error: unknown) => {
       this.releaseCopyAttach(mine);
       throw error;
@@ -1935,6 +1942,7 @@ export class AcpmuxDirectClient {
       const origin = initialized?._meta?.acpmux?.origin;
       this.origin = origin === "local" || origin === "remote" || origin === "peer" ? origin : "unknown";
       this.handoffSupported = supportsHandoff(initialized);
+      this.peerEvents.configure(initialized);
       const groupedPermissionsSupported = supportsPermissionGroups(initialized);
       if (!groupedPermissionsSupported) this.groupedPermissions.clear();
       this.permissions.configure(groupedPermissionsSupported);
@@ -1943,13 +1951,17 @@ export class AcpmuxDirectClient {
       // acpmux answers a connection's requests side by side (server/mod.rs spawns each), so the
       // frame waits on one round trip rather than one per read (Leo, 2026-10-29: "as in i want
       // ours to load fast too :(").
+      const peersSince = this.peerEvents.statusStarted();
       const peersRead = this.request("_acpmux/status", {}).catch(() => undefined);
       const listRead = this.sessionPages.first();
       // Awaited below, after the machines: a list that fails meanwhile is not left unobserved.
       listRead.catch(() => undefined);
       early = this.askEarly();
-      this.readPeers(await peersRead);
+      this.readPeers(await peersRead, peersSince);
       const first = await listRead;
+      // After the list's `_acpmux/watch` answered, so no peer note falls between the read and the
+      // watch; not awaited, so the first frame keeps its one round trip (#27755).
+      if (this.peerEvents.supported) void this.refreshPeerStatesAndEmit();
       let laterPages = first?.next ? first : undefined;
       const linkedLater =
         first !== undefined &&
@@ -2584,7 +2596,7 @@ export class AcpmuxDirectClient {
     }, delay);
   }
 
-  private receive(raw: string): void {
+  private receive(raw: string, stale = false): void {
     this.wire.received(raw);
     // A frame that is not a JSON object is dropped like one that is not JSON (`null` would throw at `in`).
     const message = parseJsonObjectFrame(raw) as Reply | Notification | null;
@@ -2618,6 +2630,13 @@ export class AcpmuxDirectClient {
       return;
     }
     const notification = message as Notification;
+    if (notification.method === "_acpmux/peer_state_changed") {
+      if (!stale && !this.closed && this.peerEvents.changed(notification.params)) {
+        this.applyPeerStates();
+        if (!this.snapshotHold) this.emit();
+      }
+      return;
+    }
     // Who else is in the chat, ephemeral (multiplayer/presenceClient.ts): never a record.
     if (notification.method === "_acpmux/presence") {
       this.presence.notification(notification.params);
@@ -2687,6 +2706,9 @@ export class AcpmuxDirectClient {
   /// agent-gui daemons send {sessionIds, watch, dropped}; older ones send only
   /// {dropped}, so a notice without sessionIds resyncs the selected session.
   private resyncAfterLag(params: any): void {
+    // Peer state notices may be among the dropped ones: read the snapshot again, so a machine that
+    // went down while this client lagged never shows as connected (no session needs to be open).
+    if (this.peerEvents.supported) void this.refreshPeerStatesAndEmit();
     // Needs you's asks: notices of new or answered requests may be lost, so every chat with open
     // requests is read again (after the session list, which drops the chats acpmux no longer lists).
     if (params?.watch === true)
@@ -7617,16 +7639,62 @@ export class AcpmuxDirectClient {
     ];
   }
   /// Reads acpmux's peers again (`_acpmux/status`): the environment picker asks as it opens, so a
-  /// machine that connected or dropped since shows as it is now. acpmux sends no peer events.
+  /// machine that connected or dropped since shows as it is now. Local/app peer events keep the
+  /// closed control current when the daemon advertises them; older daemons keep their last snapshot.
   async refreshPeers(): Promise<void> {
+    const since = this.peerEvents.statusStarted();
     const status = await this.request("_acpmux/status", {}).catch(() => undefined);
     if (status === undefined) return;
-    this.readPeers(status);
+    this.readPeers(status, since);
     // A held snapshot (a chat being switched or reattached) draws the peers when it is released;
     // emitting now would record "connected" on the hold before setup says so.
     if (!this.snapshotHold) this.emit();
   }
-  private readPeers(status: any): void {
+  private async refreshPeerStates(): Promise<boolean> {
+    const read = this.peerEvents.readStarted();
+    if (!this.peerEvents.snapshot(await this.request("_acpmux/peers", {}), read)) return false;
+    this.applyPeerStates();
+    return true;
+  }
+  /// Reads the peer snapshot off the caller's path and draws it when it lands; a held snapshot (or a
+  /// connection still opening) draws it with its own emit.
+  private async refreshPeerStatesAndEmit(): Promise<void> {
+    const applied = await this.refreshPeerStates().catch(() => false);
+    if (applied && !this.closed && !this.opening && !this.snapshotHold) this.emit();
+  }
+  private applyPeerStates(): void {
+    const peers = [...this.peerEvents.entries()];
+    // A peer the status read lists but an authoritative snapshot omits (removed since, or a row it
+    // could not read) is not connected: with no entry at all the picker would read it as ready.
+    const unlisted = this.peerEvents.authoritative
+      ? Object.fromEntries(this.peers.map((peer) => [peer, false] as const))
+      : this.peerConnected;
+    this.peerStates = {
+      ...(this.peerEvents.authoritative ? {} : this.peerStates),
+      ...Object.fromEntries(peers.map(([peer, link]) => [peer, link.state])),
+    };
+    this.peerConnected = {
+      ...unlisted,
+      ...Object.fromEntries(peers.map(([peer, link]) => [peer, link.connected])),
+    };
+    this.peerStatus = {
+      ...(this.peerEvents.authoritative
+        ? Object.fromEntries(
+            this.peers.map((peer) => {
+              // Keeps what the status read last said (`lastSeen`, `attempts`) for the offline banner.
+              const { state: _state, ...seen } = this.peerStatus[peer] ?? {};
+              return [peer, { ...seen, connected: false }];
+            }),
+          )
+        : this.peerStatus),
+      ...Object.fromEntries(peers.map(([peer, link]) => [peer, { ...this.peerStatus[peer], ...link }])),
+    };
+  }
+  /// `since`: the status read's tick (`PeerStateEvents.statusStarted`); omitted for a reply that is
+  /// not a fresh read of every peer's state, which then never replaces an event entry.
+  private readPeers(status: any, since?: number): void {
+    // Asked before a status read that already landed: it would put back what that one replaced.
+    if (since !== undefined && !this.peerEvents.statusRead(since)) return;
     this.peers = Array.isArray(status?.peers)
       ? status.peers
           .map((peer: any) => (typeof peer?.name === "string" ? peer.name : undefined))
@@ -7637,6 +7705,7 @@ export class AcpmuxDirectClient {
     this.peerStates = peerStatesFromStatus(status);
     this.peerResources = peerResourcesFromStatus(status);
     this.peerStatus = peerStatusFromStatus(status);
+    if (this.peerEvents.observed) this.applyPeerStates();
   }
   /// Probes every agent's live model list again (`_acpmux/models {refresh: true}`): acpmux forgets
   /// the lists it has and asks each harness before it answers (the picker's Refresh models).
