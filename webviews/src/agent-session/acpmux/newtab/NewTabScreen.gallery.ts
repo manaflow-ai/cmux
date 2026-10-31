@@ -754,6 +754,15 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelector(".nt-widget-tip") !== null);
       },
     },
+    "widgets-hover-dismiss": {
+      note: "Widget view, a pointer over a Needs you chat's x: the x lights alone; its row and open button take no wash.",
+      ready: newTab({ widgets: true, projects: WIDGET_PROJECTS }),
+      snapshot: noChat(widgetSessions()),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".nt-widget-chat").length === 3);
+        await ctx.hover({ selector: ".nt-widget-chat[data-state=failed] .nt-widget-dismiss" });
+      },
+    },
     "stage-layout": {
       note: "The Default template's layout (Leo 2026-10-19, Claude Code desktop's new-session screen): the composer at the foot with the plain footer (folder and mode left, model and effort right); over it, centered, the environment card (this project checked, the other projects, Choose environment) and the suggested actions card (the chats that need you, then New terminal, New browser tab, New chat); the recent chats under them.",
       ready: newTab({ template: "default", projects: WIDGET_PROJECTS }),
