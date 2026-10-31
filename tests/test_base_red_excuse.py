@@ -288,6 +288,48 @@ class Excusing(unittest.TestCase):
         with self.assertRaisesRegex(excuse.Refused, "Build package and tests"):
             self.judge()
 
+    def test_chromium_currency_same_failed_step_is_excused_without_log_error(self):
+        """Blacksmith exposes only a generic exit annotation for this deterministic check."""
+        github = FakeGitHub()
+        for job in github.jobs.values():
+            job["name"] = excuse.CHROMIUM_CURRENCY_JOB
+            job["steps"] = [
+                {"name": "Set up runner", "status": "completed", "conclusion": "success"},
+                {"name": excuse.CHROMIUM_CURRENCY_STEP, "status": "completed", "conclusion": "failure"},
+            ]
+        github.logs[1] = github.logs[2] = ""
+        lines = excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+        self.assertIn("run 20", "\n".join(lines))
+
+    def test_chromium_currency_diagnostic_still_compares_errors(self):
+        github = FakeGitHub()
+        for job in github.jobs.values():
+            job["name"] = excuse.CHROMIUM_CURRENCY_JOB
+            job["steps"] = [
+                {"name": "Set up runner", "status": "completed", "conclusion": "success"},
+                {"name": excuse.CHROMIUM_CURRENCY_STEP, "status": "completed", "conclusion": "failure"},
+            ]
+        github.logs[1] = log(excuse.CHROMIUM_CURRENCY_JOB, excuse.CHROMIUM_CURRENCY_STEP,
+                              "##[error]Chromium currency check raised ValueError")
+        github.logs[2] = log(excuse.CHROMIUM_CURRENCY_JOB, excuse.CHROMIUM_CURRENCY_STEP,
+                              "##[error]Chromium currency check failed: three milestones behind")
+        with self.assertRaisesRegex(excuse.Refused, "ValueError"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+
+    def test_chromium_currency_missing_head_diagnostics_do_not_hide_base_diagnostics(self):
+        github = FakeGitHub()
+        for job in github.jobs.values():
+            job["name"] = excuse.CHROMIUM_CURRENCY_JOB
+            job["steps"] = [
+                {"name": "Set up runner", "status": "completed", "conclusion": "success"},
+                {"name": excuse.CHROMIUM_CURRENCY_STEP, "status": "completed", "conclusion": "failure"},
+            ]
+        github.logs[1] = ""
+        github.logs[2] = log(excuse.CHROMIUM_CURRENCY_JOB, excuse.CHROMIUM_CURRENCY_STEP,
+                              "##[error]Chromium currency check failed: three milestones behind")
+        with self.assertRaisesRegex(excuse.Refused, "no failing test or error line"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+
     def test_a_compile_error_not_on_the_base_blocks(self):
         self.gh.jobs[1] = failed_job(1, 10, HEAD, name=SCHEME, step="Compile the cmux scheme")
         self.gh.jobs[2] = failed_job(2, 20, BASE_SHA, name=SCHEME, step="Compile the cmux scheme")

@@ -23,7 +23,13 @@ import { failureWord, InlineFailureCause, ToolFailureCause } from "./ToolFailure
 
 // direct.ts replaces only the changed item. Keep every expanded sibling out of that stream's
 // render/output work; the row's own disclosure, Find and language subscriptions still update it.
-export const CommandRow = memo(function CommandRow({ item }: { item: AcpmuxActivity }) {
+export const CommandRow = memo(function CommandRow({
+  item,
+  grouped = false,
+}: {
+  item: AcpmuxActivity;
+  grouped?: boolean;
+}) {
   const t = useT();
   const tool = item.tool!;
   // The Verbose transcript view opens the command to its output.
@@ -99,9 +105,9 @@ export const CommandRow = memo(function CommandRow({ item }: { item: AcpmuxActiv
         </span>
         <span className="cv-command__meta">
           {foreground ? (
-            <Spinner size={12} />
+            !grouped && <Spinner size={12} />
           ) : tool.background ? (
-            <BackgroundMark background={tool.background} />
+            <BackgroundMark background={tool.background} showActivity={!grouped} />
           ) : failure ? (
             <span className="cv-command__failed" data-find-skip>
               {failureWord(t, failure)}

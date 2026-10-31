@@ -54,7 +54,7 @@ export function toolIcon(kind?: string): ReactNode {
 /// edit opens to its diff.
 // Unchanged item snapshots keep their rendered row as another call streams; local state and
 // context changes (Find, language, cwd) still reach this component through React's subscriptions.
-export const ToolRow = memo(function ToolRow({ item }: { item: AcpmuxActivity }) {
+export const ToolRow = memo(function ToolRow({ item, grouped = false }: { item: AcpmuxActivity; grouped?: boolean }) {
   const t = useT();
   // Closed, or open in the Verbose transcript view.
   const [open, setOpen] = useRowDisclosure(item.tool?.id);
@@ -136,7 +136,7 @@ export const ToolRow = memo(function ToolRow({ item }: { item: AcpmuxActivity })
       </span>
       {background ? (
         <span className="cv-command__meta cv-tool__meta">
-          <BackgroundMark background={background} />
+          <BackgroundMark background={background} showActivity={!grouped} />
           {duration && <span className="cv-command__time">{duration}</span>}
         </span>
       ) : (

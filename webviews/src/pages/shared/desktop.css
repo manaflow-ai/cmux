@@ -626,6 +626,7 @@ label:not([for]):has(:is(input, select, textarea):disabled):not(
 :root {
   --cmux-spinner-period: 900ms;
   --cmux-breath-period: 2.4s;
+  --cmux-shimmer-period: 2.8s;
 }
 @keyframes cmux-spin {
   to {
@@ -646,18 +647,22 @@ label:not([for]):has(:is(input, select, textarea):disabled):not(
 /* SPINNERS-OFF-MAIN: the Thinking line's shimmer (ShimmerText.tsx) as two transform loops the
    compositor runs: the masked band crosses the line, its lit words move back by as much. */
 @keyframes cmux-shimmer-band {
-  from {
+  0%,
+  10% {
     transform: translateX(-100%);
   }
-  to {
+  45%,
+  100% {
     transform: translateX(100%);
   }
 }
 @keyframes cmux-shimmer-lit {
-  from {
+  0%,
+  10% {
     transform: translateX(100%);
   }
-  to {
+  45%,
+  100% {
     transform: translateX(-100%);
   }
 }
