@@ -36,8 +36,10 @@ test("every offset draws its view with the full overscan past both edges, and th
     if (key !== was) moves += 1;
     was = key;
   }
-  // Once per step of half the overscan (8 rows), not once per row (2,936 rows scrolled).
-  expect(moves).toBeLessThan(2936 / 10);
+  // Each end moves once per step of half the overscan (8 rows), not once per row (2,936 rows
+  // scrolled): at most twice per step, a quarter of once per row.
+  expect(moves).toBeLessThanOrEqual(Math.ceil((2 * 2936) / Math.ceil(overscan / 2)) + 2);
+  expect(moves).toBeLessThan(2936 / 2);
 });
 
 test("an offset past the list's end (a shorter chat in the same rail) still draws its rows", () => {
