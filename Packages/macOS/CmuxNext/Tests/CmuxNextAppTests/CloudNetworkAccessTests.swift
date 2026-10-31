@@ -59,6 +59,19 @@ struct CloudNetworkAccessTests {
         #expect(CloudNetworkAccess.full.applied(to: none, presets: Self.catalog).mode == .full)
     }
 
+    /// The server opens all public egress for a portless 0.0.0.0/0 or ::/0 range in any mode, so a
+    /// restricted level drops those (a range with a port stays, and full keeps every range).
+    @Test func aRestrictedLevelDropsWholeInternetRanges() {
+        let whole4 = CloudNetworkPolicy.Range(cidr: "0.0.0.0/0", port: nil, protocol: nil, note: nil)
+        let whole6 = CloudNetworkPolicy.Range(cidr: "::/0", port: nil, protocol: nil, note: nil)
+        let smtp = CloudNetworkPolicy.Range(cidr: "0.0.0.0/0", port: 25, protocol: "tcp", note: nil)
+        let current = CloudNetworkPolicy(mode: .full, ranges: [whole4, Self.range, whole6, smtp])
+        for level in [CloudNetworkAccess.noInternet, .trusted] {
+            #expect(level.applied(to: current, presets: Self.catalog).ranges == [Self.range, smtp], "\(level)")
+        }
+        #expect(CloudNetworkAccess.full.applied(to: current, presets: Self.catalog).ranges == current.ranges)
+    }
+
     @Test func aPolicyReadsAsItsLevelOrCustom() {
         #expect(CloudNetworkAccess.level(of: CloudNetworkPolicy(mode: .full), presets: Self.catalog) == .full)
         #expect(CloudNetworkAccess.level(of: CloudNetworkPolicy(mode: .none, presets: ["npm"]), presets: Self.catalog) == .noInternet)

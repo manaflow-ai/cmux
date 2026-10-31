@@ -101,7 +101,9 @@ public enum CloudNetworkAccess: String, CaseIterable, Sendable, Hashable {
         }
     }
 
-    /// `current` changed to this level. `presets` is the server's catalog.
+    /// `current` changed to this level. `presets` is the server's catalog. A restricted level drops
+    /// any portless whole-Internet range (`0.0.0.0/0`, `::/0`): the server opens all public egress
+    /// for one whatever the mode (web/services/vms/networkPolicy.ts `compileNetworkPolicy`).
     public func applied(to current: CloudNetworkPolicy, presets: [String]) -> CloudNetworkPolicy {
         var policy = current
         switch self {
@@ -111,7 +113,13 @@ public enum CloudNetworkAccess: String, CaseIterable, Sendable, Hashable {
             policy.mode = .allowlist
             policy.presets += presets.filter { !current.presets.contains($0) }
         }
+        if self != .full { policy.ranges.removeAll(where: Self.opensTheWholeInternet) }
         return policy
+    }
+
+    /// A range the server reads as the whole public Internet, in any mode.
+    static func opensTheWholeInternet(_ range: CloudNetworkPolicy.Range) -> Bool {
+        range.port == nil && (range.cidr == "0.0.0.0/0" || range.cidr == "::/0")
     }
 
     /// The level `policy` reads as, or nil for an allowlist a person built by hand (custom).
