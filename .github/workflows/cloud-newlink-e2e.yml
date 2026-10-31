@@ -18,7 +18,7 @@ jobs:
     environment: cmux-next-vm-image-dev
     # Secret-bearing jobs stay on an ephemeral Blacksmith Linux runner. The
     # overflow switch widens the pool without naming an owned host.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-32vcpu-ubuntu-2404' || 'blacksmith-16vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-32vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
     timeout-minutes: 30
     steps:
       - name: Checkout the dispatched integration ref
