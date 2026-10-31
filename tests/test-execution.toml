@@ -2253,8 +2253,3 @@ reason = "Run by hand before changing the Cloud capture provision scripts; no ne
 [[test]]
 path = "tests/test_cmux_next_kill_switches.py"
 lane = "linux-guard"
-
-[[test]]
-path = "scripts/ci/tests/test_ios_sim_release_build.py"
-lane = "manual"
-reason = "Run by hand with python3 on the Linux fleet when the cmux-next iOS simulator harness or its fixture changes; native iOS compilation stays in the simulator route."
