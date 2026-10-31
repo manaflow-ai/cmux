@@ -14,8 +14,11 @@ Verdict:
     HANDOFF/<JOB>.pass (default /Users/lawrence/fun/wt/handoff/dogfood-smoke): the summary, the build, every
     round's lease and results, and this gate's own git commit. A gate with uncommitted changes never writes it.
   - FAIL when any round failed: the summary names each failing round, its step and the reason.
-  - NOT JUDGED when no round failed but some did not run (no lease, a known gap): no .pass file. A round whose
-    type-at-once step could not make the window key (`known gap: ...`) is never a pass.
+  - NOT JUDGED when no round failed but some did not run (no lease, a known gap, no memory pressure): no .pass
+    file. A round whose type-at-once step could not make the window key (`known gap: ...`) is never a pass, and
+    a passed journey counts only when the round's hog log shows memory pressure (pressure() below).
+  - TRIAL PASS: every round passed, but with fewer than 10 rounds or less than +15 GB asked of the hog: no .pass.
+Each round must write its own results (a new --out folder; results of this build, newer than the round).
 Writes OUT/summary.json and OUT/summary.txt. Exit 0 PASS, 1 FAIL, 75 NOT JUDGED, 2 usage.
 Never run it on a person's Mac: the hog fills the memory up to swap.
 """
@@ -31,25 +34,65 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent.parent
 JOURNEY = "smoke-dogfood"
 HANDOFF = Path("/Users/lawrence/fun/wt/handoff/dogfood-smoke")
+# The gate cmux-ad set (2026-10-30): a .pass file needs at least this many rounds under at least this much hog.
+GATE_ROUNDS = 10
+GATE_SWAP_GB = 15.0
+# A round counts only when its hog log shows memory pressure during the round: the hog held at least
+# PRESSURE_HELD_GB, and swap grew by the hog's target or the free-memory level reached the hog's resume band
+# (kern.memorystatus_level <= PRESSURE_LEVEL: the hog is at the mini's edge, where it gives memory back).
+PRESSURE_HELD_GB = 4.0
+PRESSURE_LEVEL = 20
+PRESSURE_SAMPLES = 30
 
 
 def git(*args):
     return subprocess.run(["git", "-C", str(ROOT), *args], capture_output=True, text=True)
 
 
-def round_result(out):
-    """The smoke journey's line of one round's results.jsonl, or a not-run record."""
+def round_result(out, build, exit_code, started):
+    """The smoke journey's line of this round's results.jsonl, or a not-run record: a results file of this
+    run.py (written after the round started), for this build, from a run.py that exited 0, 1 or 75."""
     path = out / "results.jsonl"
+    if exit_code not in (0, 1, 75):
+        return {"status": "not run", "reason": f"run.py exited {exit_code}"}
     if not path.is_file():
         return {"status": "not run", "reason": "run.py wrote no results.jsonl"}
+    if path.stat().st_mtime < started:
+        return {"status": "not run", "reason": "results.jsonl is older than the round"}
     for line in path.read_text().splitlines():
         try:
             row = json.loads(line)
         except ValueError:
             continue
         if row.get("id") == JOURNEY:
+            if row.get("build_job") != build:
+                return {"status": "not run", "reason": f"results.jsonl is for build {row.get('build_job')}, not {build}"}
             return row
     return {"status": "not run", "reason": "results.jsonl has no smoke-dogfood line"}
+
+
+def pressure(out, swap_gb):
+    """What the round's hog logs show: samples, the most it held, swap growth and the lowest free level."""
+    rows = []
+    for path in sorted(out.glob("hog-*.jsonl")):
+        for line in path.read_text(errors="replace").splitlines():
+            try:
+                row = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(row, dict) and "held_mb" in row:
+                rows.append(row)
+    if not rows:
+        return {"ok": False, "samples": 0, "why": "no hog log lines"}
+    swaps = [float(r.get("swap_used_mb") or 0) for r in rows]
+    levels = [int(r["level"]) for r in rows if isinstance(r.get("level"), (int, float))]
+    held = max(float(r.get("held_mb") or 0) for r in rows) / 1024
+    grown = (max(swaps) - swaps[0]) / 1024
+    low = min(levels) if levels else None
+    ok = (len(rows) >= PRESSURE_SAMPLES and held >= PRESSURE_HELD_GB
+          and (grown >= swap_gb * 0.95 or (low is not None and low <= PRESSURE_LEVEL)))
+    return {"ok": ok, "samples": len(rows), "held_gb_max": round(held, 2), "swap_growth_gb": round(grown, 2),
+            "level_min": low, "swap_target_reached": grown >= swap_gb * 0.95}
 
 
 def failing_step(out):
@@ -82,24 +125,30 @@ def main(argv=None):
         ap.error("--rounds must be at least 1")
     stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
     out = Path(opts.out) if opts.out else ROOT / "artifacts" / "smoke-gate" / f"{opts.build[:12]}-{stamp}"
+    if out.exists() and any(out.iterdir()):
+        ap.error(f"--out {out} is not empty: each gate run needs a new folder (old rounds must never count)")
     out.mkdir(parents=True, exist_ok=True)
+    gate_run = opts.rounds >= GATE_ROUNDS and opts.swap_gb >= GATE_SWAP_GB
     gate_sha = git("rev-parse", "HEAD").stdout.strip()
     dirty = bool(git("status", "--porcelain", "--", "scripts/journeys").stdout.strip())
 
     rounds = []
     for n in range(1, opts.rounds + 1):
         round_out = out / f"round-{n:02d}"
-        started = time.time()
+        started = time.time() - 1
         done = subprocess.run([sys.executable, opts.runner, "--build", opts.build, "--journey", JOURNEY,
                                "--exclusive", "--hog-swap-gb", str(opts.swap_gb), "--hosts", opts.hosts,
                                "--out", str(round_out)], capture_output=True, text=True)
         (round_out / "run.log").parent.mkdir(parents=True, exist_ok=True)
         (round_out / "run.log").write_text(done.stdout + done.stderr)
-        row = round_result(round_out)
+        row = round_result(round_out, opts.build, done.returncode, started)
+        hog = pressure(round_out, opts.swap_gb)
+        if row.get("status") == "pass" and not hog["ok"]:
+            row = dict(row, status="not run", reason=f"no memory pressure shown by the hog log: {json.dumps(hog)}")
         leases = sorted({w for w in (done.stdout + done.stderr).split() if w.startswith("slot-")})
         record = {"round": n, "status": row.get("status"), "reason": row.get("reason"), "host": row.get("host"),
                   "seconds": round(time.time() - started), "failing_step": failing_step(round_out),
-                  "frames": frames(round_out), "hog_logs": sorted(p.name for p in round_out.glob("hog-*.jsonl")),
+                  "frames": frames(round_out), "hog_logs": sorted(p.name for p in round_out.glob("hog-*.jsonl")), "pressure": hog,
                   "known_gap": "known gap" in str(row.get("reason") or ""), "leases": leases}
         rounds.append(record)
         print(f"round {n}: {record['status']}" + (f" ({record['reason'][:160]})" if record.get("reason") else "")
@@ -109,28 +158,35 @@ def main(argv=None):
     passed = sum(1 for r in rounds if r["status"] == "pass")
     failed = [r for r in rounds if r["status"] == "fail"]
     not_run = [r for r in rounds if r["status"] not in ("pass", "fail")]
-    verdict = "PASS" if passed == opts.rounds else ("FAIL" if failed else "NOT JUDGED")
+    verdict = ("PASS" if gate_run else "TRIAL PASS") if passed == opts.rounds else ("FAIL" if failed else "NOT JUDGED")
     summary = {"build": opts.build, "journey": JOURNEY, "rounds": opts.rounds, "passed": passed,
                "failed": len(failed), "not_run": len(not_run), "verdict": verdict, "swap_gb": opts.swap_gb,
-               "gate_commit": gate_sha, "gate_dirty": dirty, "known_gap_rounds": [r["round"] for r in rounds if r["known_gap"]],
+               "gate_commit": gate_sha, "gate_dirty": dirty, "gate_run": gate_run, "known_gap_rounds": [r["round"] for r in rounds if r["known_gap"]],
                "rounds_detail": rounds, "out": str(out)}
     (out / "summary.json").write_text(json.dumps(summary, indent=1))
     lines = [f"dogfood smoke gate for build {opts.build}: {verdict} ({passed} of {opts.rounds} rounds passed; "
              f"{len(failed)} failed, {len(not_run)} not run; memory hog +{opts.swap_gb} GB swap; gate {gate_sha[:11]}"
-             + (" with uncommitted changes" if dirty else "") + ")"]
+             + (" with uncommitted changes" if dirty else "") + ")"
+             + ("" if gate_run else f"; a trial: the gate needs {GATE_ROUNDS} rounds at +{GATE_SWAP_GB:g} GB, so no .pass file")]
     if summary["known_gap_rounds"]:
         lines.append(f"KNOWN GAP in rounds {summary['known_gap_rounds']}: the capture slot could not make the window key, "
                      "so keys typed into a new terminal while it is made were not checked; not a pass")
     for r in rounds:
         detail = r["failing_step"] and f"{r['failing_step']['do']}: {r['failing_step']['error'][:200]}"
+        hog = r["pressure"]
         lines.append(f"  round {r['round']:2d} on {r['host']}: {r['status']}" + (f" -- {detail}" if detail else "")
+                     + f" [hog held {hog.get('held_gb_max')} GB, swap +{hog.get('swap_growth_gb')} GB, level min {hog.get('level_min')}]"
                      + (f" -- {(r['reason'] or '')[:200]}" if r["status"] != "pass" and not detail else ""))
     text = "\n".join(lines)
     (out / "summary.txt").write_text(text + "\n")
     print(text)
-    if verdict == "PASS":
-        if dirty:
-            print("smoke-gate: PASS, but the gate has uncommitted changes: no .pass file written", file=sys.stderr)
+    if verdict in ("PASS", "TRIAL PASS"):
+        if dirty or git("status", "--porcelain", "--", "scripts/journeys").stdout.strip() \
+                or git("rev-parse", "HEAD").stdout.strip() != gate_sha:
+            print("smoke-gate: PASS, but the gate has (or got) uncommitted changes: no .pass file written", file=sys.stderr)
+            return 75
+        if not gate_run:
+            print(f"smoke-gate: a trial PASS (--rounds {opts.rounds}, --swap-gb {opts.swap_gb:g}): no .pass file", file=sys.stderr)
             return 75
         handoff = Path(opts.handoff)
         handoff.mkdir(parents=True, exist_ok=True)

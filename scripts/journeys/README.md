@@ -295,28 +295,39 @@ when `journeys/dogfood/smoke-dogfood.json` passed every round (10 of 10). Each r
 - `--hog-swap-gb`: the Austin's-day memory hog (`smoke_hog.py`, a copy of feat's
   `scripts/cmux-next/austins-day/hog.py` until perf has it) holds incompressible memory until swap
   used is that much above the start, gives memory back near the edge, and ends by its own
-  deadline; run.py starts it after the app launches (45 s to build up) and stops it by its pid.
+  deadline; run.py starts it before the download and launch (at least 45 s before the journey)
+  and stops it by its pid. A 16 GB mini may reach its free-memory edge before +15 GB of swap; the
+  gate counts a round only when its hog log shows pressure (at least 4 GB held and swap +15 GB or
+  `kern.memorystatus_level` down to 20), and reports what each round reached.
 
-The journey (group `ext_smoke.py`): Cmd-N three times (three workspaces); Cmd-D twice fast, a line
-typed into each new pane at once; Ctrl-\` twice fast, a line typed into each new tab at once;
-Cmd-Shift-L and example.com; Cmd-Q and reopen, the three workspaces and their output back; close
-all. Each step is checked by the app's state (topology, `debug.surfaces`, `debug.focus`,
-`debug.windows`, `debug.crashes`), the daemon's screens and, where it shows text, a window frame
-(`check-NN.png`).
+The journey (group `ext_smoke.py`): Cmd-N then Ctrl-\` three times (three workspaces, each with a
+terminal: a person's Cmd-N shows the New Tab page), a line typed into each new terminal at once;
+Cmd-D twice fast, a line typed into each new pane at once; Ctrl-\` twice fast, a line typed into
+each new tab at once; Cmd-Shift-L, example.com, Return; Cmd-Q and reopen, the same three
+workspaces (ids) with their output back; close all. Each step is checked by the app's state
+(topology, `debug.surfaces`, `debug.focus`, `debug.windows`, `debug.window_list`, `debug.crashes`),
+the daemon's screens and a window frame (`check-NN.png`). `smoke_new_terminals` proves the keys
+went to the new terminals: each line is on exactly one terminal, that terminal is new, it is where
+it should be (its own new workspace, its own new pane, or a new tab of the focused pane, which
+gained exactly that many tabs), and the last line is on the focused terminal.
 
 **Typed at once** (`smoke_type_now`): no wait for the creation hold, the case Lawrence reports
 (keys into a terminal while it is created). A capture slot's window is never key
 (`CMUX_NEXT_NO_ACTIVATE`), and held keys are replayed through `NSApplication.sendEvent`, which
 reaches only the key window. So the journey first makes its window key without activating the
-app (`smoke_make_key`: `debug.window.focus`, which calls `makeKey()` and reports the key window).
+app (`smoke_make_key`: `debug.window.focus`, which calls `makeKey()` and reports the key window),
+and each check reads that a main window is still key (`smoke_key_window`, `debug.window_list`).
 If the window did not become key, the round is "not run: known gap", which never passes the gate.
 `capture-host launch --activate` (a real foreground app) needs a whole-host lease, which needs
 CuaDriver's grants on the mini.
 
-Verdict: PASS (every round passed; the `.pass` file holds the summary, the rounds' leases and
-results, and the gate's commit; a gate with uncommitted changes never writes it), FAIL (a round
-failed: the summary names its step), NOT JUDGED (no failure, but a round did not run). Writes
-`summary.json` and `summary.txt`. Test: `python3 scripts/journeys/test_smoke_gate.py`.
+Verdict: PASS (every round passed, 10 rounds or more at +15 GB; the `.pass` file holds the
+summary, the rounds' leases, pressure and results, and the gate's commit; a gate with uncommitted
+changes never writes it), TRIAL PASS (all passed with fewer rounds or less swap: no `.pass`), FAIL
+(a round failed: the summary names its step), NOT JUDGED (no failure, but a round did not run or
+showed no memory pressure). A round counts only with its own fresh results for this build; `--out`
+must be a new folder. Writes `summary.json` and `summary.txt`. Test:
+`python3 scripts/journeys/test_smoke_gate.py`.
 
 ## Not supported yet
 

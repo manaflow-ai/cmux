@@ -19,12 +19,27 @@ Steps (`do`):
                                       the case Lawrence reports, keys into a terminal while it is created). Binds
                                       ${AS} to the text. Needs `smoke_make_key` first in the journey.
   smoke_remember_workspaces {}        keeps the workspace ids the app has now (the baseline)
-  smoke_close_all    {}               closes every workspace not in the baseline through the app's own
+  smoke_snapshot     {as}             keeps, before the keys that make terminals, the daemon terminals of the
+                                      topology, each pane's tabs and the focused pane (smoke_new_terminals reads it)
+  smoke_close_all    {mark?}          closes every workspace not in the baseline through the app's own
                                       closeWorkspace action, as the sidebar's close does
 
 Conditions (inside `expect.all`; evidence kind app):
-  smoke_workspaces   {new}            the topology has exactly NEW workspaces beyond the baseline
-  smoke_key_window   {}               the journey's window is the app's key window (debug.window.focus's report)
+  smoke_workspaces   {new, same?}     the topology has exactly NEW workspaces beyond the baseline; `same`: and they
+                                      are the ones it had at the last check without `same` (the restore keeps ids)
+  smoke_frame        {min_lines?, lacks?}
+                                      (evidence frame) one fresh window frame, kept as check-NN.png, that is not blank
+                                      (text recognition reads at least MIN_LINES, default 3, lines) and shows none of
+                                      LACKS. The screenshot of a step whose state the app's reads prove
+  smoke_key_window   {}               a main window of the app is its key window (debug.window_list; a read only)
+  smoke_new_terminals {since, lines, focused, placement}
+                                      the keys went to the new terminals, not to an old one: exactly len(LINES) new
+                                      daemon terminals since the snapshot SINCE; each line is on exactly one terminal
+                                      of the whole topology, that terminal is new, and no two lines share one; the
+                                      line FOCUSED is on the focused terminal. PLACEMENT: `new_workspaces` (each in
+                                      its own workspace not in the snapshot), `new_panes` (each in its own pane not in
+                                      the snapshot) or `focused_pane` (all tabs of the pane focused at the snapshot,
+                                      which now has len(LINES) more tabs)
   smoke_app_lines    {lines}          every line is a line of some pane's viewport text in the app (any pane)
   smoke_daemon_lines {lines}          (evidence daemon) every line is a line of some terminal's daemon screen
 """
@@ -98,6 +113,8 @@ def step_smoke_close_all(j, step):
     baseline = getattr(j, "smoke_baseline", None)
     if baseline is None:
         raise D.StepError("smoke_close_all needs smoke_remember_workspaces first")
+    if step.get("mark"):
+        j.marks[step["mark"]] = D.now()
     closed, replies = [], []
     for wid in _workspace_ids(j):
         if wid not in baseline:
@@ -108,10 +125,102 @@ def step_smoke_close_all(j, step):
 
 
 def cond_smoke_workspaces(j, want, cache):
-    """The app has exactly `new` workspaces beyond the remembered baseline."""
+    """The app has exactly `new` workspaces beyond the remembered baseline; with `same`, they are the very
+    workspaces (ids) the last check without `same` saw (after a relaunch: the restore kept them)."""
     baseline = getattr(j, "smoke_baseline", set())
-    mine = [w for w in _workspace_ids(j) if w not in baseline]
-    return len(mine) == int(want["new"]), {"new_workspaces": mine, "want": int(want["new"])}
+    mine = sorted(w for w in _workspace_ids(j) if w not in baseline)
+    holds = len(mine) == int(want["new"])
+    detail = {"new_workspaces": mine, "want": int(want["new"])}
+    if want.get("same"):
+        before = getattr(j, "smoke_made", None)
+        holds = holds and before is not None and mine == before
+        detail["before"] = before
+    elif holds:
+        j.smoke_made = mine
+    return holds, detail
+
+
+def _focused_pane(j):
+    """The pane id of the app's focused pane (debug.surfaces), or None."""
+    return next((p.get("pane") for p in j.app.panes() if p.get("focused")), None)
+
+
+def _layout(j):
+    """{daemon terminal: (workspace id, pane id)} and {pane id: [tab ids]} of the topology now."""
+    terms, tabs = {}, {}
+    for ws, pane, tab, term in j.places(j.topology()):
+        tabs.setdefault(pane.get("id"), []).append(tab.get("id"))
+        if term:
+            terms[term] = (ws.get("id"), pane.get("id"), pane.get("selected_tab") == tab.get("id"))
+    return terms, tabs
+
+
+def step_smoke_snapshot(j, step):
+    terms, tabs = _layout(j)
+    snap = {"terms": sorted(terms), "workspaces": sorted({w for w, _p, _s in terms.values()} | set(_workspace_ids(j))),
+            "panes": sorted(tabs), "tabs": tabs, "focused_pane": _focused_pane(j)}
+    if not hasattr(j, "smoke_snapshots"):
+        j.smoke_snapshots = {}
+    j.smoke_snapshots[step["as"]] = snap
+    return {"terminals": len(snap["terms"]), "panes": len(snap["panes"]), "focused_pane": snap["focused_pane"]}
+
+
+def cond_smoke_new_terminals(j, want, cache):
+    """The typed lines landed one each on the terminals the keys made (see the module text)."""
+    snap = getattr(j, "smoke_snapshots", {}).get(want["since"])
+    if snap is None:
+        return False, {"error": f"no smoke_snapshot named {want['since']!r} ran before this check"}
+    terms, tabs = _layout(j)
+    focused_pane = _focused_pane(j)
+    screens = {}
+    for term in terms:
+        try:
+            screens[term] = set(_lines(j.app.screen(term)["text"]))
+        except D.StepError:
+            screens[term] = set()
+    old = set(snap["terms"])
+    new = sorted(t for t in terms if t not in old)
+    wanted = [j.sub(x) for x in want["lines"]]
+    holders = {line: [t for t in terms if line in screens[t]] for line in wanted}
+    problems = []
+    if len(new) != len(wanted):
+        problems.append(f"{len(new)} new terminals, not {len(wanted)}")
+    for line, on in holders.items():
+        if len(on) != 1:
+            problems.append(f"{line} is on {len(on)} terminals ({', '.join(on) or 'none'}), not exactly one")
+        elif on[0] in old:
+            problems.append(f"{line} is on the old terminal {on[0]} (the keys missed the new one)")
+    owners = [on[0] for on in holders.values() if len(on) == 1]
+    if len(set(owners)) != len(owners):
+        problems.append("two lines are on one terminal")
+    focus_line = j.sub(want["focused"]) if want.get("focused") else None
+    if focus_line and len(holders.get(focus_line, [])) == 1:
+        ws, pane, selected = terms[holders[focus_line][0]]
+        if not (pane == focused_pane and selected):
+            problems.append(f"{focus_line} is not on the focused terminal (focused pane {focused_pane}, line in "
+                            f"pane {pane}, its selected tab: {selected})")
+    placement = want.get("placement")
+    places = [terms[t] for t in owners]
+    if placement == "new_workspaces":
+        ids = [w for w, _p, _s in places]
+        if any(w in snap["workspaces"] for w in ids) or len(set(ids)) != len(ids):
+            problems.append(f"the lines are not each in its own new workspace: {ids}")
+    elif placement == "new_panes":
+        ids = [p for _w, p, _s in places]
+        if any(p in snap["panes"] for p in ids) or len(set(ids)) != len(ids):
+            problems.append(f"the lines are not each in its own new pane: {ids}")
+    elif placement == "focused_pane":
+        ids = [p for _w, p, _s in places]
+        target = snap["focused_pane"]
+        if any(p != target for p in ids):
+            problems.append(f"the lines are not all tabs of the pane focused before the keys ({target}): {ids}")
+        had, has = len(snap["tabs"].get(target, [])), len(tabs.get(target, []))
+        if has != had + len(wanted):
+            problems.append(f"pane {target} has {has} tabs, not {had} + {len(wanted)}")
+    elif placement is not None:
+        problems.append(f"unknown placement {placement!r}")
+    return not problems, {"problems": problems, "new_terminals": new, "holders": holders,
+                          "focused_pane": focused_pane, "placement": placement}
 
 
 def _lines(text):
@@ -146,13 +255,27 @@ def cond_smoke_daemon_lines(j, want, cache):
     return not missing, {"missing": missing, "terminals": len(cache["smoke_screens"])}
 
 
+def cond_smoke_frame(j, want, cache):
+    """A fresh frame of the window that is not blank (the step's screenshot; the app state proves the rest)."""
+    j.checks += 1
+    image = j.app.snapshot(j.out / f"check-{j.checks:02d}.png")
+    lines = j.app.read_text(image)
+    present = [t for t in j.sub(want.get("lacks", [])) if D.ocr_contains(lines, t)]
+    return len(lines) >= int(want.get("min_lines", 3)) and not present, \
+        {"image": image.name, "lines": len(lines), "present": present, "text": lines[-8:]}
+
+
 def cond_smoke_key_window(j, want, cache):
-    window = _journey_window(j)
-    reply = j.app.rpc("debug.window.focus", {"window": window}) or {}
-    return isinstance(reply, dict) and reply.get("key") == window, {"reply": reply}
+    """A main window is the app's key window: a read (debug.window_list), so the check does not make it key."""
+    report = j.app.rpc("debug.window_list") or {}
+    windows = [w for w in report.get("windows", []) if isinstance(w, dict)]
+    mains = [{"id": w.get("id"), "key": w.get("key"), "visible": w.get("visible")} for w in windows if w.get("kind") == "main"]
+    return any(w["key"] is True for w in mains), {"main_windows": mains}
 
 
 STEPS = {"smoke_make_key": step_smoke_make_key, "smoke_type_now": step_smoke_type_now,
-         "smoke_remember_workspaces": step_smoke_remember_workspaces, "smoke_close_all": step_smoke_close_all}
+         "smoke_remember_workspaces": step_smoke_remember_workspaces, "smoke_close_all": step_smoke_close_all,
+         "smoke_snapshot": step_smoke_snapshot}
 CONDITIONS = {"smoke_workspaces": ("app", cond_smoke_workspaces), "smoke_key_window": ("app", cond_smoke_key_window),
-              "smoke_app_lines": ("app", cond_smoke_app_lines), "smoke_daemon_lines": ("daemon", cond_smoke_daemon_lines)}
+              "smoke_app_lines": ("app", cond_smoke_app_lines), "smoke_daemon_lines": ("daemon", cond_smoke_daemon_lines),
+              "smoke_new_terminals": ("daemon", cond_smoke_new_terminals), "smoke_frame": ("frame", cond_smoke_frame)}

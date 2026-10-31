@@ -4,8 +4,10 @@
     python3 scripts/journeys/test_smoke_gate.py
 
 PASS (and the .pass file) only when every round passes; FAIL when one round failed; NOT JUDGED when no round
-failed but one did not run, a known gap included; never a .pass file from a gate with uncommitted changes.
-Also: the smoke journey and its step group load in the driver (`run.py --check`).
+failed but one did not run, a known gap included, or the hog log shows no memory pressure; TRIAL PASS (no .pass)
+below 10 rounds or +15 GB; never a .pass file from a gate with uncommitted changes, from results of another build
+or from a used --out folder. The type-at-once check (smoke_new_terminals) fails keys that reached an old
+terminal, a missing tab or the wrong pane. Also: the journey and its step group load (`run.py --check`).
 """
 import json
 import os
@@ -26,7 +28,15 @@ os.makedirs(os.path.join(out, "smoke-dogfood"), exist_ok=True)
 n = int(os.path.basename(out).split("-")[1])
 plan = json.loads(os.environ["SMOKE_PLAN"])
 status = plan[n - 1]
-row = {"id": "smoke-dogfood", "status": status, "reason": "", "host": "cmux99"}
+row = {"id": "smoke-dogfood", "status": status, "reason": "", "host": "cmux99",
+       "build_job": os.environ.get("SMOKE_BUILD", "job123")}
+if status == "silent":  # run.py stopped before it wrote results
+    sys.exit(3)
+if os.environ.get("SMOKE_HOG", "edge") != "none":
+    level = 15 if os.environ.get("SMOKE_HOG", "edge") == "edge" else 60
+    with open(os.path.join(out, "hog-slot-cmux99-abc.jsonl"), "w") as f:
+        for t in range(40):
+            f.write(json.dumps({"t": t, "held_mb": 9000, "swap_used_mb": 1000 + t * 10, "level": level}) + "\n")
 if status == "gap":
     row["status"], row["reason"] = "not run", "known gap: the capture slot could not make the window key"
 if status == "fail":
@@ -37,12 +47,12 @@ print("leased slot-cmux99-abc")
 '''
 
 
-def gate(plan, tmp, extra=()):
+def gate(plan, tmp, extra=(), env_extra=None, rounds=None):
     runner = os.path.join(tmp, "fake_run.py")
     with open(runner, "w") as f:
         f.write(FAKE)
-    env = {**os.environ, "SMOKE_PLAN": json.dumps(plan)}
-    done = subprocess.run([sys.executable, str(GATE), "--build", "job123", "--rounds", str(len(plan)), "--runner", runner,
+    env = {**os.environ, "SMOKE_PLAN": json.dumps(plan), **(env_extra or {})}
+    done = subprocess.run([sys.executable, str(GATE), "--build", "job123", "--rounds", str(rounds or len(plan)), "--runner", runner,
                            "--out", os.path.join(tmp, "out"), "--handoff", os.path.join(tmp, "handoff"), *extra],
                           capture_output=True, text=True, env=env, timeout=120)
     with open(os.path.join(tmp, "out", "summary.json")) as f:
@@ -52,8 +62,9 @@ def gate(plan, tmp, extra=()):
 class Verdicts(unittest.TestCase):
     def test_pass_needs_every_round_and_a_committed_gate(self):
         with tempfile.TemporaryDirectory() as tmp:
-            code, summary = gate(["pass"] * 3, tmp)
+            code, summary = gate(["pass"] * 10, tmp)
             self.assertEqual(summary["verdict"], "PASS")
+            self.assertTrue(summary["rounds_detail"][0]["pressure"]["ok"])
             self.assertEqual(summary["rounds_detail"][0]["leases"], ["slot-cmux99-abc"])
             written = os.path.exists(os.path.join(tmp, "handoff", "job123.pass"))
             # The gate's own folder may have uncommitted edits while it is developed: then no .pass file.
@@ -75,6 +86,120 @@ class Verdicts(unittest.TestCase):
             self.assertFalse(os.path.exists(os.path.join(tmp, "handoff", "job123.pass")))
             with open(os.path.join(tmp, "out", "summary.txt")) as f:
                 self.assertIn("KNOWN GAP in rounds [2]", f.read())
+
+
+    def test_a_trial_never_writes_the_pass_file(self):
+        for plan, extra in ((["pass"] * 3, ()), (["pass"] * 10, ("--swap-gb", "4"))):
+            with tempfile.TemporaryDirectory() as tmp:
+                code, summary = gate(plan, tmp, extra)
+                self.assertEqual((code, summary["verdict"], summary["gate_run"]), (75, "TRIAL PASS", False))
+                self.assertFalse(os.path.exists(os.path.join(tmp, "handoff", "job123.pass")))
+
+    def test_a_pass_without_memory_pressure_does_not_count(self):
+        for hog in ("none", "idle"):
+            with tempfile.TemporaryDirectory() as tmp:
+                code, summary = gate(["pass"] * 10, tmp, env_extra={"SMOKE_HOG": hog})
+                self.assertEqual((code, summary["verdict"], summary["passed"]), (75, "NOT JUDGED", 0))
+                self.assertIn("no memory pressure", summary["rounds_detail"][0]["reason"])
+
+    def test_results_of_another_build_or_a_silent_run_do_not_count(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            code, summary = gate(["pass"] * 10, tmp, env_extra={"SMOKE_BUILD": "otherjob"})
+            self.assertEqual((code, summary["verdict"]), (75, "NOT JUDGED"))
+            self.assertIn("not job123", summary["rounds_detail"][0]["reason"])
+        with tempfile.TemporaryDirectory() as tmp:
+            code, summary = gate(["silent"] * 10, tmp)
+            self.assertEqual((code, summary["verdict"]), (75, "NOT JUDGED"))
+            self.assertIn("run.py exited 3", summary["rounds_detail"][0]["reason"])
+
+    def test_an_used_out_folder_is_refused(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            old = os.path.join(tmp, "out", "round-01")
+            os.makedirs(old)
+            with open(os.path.join(old, "results.jsonl"), "w") as f:
+                f.write(json.dumps({"id": "smoke-dogfood", "status": "pass", "build_job": "job123"}) + "\n")
+            runner = os.path.join(tmp, "fake_run.py")
+            with open(runner, "w") as f:
+                f.write(FAKE)
+            done = subprocess.run([sys.executable, str(GATE), "--build", "job123", "--runner", runner,
+                                   "--out", os.path.join(tmp, "out"), "--handoff", os.path.join(tmp, "handoff")],
+                                  capture_output=True, text=True, timeout=60)
+            self.assertEqual(done.returncode, 2)
+            self.assertIn("not empty", done.stderr)
+
+
+class NewTerminals(unittest.TestCase):
+    """cond_smoke_new_terminals on a fake app: the lines must be one each on new terminals, placed as asked."""
+
+    def setUp(self):
+        sys.path.insert(0, str(HERE))
+        import ext_smoke
+
+        class StepError(Exception):
+            pass
+
+        ext_smoke.install(type("D", (), {"StepError": StepError, "now": staticmethod(lambda: 0.0)}))
+        self.ext = ext_smoke
+
+    def journey(self, layout, screens, focused):
+        """layout: [(workspace, pane, tab, terminal, selected)]; screens: {terminal: text}."""
+        class App:
+            def panes(self_):
+                return [{"pane": p, "focused": p == focused} for p in sorted({row[1] for row in layout})]
+
+            def screen(self_, term):
+                return {"text": screens.get(term, "")}
+
+        class J:
+            app = App()
+            vars = {}
+
+            def sub(self_, x):
+                return x
+
+            def topology(self_):
+                return {"layout": layout}
+
+            @staticmethod
+            def places(topo):
+                for ws, pane, tab, term, selected in topo["layout"]:
+                    yield {"id": ws}, {"id": pane, "selected_tab": tab if selected else None}, {"id": tab}, term
+        return J()
+
+    def check(self, before, after, screens, focused, lines, placement, focused_line=None):
+        j = self.journey(before, {}, focused)
+        self.ext.step_smoke_snapshot(j, {"as": "s"})
+        j2 = self.journey(after, screens, focused)
+        j2.smoke_snapshots = j.smoke_snapshots
+        return self.ext.cond_smoke_new_terminals(j2, {"since": "s", "lines": lines, "focused": focused_line,
+                                                      "placement": placement}, {})
+
+    def test_tabs_in_the_focused_pane(self):
+        before = [("w", "p1", "a", "T0", True)]
+        after = before[:1] + [("w", "p1", "b", "T1", False), ("w", "p1", "c", "T2", True)]
+        ok, detail = self.check(before, after, {"T1": "t1", "T2": "t2"}, "p1", ["t1", "t2"], "focused_pane", "t2")
+        self.assertTrue(ok, detail)
+        # The second Ctrl-` made no tab: t2 went into tab 1.
+        lost = before[:1] + [("w", "p1", "b", "T1", True)]
+        ok, detail = self.check(before, lost, {"T1": "t1\nt2"}, "p1", ["t1", "t2"], "focused_pane", "t2")
+        self.assertFalse(ok)
+        self.assertTrue(any("new terminals" in p for p in detail["problems"]), detail)
+
+    def test_keys_that_reach_the_old_terminal_fail(self):
+        before = [("w", "p1", "a", "T0", True)]
+        after = before + [("w", "p2", "b", "T1", True), ("w", "p3", "c", "T2", True)]
+        ok, detail = self.check(before, after, {"T0": "d1", "T2": "d2"}, "p3", ["d1", "d2"], "new_panes", "d2")
+        self.assertFalse(ok)
+        self.assertTrue(any("old terminal T0" in p for p in detail["problems"]), detail)
+        ok, detail = self.check(before, after, {"T1": "d1", "T2": "d2"}, "p3", ["d1", "d2"], "new_panes", "d2")
+        self.assertTrue(ok, detail)
+
+    def test_each_workspace_line_in_its_own_new_workspace(self):
+        before = [("w0", "p0", "a", "T0", True)]
+        after = before + [("w1", "p1", "b", "T1", True), ("w1", "p1", "c", "T2", False)]
+        ok, detail = self.check(before, after, {"T1": "w1", "T2": "w2"}, "p1", ["w1", "w2"], "new_workspaces", "w1")
+        self.assertFalse(ok)
+        self.assertTrue(any("own new workspace" in p for p in detail["problems"]), detail)
 
 
 class Loads(unittest.TestCase):

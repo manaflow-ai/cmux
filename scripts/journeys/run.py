@@ -249,7 +249,7 @@ def launch_facts(text):
     return facts
 
 
-HOG_WARMUP_SECONDS = 45  # the hog's memory pressure builds before the journeys start
+HOG_WARMUP_SECONDS = 45  # at least this long from the hog's start (before the download) to the first journey
 
 
 def run_lease(specs, build, out, frame_interval, exclusive=False, hog_swap_gb=0.0):
@@ -268,12 +268,25 @@ def run_lease(specs, build, out, frame_interval, exclusive=False, hog_swap_gb=0.
     lease, deadline = acquired[-1], time.monotonic() + LEASE_SECONDS
     left = lambda cap: max(10.0, min(cap, deadline - time.monotonic()))
     log(f"leased {lease}")
-    facts, host, hog_started, work = {}, None, False, None
+    facts, host, hog_started, work = {}, None, None, None
     try:
         info = dict(kv.split("=", 1) for kv in run([ch, "slot-info", lease]).stdout.decode().split() if "=" in kv)
         host, root = info["host"], info["root"]
         work = f"{root}/journeys"
         remote(host, f"mkdir -p {q(work + '/kit')} && tar x -C {q(work + '/kit')}", input=kit_tar(specs), timeout=left(120))
+        if hog_swap_gb > 0:
+            # Memory pressure (the Austin's-day hog), from before the download and launch to the end of the
+            # journeys: it holds incompressible memory until swap used is hog_swap_gb above the start, gives
+            # memory back near the edge, and ends by itself at its deadline. Started by this lease, stopped by its
+            # own pid in `finally` (never a pid this run did not start). Marked started before the call, so a
+            # call that times out after the hog began still stops it.
+            hog_end = int(left(LEASE_SECONDS) - 30)
+            hog_started = time.monotonic()
+            remote(host, f"mkdir -p {q(work + '/out')} && cd {q(work)} && "
+                         f"nohup /usr/bin/python3 -I kit/smoke_hog.py --swap-gb {float(hog_swap_gb)} "
+                         f"--deadline $(( $(date +%s) + {hog_end} )) --log {q(work + '/hog.jsonl')} </dev/null >/dev/null 2>&1 & "
+                         f"echo $! > {q(work + '/hog.pid')}", timeout=left(30))
+            log(f"memory hog on {host}: swap +{hog_swap_gb} GB, {HOG_WARMUP_SECONDS}s at least before the journeys")
         # One compiled text reader per mini and source version, outside the slot (release removes the slot).
         digest = hashlib.sha256(OCR_SOURCE.read_bytes()).hexdigest()[:16]
         ocr = f"$HOME/.cache/cmux-journeys/ocr-{digest}"
@@ -291,18 +304,9 @@ def run_lease(specs, build, out, frame_interval, exclusive=False, hog_swap_gb=0.
         if facts.get("socket", "none") == "none":
             raise RuntimeError(f"the app did not answer on its control socket: "
                                f"{(launched.stdout + launched.stderr).decode(errors='replace').strip()[-400:]}")
-        if hog_swap_gb > 0:
-            # Memory pressure (the Austin's-day hog): it holds incompressible memory until swap used is
-            # hog_swap_gb above the start, gives memory back near the edge, and ends by itself at its deadline.
-            # Started by this lease, stopped by its own pid below (never a pid this run did not start).
-            hog_end = int(left(LEASE_SECONDS) - 30)
-            remote(host, f"mkdir -p {q(work + '/out')} && cd {q(work)} && "
-                         f"nohup /usr/bin/python3 -I kit/smoke_hog.py --swap-gb {float(hog_swap_gb)} "
-                         f"--deadline $(( $(date +%s) + {hog_end} )) --log {q(work + '/hog.jsonl')} </dev/null >/dev/null 2>&1 & "
-                         f"echo $! > {q(work + '/hog.pid')}", timeout=left(30))
-            hog_started = True
-            log(f"memory hog on {host}: swap +{hog_swap_gb} GB, {HOG_WARMUP_SECONDS}s to build up")
-            time.sleep(HOG_WARMUP_SECONDS)
+        if hog_started:
+            # The rest of the warm-up: the pressure builds before the journeys start.
+            time.sleep(max(0.0, HOG_WARMUP_SECONDS - (time.monotonic() - hog_started)))
         budget = int(left(LEASE_SECONDS) - 45)
         if budget < 60:
             raise RuntimeError(f"the lease has {budget + 45}s left after setup: too little to run journeys")
@@ -329,8 +333,12 @@ def run_lease(specs, build, out, frame_interval, exclusive=False, hog_swap_gb=0.
     finally:
         if hog_started and host:
             # Our own hog only: the pid it wrote, checked to still be smoke_hog.py (its deadline ends it anyway).
-            remote(host, f"p=$(cat {q(work + '/hog.pid')} 2>/dev/null) && [ -n \"$p\" ] && "
-                         f"ps -p \"$p\" -o command= | grep -q smoke_hog.py && kill \"$p\"; true", timeout=30, check=False)
+            # A stop that times out must not skip the release below.
+            try:
+                remote(host, f"p=$(cat {q(work + '/hog.pid')} 2>/dev/null) && [ -n \"$p\" ] && "
+                             f"ps -p \"$p\" -o command= | grep -q smoke_hog.py && kill \"$p\"; true", timeout=30, check=False)
+            except (RuntimeError, subprocess.TimeoutExpired) as error:
+                log(f"stopping the memory hog on {host} failed ({error}); it ends by itself at its deadline")
         released = subprocess.run([ch, "release", lease], capture_output=True, timeout=120)
         log(f"released {lease}" if released.returncode == 0 else
             f"release of {lease} exited {released.returncode} (it expires within 10 minutes)")
