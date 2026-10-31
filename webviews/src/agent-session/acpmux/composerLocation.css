@@ -1316,6 +1316,8 @@
     0px,
     calc((var(--acpmux-composer-control) + 2 * var(--acpmux-composer-inset) - var(--text-content--line-height)) / 2)
   );
+  /* The drop never outgrows the padding it moves (a large chrome size has none under the line). */
+  --acpmux-prompt-drop: min(var(--acpmux-text-drop), var(--acpmux-prompt-inset));
   /* The controls stay centered on the last content line as its size changes. */
   --acpmux-prompt-control-bottom: max(
     0px,
@@ -1355,9 +1357,9 @@
 }
 /* The right inset less the minimal scroller's reserved lane (markdownField.css). */
 .acpmux-composer-box:has(> .acpmux-chrome-area > .acpmux-composer-inner) .acpmux-md-field {
-  padding: calc(var(--acpmux-prompt-inset) + var(--acpmux-text-drop))
+  padding: calc(var(--acpmux-prompt-inset) + var(--acpmux-prompt-drop))
     max(0px, calc(8px * var(--cmux-interface-scale, 1) - var(--cmux-scroller-size, 8px)))
-    calc(var(--acpmux-prompt-inset) - var(--acpmux-text-drop)) var(--acpmux-composer-lead-gap);
+    calc(var(--acpmux-prompt-inset) - var(--acpmux-prompt-drop)) var(--acpmux-composer-lead-gap);
 }
 /* The draft's scrollbar runs down the box's own right edge, as the chat's runs down the pane's (Leo
    2026-10-22: "shouldn't the styling wrt composer vs the chat/window (these should be one and hte
@@ -1389,7 +1391,7 @@
 }
 .acpmux-composer-box:has(> .acpmux-chrome-area > .acpmux-composer-inner) .acpmux-md-placeholder {
   left: var(--acpmux-composer-lead-gap);
-  top: calc(var(--acpmux-prompt-inset) + var(--acpmux-text-drop));
+  top: calc(var(--acpmux-prompt-inset) + var(--acpmux-prompt-drop));
   right: calc(8px * var(--cmux-interface-scale, 1));
 }
 /* Shell mode draws from the prompt's insets (composerStates.css), so this look gives it the ones it
@@ -1397,9 +1399,9 @@
    starts at, and the 8 px right. The glyph then stands on the caret's column and the command keeps the prompt's
    line, at every chrome size. */
 .acpmux-composer-box:has(> .acpmux-chrome-area > .acpmux-composer-inner) {
-  --acpmux-shell-inset-top: calc(var(--acpmux-prompt-inset) + var(--acpmux-text-drop));
+  --acpmux-shell-inset-top: calc(var(--acpmux-prompt-inset) + var(--acpmux-prompt-drop));
   --acpmux-shell-inset-right: calc(8px * var(--cmux-interface-scale, 1));
-  --acpmux-shell-inset-bottom: calc(var(--acpmux-prompt-inset) - var(--acpmux-text-drop));
+  --acpmux-shell-inset-bottom: calc(var(--acpmux-prompt-inset) - var(--acpmux-prompt-drop));
   --acpmux-shell-inset-left: var(--acpmux-composer-lead-gap);
 }
 /* Under the attachments' band the prompt starts one gap down, as in the other look
