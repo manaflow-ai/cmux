@@ -56,7 +56,11 @@ fn claude(h: &Path, project: &Path) {
     let long = "word ".repeat(200);
     let text = lines(&[
         line("user", json!("Fix the sidebar test"), "2026-10-02T09:00:00.000Z"),
-        line("assistant", json!([{"type": "text", "text": "Looking."}]), "2026-10-02T09:00:02.000Z"),
+        line(
+            "assistant",
+            json!([{"type": "text", "text": "Looking."}]),
+            "2026-10-02T09:00:02.000Z",
+        ),
         line("user", json!("Why does it fail?"), "2026-10-02T09:01:00.000Z"),
         line(
             "assistant",
@@ -157,7 +161,7 @@ async fn a_chat_is_found_by_a_word_from_its_conversation_on_the_local_socket_onl
     // the tool result that names it too is not the conversation.
     let found =
         call(&tx, &mut rx, 2, "_acpmux/chats_search", json!({"query": "sidebarrowlayout"})).await;
-    assert_eq!(keys(&found), [claude_key.clone()], "{found}");
+    assert_eq!(keys(&found), [claude_key.as_str()], "{found}");
     let hit = &found["result"]["hits"][0];
     assert_eq!(hit["role"], "answer", "{hit}");
     assert_eq!(hit["turn"], 1, "{hit}");
@@ -172,18 +176,22 @@ async fn a_chat_is_found_by_a_word_from_its_conversation_on_the_local_socket_onl
 
     // Every word, in any order, within one message; a prompt is found too.
     let both = call(&tx, &mut rx, 3, "_acpmux/chats_search", json!({"query": "NaN panics"})).await;
-    assert_eq!(keys(&both), [claude_key.clone()], "{both}");
+    assert_eq!(keys(&both), [claude_key.as_str()], "{both}");
     let split =
         call(&tx, &mut rx, 4, "_acpmux/chats_search", json!({"query": "panics version"})).await;
     assert_eq!(keys(&split), Vec::<String>::new(), "{split}");
-    let prompt = call(&tx, &mut rx, 5, "_acpmux/chats_search", json!({"query": "bump"})).await;
-    assert_eq!(keys(&prompt), [codex_key.clone()], "{prompt}");
+    let prompt = call(&tx, &mut rx, 5, "_acpmux/chats_search", json!({"query": "version"})).await;
+    assert_eq!(keys(&prompt), [codex_key.as_str()], "{prompt}");
     assert_eq!(prompt["result"]["hits"][0]["role"], "prompt", "{prompt}");
+    // A word inside a word matches too; the newest message holding it is the hit.
+    let newest = call(&tx, &mut rx, 11, "_acpmux/chats_search", json!({"query": "bump"})).await;
+    assert_eq!(newest["result"]["hits"][0]["role"], "answer", "{newest}");
+    assert_eq!(newest["result"]["hits"][0]["matches"], 2, "{newest}");
 
     // Newest chat first; `limit` cuts the page and the cursor goes on from it.
     let all = call(&tx, &mut rx, 6, "_acpmux/chats_search", json!({"query": "the"})).await;
-    let page = call(&tx, &mut rx, 7, "_acpmux/chats_search", json!({"query": "the", "limit": 1}))
-        .await;
+    let page =
+        call(&tx, &mut rx, 7, "_acpmux/chats_search", json!({"query": "the", "limit": 1})).await;
     assert_eq!(keys(&all).len(), 3, "{all}");
     assert_eq!(keys(&page), keys(&all)[..1], "{page}");
     let cursor = page["result"]["nextCursor"].as_str().unwrap_or_else(|| panic!("{page}"));
@@ -198,15 +206,10 @@ async fn a_chat_is_found_by_a_word_from_its_conversation_on_the_local_socket_onl
     assert_eq!(keys(&rest), keys(&all)[1..], "{rest}");
 
     // The filters of `_acpmux/chats` apply.
-    let codex_only = call(
-        &tx,
-        &mut rx,
-        9,
-        "_acpmux/chats_search",
-        json!({"query": "the", "harness": "codex"}),
-    )
-    .await;
-    assert_eq!(keys(&codex_only), [codex_key.clone()], "{codex_only}");
+    let codex_only =
+        call(&tx, &mut rx, 9, "_acpmux/chats_search", json!({"query": "the", "harness": "codex"}))
+            .await;
+    assert_eq!(keys(&codex_only), [codex_key.as_str()], "{codex_only}");
 
     // An empty query is refused: that is `_acpmux/chats`.
     let empty = call(&tx, &mut rx, 10, "_acpmux/chats_search", json!({"query": "  "})).await;
