@@ -99,20 +99,23 @@ import Testing
 
     /// The limiter's marks; `nextLimit()` returns when a step passes its limit (no polling, no real-time sleep).
     @MainActor final class Marks {
-        private let stream: AsyncStream<String>
-        private let sink: AsyncStream<String>.Continuation
-        private var iterator: AsyncStream<String>.Iterator
-
-        init() {
-            (stream, sink) = AsyncStream<String>.makeStream()
-            iterator = stream.makeAsyncIterator()
-        }
+        private var seen: [String] = []
+        private var waiter: CheckedContinuation<String, Never>?
 
         func record(_ mark: String) {
-            if mark.hasSuffix(".limit") { sink.yield(mark) }
+            guard mark.hasSuffix(".limit") else { return }
+            if let waiter {
+                self.waiter = nil
+                waiter.resume(returning: mark)
+            } else {
+                seen.append(mark)
+            }
         }
 
-        func nextLimit() async -> String? { await iterator.next() }
+        func nextLimit() async -> String {
+            if !seen.isEmpty { return seen.removeFirst() }
+            return await withCheckedContinuation { waiter = $0 }
+        }
     }
 
     /// What is left of the quit's deadline, as the test sets it.
