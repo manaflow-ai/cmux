@@ -28,7 +28,7 @@ extension WindowManager {
         let members = registry.members(of: state.id)
         var visible = WindowProfiles.visible(members, profile: profile, machines: machines)
         if visible.isEmpty {
-            let adoptable = adoptableWorkspaces(in: profile, for: state.id).filter { !keepingHomes || !isWindowHome($0) }
+            let adoptable = adoptableWorkspaces(in: profile, for: state.id).filter { !keepingHomes || !isAnyHome($0) }
             if !adoptable.isEmpty {
                 transition { $0.move(adoptable, to: state.id) }
                 visible = adoptable
@@ -107,9 +107,9 @@ extension WindowManager {
         if incognito { throw ActionFailure.invalidTarget(RefusalStrings.incognitoMismatch) }
         let machines = services.machines
         let sources = value.windows.filter { $0.id != state.id && !value.isIncognito($0.id) && incognitoSpaces[$0.id] == nil }
-        // Only workspaces whose space is known move (one no session reports yet shows in every space); window Homes stay.
+        // Only workspaces whose space is known move (one no session reports yet shows in every space); any Home stays.
         let moving = sources.flatMap { WindowProfiles.visible($0.workspaceIDs, profile: profile, machines: machines) }
-            .filter { WindowProfiles.qualified($0, machines: machines) != nil && !isWindowHome($0) }
+            .filter { WindowProfiles.qualified($0, machines: machines) != nil && !isAnyHome($0) }
         try refuseClosingCreating(sources.filter { !Set($0.workspaceIDs).isDisjoint(with: moving) }.map(\.id))
         // A CLI or MCP run without focus permission leaves this window's view alone (as `RoomHandlers.startNewSpace`).
         let mayShow = ActionRunScope.viewChangeAllowed()
@@ -136,8 +136,8 @@ extension WindowManager {
         guard value.window(state.id) != nil else { throw ActionFailure.invalidTarget(RefusalStrings.windowNotReady) }
         if value.isIncognito(state.id) || incognitoSpaces[state.id] != nil { throw ActionFailure.invalidTarget(RefusalStrings.incognitoMismatch) }
         let sources = value.openWindows.filter { $0.id != state.id && !value.isIncognito($0.id) && incognitoSpaces[$0.id] == nil }
-        // Only reported workspaces move; a window's own Home and one not reported yet stay in their window, which closes.
-        let moving = sources.flatMap(\.workspaceIDs).filter { services.workspace(id: $0).map { !$0.isWindowHome } == true }
+        // Only reported workspaces move; a Home and one not reported yet stay in their window, which closes.
+        let moving = sources.flatMap(\.workspaceIDs).filter { services.workspace(id: $0).map { !$0.isAnyHome } == true }
         guard !sources.isEmpty else { return }
         try refuseClosingCreating(sources.map(\.id))
         try refuseLocalTabs((moving.isEmpty ? [] : [state.id]) + sources.map(\.id))
@@ -155,7 +155,7 @@ extension WindowManager {
         recordSaver.stateDidChange(state)
     }
 
-    private func isWindowHome(_ id: String) -> Bool { services.workspace(id: id)?.isWindowHome == true }
+    private func isAnyHome(_ id: String) -> Bool { services.workspace(id: id)?.isAnyHome == true }
     /// Refuses a move out of or into a window keeping its own browser tabs: keyed by pane id (repeats across machines).
     private func refuseLocalTabs(_ windows: [String]) throws {
         let keeps = windows.contains { states[$0]?.localBrowserTabs.all.isEmpty == false }
