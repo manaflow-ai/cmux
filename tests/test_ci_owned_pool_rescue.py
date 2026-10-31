@@ -1555,6 +1555,8 @@ class Nightly(unittest.TestCase):
 
     def test_the_trusted_pool_is_an_owned_label_only_here(self):
         self.assertEqual(rescue.job_pool({"labels": [TRUSTED]}), TRUSTED)
+        # The nightly slot nightly-next's build picker offers first (also when it cannot read the runners).
+        self.assertEqual(rescue.job_pool({"labels": ["glaeda-nightly-std-xcode-26.6"]}), "glaeda-nightly-std-xcode-26.6")
         # nightly.yml asks for the pool and one runner's own label together.
         self.assertEqual(rescue.job_pool({"labels": [TRUSTED, "glaeda-runner-cmux15-glaeda"]}), TRUSTED)
         self.assertEqual(rescue.job_pool({"labels": ["glaeda-root-trusted-std-xcode-26.6"]}),

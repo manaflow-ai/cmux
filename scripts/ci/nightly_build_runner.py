@@ -33,8 +33,12 @@ A Linux job runs this right before the macOS job queues and prints its labels:
   vars.CI_SIDE_LANE_RUNNER) that the rescue watches, or the same label on a wider class
   (side_lane_placement.compatible_labels()), while an online runner carrying it
   is idle now (pr_runner_pool.live_owned_free(), the rule side lanes are placed
-  with). Empty when no label is one the rescue watches, or when the runners
-  cannot be read (no routing token). A busy fleet is waited on only while every
+  with). When the runners cannot be read (no routing token, or its API budget
+  spent) and the caller sets UNREAD_OWNED_FALLBACK=1 (nightly.yml's build pick,
+  only while vars.CI_PR_POOL_OWNED is on and the rescue watches the build), it is
+  the first watched label itself, so the build still queues on the owned pool
+  before Blacksmith (unread_owned_route()). Empty when no label is one the
+  rescue watches, or when unread without that opt-in. A busy fleet is waited on only while every
   Blacksmith macOS label is stalled (owned_queue_route()): then the first of those
   labels an online runner carries, else one any registered runner carries, since
   the rescue watches a job there and re-runs this picker once a label moves.
@@ -288,6 +292,16 @@ def owned_queue_route(labels: str | Sequence[str], runners: Sequence[Mapping[str
     return "", f"no registered runner carries {', '.join(f'`{c}`' for c in candidates)}"
 
 
+def unread_owned_route(labels: str | Sequence[str]) -> tuple[str, str]:
+    """(the first watched owned label, or "", why) for a pick that could not read the runners."""
+    wanted = [label for label in (labels.split() if isinstance(labels, str) else labels) if label]
+    watched = [label for label in wanted if owned_label(label)]
+    if not watched:
+        return "", f"no owned label the rescue watches among {wanted or 'none'}"
+    return watched[0], (f"owned runners could not be read live, so the build queues on the owned pool "
+                        f"`{watched[0]}`, which the rescue watches, before Blacksmith")
+
+
 def blacksmith_stalled_everywhere(variable: str, snapshot: Mapping[str, Any] | None, now: dt.datetime) -> bool:
     """Whether a fresh snapshot sees every Blacksmith macOS 26 candidate stalled."""
     labels = blacksmith_picker.candidates(variable)
@@ -393,6 +407,18 @@ def main(env: Mapping[str, str] = os.environ,
             print(f"::warning title=nightly build runner::could not read the pool snapshot ({str(error)[:200]})")
     candidate = (env.get("CANDIDATE") or "").strip()
     blacksmith, blacksmith_why = blacksmith_route(candidate, snapshot, now, (env.get("EXCLUDE") or "").strip())
+    if not owned and runners is None and (env.get("UNREAD_OWNED_FALLBACK") or "").strip() == "1":
+        # Only where the caller opts in (UNREAD_OWNED_FALLBACK=1): nightly.yml's build pick sets it while
+        # vars.CI_PR_POOL_OWNED is on, and the owned-pool rescue watches that build. Off (the kill switch), no
+        # owned label is offered; the train (nightly-next-train.yml) has no rescue, so it keeps Blacksmith.
+        # Fleet first (Leo, 2026-10-30: Blacksmith is capped, paid overflow): runners the picker cannot read (its
+        # token's API budget spent, or no routing token) are not a reason to send the build to Blacksmith macOS.
+        # On 2026-10-31 run 41203691245's picker got a 403 rate limit on /actions/runners and queued the first tip
+        # build after a three-hour red on blacksmith-6vcpu-macos-26, which started nothing, while the nightly slot
+        # pool had nine minis. The watched owned pool is a many-runner label the rescue watches and moves.
+        pooled, pooled_why = unread_owned_route(labels)
+        if pooled:
+            owned, owned_why = pooled, pooled_why
     if not owned and runners is not None and blacksmith_stalled_everywhere(candidate, snapshot, now):
         # Owned Macs before Blacksmith (Leo, 2026-10-24): queue on the busy owned pool, not a stalled label.
         queued, queued_why = owned_queue_route(labels, runners)

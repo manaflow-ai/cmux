@@ -225,7 +225,9 @@ public final class ChromiumPageHostBridge: PageHostBridge {
 
     /// Installs `window.webkit.messageHandlers.<name>` for ``PageHostTrust/handlerName`` (with
     /// replies) and each of `handlers` (without) over the binding. Messages posted before the
-    /// binding exists wait in the page and go out once it appears.
+    /// binding exists wait in the page and go out once it appears. A call past
+    /// ``maximumPayloadBytes`` is never sent (``receive(devToolsMessage:)`` drops it unanswered):
+    /// it settles at once with a `cmux.protocol.too_large` error envelope.
     public static func pageScript(handlers: [String]) -> String {
         let names = ([PageHostTrust.handlerName] + handlers).map(ChromiumPageHostWire.jsonString).joined(separator: ", ")
         let replying = ChromiumPageHostWire.jsonString(PageHostTrust.handlerName)
@@ -237,6 +239,18 @@ public final class ChromiumPageHostBridge: PageHostBridge {
           const queue = [];
           let next = 1;
           let retries = 0;
+          const limit = \(maximumPayloadBytes);
+          // UTF-8 bytes, counted only when the text could be past the limit.
+          const tooLarge = (text) => {
+            if (text.length > limit) return true;
+            if (text.length * 3 <= limit) return false;
+            let bytes = 0;
+            for (let at = 0; at < text.length; at += 1) {
+              const code = text.charCodeAt(at);
+              bytes += code < 0x80 ? 1 : code < 0x800 || (code >= 0xd800 && code < 0xe000) ? 2 : 3;
+            }
+            return bytes > limit;
+          };
           const flush = () => {
             const binding = globalThis.\(bindingName);
             if (typeof binding !== "function") return false;
@@ -261,8 +275,13 @@ public final class ChromiumPageHostBridge: PageHostBridge {
                 if (name !== \(replying)) { send(JSON.stringify({ name, body })); return undefined; }
                 return new Promise((resolve) => {
                   const seq = next++;
+                  const text = JSON.stringify({ name, seq, body });
+                  if (tooLarge(text)) {
+                    resolve({ t: "err", id: body?.id, code: "cmux.protocol.too_large", message: "The request is too large to send." });
+                    return;
+                  }
                   pending.set(seq, resolve);
-                  send(JSON.stringify({ name, seq, body }));
+                  send(text);
                 });
               },
             };
