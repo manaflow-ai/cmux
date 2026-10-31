@@ -89,8 +89,7 @@ export default componentEntry<Props>({
   height: 480,
   widths: { normal: 520 },
   covers: ["agent-session/acpmux/QuickModelMenu.tsx#QuickModelMenu"],
-  // The pane's Tailwind too, as the app loads it (build-agent-pane-web.sh): without it the menu's
-  // sr-only labels drew as text.
+  // The pane's Tailwind too, as the app loads it (build-agent-pane-web.sh).
   styles: () => Promise.all([import("./styles.css"), import("./modelPicker.css"), import("./tailwind.css")]),
   load: () =>
     Promise.all([import("./QuickModelMenu"), import("./newTabComposer")]).then(

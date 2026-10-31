@@ -492,9 +492,10 @@
   min-height: 0;
   padding: 0;
 }
-/* A symbol tab's name is its label only: hidden by the picker's own rule, not only by the pane's
-   Tailwind sr-only, so a page without that stylesheet never shows every name. */
-.acpmux-quick-harness-name.sr-only {
+/* The menu's screen-reader-only text (a symbol tab's name, the effort trigger's model, Add
+   harness's label) is hidden by the picker's own rule, not only by the pane's Tailwind sr-only:
+   the menu is portaled, and a page without that utility drew it all as text. */
+.acpmux-quick-menu .sr-only {
   position: absolute;
   overflow: hidden;
   clip-path: inset(50%);
@@ -632,6 +633,11 @@
   display: flex;
   align-items: center;
 }
+.acpmux-quick-menu { --acpmux-quick-effort-column: 112px; }
+.acpmux-quick-effort-now {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .acpmux-quick-model-effort > .acpmux-quick-item:first-child {
   flex: 1 1 auto;
   min-width: 0;
@@ -640,6 +646,9 @@
   flex: none;
   justify-content: flex-end;
   gap: var(--ds-space-1);
+  /* One width on every row (the width probe's), so the rows' ⌘N keys and stars line up in columns
+     whatever level each row's hidden item names. */
+  width: var(--acpmux-quick-effort-column);
   min-width: 0;
   padding-inline: var(--ds-space-2) var(--ui-row-padding-inline);
   color: var(--agent-muted);
@@ -684,7 +693,7 @@
 .acpmux-quick-effort-vertical .acpmux-effort-ends { display: none; }
 .acpmux-quick-width-probe-efforts {
   display: inline-block;
-  width: 112px;
+  width: var(--acpmux-quick-effort-column);
 }
 .acpmux-quick-menu.acpmux-quick-placement-left:has(.acpmux-quick-effort-trigger) .acpmux-quick-rail { flex-basis: 28%; }
 .acpmux-quick-menu.acpmux-quick-placement-compact:has(.acpmux-quick-effort-trigger) .acpmux-quick-rail {
