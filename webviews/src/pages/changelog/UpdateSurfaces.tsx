@@ -113,6 +113,7 @@ export function UpdatedCard({
   strings,
   actions,
   closeButton = true,
+  glass = true,
 }: {
   data: UpdateHighlights;
   /** The notes of every build after the previous version, newest first; absent until they load. */
@@ -123,13 +124,17 @@ export function UpdatedCard({
   actions: UpdateSurfaceActions;
   /** Draws the x (with `actions.dismiss`); false where the host draws its own (the sidebar's). */
   closeButton?: boolean;
+  /** Draws the card's own glass; false where the host draws it under the page (the sidebar's
+      CardSurfaceView, SidebarUpdatedCardHost): a page's glass sees nothing of the native sidebar,
+      and with no `.ui-glass` in the document the lens draws no wallpaper copy over the host's. */
+  glass?: boolean;
 }) {
   const titleId = useId();
   const summary = span ? summarizeUpdate(span, strings.language) : summarizeHighlights(readableUpdate(data));
   const empty = strings.t(span ? "changelog.page.maintenance" : "updates.card.whatsNewInBuild");
   const build = cardBuild(data, builds, strings);
   return (
-    <section className="ui-glass wn-card" aria-labelledby={titleId}>
+    <section className={glass ? "ui-glass wn-card" : "wn-card"} aria-labelledby={titleId}>
       {/* tooltip-allow: the eyebrow says the version in words; the tooltip names the full build. */}
       <div className="wn-card-eyebrow" id={titleId} title={data.version}>
         <Parts

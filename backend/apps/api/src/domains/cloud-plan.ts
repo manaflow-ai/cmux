@@ -44,7 +44,7 @@ export const STUB_PLAN: PlanLimits = {
 }
 
 const GiB = 1024
-/** Pro, Team and Founders: 5 machines at once, up to 8 vCPU / 16 GB (pricing-DESIGN.md section 4). */
+/** Pro, Team and Founders: 5 machines at once, up to 8 vCPU / 16 GB, disk 128 GB (classic entitlements.ts). */
 const PRO_LIMITS: Omit<PlanLimits, "plan_id" | "upgrade_plan"> = {
   max_active: 5,
   max_saved: 20,
@@ -56,16 +56,19 @@ const PRO_LIMITS: Omit<PlanLimits, "plan_id" | "upgrade_plan"> = {
 }
 
 /**
- * The Cloud limits of each paid plan id (the ids web billing writes as cmuxPlan). `upgrade_plan` is
- * the plan that lifts them: Go -> Pro, Pro and Founders -> Max; Max and Team have no self-serve plan
- * above them (null).
+ * The Cloud limits of each paid plan id (the ids web billing writes as cmuxPlan). They are classic's
+ * live allowance (web/services/vms/entitlements.ts on main), because both apps sell the same Stripe
+ * products: Plus ($15, id `go`, #26732) is one machine at Pro sizes with no hour cap; Pro, Founders
+ * and Team five up to 8 vCPU / 16 GB; Max five up to 32 vCPU / 64 GB with 256 GB disk.
+ * `upgrade_plan` is the plan that lifts them: Plus -> Pro, Pro and Founders -> Max; Max and Team
+ * have no self-serve plan above them (null).
  */
 export const PAID_PLAN_LIMITS: Readonly<Record<string, PlanLimits>> = {
-  go: { plan_id: "go", max_active: 1, max_saved: 5, memory_options_mb: [4 * GiB], locked_memory_options_mb: [], vm_hours_included: 40, max_cpu: 2, max_disk_mb: 32 * GiB, upgrade_plan: "pro" },
+  go: { plan_id: "go", ...PRO_LIMITS, max_active: 1, upgrade_plan: "pro" },
   pro: { plan_id: "pro", ...PRO_LIMITS, upgrade_plan: "max" },
   founders: { plan_id: "founders", ...PRO_LIMITS, upgrade_plan: "max" },
   team: { plan_id: "team", ...PRO_LIMITS, upgrade_plan: null },
-  max: { plan_id: "max", max_active: 20, max_saved: 50, memory_options_mb: [4 * GiB, 8 * GiB, 16 * GiB, 32 * GiB, 64 * GiB], locked_memory_options_mb: [], vm_hours_included: null, max_cpu: 32, max_disk_mb: 512 * GiB, upgrade_plan: null }
+  max: { plan_id: "max", max_active: 5, max_saved: 50, memory_options_mb: [4 * GiB, 8 * GiB, 16 * GiB, 32 * GiB, 64 * GiB], locked_memory_options_mb: [], vm_hours_included: null, max_cpu: 32, max_disk_mb: 256 * GiB, upgrade_plan: null }
 }
 
 /**

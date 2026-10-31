@@ -13,13 +13,17 @@ impl PtySurface {
 
     /// Hand output the parser accepted to the output store. Output never
     /// enters the session journal (output_store.rs); the store only copies
-    /// the bytes into memory here.
+    /// the bytes into memory here. `history` is the parser's history size
+    /// after it took `bytes` (`HistoryRows::of`, O(1) under the parser lock):
+    /// the store's scrollback budget measures the terminal when it grew
+    /// (memory_budget.rs).
     pub(super) fn record_output(
         &self,
         (mux, terminal_id): (Arc<Mux>, Arc<TerminalPublicId>),
         bytes: &[u8],
+        history: Option<crate::output_store::HistoryRows>,
     ) {
-        mux.output_store.append(&terminal_id, &self.journal_generation, bytes);
+        mux.output_store.append(&terminal_id, &self.journal_generation, bytes, history);
     }
 
     pub(super) fn journal_geometry(&self, geometry: PtyGeometry) {
@@ -288,6 +292,10 @@ impl PtySurface {
         let mut term = self.term.lock().unwrap();
         let generation = self.drop_exited_modes(&mut term);
         let _ = self.build_producer_frame(term, generation);
+        // The last output's scroll position, before the surface goes.
+        if let Some(mux) = self.mux.upgrade() {
+            let _ = self.frame_requests.flush_scroll(&mux, self.event_surface_id);
+        }
     }
 
     /// Preserve the last hosted frame, then end every live attachment while

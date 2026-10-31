@@ -78,7 +78,8 @@ async function line(id: string) {
     ),
   );
   const toggle = () => host.querySelector<HTMLButtonElement>("button.cv-disclosure__toggle")!;
-  return { opened, toggle, open: host.querySelector<HTMLButtonElement>("button.cv-disclosure__open")! };
+  // The sender's name opens its chat (Leo, 2026-10-29: "Just click the left name thing"); no Open chat.
+  return { opened, toggle, open: host.querySelector<HTMLButtonElement>("button.cv-received__from--open")! };
 }
 
 test("Minimal Mode follows only cmux's own Minimal Mode switch", () => {
@@ -103,17 +104,15 @@ for (const minimal of [false, true])
     expect(toggle().getAttribute("aria-label")).toBe(
       t("message.collapsedLabel", { from: "grid-lane", preview: "Rebased onto main; ready for review." }),
     );
-    // The line opens the sender's chat, and leaves the message closed; no "Open chat" word beside it.
-    expect(host.textContent).not.toContain(t("subsession.openChat"));
+    expect(host.querySelector(".cv-disclosure__open")).toBeNull();
+    // The name opens the sender's chat, and leaves the message closed.
     await act(async () => open.click());
     expect(opened).toEqual(["mux-grid"]);
     expect(host.querySelector(".cv-received__text")).toBeNull();
-    // Its chevron opens the whole message in place: who it is from, then all of its text.
+    // The line opens the whole message in place, with no From: line repeating the name above it.
     await act(async () => toggle().click());
     expect(toggle().getAttribute("aria-expanded")).toBe("true");
-    expect(host.querySelector(".cv-received__from-line")?.textContent).toBe(
-      t("message.fromHeader", { name: "grid-lane" }),
-    );
+    expect(host.querySelector(".cv-received__from-line")).toBeNull();
     expect(host.querySelector(".cv-received__text")?.textContent).toContain("The retry tests pass.");
     expect(host.querySelector(".cv-received__text")?.textContent).toContain("CI is green.");
     expect(host.querySelector(".cv-received__body, [data-cut], .cv-received__show")).toBeNull();

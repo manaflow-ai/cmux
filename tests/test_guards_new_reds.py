@@ -32,6 +32,42 @@ class NewReds(unittest.TestCase):
                 paths.append(str(path))
             return subprocess.run([sys.executable, str(SCRIPT), *paths], capture_output=True, text=True)
 
+    def run_flaky(self, head, base, flaky):
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = []
+            for name, results in (("head", head), ("base", base)):
+                path = Path(tmp) / f"{name}.json"
+                path.write_text(json.dumps(results))
+                paths.append(str(path))
+            listed = Path(tmp) / "flaky"
+            if flaky is not None:
+                listed.write_text("".join(f"{name}\n" for name in flaky))
+            return subprocess.run([sys.executable, str(SCRIPT), "--label", "Webview test", "--flaky", str(listed), *paths],
+                                  capture_output=True, text=True)
+
+    def test_a_new_red_that_flips_on_the_base_is_a_warning(self):
+        # agent-pane-suggested-tasks' sent image failed now and then on the base and passed its one
+        # replay there by chance: 9 of 40 sampled red pull request runs were charged with it (2026-10-30).
+        flake = "test/agent-pane-suggested-tasks.test.ts > sends the image"
+        done = self.run_flaky({flake: False}, {flake: True}, [flake])
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertIn(f"::warning title=Webview test flaky on the base::{flake}", done.stdout)
+        self.assertNotIn("::error", done.stdout)
+        self.assertIn("0 webview test steps red on this change, 0 red on the base too, 1 flaky on the base", done.stdout)
+
+    def test_a_flaky_list_excuses_only_the_names_it_lists(self):
+        done = self.run_flaky({"test/a.test.ts > flake": False, "test/a.test.ts > broken": False, "test/b.test.ts": False},
+                              {}, ["test/a.test.ts > flake", "test/a.test.ts"])
+        self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+        self.assertIn("::warning title=Webview test flaky on the base::test/a.test.ts > flake", done.stdout)
+        self.assertIn("::error title=Webview test red on this change::test/a.test.ts > broken", done.stdout)
+        self.assertIn("::error title=Webview test red on this change::test/b.test.ts", done.stdout)
+
+    def test_a_missing_flaky_list_lists_nothing(self):
+        done = self.run_flaky({"lint": False}, {"lint": True}, None)
+        self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+        self.assertIn("::error title=Webview test red on this change::lint", done.stdout)
+
     def test_a_step_red_only_on_the_head_fails(self):
         done = self.run_it({"lint": False, "wired": True}, {"lint": True, "wired": True})
         self.assertEqual(done.returncode, 1, done.stdout + done.stderr)

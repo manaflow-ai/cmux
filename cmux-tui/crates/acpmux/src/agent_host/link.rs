@@ -25,19 +25,16 @@ impl HostLauncher {
     }
 }
 
-/// Start a host for `spec` and return its record once the harness runs, or
-/// fail with [`HostTimeout`] after [`BOOTSTRAP_BUDGET`].
-pub async fn spawn(launcher: &HostLauncher, spec: &SpawnSpec) -> Result<HostRecord> {
-    spawn_within(launcher, spec, BOOTSTRAP_BUDGET).await
-}
-
-/// [`spawn`] with the bootstrap deadline given by the caller.
+/// Start a host for `spec` and return its record once the harness runs.
+///
+/// The start has no time budget (P-AUSTIN B10). It ends on a signal from the
+/// host: its answer on the bootstrap pipe, or the pipe's end, which only the
+/// host's exit closes before it answers; or when the caller drops it, which
+/// ends the host (it is still this process's child). A busy Mac makes a host
+/// slow, never wrong, so time alone never ends it; a caller with a deadline
+/// of its own (`agent_start`, the pool's `START_BUDGET`) drops the start.
 #[cfg(unix)]
-pub async fn spawn_within(
-    launcher: &HostLauncher,
-    spec: &SpawnSpec,
-    budget: std::time::Duration,
-) -> Result<HostRecord> {
+pub async fn spawn(launcher: &HostLauncher, spec: &SpawnSpec) -> Result<HostRecord> {
     // The build-session kill switch: no host and no harness (cx-9ettq).
     crate::launch_policy::refuse_if_disabled()?;
     let mut cmd = tokio::process::Command::new(&launcher.exe);
@@ -72,49 +69,109 @@ pub async fn spawn_within(
             Ok(())
         });
     }
-    let mut child = cmd
+    let child = cmd
         .spawn()
         .map_err(|e| crate::agent::spawn_error(&format!("start {}", launcher.exe.display()), e))?;
-    let mut stdin = child.stdin.take().context("host stdin")?;
-    let mut stdout = child.stdout.take().context("host stdout")?;
+    // Until it answers, the host is ended with this start: a caller that
+    // stops waiting leaves no host behind.
+    let mut host = Bootstrapping::new(child)?;
     // The host moves into its own scope before the spec: it starts its
     // harness only once it has it, so the harness starts there too
     // (`scope.rs`).
-    let pid = child.id();
-    // A host that never reports ready must not hold the session's spawn.
-    let bootstrap = within("start", budget, async {
-        if let Some(pid) = pid {
-            super::scope::place(pid).await;
-        }
-        write_frame(&mut stdin, spec).await?;
-        read_frame::<_, BootstrapReply>(&mut stdout).await
-    })
-    .await;
-    if bootstrap.is_err() {
-        // Not ready in time: it is still this process's child, so end it.
-        let _ = child.start_kill();
+    if let Some(pid) = host.pid() {
+        super::scope::place(pid).await;
     }
+    let bootstrap = async {
+        let (stdin, stdout) = host.pipes();
+        write_frame(stdin, spec).await?;
+        read_frame::<_, BootstrapReply>(stdout).await
+    }
+    .await;
+    let reply = match bootstrap {
+        Ok(Some(reply)) => reply,
+        // The pipe ended without an answer: only the host's exit closes it
+        // before it answers. Say how it ended.
+        Ok(None) => {
+            let status = host.exited().await;
+            return Err(match status {
+                Some(status) => anyhow!("agent host exited before it was ready ({status})"),
+                None => anyhow!("agent host exited before it was ready"),
+            });
+        }
+        // A broken pipe or an unreadable answer: end the host with it.
+        Err(e) => return Err(e.context("agent host start")),
+    };
     // The host is not this process's child for long: reap it in the
     // background so it never lingers as a zombie of the controller.
-    tokio::spawn(async move {
-        let _ = child.wait().await;
-    });
-    let reply = bootstrap??;
+    if let Some(mut host) = host.answered() {
+        tokio::spawn(async move {
+            let _ = host.wait().await;
+        });
+    }
     match reply {
-        Some(BootstrapReply::Ready { record }) => Ok(record),
-        Some(BootstrapReply::SpawnFailed { message }) => Err(anyhow!(message)),
-        None => Err(anyhow!("agent host exited before it was ready")),
+        BootstrapReply::Ready { record } => Ok(record),
+        BootstrapReply::SpawnFailed { message } => Err(anyhow!(message)),
     }
 }
 /// Windows port: agent hosts start through CreateProcess there (a later
 /// landing).
 #[cfg(not(unix))]
-pub async fn spawn_within(
-    _launcher: &HostLauncher,
-    _spec: &SpawnSpec,
-    _budget: std::time::Duration,
-) -> Result<HostRecord> {
+pub async fn spawn(_launcher: &HostLauncher, _spec: &SpawnSpec) -> Result<HostRecord> {
     Err(crate::platform::unsupported("agent hosts"))
+}
+
+/// A host that has not answered its bootstrap yet, with its bootstrap pipes.
+/// Dropped, it ends the host (SIGKILL; it is still this process's unreaped
+/// child, so its pid is ours) before its pipes close, so the host never sees
+/// its start given up and runs on; tokio reaps it in the background.
+#[cfg(unix)]
+struct Bootstrapping {
+    child: Option<tokio::process::Child>,
+    stdin: tokio::process::ChildStdin,
+    stdout: tokio::process::ChildStdout,
+}
+
+#[cfg(unix)]
+impl Bootstrapping {
+    fn new(mut child: tokio::process::Child) -> Result<Self> {
+        let pipes = child.stdin.take().zip(child.stdout.take());
+        let Some((stdin, stdout)) = pipes else {
+            let _ = child.start_kill();
+            bail!("agent host started without its bootstrap pipes");
+        };
+        Ok(Self { child: Some(child), stdin, stdout })
+    }
+
+    fn pid(&self) -> Option<u32> {
+        self.child.as_ref().and_then(tokio::process::Child::id)
+    }
+
+    fn pipes(&mut self) -> (&mut tokio::process::ChildStdin, &mut tokio::process::ChildStdout) {
+        (&mut self.stdin, &mut self.stdout)
+    }
+
+    /// The host closed its pipe without an answer: its exit status, once it
+    /// is reaped (it closes the pipe only by exiting).
+    /// The guard keeps the host while it waits, so a caller drop meanwhile
+    /// still ends it.
+    async fn exited(mut self) -> Option<std::process::ExitStatus> {
+        self.child.as_mut()?.wait().await.ok()
+    }
+
+    /// The host answered: it is no longer ended with this start.
+    fn answered(mut self) -> Option<tokio::process::Child> {
+        self.child.take()
+    }
+}
+
+#[cfg(unix)]
+impl Drop for Bootstrapping {
+    fn drop(&mut self) {
+        // Runs before the fields drop: the kill comes before the pipes close.
+        if let Some(child) = self.child.as_mut() {
+            let _ = child.start_kill();
+        }
+    }
 }
 
 /// What the host said when it was adopted.

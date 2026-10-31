@@ -31,6 +31,9 @@ pub const TRANSCRIPT_MUX_KINDS: &[&str] = &[
     "queue_paused",
     "queue_resumed",
     "turn_started",
+    // Where a chat seeded from a Claude Code transcript's newest page has older turns
+    // (`hub/native_history.rs`): the pane that pages back to it reads on from the transcript.
+    "native_history",
     // The turn's agent has said nothing since its prompt, and then its model's first sign
     // (`silent_turn.rs`).
     "turn_silent",

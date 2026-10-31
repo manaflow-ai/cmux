@@ -173,6 +173,17 @@ const baseline: Props = {
   onAnswer: () => Promise.resolve("answered" as const),
 };
 
+// Equal-length ages with narrow and wide digits expose proportional-number drift.
+const numericAges = (minutes: number): Props => ({
+  ...baseline,
+  sessions: baseline.sessions.map((entry) => ({
+    ...entry,
+    activityAt: minutesAgo(minutes),
+    updatedAt: minutesAgo(minutes),
+  })),
+  asks: asks.map((ask) => ({ ...ask, at: minutesAgo(minutes) })),
+});
+
 const empty: Props = {
   sessions: [current, ...hidden],
   currentId: current.sessionId,
@@ -345,6 +356,14 @@ export default componentEntry<Props>({
     baseline: {
       note: "Needs you lists every other chat's ask with its chat, folder and age, Allow once and Deny in place (the first takes ⌥⌘1 and ⌥⌘3); a question and another computer's chat open their chat. Ready for review stays separate, and the current, archived, side and not-ready chats stay out.",
       props: baseline,
+    },
+    "ages-11": {
+      note: "Inbox and review ages with narrow digits: 11 minutes. Compare ages-58 at the same width and theme.",
+      props: numericAges(11),
+    },
+    "ages-58": {
+      note: "The same inbox and review ages with wide digits: 58 minutes. The numeric text keeps the width of ages-11.",
+      props: numericAges(58),
     },
     compact: {
       note: "The compact look: one line per ask, its answers at its end.",

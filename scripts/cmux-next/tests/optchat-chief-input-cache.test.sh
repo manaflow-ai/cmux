@@ -80,7 +80,7 @@ chmod 755 "$TMP/bin/cargo" "$TMP/bin/rustup" "$TMP/bin/lipo"
 run() {
   env -i PATH="$TMP/bin:$python_dir:/usr/bin:/bin" HOME="$TMP" TMPDIR="$TMP" CI=1 FAKE_CARGO_LOG="$TMP/cargo.log" \
     CMUX_NEXT_OPTCHAT_CHIEF_ARCHS="${ARCHS_UNDER_TEST:-arm64}" CMUX_NEXT_OPTCHAT_CHIEF_CACHE="$TMP/cache" \
-    CMUX_NEXT_OPTCHAT_CHIEF_TARGET_DIR="$TMP/target" "$@" "$src/scripts/cmux-next/build-optchat-chief.sh" --output "$TMP/out/optchat-chief"
+    CMUX_NEXT_OPTCHAT_CHIEF_TARGET_DIR="$TMP/target" CMUX_NEXT_OPTCHAT_CHIEF_RESULT_FILE="$TMP/result" "$@" "$src/scripts/cmux-next/build-optchat-chief.sh" --output "$TMP/out/optchat-chief"
 }
 builds() { grep -c . "$TMP/cargo.log" || true; }
 keyed() { run CMUX_NEXT_OPTCHAT_CHIEF_INPUT_KEYED=1 >/dev/null 2>"$TMP/err" || fail "keyed build failed: $(cat "$TMP/err")"; }
@@ -143,6 +143,64 @@ git -C "$src" checkout -q -- Native/OptChat/optchat-chief/inspector/index.html
 keyed; expect_builds "$n" "restoring the committed page did not reuse its binary"
 # Another architecture set is another binary.
 ARCHS_UNDER_TEST=x86_64 keyed; n=$((n + 1)); expect_builds "$n" "another architecture reused the arm64 binary"
+
+# Unidentified compilers must not acquire a remote artifact key.
+if PATH="$TMP/bin:$python_dir:/usr/bin:/bin" HOME="$TMP" python3 "$src/scripts/cmux-next/optchat-chief-input-key.py" --environment --archs x86_64 --toolchain 1.95.0 >/dev/null 2>&1; then
+  fail "an unidentified compiler acquired a remote key"
+fi
+# The resolver key is portable; the builder adds actual tool identities.
+for tool in rustup xcrun sw_vers xcodebuild xcode-select; do
+  printf '#!/bin/sh\necho fixture-tool-1\n' > "$TMP/bin/$tool"
+  chmod +x "$TMP/bin/$tool"
+done
+portable_key=$(PATH="$TMP/bin:$python_dir:/usr/bin:/bin" HOME="$TMP" python3 "$src/scripts/cmux-next/optchat-chief-input-key.py" --portable --archs x86_64 --toolchain 1.95.0)
+environment_key=$(PATH="$TMP/bin:$python_dir:/usr/bin:/bin" HOME="$TMP" python3 "$src/scripts/cmux-next/optchat-chief-input-key.py" --environment --archs x86_64 --toolchain 1.95.0)
+portable() {
+  ARCHS_UNDER_TEST=x86_64 run CMUX_NEXT_OPTCHAT_CHIEF_INPUT_KEYED=1 CMUX_NEXT_OPTCHAT_CHIEF_INPUT_KEY="$portable_key" \
+    CMUX_NEXT_OPTCHAT_CHIEF_ENVIRONMENT_KEY="$environment_key" CMUX_NEXT_OPTCHAT_CHIEF_REQUIRE_IDENTITY=1 >/dev/null 2>"$TMP/err" \
+    || fail "portable cache failed: $(cat "$TMP/err")"
+}
+# The result file tells the workflow whether to save the entry: only a build
+# that rebuilt it (a miss, or a restored entry that failed validation) saves.
+expect_result() { [[ "$(cat "$TMP/result" 2>/dev/null)" == "$1" ]] || fail "$2 (result file: $(cat "$TMP/result" 2>/dev/null || echo missing), expected $1)"; }
+portable; n=$((n + 1)); expect_builds "$n" "portable source key did not build once"
+expect_result built "a first portable build did not report a rebuild"
+portable; expect_builds "$n" "portable source key rebuilt its exact cache entry"
+expect_result reused "a valid cached entry did not report reuse"
+binary="$TMP/cache/inputs-$portable_key-$environment_key/x86_64/optchat-chief"
+printf 'corrupt\n' >> "$binary"
+portable; n=$((n + 1)); expect_builds "$n" "corrupt bytes were reused"
+expect_result built "a rebuilt corrupt entry did not report a rebuild, so it would never be saved again"
+mv "$binary" "$binary.target"; ln -s "$binary.target" "$binary"
+portable; n=$((n + 1)); expect_builds "$n" "symlink binary was reused"
+expect_result built "a rebuilt symlinked binary did not report a rebuild"
+echo untouched > "$TMP/ref-target"
+rm "$binary.ref"; ln -s "$TMP/ref-target" "$binary.ref"
+portable; n=$((n + 1)); expect_builds "$n" "symlink provenance was reused"
+expect_result built "a rebuilt symlinked provenance did not report a rebuild"
+[[ "$(cat "$TMP/ref-target")" == untouched ]] || fail "rebuild followed the provenance symlink"
+# A restored entry with no binary and a symlinked provenance file rebuilds
+# without writing through the link to a file outside the cache.
+echo untouched > "$TMP/outside-sentinel"
+rm -f "$binary" "$binary.ref"; ln -s "$TMP/outside-sentinel" "$binary.ref"
+portable; n=$((n + 1)); expect_builds "$n" "a missing binary did not rebuild"
+[[ "$(cat "$TMP/outside-sentinel")" == untouched ]] || fail "rebuild of a missing binary wrote through the provenance symlink"
+[[ ! -L "$binary.ref" ]] || fail "rebuild of a missing binary left the provenance symlink"
+# A directory where the binary or its provenance belongs is repaired, not fatal.
+rm -f "$binary"; mkdir "$binary"
+portable; n=$((n + 1)); expect_builds "$n" "a directory in place of the binary did not rebuild"
+expect_result built "a rebuilt directory binary did not report a rebuild"
+[[ -f "$binary" ]] || fail "the rebuild left a directory in place of the binary"
+rm -f "$binary.ref"; mkdir "$binary.ref"
+portable; n=$((n + 1)); expect_builds "$n" "a directory in place of the provenance did not rebuild"
+[[ -f "$binary.ref" ]] || fail "the rebuild left a directory in place of the provenance"
+# A restored entry whose directories are links never sends the repair outside the cache.
+entry="${binary%/*}"; outside="$TMP/outside-entry"
+rm -rf "$outside"; mv "$entry" "$outside"; ln -s "$outside" "$entry"
+printf 'corrupt\n' >> "$outside/optchat-chief"; cp "$outside/optchat-chief" "$TMP/outside-before"
+portable; n=$((n + 1)); expect_builds "$n" "a linked entry directory was reused"
+[[ ! -L "$entry" && -f "$binary" ]] || fail "the rebuild kept the linked entry directory"
+cmp -s "$outside/optchat-chief" "$TMP/outside-before" || fail "the rebuild wrote through a linked entry directory"
 
 # Only the 8 most recently used input-keyed entries stay.
 entries=$(find "$TMP/cache" -maxdepth 1 -name 'inputs-*' | grep -c .)

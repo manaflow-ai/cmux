@@ -376,7 +376,7 @@ struct WorkspaceHoverCardContent: Equatable {
     static func connectionTone(_ status: SidebarMachine.Status) -> HoverCardTone {
         switch status {
         case .connected, .updateAvailable: .success
-        case .connecting, .reconnecting, .installing, .updateRequired, .installRequired: .attention
+        case .connecting, .reconnecting, .installing, .updateRequired, .installRequired, .disconnected: .attention
         case .offline, .authFailed, .unreachable, .failed: .danger
         case .paused, .pausedIdle: .secondary
         }

@@ -140,7 +140,7 @@ pub(super) fn trust(
 }
 
 /// True when `surface` is an agent tab whose record names this store.
-fn own_agent_tab(mux: &Mux, surface: SurfaceId) -> bool {
+pub(super) fn own_agent_tab(mux: &Mux, surface: SurfaceId) -> bool {
     let Some(runtime) = mux.surface(surface) else { return false };
     matches!(
         mux.conversation_tab_of(&runtime),

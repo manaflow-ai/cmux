@@ -45,8 +45,10 @@ export interface PlatformHost {
   machine(id: string): MachineRow | undefined
   ledger(key: string): LedgerRow | undefined
   snapshot(id: string): SnapshotRow | undefined
-  /** Legacy fallback for platform snapshots created before the row marker was introduced. */
-  platformSnapshot(user: string, id: string): boolean
+  /** Creation evidence: platform, non-platform, or unknown after the ledger was pruned. */
+  platformSnapshot(user: string, id: string): boolean | undefined
+  /** A completed platform snapshot delete retained in the ledger makes replay idempotent. */
+  platformSnapshotDeleted(user: string, id: string): boolean
   tombstoned(machine: string): boolean
   /** One command on the machine's VM as root; null when the provider did not answer. */
   exec(row: MachineRow, command: string, stdin: Uint8Array | null, timeoutMs: number): Promise<GuestExecResult | null>
@@ -145,9 +147,17 @@ export const platformCall = async (host: PlatformHost, user: string, call: Platf
     }
     case "deleteSnapshot": {
       const snap = host.snapshot(call.snapshot)
-      // Absence also covers a successful prior delete, even after its ledger is pruned.
+      if (!snap && host.platformSnapshotDeleted(user, call.snapshot)) return ok({ deleted: true })
+      // A missing row is either a successful prior delete or a snapshot this team cannot see.
       // cmux-platform treats cloud.snapshot.not_found as successful cleanup.
-      if (!snap || snap.creator !== user || (snap.platform !== true && !host.platformSnapshot(user, snap.id))) return refused("cloud.snapshot.not_found", "no such platform snapshot in this team", false)
+      if (!snap || snap.creator !== user) return refused("cloud.snapshot.not_found", "no such platform snapshot in this team", false)
+      if (snap.platform !== true) {
+        const platform = host.platformSnapshot(user, snap.id)
+        if (platform === false) return refused("cloud.snapshot.not_found", "no such platform snapshot in this team", false)
+        // Old pruning may have removed the creation evidence before the marker existed. The row
+        // still reserves a snapshot: never report cleanup complete without proving its origin.
+        if (platform === undefined) return refused("cloud.snapshot.ownership_unknown", "platform snapshot ownership needs reconciliation; retry later", true)
+      }
       const deleting = refused("mutation.indeterminate", "the snapshot is still being deleted; retry", true)
       if (snap.status === "deleting") return deleting
       // Like destroy, a terminal failure restores the row at a new revision. The next request

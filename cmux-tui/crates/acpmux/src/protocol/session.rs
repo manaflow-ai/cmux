@@ -46,6 +46,12 @@ pub struct SessionSummary {
     #[schemars(default)]
     pub stuck_error: Option<String>,
     pub agent_session_id: Option<String>,
+    /// The chat's earlier native ids, oldest first (`SessionMeta::retired_agent_session_ids`):
+    /// a Codex chat's earlier roots, which its older records still name, so a client folding
+    /// them never reads one as a subagent. Absent when none, and from a peer on an older acpmux.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schemars(default)]
+    pub retired_agent_session_ids: Vec<String>,
     pub created_at: u64,
     pub updated_at: u64,
     pub last_seq: u64,
@@ -190,6 +196,73 @@ pub struct SessionSummary {
     /// The peer daemon a remote session runs on; absent for this daemon's own.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub peer: Option<String>,
+    /// What its harness spends and holds, from the harness's own records
+    /// (`usage_stats.rs`); absent until a Claude Code or Codex chat's records
+    /// are found, for any other harness, and from a peer on an older acpmux.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub usage_stats: Option<UsageStats>,
+}
+
+/// A chat's spend and context as its harness recorded them (`usage_stats.rs`):
+/// Claude Code's transcript and its subagents' (their spend is the chat's), or
+/// Codex's rollout. Read from where the last read ended: by a session list
+/// that asks (`usage: true`) or an info read, at most every 5 s, and by each
+/// turn's end for its own chat, recorded then as a mux `usage_stats` record.
+/// A value that could not be read is null, never 0: a count is null while
+/// the reads have not covered the whole last day (a first read cut short
+/// before it, a backlog not read yet, a file that could not be read).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+#[schemars(transform = require_all)]
+pub struct UsageStats {
+    /// The executable its harness runs, by file name (`claude`, `claude-sr2`,
+    /// `codex-acp`); `harness` is the profile. Null when this daemon did not
+    /// start it (an adopted, watched or revived chat).
+    pub launcher: Option<String>,
+    /// Whether something caps the context at which the harness compacts.
+    pub autocompact: Autocompact,
+    /// The cap, when `autocompact` is `capped` and its value is known (Claude
+    /// Code's `--autocompact`, `CLAUDE_CODE_AUTO_COMPACT_WINDOW`,
+    /// `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` of a known window, `autoCompactWindow`;
+    /// Codex's `model_auto_compact_token_limit`); null otherwise.
+    pub autocompact_cap: Option<u64>,
+    /// The last call's context: its input, cache read and cache write tokens.
+    pub context_tokens: Option<u64>,
+    /// The model's context window, as the harness reported it, else the catalog's.
+    pub context_window: Option<u64>,
+    /// Compactions in the last 24 hours.
+    pub compactions24h: Option<u64>,
+    /// Subagents that run now.
+    pub subagents_live: Option<u64>,
+    /// Subagents started in the last hour.
+    #[serde(rename = "subagents1h")]
+    pub subagents1h: Option<u64>,
+    /// Subagents started in the last 24 hours.
+    #[serde(rename = "subagents24h")]
+    pub subagents24h: Option<u64>,
+    /// Tokens of the last 24 hours, subagents' included: input, output, cache
+    /// read and cache write.
+    #[serde(rename = "tokens24h")]
+    pub tokens24h: Option<u64>,
+    /// Those tokens at the model catalog's list prices, USD; null when no model
+    /// they ran on has a price, or when `tokens24h` is null.
+    #[serde(rename = "costUsd24h")]
+    pub cost_usd24h: Option<f64>,
+    /// Unix ms of the read these come from.
+    pub updated_at: u64,
+}
+
+/// Whether a harness's autocompact is capped (`UsageStats.autocompact`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum Autocompact {
+    /// A flag, env or setting caps it.
+    Capped,
+    /// Nothing caps it: the harness's own default applies.
+    #[serde(rename = "none")]
+    Uncapped,
+    /// Not known: its argv is not this daemon's, or a value or file it reads could not be read.
+    Unknown,
 }
 
 /// A durable lifecycle fact supplied by an explicit producer. This contract
@@ -395,6 +468,26 @@ pub struct QueuedPromptSummary {
     /// name and offers none of its own actions on it (only they change it, `queue.not_author`).
     /// Kept across a restart and by their own edit.
     pub author: Option<QueuedAuthor>,
+    /// acpmux's own ask that the chat's agent resume a subagent that failed on a transient error
+    /// (`_meta.provenance` `subagent_retry`, `hub/subagent_retry.rs`): an app draws it as that
+    /// subagent's resume, not as the person's prompt. Null for any other prompt, and once edited
+    /// (an edit drops the provenance).
+    #[serde(default)]
+    #[schemars(default)]
+    pub subagent_retry: Option<QueuedSubagentRetry>,
+}
+
+/// The subagent a queued resume asks the agent to resume (`QueuedPromptSummary.subagentRetry`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+#[schemars(transform = require_all)]
+pub struct QueuedSubagentRetry {
+    /// The Agent tool's id for it, which the agent resumes it by.
+    pub agent_id: String,
+    /// Its task or name, when acpmux knew one.
+    pub name: Option<String>,
+    /// The transient error it failed on.
+    pub error: Option<String>,
 }
 
 /// The person who queued a prompt in a shared chat.
@@ -583,6 +676,11 @@ pub struct SessionsParams {
     /// Include tool inventories explicitly; default census rows omit them.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub with_tools: Option<bool>,
+    /// `_acpmux/sessions` only: read each chat's usage from its harness's records first
+    /// (`usageStats`; at most one read every 5 s, waited for at most 750 ms). Without it the
+    /// rows carry what the last read found.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub usage: Option<bool>,
     /// Page size, at least 1. Without it the reply is the whole list.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(range(min = 1))]

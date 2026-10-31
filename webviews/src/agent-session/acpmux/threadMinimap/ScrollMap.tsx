@@ -2,23 +2,24 @@
 // spans the transcript's viewport and maps the whole scroll height onto it. Each prompt is a longer,
 // brighter tick and a tab stop; each reply a shorter, dimmer one set in a little; a bar shows what
 // is on screen and follows the scroll on its own frame without a render. Hovering grows the marks
-// near the pointer and, after the hover delay, previews the nearest message beside it. A click on a
+// near the pointer and, at once (CARD_DELAY), previews the nearest message beside it. A click on a
 // mark jumps to it (a prompt as the compact rail's click does); a click on the track jumps there;
 // dragging anywhere scrubs the transcript. Geometry is the transcript's layout (mapGeometry.ts).
 import React, { memo, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { type AcpmuxRow, type ConversationLayout } from "../model";
 import { useT } from "../i18n";
+import { layoutScrollTop, physicalScrollTop } from "../conversation/scrollCoordinates";
 import { MinimapTick } from "../../../ui/MinimapTick";
 import { useHoverIntent } from "../../../ui/hoverIntent";
 import { useEscapeCloses } from "../../../ui/escapeDismiss";
 import { animateScroll, reducedMotion, stopScroll } from "./scrollMotion";
 import { PreviewCard } from "./PreviewCard";
+import { railEdge, useRailSide } from "./railSide";
+import { ContextMenu } from "../../../ui/ContextMenu";
 import type { usePromptMarks } from "./promptMarks";
 import {
   CARD_DELAY,
-  cardOffset,
   JUMP_CURVE,
-  jumpDuration,
   LANDING_OFFSET,
   replyPreview,
   ROW_WIDTH,
@@ -70,7 +71,7 @@ export function ScrollMap({
   viewportHeight: number;
   scrolls: boolean;
   /// The compact rail's pane-edge placement (useRailPlacement), measured against the actual text.
-  placement: { left: number; width: number; overlapsText: boolean; gutter: number };
+  placement: { left: number; width: number; overlapsText: boolean; gutter: number; reserve: number };
   marks: PromptMarks;
   /// The compact rail's jump to a prompt (ThreadMinimap), so a click lands and flashes the same.
   jump: (turn: number, how: "click" | "scrub") => number | undefined;
@@ -90,7 +91,6 @@ export function ScrollMap({
   const [hovered, setHovered] = useState<string | undefined>(undefined);
   const [focused, setFocused] = useState<string | undefined>(undefined);
   const [cardMark, setCardMark] = useState<string | undefined>(undefined);
-  const [cardHeight, setCardHeight] = useState(0);
   const [cardFocus, setCardFocus] = useState(false);
   const [scrubbing, setScrubbing] = useState(false);
   const [reduce, setReduce] = useState(false);
@@ -105,6 +105,8 @@ export function ScrollMap({
   // The full-height map keeps its 36 px box and has no reveal strip, so it shows only where that box
   // overlaps the text by at most MAP_MAX_OVERLAP: past that its click and drag handlers would take
   // text selection and links (the compact rail compresses and reveals itself instead).
+  // Its edge (railSide.ts), mirrored as the compact rail is.
+  const { side, menu } = useRailSide();
   const shown =
     turns.length >= MAP_MIN_PROMPTS &&
     scrolls &&
@@ -123,7 +125,7 @@ export function ScrollMap({
     const bar = thumb.current;
     if (!node || !bar) return;
     const { height: rail, total, viewportHeight: view, marks: all } = live.current;
-    const at = mapThumb(node.scrollTop, view, total, rail);
+    const at = mapThumb(layoutScrollTop(node), view, total, rail);
     bar.style.transform = `translateY(${at.top}px)`;
     bar.style.height = `${at.height}px`;
     const covered = marksIn(all, at.top, at.top + at.height);
@@ -142,9 +144,6 @@ export function ScrollMap({
   const showCard = preview.shown !== null && cardAt !== undefined;
   if (!showCard && cardFocus) setCardFocus(false);
   useEscapeCloses(showCard && cardFocus, dismiss);
-  useLayoutEffect(() => {
-    if (showCard && card.current) setCardHeight(card.current.offsetHeight);
-  }, [showCard, cardAt]);
   const cardRow = cardAt ? rows[cardAt.row] : undefined;
   const agentReply = useMemo(
     () => (cardAt?.kind === "agent" && cardRow?.text ? replyPreview(cardRow.text) : []),
@@ -173,22 +172,23 @@ export function ScrollMap({
       return;
     }
     const target = () =>
-      Math.min(
-        Math.max(0, THREAD_PADDING_TOP + (layout.tops[mark.row] ?? 0) - LANDING_OFFSET),
-        Math.max(0, layout.totalHeight - node.clientHeight),
+      physicalScrollTop(
+        node,
+        Math.min(
+          Math.max(0, THREAD_PADDING_TOP + (layout.tops[mark.row] ?? 0) - LANDING_OFFSET),
+          Math.max(0, layout.totalHeight - node.clientHeight),
+        ),
       );
-    const to = target();
-    animateScroll(node, target, reducedMotion() ? 0 : jumpDuration(to - node.scrollTop), JUMP_CURVE);
+    // A click lands at once, as the compact rail's does (ThreadMinimap.tsx `jump`). An explicit
+    // request: it runs inside the hold that follows the reader's last input (userScroll.ts).
+    animateScroll(node, target, 0, JUMP_CURVE, undefined, undefined, { explicit: true });
   };
-  /// Centers the view on rail point `y`: at once while scrubbing, else on the jump's curve.
-  const seek = (y: number, smooth: boolean) => {
+  /// Centers the view on rail point `y`, at once: a click on the track as a scrub does.
+  const seek = (y: number) => {
     const node = scroller.current;
     if (!node) return;
-    const to = scrollTopAt(y, height, layout.totalHeight, node.clientHeight);
-    if (!smooth || reducedMotion()) {
-      stopScroll(node);
-      node.scrollTop = to;
-    } else animateScroll(node, () => to, jumpDuration(to - node.scrollTop), JUMP_CURVE);
+    stopScroll(node);
+    node.scrollTop = physicalScrollTop(node, scrollTopAt(y, height, layout.totalHeight, node.clientHeight));
   };
   const point = (y: number) => {
     const at = keyOf(marks[markAt(marks, y) ?? -1]);
@@ -210,7 +210,7 @@ export function ScrollMap({
       return;
     }
     if (state.mark !== undefined) activate(state.mark);
-    else seek(railY(event.clientY), true);
+    else seek(railY(event.clientY));
   };
   // The previewed message stays lit while the pointer is on its card.
   const active = hovered ?? focused ?? (showCard ? cardMark : undefined);
@@ -249,102 +249,106 @@ export function ScrollMap({
   const cardMarked = cardTurn ? bookmarks.has(cardTurn) : false;
   return (
     <div className="acpmux-minimap" style={{ "--acpmux-rail-left": `${placement.left}px` } as React.CSSProperties}>
-      <nav
-        ref={rail}
-        className="acpmux-minimap__rail acpmux-scrollmap"
-        aria-label={t("minimap.label")}
-        style={{ left: placement.left, top: MAP_MARGIN, width: ROW_WIDTH, height }}
-        data-hovering={pointerY !== undefined || undefined}
-        data-scrubbing={scrubbing || undefined}
-        data-reduce={reduce || undefined}
-        onPointerEnter={() => setReduce(reducedMotion())}
-        onPointerMove={(event) => {
-          const y = railY(event.clientY);
-          const state = press.current;
-          if (state && !state.moved && Math.abs(event.clientY - state.y) >= SCRUB_SLOP) {
-            state.moved = true;
-            setScrubbing(true);
-            dismiss();
-            try {
-              event.currentTarget.setPointerCapture?.(state.pointer);
-            } catch {}
-          }
-          if (state?.moved) seek(y, false);
-          point(y);
-        }}
-        onPointerLeave={(event) => {
-          if (press.current?.moved) return;
-          setPointerY(undefined);
-          setHovered(undefined);
-          if (!within(card.current, event.relatedTarget)) intend(null);
-        }}
-        onPointerDown={(event) => {
-          if (event.button !== 0 || event.pointerType === "touch") return;
-          const y = railY(event.clientY);
-          const state: Press = {
-            pointer: event.pointerId,
-            y: event.clientY,
-            moved: false,
-            mark: keyOf(marks[markAt(marks, y) ?? -1]),
-          };
-          press.current = state;
-          // A press released off the rail ends here, so a later hover cannot scrub.
-          const page = event.currentTarget.ownerDocument.defaultView ?? window;
-          const released = () => {
-            page.removeEventListener("pointerup", released);
-            page.removeEventListener("pointercancel", released);
-            if (press.current !== state) return;
-            press.current = undefined;
-            if (state.moved) setScrubbing(false);
-          };
-          page.addEventListener("pointerup", released);
-          page.addEventListener("pointercancel", released);
-        }}
-        onPointerUp={endPress}
-        onPointerCancel={(event) => {
-          if (press.current) press.current.moved = true;
-          endPress(event);
-        }}
-        onBlur={(event) => {
-          const next = event.relatedTarget as Node | null;
-          if (event.currentTarget.contains(next) || card.current?.contains(next)) return;
-          if (hovered === undefined) intend(null);
-        }}
-      >
-        <div ref={thumb} className="acpmux-scrollmap__view" aria-hidden />
-        {marks.map((mark, index) => {
-          const turn = mark.kind === "user" ? turns[mark.turn] : undefined;
-          const key = keyOf(mark)!;
-          return (
-            <Mark
-              key={key}
-              id={key}
-              mark={mark}
-              progress={pointerY !== undefined ? mapProgress(mark.y - pointerY) : key === focused ? 1 : 0}
-              active={key === active}
-              current={inView !== undefined && index >= inView.first && index <= inView.last}
-              bookmarked={!!turn && bookmarks.has(turn)}
-              describedBy={showCard && cardMark === key ? cardId : undefined}
-              prompt={turn?.prompt}
-              count={turns.length}
-              actions={actions}
-            />
-          );
-        })}
-      </nav>
+      <ContextMenu items={menu}>
+        <nav
+          ref={rail}
+          className="acpmux-minimap__rail acpmux-scrollmap"
+          aria-label={t("minimap.label")}
+          data-side={side}
+          style={{ ...railEdge(side, placement.reserve + placement.left), top: MAP_MARGIN, width: ROW_WIDTH, height }}
+          data-hovering={pointerY !== undefined || undefined}
+          data-scrubbing={scrubbing || undefined}
+          data-reduce={reduce || undefined}
+          onPointerEnter={() => setReduce(reducedMotion())}
+          onPointerMove={(event) => {
+            const y = railY(event.clientY);
+            const state = press.current;
+            if (state && !state.moved && Math.abs(event.clientY - state.y) >= SCRUB_SLOP) {
+              state.moved = true;
+              setScrubbing(true);
+              dismiss();
+              try {
+                event.currentTarget.setPointerCapture?.(state.pointer);
+              } catch {}
+            }
+            if (state?.moved) seek(y);
+            point(y);
+          }}
+          onPointerLeave={(event) => {
+            if (press.current?.moved) return;
+            setPointerY(undefined);
+            setHovered(undefined);
+            if (!within(card.current, event.relatedTarget)) intend(null);
+          }}
+          onPointerDown={(event) => {
+            if (event.button !== 0 || event.pointerType === "touch") return;
+            const y = railY(event.clientY);
+            const state: Press = {
+              pointer: event.pointerId,
+              y: event.clientY,
+              moved: false,
+              mark: keyOf(marks[markAt(marks, y) ?? -1]),
+            };
+            press.current = state;
+            // A press released off the rail ends here, so a later hover cannot scrub.
+            const page = event.currentTarget.ownerDocument.defaultView ?? window;
+            const released = () => {
+              page.removeEventListener("pointerup", released);
+              page.removeEventListener("pointercancel", released);
+              if (press.current !== state) return;
+              press.current = undefined;
+              if (state.moved) setScrubbing(false);
+            };
+            page.addEventListener("pointerup", released);
+            page.addEventListener("pointercancel", released);
+          }}
+          onPointerUp={endPress}
+          onPointerCancel={(event) => {
+            if (press.current) press.current.moved = true;
+            endPress(event);
+          }}
+          onBlur={(event) => {
+            const next = event.relatedTarget as Node | null;
+            if (event.currentTarget.contains(next) || card.current?.contains(next)) return;
+            if (hovered === undefined) intend(null);
+          }}
+        >
+          <div ref={thumb} className="acpmux-scrollmap__view" aria-hidden />
+          {marks.map((mark, index) => {
+            const turn = mark.kind === "user" ? turns[mark.turn] : undefined;
+            const key = keyOf(mark)!;
+            return (
+              <Mark
+                key={key}
+                id={key}
+                mark={mark}
+                progress={pointerY !== undefined ? mapProgress(mark.y - pointerY) : key === focused ? 1 : 0}
+                active={key === active}
+                current={inView !== undefined && index >= inView.first && index <= inView.last}
+                bookmarked={!!turn && bookmarks.has(turn)}
+                describedBy={showCard && cardMark === key ? cardId : undefined}
+                prompt={turn?.prompt}
+                count={turns.length}
+                actions={actions}
+              />
+            );
+          })}
+        </nav>
+      </ContextMenu>
       {showCard && cardAt && (
         <PreviewCard
           ref={card}
           id={cardId}
-          x={placement.left + ROW_WIDTH}
+          side={side}
+          x={placement.reserve + placement.left + ROW_WIDTH}
           railLeft={placement.left}
-          y={cardOffset(MAP_MARGIN + cardAt.y, cardHeight, viewportHeight)}
+          center={MAP_MARGIN + cardAt.y}
+          viewportHeight={viewportHeight}
           // Out of the scroller: its edge mask would keep the card's blur from the rows (PreviewCard.tsx).
           scroller={scroller.current}
           prompt={cardTurn?.prompt}
           reply={cardTurn ? cardTurn.reply : agentReply}
           metadata={cardTurn?.metadata}
-          onSizeChange={() => setCardHeight(card.current?.offsetHeight ?? 0)}
           bookmark={
             cardTurn && bookmarks.can(cardTurn)
               ? { marked: cardMarked, toggle: () => bookmarks.toggle(cardTurn) }

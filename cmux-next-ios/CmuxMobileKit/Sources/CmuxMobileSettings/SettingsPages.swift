@@ -82,7 +82,7 @@ struct AccountPage: View {
                     }
                 }
             } header: {
-                Text("Sign-in methods").cmuxMobileTextColumn()
+                Text("Sign-in methods")
             }
             Section {
                 Button(role: .destructive) {
@@ -100,7 +100,6 @@ struct AccountPage: View {
                 .accessibilityIdentifier("settings.deleteAccount")
             } footer: {
                 Text("Permanently deletes your account and data across all cmux apps.")
-                    .cmuxMobileTextColumn()
             }
         }
         .settingsPage("Account")
@@ -193,7 +192,7 @@ struct TeamPage: View {
                     }
                 }
             } footer: {
-                Text("Only you see these changes.").cmuxMobileTextColumn()
+                Text("Only you see these changes.")
             }
             Section {
                 switch members {
@@ -222,7 +221,7 @@ struct TeamPage: View {
                     }
                 }
             } header: {
-                Text("Members").cmuxMobileTextColumn()
+                Text("Members")
             }
             // The personal space is just you: nobody to invite.
             if !team.isPersonalSpace {
@@ -279,9 +278,9 @@ struct TerminalPage: View {
                 Toggle(isOn: $settings.wrapCode) { SettingsLabel("Wrap code and diff lines", symbol: "text.word.spacing") }
                 Toggle(isOn: $settings.keyClicks) { SettingsLabel("Key clicks", symbol: "keyboard") }
             } header: {
-                Text("Code").cmuxMobileTextColumn()
+                Text("Code")
             } footer: {
-                Text("Key clicks follow the silent switch.").cmuxMobileTextColumn()
+                Text("Key clicks follow the silent switch.")
             }
         }
         .settingsPage("Terminal")
@@ -305,7 +304,7 @@ struct ComposerPage: View {
                 }
                 .pickerStyle(.menu)
             } footer: {
-                Text("Queue waits for the current turn; Steer interrupts it.").cmuxMobileTextColumn()
+                Text("Queue waits for the current turn; Steer interrupts it.")
             }
         }
         .settingsPage("Composer")
@@ -345,7 +344,7 @@ struct NotificationsPage: View {
                 .accessibilityIdentifier("settings.notifications.allow")
             } footer: {
                 if !push {
-                    Text("Chief alerts require cmux to stay running.").cmuxMobileTextColumn()
+                    Text("Chief alerts require cmux to stay running.")
                 }
             }
             if push {
@@ -392,9 +391,9 @@ struct NotificationsPage: View {
                 .pickerStyle(.inline)
                 .labelsHidden()
             } header: {
-                Text("Notify me").cmuxMobileTextColumn()
+                Text("Notify me")
             } footer: {
-                if off { Text("Enable notifications in iOS Settings.").cmuxMobileTextColumn() }
+                if off { Text("Enable notifications in iOS Settings.") }
             }
             if !macs.isEmpty {
                 Section {
@@ -406,7 +405,7 @@ struct NotificationsPage: View {
                         .accessibilityIdentifier("settings.notifications.mac.\(mac.id)")
                     }
                 } header: {
-                    Text("Macs").cmuxMobileTextColumn()
+                    Text("Macs")
                 }
             }
             Section {
@@ -416,7 +415,6 @@ struct NotificationsPage: View {
                 Text(self.settings.notifyPreviews
                     ? "Notifications include the question or recent output."
                     : "The lock screen shows only who needs you and the Mac.")
-                    .cmuxMobileTextColumn()
             }
         }
         .disabled(off)

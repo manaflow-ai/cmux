@@ -71,6 +71,27 @@ struct AgentChatInUnshownPaneTests {
             #expect(controller.stripModel.selectedID == selected, "the person's selected tab changed")
         }
     }
+
+    /// A user-targeted pane action permits view changes, so the explicit pane still wins over
+    /// the untargeted top-page placement route.
+    @Test func aUserTargetedChatOpensInAShownPane() async throws {
+        try await PasswordManagerRouteTests.withApp { services, _ in
+            services.agentTabs.localHost = AgentSessionRef.host(installID: "cn-28064-target")
+            try #require(services.agentTabs.canHostChat, "this build has no agent page")
+            let window = try #require(services.windows.active)
+            let controller = try #require(window.focusedPane)
+            let tabs = controller.pane.tabs.count
+            let run = RegistryControlBridge(registry: services.registry).performActionTracked(
+                ControlActionRequest(actionID: "palette.newAgentChat",
+                                     target: ControlTargetRef(kind: "pane", id: controller.paneKey),
+                                     origin: ActionOrigin.user.rawValue)
+            )
+            #expect(run.outcome == .ran, "\(run.outcome)")
+            try await PasswordManagerRouteTests.until({ controller.pane.tabs.count > tabs },
+                                                      report: { "\(controller.pane.tabs.count) tabs, was \(tabs)" })
+        }
+    }
+
     /// The action's explicit folder reaches the created tab, rather than being dropped by the
     /// untargeted/targeted open paths. This observes the store's created tab after the action.
     @Test func aTargetedChatKeepsTheRequestedCwd() async throws {

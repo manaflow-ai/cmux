@@ -140,7 +140,12 @@ fn records_map_to_steps() {
             Some(4)
         ))
     );
-    for kind in ["auto_resume_settled", "auto_resume_exhausted", "auto_resume_skipped"] {
+    for kind in [
+        "auto_resume_settled",
+        "auto_resume_exhausted",
+        "auto_resume_skipped",
+        "auto_resume_stopped",
+    ] {
         assert_eq!(step_of(kind, &json!({"turnId": "t1"})), Some(Step::NoRetry), "{kind}");
     }
     assert_eq!(
@@ -156,6 +161,15 @@ fn records_map_to_steps() {
     assert_eq!(
         step_of("auto_resume_settled", &json!({"promptId": "handoff-9-a", "why": "off"})),
         Some(Step::NoRetryFor { turn: 9, why: "Automatic retry settled (off).".into() })
+    );
+    // A Stop's record names the prompt and turn only (`hub/auto_resume.rs`): it says the
+    // retry was stopped, not that a policy settled it (cmuxterm-hq#5311).
+    assert_eq!(
+        step_of(
+            "auto_resume_stopped",
+            &json!({"turnId": "t1", "promptId": "handoff-9-a~resume-1"})
+        ),
+        Some(Step::NoRetryFor { turn: 9, why: "Automatic retry stopped.".into() })
     );
     assert_eq!(step_of("agent_message_chunk", &json!({})), None);
 }
@@ -729,6 +743,19 @@ fn a_cause_in_the_raw_error_holds_the_turn() {
     };
     assert!(retried);
     assert_eq!(why, "The turn failed.");
+}
+
+/// A revoked token holds the turn too: a chat's first send goes again on it
+/// (`hub/auto_resume/first_send.rs`), and a later turn's is settled at once.
+#[test]
+fn a_revoked_token_holds_the_turn_for_its_first_send_retry() {
+    let msg = json!({"status": "failed", "error": "Failed to authenticate: OAuth token revoked",
+        "errorText": "Failed to authenticate: OAuth token revoked", "promptId": "handoff-1-a"});
+    let Some(Step::Ended(End::Failed { retried, .. }, Some(1))) = step_of("turn_result", &msg)
+    else {
+        panic!()
+    };
+    assert!(retried);
 }
 
 #[tokio::test]

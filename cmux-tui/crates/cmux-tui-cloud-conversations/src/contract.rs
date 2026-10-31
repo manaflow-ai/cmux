@@ -360,7 +360,13 @@ pub(crate) fn inbox_list_data(value: Value, revision: Value) -> Result<Value, Cl
         .filter(|entries| entries.is_array())
         .cloned()
         .ok_or_else(|| CloudError::Unavailable("inbox.list without entries".into()))?;
-    Ok(json!({"entries": entries, "revision": revision}))
+    // The owner's keyset cursor of the next page; null on the last page (and from an older owner).
+    let next_cursor = value
+        .get("next_cursor")
+        .filter(|cursor| cursor.is_string())
+        .cloned()
+        .unwrap_or(Value::Null);
+    Ok(json!({"entries": entries, "revision": revision, "next_cursor": next_cursor}))
 }
 
 /// `home.requests.list` data: `{requests}` with only rows whose

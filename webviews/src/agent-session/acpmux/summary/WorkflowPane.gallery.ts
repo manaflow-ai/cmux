@@ -60,7 +60,7 @@ export default agentPaneEntry({
   ],
   variants: {
     running: {
-      note: "Labs: a workflow running. The transcript has its card where it started (demo-name-tournament, Workflow · 6 agents · 13s, a dot per agent). Session Info's Background tasks lists it: 1 running · 2 queued · 3 done · 185k tokens, Brainstorm 3 done, Critique open with Model: Opus 5.5 and punchy running beside two Queued, then Up next: Judge.",
+      note: "Labs: a workflow running. The transcript has its card where it started (demo-name-tournament, Workflow · 6 agents · 13s, a dot per agent). Session Info's Background tasks lists it: 1 running · 2 queued · 3 done · 185k tokens, Brainstorm 3 done, Critique open with Model: Opus 5.5 and punchy running beside two Queued, then Judge as a plain pending row.",
       snapshot: paneSnapshot("running"),
       native,
       workflowLabs: true,

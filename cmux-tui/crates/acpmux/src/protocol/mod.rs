@@ -205,6 +205,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_MCP_RECONNECT, Request),
         untyped(method::MUX_SUBAGENT_STOP, Request),
         untyped(method::MUX_SUBAGENT_TRANSCRIPT, Request),
+        untyped(method::MUX_NATIVE_HISTORY, Request),
         untyped(method::MUX_WORKFLOWS, Request),
         untyped(method::MUX_APP_REPLY, Request),
         untyped(method::MUX_STATS, Request),
@@ -331,8 +332,13 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped("_acpmux/chat_settled", Request),
         untyped("_acpmux/chat_transcript", Request),
         untyped("_acpmux/chat_fork", Request),
+        untyped("_acpmux/chat_projects", Request),
         untyped("_acpmux/chat_changed", Notification),
         untyped("_acpmux/chats_lagged", Notification),
+        // A client's window over the chat index (`server/chat_windows.rs`).
+        untyped("_acpmux/chats_window", Request),
+        untyped("_acpmux/chats_window_close", Request),
+        untyped("_acpmux/chats_window_changed", Notification),
         // Moving a chat to another daemon (`transfer_out.rs`).
         untyped("_acpmux/transfer_abort", Request),
         untyped("_acpmux/transfer_begin", Request),
@@ -406,6 +412,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_MACHINE_CONSENT_GET, Request),
         untyped(method::MUX_MACHINE_CONSENT_REFUSED, Request),
         untyped(method::MUX_PAIR_REDEEM, Request),
+        untyped(method::MUX_TURN_ATTESTATION, Request),
         // Notifications.
         notification::<events::SessionEvent>(method::MUX_EVENT),
         notification::<MessageEvent>(method::MUX_MESSAGE),
@@ -417,6 +424,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_HARNESS_INVENTORY, Notification),
         untyped(method::MUX_START_MODE_CHANGED, Notification),
         untyped(method::MUX_PROMPT_ACCEPTED, Notification),
+        untyped(method::MUX_CANCEL_REFUSED, Notification),
         untyped("_acpmux/lagged", Notification),
         untyped(method::MUX_DISCONNECTED, ClientLocal),
     ]

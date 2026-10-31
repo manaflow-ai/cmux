@@ -131,21 +131,34 @@ fn an_unreachable_peer_reads_unknown_and_is_never_dropped() {
 #[test]
 fn warn_is_one_word_and_shows_only_while_a_row_has_one() {
     assert!(!compact(&[lane("a")]).contains("WARN"));
-    let warned = with(
-        lane("big"),
-        json!({"usageWarnings": [{"rule": "contextTokens"}, {"rule": "noAutocompactCap"}]}),
+    // Warnings as the daemon decides them (`hub/usage_warnings.rs`), for a row named `big`.
+    let stats = json!({"autocompact": "none", "contextTokens": 955_000, "subagents1h": 90});
+    let summary = json!({"name": "big", "status": "idle", "family": "claude", "usageStats": stats});
+    let warnings = crate::hub::usage_warnings::usage_warnings(
+        &summary,
+        &crate::config::UsageLimits::default(),
     );
+    let warned = with(lane("big"), json!({"usageWarnings": warnings}));
     let out = compact(&[lane("a"), warned.clone()]);
     assert!(out.lines().next().unwrap().ends_with("WARN"), "{out}");
     assert!(out.lines().any(|l| l.starts_with("big") && l.ends_with("warn")), "{out}");
     let wide = render(&[warned], Some(&[]), View { all: false, wide: true }, false, NOW);
-    assert!(wide.contains("contextTokens noAutocompactCap"), "{wide}");
+    // Wide names each rule with its number and the command that answers it.
+    assert!(
+        wide.contains(
+            "no-cap: lane-place rotate big --harness claude-sr2; \
+             ctx 955k: acpmux send big /compact | lane-place rotate big; \
+             90 sub/h: acpmux session cancel big"
+        ),
+        "{wide}"
+    );
 }
 
 #[test]
 fn wide_prints_every_column() {
     let out = render(&[lane("a")], Some(&[]), View { all: false, wide: true }, false, NOW);
-    assert_eq!(out.lines().next(), Some("NAME  AGENT   STATUS   TURNS  AGE  STUCK  LAST"), "{out}");
+    let header = "NAME  AGENT   STATUS   TURNS  AGE  STUCK  LAUNCHER  CAP  CTX  CMP  SUBS  TOK24H  $24H  LAST";
+    assert_eq!(out.lines().next(), Some(header), "{out}");
     assert!(out.lines().nth(1).unwrap().ends_with("a long brief"), "{out}");
 }
 
@@ -178,6 +191,33 @@ fn every_view_keeps_the_daemons_order() {
     assert_eq!(order(&all), ["newest", "old", "oldest"], "{all}");
     let filtered = render(&rows, Some(&[]), View::default(), true, NOW);
     assert_eq!(order(&filtered), ["newest", "old", "oldest"], "{filtered}");
+}
+
+#[test]
+fn wide_usage_cells_say_unknown_as_a_question_mark() {
+    let row = json!({"usageStats": {"launcher": "claude-sr2", "autocompact": "none",
+        "autocompactCap": null, "contextTokens": 312_400, "compactions24h": 3,
+        "subagentsLive": 4, "subagents24h": 90, "tokens24h": 1_234_567_890u64,
+        "costUsd24h": 1234.5}});
+    assert_eq!(usage(&row), ["claude-sr2", "none", "312k", "3", "4/90", "1234.6M", "$1234"]);
+    let capped = json!({"usageStats": {"autocompact": "capped", "autocompactCap": 200_000,
+        "contextTokens": 0, "compactions24h": 0, "subagentsLive": 0, "subagents24h": 0,
+        "tokens24h": 0, "costUsd24h": null, "launcher": "claude"}});
+    assert_eq!(usage(&capped), ["claude", "200k", "0", "0", "0/0", "0", "?"]);
+    // Read but not known (a cut first read, an adopted chat's flags): `?`, never 0.
+    let unread = json!({"usageStats": {"autocompact": "unknown", "autocompactCap": null,
+        "contextTokens": 9_000, "compactions24h": null, "subagentsLive": null,
+        "subagents24h": null, "tokens24h": null, "costUsd24h": null, "launcher": null}});
+    assert_eq!(usage(&unread), ["?", "?", "9k", "?", "?/?", "?", "?"]);
+    // A cap is known to be set but not its value: what is known, the rest `?`.
+    let set = json!({"usageStats": {"autocompact": "capped", "autocompactCap": null}});
+    assert_eq!(usage(&set)[1], "capped");
+    assert_eq!(usage(&json!({})), ["?", "?", "?", "?", "?/?", "?", "?"]);
+    // The wide table puts them before LAST; the compact one has none.
+    let out =
+        render(&[with(lane("a"), row)], Some(&[]), View { all: false, wide: true }, false, NOW);
+    assert!(out.lines().nth(1).unwrap().contains("claude-sr2  none  312k"), "{out}");
+    assert!(!compact(&[lane("a")]).contains("LAUNCHER"));
 }
 
 #[test]
