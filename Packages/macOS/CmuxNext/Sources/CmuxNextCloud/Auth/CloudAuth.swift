@@ -8,8 +8,8 @@ import CmuxNextCompat
 
 /// Stack Auth for cmux-next, composed from the kept `CmuxAuthRuntime`
 /// library exactly as the old app did (MacAuthComposition): the Keychain
-/// token store under the existing service name with the file fallback, the
-/// same `cmux.auth.*` defaults keys, `AuthCoordinator` for restore and
+/// token store with the file fallback and `cmux.auth.*` defaults keys (scoped
+/// to the staging project for signed NEXT DEV), `AuthCoordinator` for restore and
 /// tokens, and `HostBrowserSignInFlow` for the hosted browser sign-in.
 /// Tokens are never cached here; every API call asks the coordinator.
 @MainActor @Observable
@@ -100,9 +100,9 @@ public final class CloudAuth {
         let anchor = AuthPresentationContextProvider()
         coordinator = AuthCoordinator(
             client: client,
-            sessionCache: CMUXAuthSessionCache(keyValueStore: defaults, key: "cmux.auth.hasTokens"),
-            userCache: CMUXAuthIdentityStore(keyValueStore: defaults, key: "cmux.auth.cachedUser"),
-            teamSelection: CMUXAuthTeamSelectionStore(keyValueStore: defaults, key: "cmux.auth.selectedTeamID"),
+            sessionCache: CMUXAuthSessionCache(keyValueStore: defaults, key: configuration.authDefaultsKey("cmux.auth.hasTokens")),
+            userCache: CMUXAuthIdentityStore(keyValueStore: defaults, key: configuration.authDefaultsKey("cmux.auth.cachedUser")),
+            teamSelection: CMUXAuthTeamSelectionStore(keyValueStore: defaults, key: configuration.authDefaultsKey("cmux.auth.selectedTeamID")),
             anchor: anchor,
             config: config,
             launch: AuthLaunchOptions(clearAuthRequested: false, mockDataEnabled: false, environment: launchEnvironment,
