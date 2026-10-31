@@ -651,7 +651,6 @@ pub(super) async fn handle_request(
     // peer; every check below reads the route it found (`hub/key_route.rs`).
     if conn.origin == Origin::Local {
         route_bare_key(hub, m, &mut params)?;
-
     }
     // The pane's fork through a turn is a session/fork, checked as one from
     // here on (`fork_through.rs`).
@@ -1981,17 +1980,22 @@ async fn dispatch_request(
         }
         method::MUX_ATTACH => {
             let s = hub.resolve(session_key(&params)?)?;
+            let hidden = params.get("visible") == Some(&Value::Bool(false));
             // A restart reads the chat logs after its ready line: the queue, turn and status
-            // shown here come from this chat's (`hub/log_load.rs`).
+            // shown here come from this chat's (`hub/log_load.rs`). A chat opened on screen
+            // reads it, and its first page below, ahead of agent work (`qos.rs`).
             // A visible page asks for the newest records immediately (`waitLogs:false`); waiting
             // for the full restore here made a restarted long chat blank for tens of seconds.
             // Callers that need authoritative queue/status details keep the old default.
             if params.get("waitLogs").and_then(Value::as_bool) != Some(false) {
-                hub.session_log(&s).await;
+                if hidden {
+                    hub.session_log(&s).await;
+                } else {
+                    hub.session_log_on_screen(&s).await;
+                }
             }
             let filter = crate::hub::EventFilter::parse(params.get("kinds"))?;
             let event_stream = params.get("eventStream").and_then(Value::as_bool).unwrap_or(false);
-            let hidden = params.get("visible") == Some(&Value::Bool(false));
             // Opening a hibernated chat on screen wakes its agent (`hub/idle.rs`).
             if !hidden {
                 hub.wake_for(&s, super::trust_gate::for_web(conn.origin, &params), "click");
@@ -2018,8 +2022,8 @@ async fn dispatch_request(
             // (`store/superseded.rs`); the live stream is unchanged.
             let page_filter =
                 filter.omitting_superseded(params.get("maxBytes").is_some_and(|b| !b.is_null()));
-            let page = hub
-                .events_page(
+            let read = || {
+                hub.events_page(
                     &s.id,
                     after.unwrap_or(0),
                     before,
@@ -2028,6 +2032,8 @@ async fn dispatch_request(
                     newest,
                     &page_filter,
                 )
+            };
+            let page = if hidden { read() } else { crate::qos::on_screen(read) }
                 .map_err(|e| RpcError::internal(e.to_string()))?;
             // The newest page holds to the log's end; a page of older records, or a forward one
             // with more to read, only to its own last record.
