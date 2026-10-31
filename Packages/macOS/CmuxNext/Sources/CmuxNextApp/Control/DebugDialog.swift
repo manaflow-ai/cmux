@@ -1,6 +1,7 @@
 import CmuxNextCloudUI
 import AppKit
 import CmuxNextAgentPane
+import CmuxNextCredentialVault
 import CmuxNextDesign
 import CmuxNextMobileHost
 import CmuxNextOnboarding
@@ -28,7 +29,19 @@ enum DebugDialog {
     /// link's new tab (any page or app can open the link).
     static let userOnly: Set<String> = [ClipboardReadStrings.identifier, AgentPaneView.harnessEnableIdentifier, CloudPresenter.createConfirmIdentifier, CloudPresenter.environmentConfirmIdentifier, CloudPresenter.credentialRecoveryIdentifier, CloudPresenter.codexDeviceCodeIdentifier,
                                         CloudWorkspaceSetupWizard.credentialDialogIdentifier, DaemonPairingStrings.identifier, IPhoneHostService.pairDialogIdentifier, ExternalLinkGate.sshDialogIdentifier,
-                                        SessionLinkGate.dialogIdentifier]
+                                        SessionLinkGate.dialogIdentifier, CredentialVault.entrySheetIdentifier,
+                                        CredentialVault.approvalSheetIdentifier, CredentialVaultPageRoute.deleteDialogIdentifier]
+
+    /// The refusal every synthetic-input verb (`debug.mouse`, `debug.key`, `debug.view_key`,
+    /// `debug.agent_cursor.click_tag`) returns while a dialog only the person answers is open, in
+    /// any window: a scripted click or key could press its button or type into its field (a Credential
+    /// Vault approval releases a secret). Nil when none is open.
+    static var userOnlyInputRefusal: JSONValue? {
+        guard CmuxDialogCenter.shared.records.contains(where: { $0.visible && $0.spec.identifier.map(userOnly.contains) == true }) else { return nil }
+        return .object(["error": .string("a dialog that answers only to the user is open")])
+    }
+
+    static func secureFields(_ spec: CmuxDialogSpec) -> Set<String> { CmuxDialogDebug().secureFields(spec) }
 
     static func run(_ params: [String: JSONValue], _ services: AppServices) -> JSONValue {
         let center = CmuxDialogCenter.shared
@@ -80,12 +93,12 @@ enum DebugDialog {
                 }
             }
             if let name = params["key"]?.stringValue {
-                result["key"] = .bool(key(name).map { center.key($0.0, modifiers: $0.1, in: target) } ?? false)
+                result["key"] = .bool(CmuxDialogDebug().key(name).map { center.key($0.0, modifiers: $0.1, in: target) } ?? false)
             }
             if let button = params["press"]?.stringValue { result["pressed"] = .bool(center.press(target, button: button)) }
             if params["dismiss"]?.boolValue == true { result["dismissed"] = .bool(center.dismiss(target)) }
         }
-        result["dialogs"] = .array(center.records.map { report($0, view: center.view($0.id)) })
+        result["dialogs"] = .array(center.records.map { JSONValue(foundation: CmuxDialogDebug().report($0, view: center.view($0.id))) ?? .null })
         return .object(result)
     }
 
@@ -103,51 +116,6 @@ enum DebugDialog {
         return JSONValue(foundation: report) ?? .null
     }
 
-    private static func key(_ name: String) -> (CmuxDialogKeys.Key, CmuxDialogKeys.Modifiers)? {
-        switch name {
-        case "return": return (.return, [])
-        case "escape": return (.escape, [])
-        case "tab": return (.tab, [])
-        case "shift-tab": return (.tab, .shift)
-        default:
-            guard name.hasPrefix("cmd-"), name.count == 5, let character = name.last else { return nil }
-            return (.character(character), .command)
-        }
-    }
-
-    private static func report(_ record: CmuxDialogCenter.Record, view: CmuxDialogView?) -> JSONValue {
-        var values: [String: JSONValue] = [:]
-        for (field, value) in record.values {
-            switch value {
-            case .text(let text): values[field] = .string(text)
-            case .bool(let on): values[field] = .bool(on)
-            }
-        }
-        var object: [String: JSONValue] = [
-            "id": .number(Double(record.id)), "title": .string(record.spec.title),
-            "identifier": record.spec.identifier.map { .string($0) } ?? .null,
-            "lines": .array(record.spec.lines.map { .string($0) }), "scope": .string(record.scope),
-            "visible": .bool(record.visible), "values": .object(values),
-            "buttons": .array(record.spec.buttons.map { button in
-                .object(["id": .string(button.id), "title": .string(button.title), "role": .string(button.role.rawValue),
-                         "key": button.key.map { .string(String($0)) } ?? .null])
-            }),
-        ]
-        if let origin = record.spec.origin { object["origin"] = .string(origin) }
-        // Each choice field's options (label and value), so a check can read what a menu offers.
-        var options: [String: JSONValue] = [:]
-        for case .choice(let id, _, let choices, _) in record.spec.fields {
-            options[id] = .array(choices.map { .object(["label": .string($0.label), "value": .string($0.value)]) })
-        }
-        if !options.isEmpty { object["options"] = .object(options) }
-        if let view, view.window != nil {
-            let frame = view.convert(view.bounds, to: nil)
-            object["frame"] = .array([frame.minX, frame.minY, frame.width, frame.height].map { .number(Double($0)) })
-            object["window"] = .number(Double(view.window?.windowNumber ?? 0))
-        }
-        return .object(object)
-    }
-
     /// Debug-only fixtures (English only: they never ship).
     private static func codexRecoveryFixture(body: String) -> CmuxDialogSpec {
         CmuxDialogSpec(title: "Set up Codex on paint?",
@@ -157,35 +125,11 @@ enum DebugDialog {
     }
 
     private static func fixtures(origin: String?) -> [String: CmuxDialogSpec] {
-        [
+        CmuxDialogDebug().fixtures(origin: origin).merging([
             // Inert native auth fixtures: no account, VM, browser, or credentials are accessed.
             "cloudCodexDevice": CloudPresenter.codexDeviceDialogSpec(code: "DEMO-CODE"),
             "cloudCodexRecovery": codexRecoveryFixture(body: CloudPresenter.codexBrokerDisclosure),
             "cloudCodexRecoveryBefore": codexRecoveryFixture(body: "cmux will start a fresh Codex device login in a visible local terminal for this VM. Codex refresh credentials are never copied between VMs; Codex requires a separate sign-in for each VM."),
-            "confirm": CmuxDialogSpec(title: "Close Workspace “api”?", lines: ["vim and npm are still running."],
-                                      buttons: [.cancel(), CmuxDialogButton(id: "close", title: "Close", role: .destructive)],
-                                      identifier: "cmux.dialog.fixture.confirm"),
-            "text": CmuxDialogSpec(title: "Rename Tab", fields: [.text("name", initial: "zsh")],
-                                   buttons: [.cancel(), CmuxDialogButton(id: "rename", title: "Rename", role: .default)],
-                                   identifier: "cmux.dialog.fixture.text"),
-            "credentials": CmuxDialogSpec(
-                title: "Sign in to example.com", lines: ["The server asks for a user name and password."],
-                origin: origin ?? "https://example.com",
-                fields: [.text("user", label: "User Name"),
-                         .text(id: "password", label: "Password", initial: "", placeholder: nil, secure: true)],
-                buttons: [.cancel(), CmuxDialogButton(id: "sign-in", title: "Sign In", role: .default)],
-                identifier: "cmux.dialog.fixture.credentials"),
-            "save": CmuxDialogSpec(title: "Save changes to “notes.md”?", lines: ["Your changes are lost if you do not save them."],
-                                   buttons: [CmuxDialogButton(id: "dont-save", title: "Don't Save", role: .destructive, key: "d"),
-                                             .cancel(), CmuxDialogButton(id: "save", title: "Save", role: .default)],
-                                   identifier: "cmux.dialog.fixture.save"),
-            "choice": CmuxDialogSpec(title: "Choose a Region", fields: [
-                .choice(id: "region", label: nil, options: [CmuxDialogOption(label: "US West", value: "us-west"),
-                                                            CmuxDialogOption(label: "EU Central", value: "eu-central")],
-                        selected: "us-west"),
-                .check(id: "remember", title: "Don't ask again", on: false),
-            ], buttons: [.cancel(), CmuxDialogButton(id: "select", title: "Select", role: .default)],
-            identifier: "cmux.dialog.fixture.choice"),
             // Gallery variants keep the setup surface reviewable without provisioning a VM.
             "cloudWorkspaceEmpty": CloudWorkspaceSetupWizard.setupDialogSpec(source: .empty),
             "cloudWorkspaceRepository": CloudWorkspaceSetupWizard.setupDialogSpec(source: .repository, repository: "octo/paint"),
@@ -220,7 +164,7 @@ enum DebugDialog {
             // Move Sessions from Another cmux Build (session.moveFromBuild), with no other build running.
             "sessionMove": SessionMoveSelection(peers: [moveFixturePeer]).dialog,
             "sessionMoveEnd": SessionMoveSelection.endTerminalsDialog(for: ["~/code/app"]),
-        ]
+        ]) { _, feature in feature }
     }
 
     /// A build with a chat, an agent, an idle terminal, a busy one and one that did not say.

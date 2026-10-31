@@ -233,6 +233,8 @@ export type HostLists = {
   web_updates?: WebUpdatesState | null;
   /** Settings > Chief > Voice input: the Debug toggle home.voiceInput; null where it does not exist (Release). */
   voice_input?: { on: boolean } | null;
+  /** Settings > Chief > Credential Vault (cmux issue 26412): every secret's record, never a value. */
+  credential_vault?: CredentialVaultState | null;
   /** Settings > Menus: every right-click menu's rows and the person's arrangement of it. */
   context_menus?: ContextMenusHostState;
   /**
@@ -354,6 +356,28 @@ export type WebUpdateVersion = { commit: string; committed_at: number };
  * built-in web UI), `active` the one served from the next safe point, `pending` what that safe point
  * swaps in, `refusal` why the newest update was not taken.
  */
+/** Who may use a vault secret: the person's terminals and CLI, and agents (agent sessions, the Chief). */
+export type CredentialVaultConsumer = "user" | "agents";
+
+/** One vault secret's record: its name, scope and uses. The value never leaves the Keychain. */
+export type CredentialVaultSecret = {
+  name: string;
+  scope: CredentialVaultConsumer[];
+  note: string | null;
+  created_ms: number;
+  updated_ms: number;
+  last_used_ms: number | null;
+  last_used_by: string | null;
+  uses: number;
+};
+
+export type CredentialVaultState = {
+  loaded: boolean;
+  /** Why the vault's index cannot be read, in the person's words. */
+  error: string | null;
+  secrets: CredentialVaultSecret[];
+};
+
 export type WebUpdatesState = {
   channel: "every-merge" | "nightly" | "off";
   phase: "idle" | "checking" | "downloading" | "failed";
@@ -989,6 +1013,14 @@ export type SettingsOps = {
   "cmux.settings.web_updates.rollback": [Record<string, never>, Record<string, never>];
   /** Native: Settings > Chief > Voice input's switch writes home.voiceInput (the person's gesture only). */
   "cmux.settings.voice_input.set": [{ on: boolean }, Record<string, never>];
+  /** Native: Chief > Credential Vault's Add (the secure entry sheet; the value goes to the Keychain). */
+  "cmux.settings.credential_vault.add": [Record<string, never>, { done: boolean }];
+  /** Native: a vault row's Replace (the secure entry sheet for that name). */
+  "cmux.settings.credential_vault.replace": [{ name: string }, { done: boolean }];
+  /** Native: a vault row's Delete, after a native confirmation. */
+  "cmux.settings.credential_vault.remove": [{ name: string }, { done: boolean }];
+  /** Native: who may use a vault secret (the row's Agents switch). */
+  "cmux.settings.credential_vault.scope": [{ name: string; scope: CredentialVaultConsumer[] }, { done: boolean }];
   /** Native: Settings > Menus saves a menu's arrangement; null (Reset) removes it (the person's gesture only). */
   "cmux.settings.context_menus.set": [{ menu: string; layout: MenuLayout | null }, Record<string, never>];
   /** Native: Settings > Menus turns Customize Menu… at the end of every menu on or off. */

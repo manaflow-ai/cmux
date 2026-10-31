@@ -227,6 +227,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextFilesUI",
                 "CmuxNextVSCodeServer",
                 "CmuxNextKeepAwake",
+                "CmuxNextCredentialVault",
                 "CmuxNextChromiumWarmup",
                 "CmuxNextChromiumRuntime",
                 "CmuxNextBrowserTabs",
@@ -567,6 +568,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextHome",
             dependencies: [
+                "CmuxNextCredentialVault",
                 "CmuxNextCompat", "CmuxNextDesign", "CmuxNextDictation", "CmuxNextIcons", "CmuxNextWakeups",
                 .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
                 .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
@@ -817,6 +819,22 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .testTarget(
             name: "CmuxNextKeepAwakeTests",
             dependencies: ["CmuxNextKeepAwake", "CmuxNextSettings"],
+            swiftSettings: uiSwiftSettings
+        ),
+        // The Credential Vault (cmux issue 26412): named secrets in the app's Keychain items that
+        // agents use by name (`cmux vault`), the `vault.*` control methods and the secure entry sheet.
+        .target(
+            name: "CmuxNextCredentialVault",
+            dependencies: ["CmuxNextCompat", "CmuxNextControl", "CmuxNextDesign", "CmuxNextDesignTokens", "CmuxNextPages", "CmuxNextSettings"],
+            resources: [
+                .process("Resources"),
+            ],
+            swiftSettings: uiSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextCredentialVaultTests",
+            dependencies: ["CmuxNextActions", "CmuxNextCompat", "CmuxNextControl", "CmuxNextCredentialVault", "CmuxNextDesign", "CmuxNextPages",
+                           "CmuxNextSettings"],
             swiftSettings: uiSwiftSettings
         ),
         // Host pressure (cmuxterm-hq#2995): the shared host budget's verdict (acpmux's
@@ -1686,6 +1704,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextCookieImport",
                 "CmuxNextCopyMode",
                 "CmuxNextCrashReporting",
+                "CmuxNextCredentialVault",
                 "CmuxNextDaemon",
                 "CmuxNextDaemonRecovery",
                 "CmuxNextDaemonService",

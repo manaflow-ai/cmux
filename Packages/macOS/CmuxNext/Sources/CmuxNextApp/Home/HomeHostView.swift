@@ -2,6 +2,7 @@ import AppKit
 import CmuxHomeCore
 import CmuxHomeRender
 import CmuxNextCompat
+import CmuxNextCredentialVault
 import CmuxNextDaemon
 import CmuxNextActions
 import CmuxNextChiefMemory
@@ -14,6 +15,7 @@ import CmuxNextPages
 import CmuxNextSidebar
 import CmuxNextWakeups
 import ImageIO
+import MessagesLabHome
 
 /// A conversation tab's content (`conversation-tabs-v1`, home.md 7): the
 /// native AppKit transcript (`HomeNativeTranscriptView`, MessagesLab's code,
@@ -155,6 +157,7 @@ final class HomeHostView: NSView {
             if url.isFileURL, url.path.hasPrefix("/") { fileActions?.open(URL(fileURLWithPath: url.path)); return }
             if let services { CmuxAppLinks.open(url, services: services) }
         }
+        transcript.connectCredentialVault(vault: services.credentialVault) { [weak services] in services?.windows.active?.window }
         // A link chip's hover card: the app's one coordinator, the target's live facts.
         transcript.enableLinkPreviews(coordinator: services.hoverCards, previewer: HomeLinkPreviewProvider(services: services))
         // Beside the pane showing this chat (the Home dock's: the first pane on its right), never the focused pane.

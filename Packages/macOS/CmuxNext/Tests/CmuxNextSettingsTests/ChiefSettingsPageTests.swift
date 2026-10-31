@@ -23,7 +23,7 @@ struct ChiefSettingsPageTests {
         let categories = SettingsPageLayout().categories()
         let chief = try #require(categories.first { $0.spec.id == "chief" })
         let notifications = try #require(categories.first { $0.spec.id == "notifications" })
-        #expect(chief.spec.trail == [.notices])
+        #expect(chief.spec.trail == [.credentialVault, .notices], "the Credential Vault card, then the Notices link")
         let shared = Set(chief.groups.flatMap(\.rows)).intersection(notifications.groups.flatMap(\.rows))
         #expect(shared.isEmpty, "Notifications' rows stay on Notifications")
     }

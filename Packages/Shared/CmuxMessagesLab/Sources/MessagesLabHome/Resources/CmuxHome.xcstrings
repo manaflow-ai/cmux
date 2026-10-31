@@ -1710,6 +1710,268 @@
         }
       }
     },
+    "home.send.secretHeld": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This message holds what looks like an API key or token. Move it to the Credential Vault, or press Return again to send it as it is."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تحتوي هذه الرسالة على ما يبدو أنه مفتاح API أو رمز مميز. انقله إلى خزنة بيانات الاعتماد، أو اضغط على مفتاح الإدخال مرة أخرى لإرسالها كما هي."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ova poruka sadrži nešto što izgleda kao API ključ ili token. Premjestite ga u Trezor akreditiva ili ponovo pritisnite Return da je pošaljete takvu kakva jeste."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne besked indeholder noget, der ligner en API-nøgle eller et token. Flyt det til boksen med loginoplysninger, eller tryk på Retur igen for at sende den, som den er."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Nachricht enthält etwas, das wie ein API-Schlüssel oder Token aussieht. Verschiebe es in den Anmeldedaten-Tresor oder drücke erneut den Zeilenschalter, um sie unverändert zu senden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este mensaje contiene lo que parece una clave de API o un token. Muévelo al almacén de credenciales o pulsa Retorno de nuevo para enviarlo tal cual."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce message contient ce qui ressemble à une clé d’API ou à un jeton. Déplacez-le vers le coffre d’identifiants, ou appuyez de nouveau sur Retour pour l’envoyer tel quel."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questo messaggio contiene quella che sembra una chiave API o un token. Spostala nella cassaforte delle credenziali oppure premi di nuovo A capo per inviarlo così com’è."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このメッセージには API キーまたはトークンのようなものが含まれています。認証情報ボールトに移動するか、もう一度 return キーを押してそのまま送信してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សារនេះមានអ្វីដែលមើលទៅដូចជាកូនសោ API ឬថូខឹន។ ផ្លាស់ទីវាទៅឃ្លាំងព័ត៌មានផ្ទៀងផ្ទាត់ ឬចុច Return ម្ដងទៀតដើម្បីផ្ញើវាដូចដើម។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 메시지에 API 키나 토큰으로 보이는 내용이 있습니다. 자격 증명 보관함으로 이동하거나 Return 키를 다시 눌러 그대로 보내세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne meldingen inneholder noe som ser ut som en API-nøkkel eller et token. Flytt det til påloggingshvelvet, eller trykk på Retur igjen for å sende den som den er."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ta wiadomość zawiera coś, co wygląda na klucz API lub token. Przenieś go do sejfu danych logowania albo ponownie naciśnij Return, aby wysłać ją bez zmian."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta mensagem contém o que parece ser uma chave de API ou um token. Mova para o Cofre de credenciais ou pressione Return de novo para enviá-la como está."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Это сообщение содержит что-то похожее на ключ API или токен. Переместите его в хранилище учетных данных или снова нажмите Return, чтобы отправить сообщение как есть."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ข้อความนี้มีสิ่งที่ดูเหมือนคีย์ API หรือโทเค็น ย้ายไปยังห้องนิรภัยข้อมูลรับรอง หรือกด Return อีกครั้งเพื่อส่งตามเดิม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu mesaj API anahtarı veya belirteç gibi görünen bir şey içeriyor. Bunu Kimlik Bilgisi Kasası'na taşıyın ya da mesajı olduğu gibi göndermek için Return tuşuna yeniden basın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Це повідомлення містить щось схоже на ключ API або токен. Перемістіть його до сховища облікових даних або знову натисніть Return, щоб надіслати повідомлення як є."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tin nhắn này chứa nội dung trông giống khóa API hoặc token. Chuyển nó vào Kho thông tin xác thực, hoặc nhấn Return lần nữa để gửi nguyên trạng."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此消息包含疑似 API 密钥或令牌的内容。将它移到凭据保险库，或再次按 Return 键按原样发送。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此訊息包含疑似 API 金鑰或權杖的內容。將它移到憑證保險庫，或再按一次 Return 鍵按原樣傳送。"
+          }
+        }
+      }
+    },
+    "home.send.secretMoved": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Moved to the Credential Vault as %@. The message now names it instead."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم نقله إلى خزنة بيانات الاعتماد باسم %@. تشير الرسالة الآن إلى الاسم بدلًا منه."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Premješteno u Trezor akreditiva kao %@. Poruka sada umjesto toga navodi naziv."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Flyttet til boksen med loginoplysninger som %@. Beskeden nævner det nu ved navn i stedet."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In den Anmeldedaten-Tresor verschoben als %@. Die Nachricht nennt jetzt stattdessen den Namen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se movió al almacén de credenciales como %@. Ahora el mensaje muestra el nombre en su lugar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Déplacé vers le coffre d’identifiants sous le nom %@. Le message indique désormais ce nom à la place."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spostato nella cassaforte delle credenziali come %@. Ora il messaggio riporta invece il nome."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ として認証情報ボールトに移動しました。メッセージには代わりにその名前が入ります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បានផ្លាស់ទីទៅឃ្លាំងព័ត៌មានផ្ទៀងផ្ទាត់ជា %@។ ឥឡូវសារបង្ហាញឈ្មោះជំនួសវិញ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "자격 증명 보관함에 %@(으)로 이동했습니다. 이제 메시지에는 대신 이름이 표시됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Flyttet til påloggingshvelvet som %@. Meldingen nevner det nå ved navn i stedet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przeniesiono do sejfu danych logowania jako %@. Wiadomość zawiera teraz zamiast tego nazwę."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Movido para o Cofre de credenciais como %@. Agora a mensagem cita o nome no lugar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перемещено в хранилище учетных данных как %@. Теперь вместо этого в сообщении указано имя."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ย้ายไปยังห้องนิรภัยข้อมูลรับรองในชื่อ %@ แล้ว ตอนนี้ข้อความจะแสดงชื่อแทน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kimlik Bilgisi Kasası'na %@ adıyla taşındı. Mesaj artık bunun yerine adı içeriyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Переміщено до сховища облікових даних як %@. Тепер замість цього в повідомленні вказано назву."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đã chuyển vào Kho thông tin xác thực với tên %@. Tin nhắn giờ chỉ ghi tên thay vào đó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已移到凭据保险库，名称为 %@。消息现在改为显示该名称。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已移到憑證保險庫，名稱為 %@。訊息現在改為顯示該名稱。"
+          }
+        }
+      }
+    },
     "home.thread.rootNotReady": {
       "extractionState": "manual",
       "localizations": {
@@ -7795,6 +8057,137 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "計畫 · %lld 項進行中"
+          }
+        }
+      }
+    },
+    "home.send.secretNotOffered": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This message still holds what looks like an API key or token, and the Credential Vault could not take it now. Remove it from the message to send."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا تزال هذه الرسالة تحتوي على ما يبدو أنه مفتاح API أو رمز مميز، ولم تتمكن خزنة بيانات الاعتماد من أخذه الآن. أزله من الرسالة لإرسالها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ova poruka još sadrži nešto što liči na API ključ ili token, a Trezor akreditiva ga sada ne može preuzeti. Uklonite ga iz poruke da biste je poslali."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne besked indeholder stadig noget, der ligner en API-nøgle eller et token, og Legitimationsboksen kunne ikke tage det nu. Fjern det fra beskeden for at sende den."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Nachricht enthält noch etwas, das wie ein API-Schlüssel oder Token aussieht, und der Anmeldedaten-Tresor konnte ihn gerade nicht übernehmen. Entferne ihn aus der Nachricht, um sie zu senden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este mensaje aún contiene lo que parece una clave de API o un token, y la Bóveda de credenciales no pudo guardarlo ahora. Quítalo del mensaje para enviarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce message contient encore ce qui ressemble à une clé d’API ou à un jeton, et le Coffre d’identifiants n’a pas pu le prendre pour l’instant. Retirez-le du message pour l’envoyer."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questo messaggio contiene ancora quella che sembra una chiave API o un token, e la Cassaforte delle credenziali non ha potuto prenderla ora. Rimuovila dal messaggio per inviarlo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このメッセージには API キーまたはトークンのようなものがまだ含まれており、資格情報保管庫は今それを受け取れませんでした。送信するにはメッセージから削除してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សារនេះនៅតែមានអ្វីដែលមើលទៅដូចជាកូនសោ API ឬថូខឹន ហើយឃ្លាំងព័ត៌មានសម្ងាត់មិនអាចយកវាបានឥឡូវនេះទេ។ ដកវាចេញពីសារដើម្បីផ្ញើ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 메시지에 아직 API 키나 토큰으로 보이는 내용이 있으며, 자격 증명 보관함이 지금 이를 받을 수 없었습니다. 보내려면 메시지에서 제거하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne meldingen inneholder fortsatt noe som ser ut som en API-nøkkel eller et token, og Legitimasjonshvelvet kunne ikke ta det nå. Fjern det fra meldingen for å sende den."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ta wiadomość nadal zawiera coś, co wygląda na klucz API lub token, a Sejf poświadczeń nie mógł go teraz przyjąć. Usuń go z wiadomości, aby ją wysłać."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta mensagem ainda contém o que parece ser uma chave de API ou um token, e o Cofre de credenciais não conseguiu recebê-lo agora. Remova-o da mensagem para enviá-la."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В этом сообщении всё ещё есть то, что похоже на ключ API или токен, а Хранилище учётных данных не смогло принять его сейчас. Удалите его из сообщения, чтобы отправить."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ข้อความนี้ยังมีสิ่งที่ดูเหมือนคีย์ API หรือโทเค็น และห้องนิรภัยข้อมูลรับรองรับไว้ไม่ได้ในตอนนี้ ลบออกจากข้อความเพื่อส่ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu mesaj hâlâ API anahtarı veya belirtece benzeyen bir şey içeriyor ve Kimlik Bilgisi Kasası şu anda onu alamadı. Göndermek için mesajdan kaldırın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Це повідомлення досі містить те, що схоже на ключ API або токен, а Сховище облікових даних не змогло прийняти його зараз. Видаліть його з повідомлення, щоб надіслати."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tin nhắn này vẫn chứa thứ trông giống khóa API hoặc mã thông báo, và Kho thông tin xác thực hiện không thể nhận nó. Hãy xóa nó khỏi tin nhắn để gửi."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此消息仍包含看起来像 API 密钥或令牌的内容，凭据保险库暂时无法接收它。请从消息中删除后再发送。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此訊息仍包含看起來像 API 金鑰或權杖的內容，憑證保險庫目前無法接收它。請從訊息中移除後再傳送。"
           }
         }
       }

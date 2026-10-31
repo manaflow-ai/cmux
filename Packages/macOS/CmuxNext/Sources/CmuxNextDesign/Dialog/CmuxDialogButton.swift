@@ -19,12 +19,18 @@ public nonisolated struct CmuxDialogButton: Equatable, Sendable {
     public var role: Role
     /// A lowercase character pressed with Command ("d" for Don't Save).
     public var key: Character?
+    /// Only a pointer click presses it: no key (Return, Escape, Space,
+    /// Command) and no keyboard focus, so typing that was meant for another
+    /// view when the dialog appeared cannot answer it (approvals); nor can a click within half a
+    /// second of it appearing (``CmuxDialogButtonView``).
+    public var clickOnly: Bool
 
-    public init(id: String, title: String, role: Role = .normal, key: Character? = nil) {
+    public init(id: String, title: String, role: Role = .normal, key: Character? = nil, clickOnly: Bool = false) {
         self.id = id
         self.title = title
         self.role = role
         self.key = key
+        self.clickOnly = clickOnly
     }
 
     public static func ok(_ title: String = CmuxDialogStrings.ok) -> CmuxDialogButton {

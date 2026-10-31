@@ -38,6 +38,7 @@ enum DebugCloudMachineFixture {
     }
 
     static func show(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
+        if let refusal = DebugDialog.userOnlyInputRefusal { return refusal }
         let name = params["name"]?.stringValue ?? defaultName
         let machine = MachineID(name)
         guard let controller = services.windows.controllers.first(where: { c in params["window"]?.stringValue.map { $0 == c.state.id } ?? true })

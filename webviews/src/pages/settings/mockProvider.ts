@@ -25,6 +25,8 @@ import {
   type ChannelSwitch,
   type ChannelsState,
   type AccountsState,
+  type CredentialVaultConsumer,
+  type CredentialVaultSecret,
   type DevicesJoinState,
   type DevicesRelay,
   type CloudEnvironmentsRun,
@@ -122,6 +124,21 @@ export const mockDomains: Domains = {
 export const mockManagedKey = "browser.remoteLocalhost";
 
 type Params = Record<string, unknown>;
+
+/** The fixtures' clock: 2026-10-27 12:00 UTC. */
+const MOCK_NOW_MS = Date.UTC(2026, 9, 27, 12);
+
+/** A vault secret every consumer may use, never used. */
+const mockSecret = (name: string): CredentialVaultSecret => ({
+  name,
+  scope: ["user", "agents"],
+  note: null,
+  created_ms: MOCK_NOW_MS - 86_400_000,
+  updated_ms: MOCK_NOW_MS - 86_400_000,
+  last_used_ms: null,
+  last_used_by: null,
+  uses: 0,
+});
 
 const cmuxButton = (id: string, title: string, destructive = false) => ({
   id,
@@ -338,6 +355,20 @@ export class MockSettingsProvider {
         if (this.host.voice_input) this.setHost({ ...this.host, voice_input: { on: params.on === true } });
         return {};
       },
+      // Chief > Credential Vault: the host's sheets answer at once here (Add saves a fixed name).
+      "cmux.settings.credential_vault.add": () => this.updateVault((secrets) => [...secrets, mockSecret("NEW_TOKEN")]),
+      "cmux.settings.credential_vault.replace": (params) =>
+        this.updateVault((secrets) =>
+          secrets.map((secret) => (secret.name === params.name ? { ...secret, updated_ms: MOCK_NOW_MS } : secret)),
+        ),
+      "cmux.settings.credential_vault.remove": (params) =>
+        this.updateVault((secrets) => secrets.filter((secret) => secret.name !== params.name)),
+      "cmux.settings.credential_vault.scope": (params) =>
+        this.updateVault((secrets) =>
+          secrets.map((secret) =>
+            secret.name === params.name ? { ...secret, scope: params.scope as CredentialVaultConsumer[] } : secret,
+          ),
+        ),
       // Agents > Chiefs (ChiefsCard): the host's page relay to the Chief owner and harness center.
       "cmux.chief.profile.list": () => ({ chiefs: this.chiefs }),
       "cmux.chief.profile.avatar.get": (params) => ({ avatar: this.chiefAvatars.get(params.chief as string) ?? null }),
@@ -1001,6 +1032,19 @@ export class MockSettingsProvider {
     },
     // A DEV build: the home.voiceInput tunable exists, on as Leo set it.
     voice_input: { on: true },
+    credential_vault: {
+      loaded: true,
+      error: null,
+      secrets: [
+        {
+          ...mockSecret("GH_TOKEN"),
+          last_used_ms: MOCK_NOW_MS - 3_600_000,
+          last_used_by: "agent session 4f2a",
+          uses: 12,
+        },
+        { ...mockSecret("OPENAI_API_KEY"), scope: ["user"], note: "work account" },
+      ],
+    },
     context_menus: mockContextMenus(),
     browser_profiles: [
       { id: "p-default", name: "Default", color: null, icon: null, is_default: true, source: null },
@@ -1188,6 +1232,13 @@ export class MockSettingsProvider {
       this.domains = { ...this.domains, themes: [...this.domains.themes, theme.name].sort() };
     }
     return { name: theme.name };
+  }
+
+  /** Applies a Credential Vault gesture to the host lists, as the app's board re-sends them. */
+  private updateVault(change: (secrets: CredentialVaultSecret[]) => CredentialVaultSecret[]): { done: boolean } {
+    const vault = this.host.credential_vault;
+    if (vault) this.setHost({ ...this.host, credential_vault: { ...vault, secrets: change(vault.secrets) } });
+    return { done: true };
   }
 
   setHost(host: HostLists): void {

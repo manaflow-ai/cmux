@@ -60,6 +60,8 @@ mod host_mount;
 mod internal;
 mod launch_credential;
 mod lifecycle;
+#[cfg(unix)]
+mod vault;
 // Like the other scopes its dispatch is in (`run`, `#[cfg(unix)]`): Unix only.
 #[cfg(unix)]
 mod sandbox_run;
@@ -477,6 +479,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| vm::run_if_requested(args))
         .or_else(|| vnc::run_if_requested(args))
         .or_else(|| cloud_secret::run_if_requested(args))
+        .or_else(|| vault::run_if_requested(args))
         .or_else(|| cloud_client_session::run_if_requested(args))
         .or_else(|| machine_join::run_if_requested(args))
         .or_else(|| machine_doctor::run_if_requested(args))

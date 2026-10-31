@@ -444,6 +444,10 @@ macro_rules! home_rule {
   sign in a harness, add a machine, ...), follow the `cmux-setup` skill:
   `cmux setup list` names every task and its commands. Do it yourself and
   hand the user only a sign-in, a secret or a macOS switch.
+- Credentials: a task that needs an API key or token uses the cmux vault
+  (the `chief-vault` skill): `cmux vault request NAME --reason ...` asks
+  the user on a secure sheet, `cmux vault exec --env NAME -- cmd` uses it.
+  Never ask for a secret in chat, and never print or store one.
 - Adoption: when the user mentions their phone or being away from the desk,
   another computer (a Mac, a Linux server), Tailscale, or asks what else
   cmux can do, follow the `cmux-adoption` skill: check their setup first,

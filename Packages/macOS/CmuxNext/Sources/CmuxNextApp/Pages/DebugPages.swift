@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextControl
+import CmuxNextCredentialVault
 import CmuxNextPages
 import CmuxNextSettings
 import Foundation
@@ -136,6 +137,8 @@ enum DebugPages {
             return ["inserted": .bool(await page.debugInsertText(text, selector: params["selector"]?.stringValue))]
         case "call":
             guard let op = params["op"]?.stringValue else { return ["error": "op is required"] }
+            // The Credential Vault's ops are the person's own clicks only, never a probe's.
+            if op.hasPrefix(CredentialVaultPageRoute.prefix) { return ["error": "person only"] }
             return await page.router.handle(["t": "call", "id": 1, "op": .string(op), "params": params["params"] ?? .object([:])])
         case "connected":
             page.setConnected(params["value"]?.boolValue ?? true)

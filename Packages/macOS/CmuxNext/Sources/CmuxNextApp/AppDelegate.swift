@@ -6,6 +6,7 @@ import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextCrashReporting
+import CmuxNextCredentialVault
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextImportCards
@@ -390,6 +391,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 try control.start(registry: registry, settings: settings, launch: environment.launch, services: services)
                 control.registerCloudMethods(services)
                 control.registerAccountsMethods(services)
+                // `vault.*` (`cmux vault`): the Credential Vault; its entry and approval sheets on the active window.
+                control.service?.router.register(services.credentialVault.controlMethods(ask: { [weak services] request in
+                    guard let window = services?.windows.active?.window else { return nil }
+                    return await CredentialVault.askForEntry(request, in: window)
+                }, approve: { [weak services] approval in
+                    guard let window = services?.windows.active?.window else { return false }
+                    return await CredentialVault.askApproval(approval, in: window)
+                }))
                 control.registerBillingMethods(services)
                 control.registerRemoteMethods(services)
                 control.registerMobileMethods(services)

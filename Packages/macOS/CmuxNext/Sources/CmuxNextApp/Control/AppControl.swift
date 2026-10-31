@@ -324,6 +324,7 @@ final class AppControl {
             // A click on an agent cursor's name tag, as the person's (the tag is a link).
             .mainActor("debug.agent_cursor.click_tag") { [weak services] call in
                 guard let services else { return .value(.null) }
+                if let refusal = DebugDialog.userOnlyInputRefusal { return .value(refusal) }
                 return .value(DebugAgentCursor.clickTag(call.params, services: services))
             },
             // An injected key is input: it runs ahead of queued requests and batches yield to it (MainWorkClass.input).

@@ -53,19 +53,27 @@ public final class ControlConnectionClosures: Sendable {
     private struct State {
         var next: UInt64 = 0
         var handlers: [ControlConnectionID: [UInt64: @Sendable () -> Void]] = [:]
+        /// The connections that closed most recently, oldest first (at most ``remembered``): a
+        /// handler added after its connection closed (a request still starting) runs at once.
+        var closed: [ControlConnectionID] = []
     }
 
+    private static let remembered = 256
     private let state = Mutex(State())
 
     public init() {}
 
-    /// Runs `handler` when `connection` closes (never for the in-process connection).
+    /// Runs `handler` when `connection` closes (never for the in-process connection), or at once
+    /// when it already has.
     public func add(_ connection: ControlConnectionID, _ handler: @escaping @Sendable () -> Void) -> Token {
-        state.withLock { state in
+        let (token, gone) = state.withLock { state -> (Token, Bool) in
             state.next += 1
-            if connection != .inProcess { state.handlers[connection, default: [:]][state.next] = handler }
-            return Token(connection: connection, id: state.next)
+            let gone = connection != .inProcess && state.closed.contains(connection)
+            if connection != .inProcess, !gone { state.handlers[connection, default: [:]][state.next] = handler }
+            return (Token(connection: connection, id: state.next), gone)
         }
+        if gone { handler() }
+        return token
     }
 
     public func remove(_ token: Token) {
@@ -74,7 +82,13 @@ public final class ControlConnectionClosures: Sendable {
 
     /// `connection` closed: runs and drops its handlers.
     public func closed(_ connection: ControlConnectionID) {
-        let handlers = state.withLock { $0.handlers.removeValue(forKey: connection) } ?? [:]
+        let handlers = state.withLock { state -> [UInt64: @Sendable () -> Void] in
+            if connection != .inProcess, !state.closed.contains(connection) {
+                state.closed.append(connection)
+                if state.closed.count > Self.remembered { state.closed.removeFirst() }
+            }
+            return state.handlers.removeValue(forKey: connection) ?? [:]
+        }
         for handler in handlers.values { handler() }
     }
 }

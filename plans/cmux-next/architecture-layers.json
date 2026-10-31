@@ -103,6 +103,7 @@
     "CmuxNextMacScreen": {"layer": "ui", "mixes": ["domain", "service"]},
     "CmuxNextFloating": {"layer": "ui"},
     "CmuxNextPopups": {"layer": "ui"},
+    "CmuxNextCredentialVault": {"layer": "ui", "mixes": ["domain"], "plan": "the Keychain store and vault.* methods (domain) beside the secure entry sheet and the Settings card's board and page route (ui); split the domain half out when another client needs it"},
     "CmuxNextAgentQuestion": {"layer": "ui"},
     "CmuxNextAgentPermissions": {"layer": "ui"},
     "CmuxNextChiefViews": {"layer": "ui"},

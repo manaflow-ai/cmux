@@ -87,12 +87,15 @@ public final class CmuxDialogView: NSView {
         return true
     }
 
-    /// Gives the keyboard to the first text field, else the default button,
-    /// else Cancel (a question with no default: a key typed on must not tick
-    /// a check box), else the first control.
+    /// Gives the keyboard to the first text field (unless the spec says
+    /// not to), else the default button, else Cancel (a question with no
+    /// default: a key typed on must not tick a check box), else the first
+    /// control. A click-only button never gets it.
     public func focusInitial() {
-        let field = focusables.first { $0 is NSTextField }
-        let fallback = buttonViews.first { $0.button.role == .default } ?? buttonViews.first { $0.button.role == .cancel } ?? focusables.first
+        let field = spec.focusesField ? focusables.first { $0 is NSTextField } : nil
+        let keyed = buttonViews.filter { !$0.button.clickOnly }
+        let fallback = keyed.first { $0.button.role == .default } ?? keyed.first { $0.button.role == .cancel }
+            ?? (spec.focusesField ? focusables.first : nil)
         guard let target = field ?? fallback else { return }
         window?.makeFirstResponder(target)
     }
@@ -204,7 +207,7 @@ public final class CmuxDialogView: NSView {
         row.translatesAutoresizingMaskIntoConstraints = false
         stack.addArrangedSubview(row)
         row.widthAnchor.constraint(equalToConstant: contentWidth).isActive = true
-        focusables += buttonViews
+        focusables += buttonViews.filter { !$0.button.clickOnly }
         chainKeyViews()
 
         let content = NSView()

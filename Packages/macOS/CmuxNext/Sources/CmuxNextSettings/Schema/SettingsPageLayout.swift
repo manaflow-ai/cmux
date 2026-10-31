@@ -23,6 +23,9 @@ public nonisolated struct SettingsPageLayout: Sendable {
         case webUpdates
         /// Settings > Chief's Voice input row: the Debug toggle home.voiceInput, only where it exists.
         case voiceInput
+        /// Settings > Chief's Credential Vault: the secrets agents use by name, who may use each and
+        /// its last use, with Add, Replace and Delete (cmux issue 26412). Never a value.
+        case credentialVault
         /// Settings > Chief's Notices row: it opens Notifications, which holds the Chief's notices.
         case notices
         /// Settings > Menus: every right-click menu's rows, arranged by the person (ContextMenuLayout).
@@ -337,7 +340,7 @@ public nonisolated struct SettingsPageLayout: Sendable {
             // Whether a tapback on a Chief message can start a turn, and the classifier that decides (a416).
             group("settings.group.chiefReactions"),
         ],
-        lead: [.chiefs, .chiefPet, .voiceInput], trail: [.notices])
+        lead: [.chiefs, .chiefPet, .voiceInput], trail: [.credentialVault, .notices])
 
     // A core cmux feature: banners, sounds, the attention ring and the
     // feed for agents, terminal programs and `cmux notify`.

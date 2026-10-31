@@ -149,6 +149,13 @@ public final class MessagesLabHomeView: NSView {
         HomePlanRowProvider.plan = plan
     }
 
+    /// Moves an API key or token found in a send to the Credential Vault (cmux issue 26412): the send
+    /// is held and this asks the person; nil sends such text as typed.
+    public var secretHost: HomeSecretHost? {
+        get { projection.secretHost }
+        set { projection.secretHost = newValue }
+    }
+
     /// H17: offline the user can type; tapbacks are off and a send waits as "sending".
     public var isSendEnabled: Bool {
         get { projection.isSendEnabled }
