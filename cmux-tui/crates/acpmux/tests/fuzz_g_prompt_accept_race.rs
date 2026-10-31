@@ -214,3 +214,35 @@ fn fuzz_g1_a_prompt_right_behind_another_is_accepted_within_two_seconds() {
         silent.join("\n")
     );
 }
+
+/// The acceptance of a prompt right behind another says what happened to it: queued, next in
+/// line (`state: "queued"`, `position: 1`), while the other's says its turn started. Which of
+/// the two the daemon takes first is its choice: both come in one write.
+#[test]
+fn fuzz_g1_a_prompt_right_behind_another_is_accepted_queued_next() {
+    let daemon = Daemon::start("state");
+    let mut client = Client::connect(&daemon.socket);
+    let id = new_chat(&mut client, &daemon);
+    let both = client.line("session/prompt", prompt(&id, "until-cancel", "g1-s-a"))
+        + &client.line("session/prompt", prompt(&id, "until-cancel", "g1-s-b"));
+    client.writer.write_all(both.as_bytes()).unwrap();
+    let mut seen: Vec<Value> = Vec::new();
+    let began = Instant::now();
+    while began.elapsed() < Duration::from_secs(30) && seen.len() < 2 {
+        if let Some(v) = client.read()
+            && v["method"] == "_acpmux/prompt_accepted"
+        {
+            seen.push(v["params"].clone());
+        }
+    }
+    assert_eq!(seen.len(), 2, "both prompts are accepted: {seen:?}");
+    let started: Vec<_> = seen.iter().filter(|p| p["state"] == "started").collect();
+    let queued: Vec<_> = seen.iter().filter(|p| p["state"] == "queued").collect();
+    assert_eq!((started.len(), queued.len()), (1, 1), "one started, one queued: {seen:?}");
+    assert_eq!(started[0]["queued"], json!(false), "{seen:?}");
+    assert_eq!(
+        (&queued[0]["queued"], &queued[0]["position"]),
+        (&json!(true), &json!(1)),
+        "{seen:?}"
+    );
+}
