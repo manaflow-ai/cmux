@@ -570,11 +570,15 @@ class Fuzz:
         """pa-d's smoke_wait_new_view (1ee7b743983): until AppKit's first responder of the key window is a terminal view
         in another pane than SPLIT_PANE (debug.focus appkit first_responder "TerminalSurfaceView", classified
         "content:<pane>"): the new pane's early view has the keyboard. Reads only; True when reached."""
+        if not split_pane:
+            return False  # pa-d's rule: without the split pane, the old pane's own terminal would pass at once
         end = D.now() + timeout
         while D.now() < end:
             report = _rpc(self.j, "debug.focus") or {}
             for w in report.get("windows") or [] if isinstance(report, dict) else []:
-                kit = (w or {}).get("appkit") or {}
+                if not isinstance(w, dict):
+                    continue
+                kit = w.get("appkit") or {}
                 where = str(kit.get("classified") or "")
                 if w.get("is_key") and kit.get("first_responder") == "TerminalSurfaceView" and where.startswith("content:") \
                         and where[len("content:"):] not in ("", split_pane):
@@ -602,7 +606,8 @@ class Fuzz:
         snap = f"fz-split-{self.splits}"
         ext_smoke.step_smoke_snapshot(j, {"name": snap})
         refused_before = refusals(j)
-        split_pane = state(j)["focus"].get("pane")
+        # The split pane as pa-d reads it (debug.surfaces' focused pane), else the topology's focus.
+        split_pane = next((p.get("pane") for p in surfaces(j) if p.get("focused")), None) or state(j)["focus"].get("pane")
         hold = None if self.diagnostic else self.creation_hook("hold", [1], stand_in=[2])
         lines, at, paths, release, reached = [], None, [], None, None
         try:
