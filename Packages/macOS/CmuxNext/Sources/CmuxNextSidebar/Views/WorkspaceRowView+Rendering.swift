@@ -126,14 +126,13 @@ extension WorkspaceRowView {
         icon.frame = NSRect(x: leading, y: cy - side / 2, width: side, height: side)
         layoutTreeLine(leading: SidebarStyle.horizontalInset)
 
-        // Trailing cluster, right to left: the dot or spinner on the trailing column, the disclosure
-        // and the tab count (fixed slots, the same with or without hover), close-or-badge, then
-        // the other marks.
+        // Trailing cluster, right to left: the dot or spinner on the trailing column, the tab
+        // count (a fixed slot, the same with or without hover), close-or-badge, then the other marks.
         var trailing = b.width - SidebarStyle.horizontalInset // the pill's own inset, as the text's (Leo 2026-10-13)
         let control = SidebarStyle.controlSize
         // Lawrence msg 11914: the row's dot or spinner owns the trailing column (the x the group
         // header chevron and every band item's dot share) whatever else the row shows; the
-        // disclosure, the counts, the keycap and the hover close and more sit left of it.
+        // counts, the keycap and the hover close and more sit left of it.
         let markReplacesStatus = !agentMark.isHidden && agentMarkVariant == .replacesStatus
         activity.isHidden = markReplacesStatus
         let columnMark = layoutColumnMark(cy: cy, rowWidth: b.width, markReplacesStatus: markReplacesStatus)
@@ -142,14 +141,6 @@ extension WorkspaceRowView {
         // covers (the `trailing` badge style), so a mark fading back never draws beside a control fading out (Leo
         // 2026-10-28: "just don't show the spinner" while hovering).
         let controlFades = fades && columnMark == nil && !badge.state.isUnread
-        // The chevron shows on hover and on the selected row only (cx-fo2t); its slot stays. A row with nothing to
-        // disclose (`.empty`) never shows it and keeps no slot, so its hover menu takes the next slot, not a gap
-        // (Lawrence 2026-10-20: "no empty slots").
-        setHoverShown(disclosureButton, !(disclosure == nil || disclosure == .empty || isShowingPlaceholder || !(revealsHoverControls || isSelected)), fades: fades)
-        if disclosure != nil, disclosure != .empty {
-            disclosureButton.frame = NSRect(x: trailing - control, y: cy - control / 2, width: control, height: control)
-            trailing -= control + Metrics.space1
-        }
         tabCount.isHidden = count == nil || isShowingPlaceholder
         if count != nil {
             let h = ceil(tabCount.intrinsicContentSize.height)
@@ -279,20 +270,6 @@ extension WorkspaceRowView {
         if titleArrivalPending && !titleArrivalScheduled {
             titleArrivalScheduled = true
             CATransaction.setCompletionBlock { [weak self] in self?.startTitleArrival() }
-        }
-        // A workspace icon, mark or late realization changes the title column without changing
-        // the tab model. Invalidate only this workspace's disclosed children so their anchor is
-        // recomputed on the same layout pass instead of retaining a stale x position.
-        let titleX = self.titleFrame.minX
-        if titleX != lastTabAnchorTitleX {
-            lastTabAnchorTitleX = titleX
-            if case let .workspace(workspaceID) = key,
-               let list = sequence(first: self as NSView, next: \.superview).lazy
-                   .compactMap({ $0 as? SidebarListView }).first {
-                for tab in lastConfiguration?.0.tabs ?? [] {
-                    list.rowViews[.tab(workspaceID, tab.id)]?.needsLayout = true
-                }
-            }
         }
         // No needsDisplay here: `updateLayer` reads no layout value, and configure, hover, selection,
         // drop target and appearance changes mark display themselves. Each display costs AppKit a
