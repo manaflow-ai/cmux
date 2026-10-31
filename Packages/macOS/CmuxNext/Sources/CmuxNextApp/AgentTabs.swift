@@ -47,6 +47,8 @@ final class AgentTabStore {
     /// up only in the workspace that holds chat tab `chat`, where ``rightColumn`` measured it: a layout pane id
     /// (`pane:<handle>` without a resource id) is not unique across daemons or workspaces.
     var locatePane: @MainActor (_ chat: String, _ key: String) -> (pane: PaneID, daemon: DaemonService)? = { _, _ in nil }
+    /// Moves fork tab `key`, opened in chat tab `chat`'s pane, to a new strip column (`left`: before the chat's) or, nil, a new row.
+    var placeFork: @MainActor (_ key: String, _ chat: String, _ left: Bool?) -> Void = { _, _, _ in }
     /// Selects tab `key` in its pane without moving keyboard focus (an unfocused subagent tab).
     var selectInPane: @MainActor (String) -> Void = { _ in }
     /// Main pane layout (``MainPaneLayout``): opens what chat tab `chat` opens beside it (through
@@ -213,6 +215,8 @@ final class AgentTabStore {
     let readAloud = AgentPaneReadAloud()
     /// The Cloud machines each page's environment picker lists (`cloudMachine.*`); the app's peer approver for every host and page.
     let cloudMachines = AgentPaneCloudMachines()
+    /// The iPhone host's Remote Control switch, which every page's Session Info shows (set by the wiring).
+    var remoteControl: AgentPaneRemoteControl?
     let peerApprover: AgentPanePeerApprover?
     /// The device chats every page's New Tab cards show (``AgentPageChats``).
     let pageChats = AgentPageChats()
@@ -567,7 +571,7 @@ final class AgentTabStore {
     private func makeView(_ model: AgentPaneModel) -> AgentPaneView? {
         AgentPaneNewTabFrame.shared.pageMade(model)
         model.linkScheme = linkScheme
-        (model.readAloud, model.cloudMachines, model.transport.peerApprover) = (readAloud, cloudMachines, peerApprover)
+        (model.readAloud, model.cloudMachines, model.remoteControl, model.transport.peerApprover) = (readAloud, cloudMachines, remoteControl, peerApprover)
         guard let source, let view = AgentPaneView(model: model, source: source, renderRate: renderRate, pageHost: AgentPaneTunables.pageHost.value || AgentPaneTunables.chromium.value, openPanel: openPanel) else { return nil }
         DebugTimings.markLaunch("agent_pane.view_created")
         view.customization = customization.current

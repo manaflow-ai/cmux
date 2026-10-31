@@ -92,6 +92,18 @@ class Decide(unittest.TestCase):
         self.assertEqual(placed.mini_jobs, ())
         self.assertIn("nightly", placed.why)
 
+    def test_a_nightly_runs_own_jobs_are_not_held_off_by_waiting_nightly_jobs(self):
+        # nightly.yml's light jobs (NIGHTLY=1) are the nightly jobs that come first; they still take
+        # only runners idle beyond the label's own queue.
+        pools = {"glaeda-root-light-xcode-26.6": {"queued": 1, "reserved_queued": 1},
+                 SIDE: {"queued": 1, "reserved_queued": 1}}
+        placed = placement.decide(env(NIGHTLY="1", FLEET_LINUX="", JOBS="build-nightly-remote-daemon await-nightly-tree-marker"),
+                                  idle(2), snapshot(pools), NOW)
+        self.assertEqual((placed.mini_runner, placed.mini_jobs), (SIDE, ("build-nightly-remote-daemon",)))
+        self.assertIn("await-nightly-tree-marker take Blacksmith", placed.why)
+        nothing = placement.decide(env(NIGHTLY="1", FLEET_LINUX=""), [runner("busy", busy=True)], snapshot(), NOW)
+        self.assertEqual(nothing.mini_jobs, ())
+
     def test_another_familys_nightly_does_not_hold_these_minis(self):
         pools = {"glaeda-std-xcode-26.6": {"queued": 1, "reserved_queued": 1}}
         placed = placement.decide(env(), idle(1), snapshot(pools), NOW)
@@ -202,6 +214,20 @@ class Wiring(unittest.TestCase):
         self.assertEqual(build["darwin_mac_runner"], "${{ needs.tree-preflight.outputs.darwin_mac_runner }}")
         plan = (WORKFLOWS / "cmux-tui-build-package.yml").read_text(encoding="utf-8")
         self.assertIn('target["runner"] = darwin_mac_runner', plan)
+
+    def test_the_nightly_light_jobs_read_build_nightly_app_s_placement_then_blacksmith(self):
+        nightly = jobs("nightly.yml")
+        step = next(step for step in nightly["build-nightly-app"]["steps"] if step.get("id") == "place-light")
+        self.assertEqual(step["env"]["NIGHTLY"], "1")
+        for name in step["env"]["JOBS"].split():
+            with self.subTest(job=name):
+                job = nightly[name]
+                self.assertIn("build-nightly-app", job["needs"])
+                runs_on = job["runs-on"]
+                mini = runs_on.index(f"contains(needs.build-nightly-app.outputs.light_mini_jobs, ' {name} ')")
+                self.assertLess(mini, runs_on.rindex("'blacksmith-"))
+                self.assertIn("needs.build-nightly-app.outputs.light_attempt == format('{0}', github.run_attempt)",
+                              runs_on)
 
     def test_placement_runs_the_trusted_base_copy(self):
         for workflow in self.PLACED:

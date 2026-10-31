@@ -8912,8 +8912,8 @@ function AcpmuxPane() {
         /// A mode pick on the shown chat: it holds for that chat only, never a new chat's start mode
         /// (hub/start_mode.rs; Leo 2026-10-21).
         const setMode = (modeId: string, ticket?: string) => client.setMode(modeId, ticket);
-        /// `placement`: where the app opens it (AgentForkDestination: right, left, up, down, tab,
-        /// workspace, window); hand-offs explicitly retain a tab after this chat.
+        /// `placement`: where the app opens it (AgentForkDestination: right, left, up, down,
+        /// columnRight, columnLeft, row, tab, workspace, window); hand-offs explicitly retain a tab after this chat.
         const openOwnTab = (sessionId: string, placement?: string) => {
           if (mock) return Promise.resolve(false);
           // The new tab draws this chat from the host's tail, and this page keeps it selected, so

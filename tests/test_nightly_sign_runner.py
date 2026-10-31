@@ -547,7 +547,11 @@ class SnapshotReadToken(unittest.TestCase):
     # The jobs that read the routing App key; no other job gains it (find-nightly-next-recovery and
     # legacy-identity-target keep reading the snapshot with GITHUB_TOKEN). route-visual-gate-nightly
     # picks the visual gate's idle owned Mac with it (docs/ci/nightly-next-visual-gate.md).
-    KEYED_JOBS = {"pick-nightly-build-runner", "pick-nightly-sign-runner", "route-visual-gate-nightly"}
+    # build-nightly-app reads it in one step after the build, to place the light jobs that follow it on an
+    # idle mini (runner list read only; cmux-next-guards.yml's portable-placement reads it the same way on
+    # pull requests, outside the environment).
+    KEYED_JOBS = {"pick-nightly-build-runner", "pick-nightly-sign-runner", "route-visual-gate-nightly",
+                  "build-nightly-app"}
 
     def test_each_snapshot_read_uses_the_read_token_with_the_github_token_fallback(self) -> None:
         for name in self.PICKERS:

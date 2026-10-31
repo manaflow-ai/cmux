@@ -280,6 +280,8 @@ public final class AgentPaneModel {
 
     /// The app's one Read aloud voice (``AgentPaneReadAloud``); nil refuses the page's speaker.
     @ObservationIgnored public var readAloud: AgentPaneReadAloud?
+    /// Session Info's Remote Control switch (``AgentPaneRemoteControl``, the iPhone host's); nil: no row.
+    @ObservationIgnored public var remoteControl: AgentPaneRemoteControl?
     /// The app's Cloud machines for `cloudMachine.*` (``AgentPaneCloudMachines``); nil refuses every method.
     @ObservationIgnored public var cloudMachines: AgentPaneCloudMachines?
     /// Asks the user to confirm a config option that is not free (the view's native sheet).

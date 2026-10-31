@@ -2,6 +2,7 @@
 @testable import CmuxNextDesign
 import CmuxNextDesignTokens
 import CmuxNextResources
+import CmuxNextTestSupport
 import AppKit
 import Testing
 
@@ -45,7 +46,7 @@ private final class HoverInteractionSource: HoverCardSource {
     func hoverCardDeactivated(_: HoverTargetID) {}
 }
 
-@MainActor
+@MainActor @Suite(.closesItsWindows)
 struct WorkspaceTabHoverCardTests {
     @Test func clickingAnInactiveWorkspaceTabSendsBothIDsAndKeepsRichContent() throws {
         _ = NSApplication.shared
