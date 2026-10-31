@@ -18,6 +18,8 @@
 //!   turn, unless this send's copy already finished there: a second push
 //!   would overwrite what the chat changed since. Answers the chat's folder
 //!   there.
+//! - `import --entries JSON`: takes in the sends the App kept in its user
+//!   defaults before this did ([`Ledger::import`]), once, on upgrade.
 //!
 //! Every send is kept under the account it began in (`account`: the user and
 //! the team, as the App spells them): a team switch keeps the person signed
@@ -40,6 +42,7 @@ use pick::{Candidate, Destination};
 
 const USAGE: &str = "usage: cmux link start-chat plan --request JSON\n       \
 cmux link start-chat pin --key KEY --account ACCOUNT --machine ID\n       \
+cmux link start-chat import --entries JSON\n       \
 cmux link start-chat copy --key KEY --account ACCOUNT --machine ID --socket PATH --local FOLDER [--subpath PATH] --work-root PATH...";
 
 /// The error code a work root the machine's user cannot write answers with:
@@ -73,6 +76,7 @@ pub(super) fn run(args: &[String]) -> i32 {
             _ => None,
         },
         "copy" => StartCopy::of(&flags).map(|copy| copy.run(&ledger, &push)),
+        "import" => flags.one("--entries").map(|entries| import(&ledger, entries)),
         _ => None,
     };
     let Some(answer) = answer else {
@@ -203,6 +207,19 @@ pub(super) fn plan(ledger: &Path, request: &str) -> Value {
 pub(super) fn pin(ledger: &Path, key: &str, account: &str, machine: &str) -> Value {
     match Ledger::update(ledger, |pins| pins.record(machine, &Send::new(key, account))) {
         Ok(()) => json!({"ok": true}),
+        Err(error) => refused("ledger_failed", format!("{error:#}")),
+    }
+}
+
+/// `import`: the sends the App kept before cmux-tui did, a JSON list of its
+/// entries ([`ledger::AppEntry`]).
+pub(super) fn import(ledger: &Path, entries: &str) -> Value {
+    let entries: Vec<ledger::AppEntry> = match serde_json::from_str(entries) {
+        Ok(entries) => entries,
+        Err(error) => return refused("bad_request", error),
+    };
+    match Ledger::update(ledger, |pins| pins.import(&entries)) {
+        Ok(count) => json!({"ok": true, "imported": count}),
         Err(error) => refused("ledger_failed", format!("{error:#}")),
     }
 }

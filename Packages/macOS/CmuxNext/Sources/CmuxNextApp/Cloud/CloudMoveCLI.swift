@@ -113,6 +113,11 @@ nonisolated struct CloudMoveCLI: Sendable {
         (try await run(["link", "start-chat", "pin", "--key", key, "--account", account, "--machine", machine]), ())
     }
 
+    /// `cmux link start-chat import`: hands cmux-tui the sends this App kept itself before (`entries`, their JSON).
+    func startChatImport(entries: String) async throws -> (Answer, Void) {
+        (try await run(["link", "start-chat", "import", "--entries", entries]), ())
+    }
+
     /// `cmux link start-chat copy`: copies `local` to a folder of the send's own on the machine whose
     /// daemon `socket` reaches, under the first of `workRoots` it can write, unless this send's copy
     /// already finished there. The chat's folder there, and whether it copied now.

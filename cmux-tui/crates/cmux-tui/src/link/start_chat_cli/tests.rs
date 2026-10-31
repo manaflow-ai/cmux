@@ -9,7 +9,7 @@ use serde_json::{Value, json};
 
 use super::ledger::{LIMIT, Ledger, Send};
 use super::pick::{self, Candidate, Destination};
-use super::{Keys, StartCopy, pin, plan, remote_name, valid_key};
+use super::{Keys, StartCopy, import, pin, plan, remote_name, valid_key};
 
 const ME: &str = "user-leo";
 const TEAMMATE: &str = "user-austin";
@@ -600,4 +600,51 @@ fn two_copies_of_one_send_at_once_never_share_a_folder() {
     let seen = seen.borrow();
     assert_eq!(seen.len(), 2);
     assert_ne!(seen[0], seen[1]);
+}
+
+/// Router review at 83b8b35: the sends the App kept in its user defaults
+/// before cmux-tui did carry over on upgrade. A send in flight keeps its
+/// machine and its finished copy, and a creatorless machine stays the
+/// account's own; a send kept under no account is left out.
+#[test]
+fn the_sends_the_app_kept_before_carry_over_once() {
+    let dir = scratch();
+    let path = ledger_in(dir.path());
+    let (pinned, copied, newer) = (key(), key(), key());
+    // As the App's `JSONEncoder` wrote `CloudStartChat.Destinations`, oldest first.
+    let kept = json!([
+        {"key": format!("{}@{ACCOUNT}", key()), "machineID": "vm-overwritten"},
+        {"key": format!("{pinned}@{ACCOUNT}"), "machineID": "vm-pinned"},
+        {"key": format!("{copied}@user-leo/team-b"), "machineID": "vm-b", "place": "chats/x/1", "copiedChat": "/w/chats/x/1/paint"},
+        {"key": newer.clone(), "machineID": "vm-no-account"},
+        {"key": format!("{newer}@{ACCOUNT}"), "machineID": "vm-old-try"},
+    ]);
+    assert_eq!(pin(&path, &newer, ACCOUNT, "vm-newer")["ok"], json!(true));
+    let answer = import(&path, &kept.to_string());
+    assert_eq!(answer["imported"], json!(3), "{answer}");
+    let ledger = Ledger::update(&path, |pins| pins.clone()).unwrap();
+    assert_eq!(ledger.machine(&send(&pinned)).as_deref(), Some("vm-pinned"));
+    // This ledger's own entry for a send wins over the App's older one.
+    assert_eq!(ledger.machine(&send(&newer)).as_deref(), Some("vm-newer"));
+    let in_b = Send::new(&copied, "user-leo/team-b");
+    assert_eq!(ledger.copied_chat(&in_b, "vm-b").as_deref(), Some("/w/chats/x/1/paint"));
+    assert!(ledger.machines_of(ACCOUNT).contains("vm-pinned"));
+    assert!(!ledger.machines_of(ACCOUNT).contains("vm-no-account"));
+    assert!(!ledger.machines_of(ACCOUNT).contains("vm-b"));
+    // The retry of the pinned send goes back to its machine; the copied one does not copy again.
+    let retry =
+        json!({"key": pinned, "account": ACCOUNT, "user": ME, "loaded": false, "machines": []});
+    assert_eq!(plan(&path, &retry.to_string())["machine"], json!("vm-pinned"));
+    let copy = StartCopy {
+        key: copied.clone(),
+        account: "user-leo/team-b".into(),
+        machine: "vm-b".into(),
+        ..copy_of("/a", "")
+    };
+    let never =
+        |_: &Path, _: &Path, _: &str| -> Result<(), (String, String)> { panic!("copied again") };
+    assert_eq!(copy.run(&path, &never)["copied"], json!(false));
+    // Taking the same list in again changes nothing; one that is not a list is refused.
+    assert_eq!(import(&path, &kept.to_string())["imported"], json!(0));
+    assert_eq!(import(&path, "{")["error_code"], json!("bad_request"));
 }

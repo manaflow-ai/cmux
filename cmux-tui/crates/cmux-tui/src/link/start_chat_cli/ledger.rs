@@ -60,6 +60,19 @@ impl Entry {
     }
 }
 
+/// One send as the App kept it before cmux-tui did: its key is the send's
+/// key and account (`KEY@USER/TEAM`), and `place` the folder of its copy.
+#[derive(Clone, Debug, Deserialize)]
+pub(crate) struct AppEntry {
+    pub(crate) key: String,
+    #[serde(rename = "machineID")]
+    pub(crate) machine_id: String,
+    #[serde(default, rename = "copiedChat")]
+    pub(crate) copied_chat: Option<String>,
+    #[serde(default)]
+    pub(crate) place: Option<String>,
+}
+
 /// The pins, in memory.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct Ledger {
@@ -131,6 +144,37 @@ impl Ledger {
             place: Some(place.to_string()),
             copied_chat: Some(chat.to_string()),
         });
+    }
+
+    /// Takes in the sends the App kept before cmux-tui did (its user defaults'
+    /// `cmux.cloud.startChatDestinations`, oldest first): their pins, copies
+    /// and what made a creatorless machine the account's own carry over. A
+    /// send this ledger already has keeps its own; one kept under no account
+    /// (from before sends were kept per account) is left out, since it cannot
+    /// say whose it is. The newest [`LIMIT`] are kept, this ledger's last.
+    pub(crate) fn import(&mut self, kept: &[AppEntry]) -> usize {
+        let mut imported: Vec<Entry> = Vec::new();
+        for old in kept {
+            let Some((key, account)) = old.key.split_once('@') else { continue };
+            let send = Send::new(key, account);
+            if self.entry(&send).is_some() {
+                continue;
+            }
+            imported.retain(|entry| !entry.is(&send));
+            imported.push(Entry {
+                key: send.key,
+                account: send.account,
+                machine_id: old.machine_id.clone(),
+                place: old.place.clone(),
+                copied_chat: old.copied_chat.clone(),
+            });
+        }
+        let count = imported.len();
+        imported.append(&mut self.entries);
+        let over = imported.len().saturating_sub(LIMIT);
+        imported.drain(..over);
+        self.entries = imported;
+        count
     }
 
     /// Drops `send`'s pin (its machine is gone).

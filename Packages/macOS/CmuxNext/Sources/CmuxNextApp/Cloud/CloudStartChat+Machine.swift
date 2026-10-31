@@ -55,6 +55,16 @@ extension CloudStartChat {
         return request
     }
 
+    /// Where this App kept its sends before cmux-tui did. Handed over once, so a send in flight keeps its machine and copy.
+    static let keptSendsKey = "cmux.cloud.startChatDestinations"
+
+    /// Hands the sends this App kept itself to cmux-tui, then forgets them. A failed hand-over refuses the send and keeps them.
+    func importKeptSends(_ cli: CloudMoveCLI) async throws {
+        guard let defaults = services.cloud.move.ledger, let data = defaults.data(forKey: Self.keptSendsKey) else { return }
+        _ = try Self.checked(await cli.startChatImport(entries: String(decoding: data, as: UTF8.self)))
+        defaults.removeObject(forKey: Self.keptSendsKey)
+    }
+
     /// Refuses a send whose account changed since it began (`asked`), or whose machine list is not
     /// the server's answer for the account signed in now (`listCurrent`): after a team switch the
     /// previous team's machines stay in the store until that list lands, and the chat's folder must
@@ -71,6 +81,7 @@ extension CloudStartChat {
                  pick: () async -> CloudWorkPick?) async throws -> (CloudMachineSession, CloudMoveCLI.StartChatPlan) {
         let machines = services.machines, cloud = services.cloud
         if !cloud.hasLoadedCurrentMachines { await cloud.refresh() }
+        try await importKeptSends(cli)
         try Self.checkAccount(account, now: cloud.account, listCurrent: cloud.hasLoadedCurrentMachines)
         let listed = cloud.listedMachineIDs
         let request = Self.planRequest(key: start.key, account: account, user: cloud.auth.user?.id,
