@@ -130,6 +130,9 @@ public actor DaemonUpdatePolicy {
     /// 6 hours, or disconnected while offline): their next offer clears that line when they need
     /// no update.
     private var offlineShown: Set<String> = []
+    /// Callers of ``updateNow(_:)`` waiting for a turn of their target to end, by target id: each
+    /// stream is finished when that turn ends (any outcome) or the queue drops the target.
+    private var turnWaiters: [String: [UUID: AsyncStream<Void>.Continuation]] = [:]
 
     public init(_ dependencies: Dependencies) {
         self.dependencies = dependencies
@@ -173,6 +176,47 @@ public actor DaemonUpdatePolicy {
         // turn ends (``drainQueue()``); one the update ran after is spent by it.
         if running != id { enqueue(target, urgent: false) }
         return true
+    }
+
+    /// A chat start that the machine's older daemon refused (a fresh Cloud machine whose image
+    /// baked a cmux-tui from before cmux#29107): `target` is updated at the front of the queue now,
+    /// as the person's Update click would be (neither the ledger nor this run's memory holds it
+    /// back), and this returns once that turn ended, whatever its outcome, so the caller can start
+    /// again on the daemon it left. A turn of `target` already running is joined, never run twice.
+    /// Returns at once while `agent.updatePeers` is off, and when the calling task is cancelled.
+    public func updateNow(_ target: any DaemonUpdateTarget) async {
+        guard dependencies.enabled() else { return }
+        if running == target.id {
+            // The background offer's update runs now: its end is the update this caller wants.
+            offered[target.id] = target
+        } else {
+            retried.insert(target.id)
+            enqueue(target, urgent: true)
+        }
+        await turnEnded(target.id)
+    }
+
+    /// Waits until a turn of target `id` ends, or the queue drops it, or the task is cancelled.
+    private func turnEnded(_ id: String) async {
+        guard running == id || queue.contains(where: { $0.target.id == id }) else { return }
+        let (stream, continuation) = AsyncStream<Void>.makeStream()
+        let key = UUID()
+        turnWaiters[id, default: [:]][key] = continuation
+        await withTaskCancellationHandler {
+            for await _ in stream { break }
+        } onCancel: {
+            continuation.finish()
+        }
+        turnWaiters[id]?[key] = nil
+        if turnWaiters[id]?.isEmpty == true { turnWaiters[id] = nil }
+    }
+
+    /// Ends the waits of ``updateNow(_:)`` on target `id` (nil: on every target).
+    private func endTurnWaits(_ id: String?) {
+        let ended = id.map { turnWaiters.removeValue(forKey: $0).map { Array($0.values) } ?? [] }
+            ?? turnWaiters.values.flatMap(\.values)
+        if id == nil { turnWaiters.removeAll() }
+        for continuation in ended { continuation.finish() }
     }
 
     /// Offers every target of ``Dependencies/targets`` and returns when the queue is empty: each
@@ -231,6 +275,7 @@ public actor DaemonUpdatePolicy {
             Self.logger.info("daemon update skipped: off, or the bundled build is unknown or has local changes")
             queue.removeAll()
             drain = nil
+            endTurnWaits(nil)
             return
         }
         var ledger = DaemonUpdateLedger.read(deps.directory, build: local.hash)
@@ -244,6 +289,7 @@ public actor DaemonUpdatePolicy {
                 Self.logger.info("daemon update stopped: agent.updatePeers turned off")
                 let retried = queue.filter { $0.firstBusy != nil }
                 queue.removeAll()
+                endTurnWaits(nil)
                 for each in retried {
                     await deps.report(DaemonUpdateEvent(each.target, .cleared))
                 }
@@ -257,6 +303,7 @@ public actor DaemonUpdatePolicy {
                 queue.append(again)
             }
             running = nil
+            endTurnWaits(pending.target.id)
             // The person clicked Update while this turn read the machine, before any update ran.
             if retried.contains(pending.target.id), let target = offered[pending.target.id] {
                 enqueue(target, urgent: false)

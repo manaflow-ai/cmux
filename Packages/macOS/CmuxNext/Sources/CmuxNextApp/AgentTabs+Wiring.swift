@@ -362,6 +362,14 @@ extension AgentTabStore {
             // it is sent, through any daemon (the legacy link's or the app link's own answer).
             let links = services.machines.session(daemon.machineID).map { CloudMachineLinks(appLink: $0.appLink, link: $0.link) }
             host.ownerLink = links?.ownerLink
+            // A start its older daemon refused updates the machine to this app's build and tries
+            // once more, only on the caller's own machine (the link's owner answer, read then).
+            if let cloudMachineID = host.cloudMachineID, let ownerLink = links?.ownerLink {
+                host.updateMachine = { [weak services] in
+                    guard await ownerLink() != nil, let services else { return false }
+                    return await CloudMachineUpdates.updateNow(cloudMachineID, services: services)
+                }
+            }
             if started {
                 // The tab may still be provisional here: each handshake reads its store surface.
                 host.existing = { [weak tabs] in
