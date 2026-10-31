@@ -16,6 +16,7 @@ fn refused_flags(args: &NewArgs) -> Option<String> {
     let flags = [
         (args.host.is_some(), "--host", "a family lives on one daemon"),
         (args.preset.is_some(), "--preset", "the child takes -m and -e"),
+        (args.harness_from.is_some(), "--harness-from", "the child takes -m and -e"),
         (args.policy.is_some(), "--policy", "the child runs its parent's policy"),
         (args.mode.is_some(), "--mode", "the child starts in the mode its parent's allows"),
         (args.ephemeral, "--ephemeral", "the child stays under its parent's chat"),

@@ -34,7 +34,7 @@ public struct LinkFileArtifactSource: ArtifactSource {
             guard let url = URL(string: artifact.reference) else { throw ArtifactNotFound(reference: artifact.reference) }
             return .web(url)
         case .directory:
-            throw ArtifactUnavailable("Folder listings aren't available from \(macName) yet. Open a file inside it instead.")
+            throw ArtifactUnavailable("Open a file inside this folder.")
         default:
             break
         }
@@ -187,7 +187,7 @@ public struct LinkFileArtifactSource: ArtifactSource {
 
     /// Where the person shares a folder: a workspace open on the Mac in that folder, or the Mac's
     /// Chat Folders setting (cmux-mobile-host's file roots and the Mac's workspace folders).
-    static let shareHint = "To open it here, open a workspace in its project folder on the Mac, or add the folder in cmux on the Mac: Settings › General › Chats › Chat Folders."
+    static let shareHint = "Open a workspace in that folder on the Mac, or add it in Settings › General › Chats › Chat Folders."
 
     static func unavailable(_ error: LinkError, path: String, macName: String) -> ArtifactUnavailable {
         let name = (path as NSString).lastPathComponent
@@ -196,7 +196,7 @@ public struct LinkFileArtifactSource: ArtifactSource {
         case "forbidden" where error.message.contains("no workspace roots"):
             // cmux-mobile-host shares no folder at all (CMUX_MOBILE_FILE_ROOTS empty).
             // The Mac shares its Chat Folders (Settings › Chats): say where to add one.
-            ArtifactUnavailable("\(macName) isn't sharing any folders with this phone yet, so \(name) can't be opened here. \(Self.shareHint)")
+            ArtifactUnavailable("\(macName) isn't sharing folders with this phone. \(Self.shareHint)")
         case "forbidden": ArtifactUnavailable("\(name) is outside the folders \(macName) shares with this phone. \(Self.shareHint)")
         case "bad_request": ArtifactUnavailable("\(name) isn't a regular file.")
         case "unknown_service": ArtifactUnavailable("Update cmux on \(macName) to preview this file.")
