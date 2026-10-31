@@ -83,11 +83,14 @@ struct AgentPageCommandTests {
         #expect(registry.descriptor(for: id)?.title == title)
         var offered: Set<String> = []
         var ran: [AgentPageCommand] = []
-        #expect(registry.bindAgentPageCommands(available: { _ in offered }, run: { command, _ in ran.append(command) }))
+        // Bound outside #expect, so its closures need not be Sendable.
+        let bound = registry.bindAgentPageCommands(available: { _ in offered }, run: { command, _ in ran.append(command) })
+        #expect(bound)
         let focused = ActionInvocation(origin: .cli, focusRequested: true)
         let reason = "\(title) isn't available in this chat."
         #expect(registry.action(for: id)?.paletteUnavailableReason?() == reason)
-        #expect(registry.capturingRefusal { registry.perform(id, invocation: focused) } == reason)
+        let refusal = registry.capturingRefusal { registry.perform(id, invocation: focused) }
+        #expect(refusal == reason)
         #expect(ran.isEmpty)
         offered = [command.rawValue]
         #expect(registry.action(for: id)?.paletteUnavailableReason?() == nil)
