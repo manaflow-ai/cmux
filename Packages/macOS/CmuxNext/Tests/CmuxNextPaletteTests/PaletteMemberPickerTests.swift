@@ -42,7 +42,7 @@ struct PaletteMemberPickerTests {
 
     private static func choose(_ title: String, on page: PalettePageSpec) throws -> PaletteEffect {
         guard let item = try items(page).first(where: { $0.title == title }) else { throw PickerError.noRow }
-        return try #require(item.primary).effect
+        return item.primary.effect
     }
 
     @Test func newGroupChatListsWhoCanJoin() throws {
@@ -74,7 +74,7 @@ struct PaletteMemberPickerTests {
         var page = try Self.page(try Self.flow(registry).effect(collected: ActionInvocation()))
         page = try Self.page(try Self.choose("Chief", on: page))
         page = try Self.page(try Self.choose("Leo", on: page))
-        let next = try #require(try Self.items(page).first { $0.id == PaletteArgumentFlow.continueRowID }?.primary).effect
+        let next = try #require(try Self.items(page).first { $0.id == PaletteArgumentFlow.continueRowID }).primary.effect
         guard case .perform(let run) = next.resolved() else {
             Issue.record("Continue did not run the action")
             return
@@ -87,7 +87,7 @@ struct PaletteMemberPickerTests {
         let page = try Self.page(try Self.flow(Self.registry()).effect(collected: ActionInvocation()))
         let typed = try #require(page.queryItems?("aziz@manaflow.com"))
         let row = try #require(typed.first)
-        guard case .replace(let next) = try #require(row.primary).effect.resolved() else {
+        guard case .replace(let next) = row.primary.effect.resolved() else {
             Issue.record("a typed address is not offered")
             return
         }
