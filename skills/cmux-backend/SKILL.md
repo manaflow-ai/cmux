@@ -14,7 +14,8 @@ handlers in `src/server/`), its committed `openapi.json` (`bun run openapi`), an
 and open PRs first.
 
 The backend code still in this repository (`web/app/api`, `web/services`, `web/db`, `backend/apps/api`,
-`backend/db`, `workers/cmux-vm`, `workers/iroh-v2`, `workers/presence`; the list is
+`backend/db`, `web/orpc/server`, `workers/cmux-vm`, `workers/device-hub`, `workers/iroh-v2`, `workers/presence`,
+`services/iroh-relay-minter`; the list is
 `.github/cloud-backend-paths.json`) moves to cmux-platform one PR-sized move at a time: the port lands in
 cmux-platform first, then a cmux PR deletes the copy here, and a move changes no behavior. Until a piece has
 moved, a fix to it may land here; say so on a line of the PR description that starts `cmux-platform:`. A new
