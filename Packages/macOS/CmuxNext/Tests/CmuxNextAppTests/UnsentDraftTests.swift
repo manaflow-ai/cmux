@@ -86,10 +86,27 @@ struct UnsentDraftTests {
         #expect(started.wait(timeout: .now() + 2) == .success)
         let drafts = AgentUnsentDrafts(file: file, loadSynchronously: false)
         #expect(!drafts.isLoaded, "app wiring waited for the state-file queue")
+        let deferred = try #require(drafts.seed(for: "tab-1", session: nil))
+        #expect(deferred.isDeferred)
+        #expect(AgentTabStore.shouldCreateRestoredNewTab(for: deferred))
         drafts.typed("typed before load", for: "tab-1")
         blocker.signal()
         await drafts.waitUntilLoaded()
         #expect(drafts.draft(for: "tab-1") == "saved before wiring\n\ntyped before load")
+        #expect(await deferred.take()?.draft == "saved before wiring\n\ntyped before load")
+    }
+
+    /// A draft seed is kept on the restored New Tab page while a slow state-file read completes;
+    /// the old one-second seed deadline must never turn that late draft into an empty chat.
+    @Test func aDeferredDraftSeedWaitsPastTheNormalSeedDeadline() async throws {
+        let seed = AgentPaneSeedSource(limit: nil, deferredRead: true) {
+            try? await Task.sleep(for: .milliseconds(1_100))
+            return AgentPaneSeed(draft: "slow restored draft", draftGeneration: 3)
+        }
+        #expect(seed.isDeferred)
+        #expect(AgentTabStore.shouldCreateRestoredNewTab(for: seed), "a deferred seed must keep the restored New Tab page")
+        #expect(await seed.take()?.draft == "slow restored draft")
+        #expect(!seed.isDeferred)
     }
 
     /// (c, d) Once the page was handed the draft (the tab's seed), an empty text is the person's clear.

@@ -341,6 +341,12 @@ final class AgentTabStore {
         if let view = views[key] { view.revealTurn(turn) } else { pendingTurns[key] = turn }
     }
 
+    /// A deferred draft source still belongs to a restored New Tab page while its late value is
+    /// being read. A nil source is the ordinary blank restored page case.
+    static func shouldCreateRestoredNewTab(for seed: AgentPaneSeedSource?) -> Bool {
+        seed == nil || seed?.isDeferred == true
+    }
+
     /// The tab's pane view, made on first show. A tab whose session runs on another machine is
     /// carried by that tab's own session daemon (``remoteHost``); nil when it cannot be (the
     /// pane then shows the "runs on" notice).
@@ -377,7 +383,7 @@ final class AgentTabStore {
         // restored after a relaunch: it opens as the page again, not as an empty chat. A seeded
         // tab is a chat this run opened (New Agent Chat's workspace, listed by the tree before
         // new-conversation-tab replied): it stays the chat, never the page (cx-vurv).
-        if local, seed == nil, newTabPages[key] == nil, tabStores[key] == nil, (sessions[key] ?? record.session) == nil,
+        if local, Self.shouldCreateRestoredNewTab(for: seed), newTabPages[key] == nil, tabStores[key] == nil, (sessions[key] ?? record.session) == nil,
            !linkedSessions.contains(key) {
             newTabPages[key] = firstPage(cwd: nil, token: firstPageToken(of: key, in: store))
         }

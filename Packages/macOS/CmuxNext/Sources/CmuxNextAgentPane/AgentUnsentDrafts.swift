@@ -121,7 +121,10 @@ public final class AgentUnsentDrafts {
     public func seed(for key: String, session: String?, local: Bool = true) -> AgentPaneSeedSource? {
         guard local, session == nil else { return nil }
         if loaded, handOut(key) == nil { return nil }
-        return AgentPaneSeedSource { [weak self] in
+        // This source is a deferred draft read. AgentTabs must show the New Tab page while the
+        // state file is loading, and the source must wait past the normal one-second seed grace
+        // so a slow disk cannot turn a real draft into an empty chat.
+        return AgentPaneSeedSource(limit: nil, deferredRead: true) { [weak self] in
             guard let self else { return nil }
             await self.waitUntilLoaded()
             guard let text = self.handOut(key) else { return nil }

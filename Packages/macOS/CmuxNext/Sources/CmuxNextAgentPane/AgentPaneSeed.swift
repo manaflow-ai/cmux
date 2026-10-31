@@ -85,13 +85,16 @@ public nonisolated struct AgentPaneSeed: Sendable, Equatable {
 }
 
 /// Reads a seed when the page first asks for its handshake. Reading can
-/// wait on another tab (a page's selection), so it gets `limit`, and a seed
-/// that misses it is dropped instead of holding the pane: the late read is
-/// not awaited (a hung page never answers).
+/// wait on another tab (a page's selection), so it normally gets `limit`, and a seed
+/// that misses it is dropped instead of holding the pane. Draft restoration opts out of that
+/// deadline: its read is off-main and a slow disk must never lose the user's draft.
 public final class AgentPaneSeedSource {
     private var read: (@MainActor @Sendable () async -> AgentPaneSeed?)?
     private var value: AgentPaneSeed?
-    private let limit: Duration
+    private let limit: Duration?
+    /// A deferred source is still being loaded. Its tab must render as New Tab while the
+    /// source waits, but the source remains attached so a late draft can arrive at the page.
+    public private(set) var isDeferred: Bool
     /// The seed's surface. Unlike the draft it holds for the page's whole
     /// life, after the chat has a session too.
     public private(set) var surface: AgentPaneSurface?
@@ -104,9 +107,11 @@ public final class AgentPaneSeedSource {
     /// A Sandboxed send that already ended, shown by this new page (``AgentPaneSeed/sandboxResult``).
     public var sandboxResult: AgentPaneSeed.SandboxResult?
 
-    public init(limit: Duration = .seconds(1), _ read: @escaping @MainActor @Sendable () async -> AgentPaneSeed?) {
+    public init(limit: Duration? = .seconds(1), deferredRead: Bool = false,
+                _ read: @escaping @MainActor @Sendable () async -> AgentPaneSeed?) {
         self.read = read
         self.limit = limit
+        isDeferred = deferredRead
     }
 
     /// The seed holds a folder and nothing else (a new workspace's first New Tab page): a page
@@ -129,6 +134,7 @@ public final class AgentPaneSeedSource {
     public init(_ seed: AgentPaneSeed) {
         value = seed
         limit = .zero
+        isDeferred = false
         surface = seed.surface
         sandboxResult = seed.sandboxResult
     }
@@ -139,6 +145,7 @@ public final class AgentPaneSeedSource {
         if let read {
             self.read = nil
             value = await agentPaneFirst(within: limit, read)
+            isDeferred = false
             surface = value?.surface
         }
         return value
@@ -150,6 +157,7 @@ public final class AgentPaneSeedSource {
         if let read {
             self.read = nil
             value = await agentPaneFirst(within: limit, read)
+            isDeferred = false
             surface = value?.surface
         }
         let seed = value
@@ -167,8 +175,11 @@ public final class AgentPaneSeedSource {
 
 /// `read`'s answer, or nil once `limit` passes. A late answer is dropped
 /// without being awaited (a hung page never answers), unlike a deadline
-/// raced in a task group, which waits for its loser.
-func agentPaneFirst<T: Sendable>(within limit: Duration, _ read: @escaping @MainActor @Sendable () async -> T?) async -> T? {
+/// raced in a task group, which waits for its loser. A nil limit awaits the answer.
+func agentPaneFirst<T: Sendable>(within limit: Duration?, _ read: @escaping @MainActor @Sendable () async -> T?) async -> T? {
+    // Draft state reads are off-main and must not be discarded merely because disk took longer
+    // than the normal hand-shake grace period. A nil limit means await the read to completion.
+    guard let limit else { return await read() }
     await withCheckedContinuation { continuation in
         let once = AgentPaneResumeOnce()
         // task-owner: one-shot deadline for the read below; cancelled when the read answers first
