@@ -78,7 +78,7 @@ test("a dozen screenshots go in one message under the budget, and the bubble kee
     const images = kept.filter((chip) => chip.kind === "image");
     const files = kept.filter((chip) => chip.kind === "link" && chip.path?.endsWith(".png"));
     expect(images).toHaveLength(previews);
-    expect(files).toHaveLength(12 - previews);
+    expect(files).toHaveLength(20 - previews);
     expect(bubble?.images).toHaveLength(previews);
   } finally {
     client.close?.();

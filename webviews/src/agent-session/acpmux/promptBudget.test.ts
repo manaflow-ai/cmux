@@ -61,7 +61,7 @@ test("a placed screenshot that goes by reference keeps its place in the text", (
 });
 
 test("a send over the budget waits for the originals still uploading, not for the others", () => {
-  const shots = Array.from({ length: 12 }, (_, index) => screenshot(index, 1.5 * MIB, false));
+  const shots = Array.from({ length: 20 }, (_, index) => screenshot(index, 1.5 * MIB, false));
   const uploading = new Set(shots.map((shot) => shot.id));
   expect(awaitsOriginals("hi", shots, (id) => uploading.has(id))).toBe(true);
   // Nothing uploading: the send goes (acpmux names what it refuses).
